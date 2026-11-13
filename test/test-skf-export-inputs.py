@@ -7,7 +7,8 @@ commands it documents:
 - #594: On Activation resolves every helper steps 1 to 4 cannot run without,
   the skill inventory included, before any prompt or write, and no step
   resolves one again (the test-report lookup is advisory and stays in step
-  1); every flag the contract lists is parsed, `--context-file` included;
+  1, and step 1 §1 resolves `skf-atomic-write.py`, which only a `--version`
+  run needs, before its first prompt); every flag the contract lists is parsed, `--context-file` included;
   the snippet-root probe takes only roots an earlier export chose as
   evidence, asks one layout question when there is none, and resolves a
   mismatch headless by the folder on disk that holds the skills; option (d)
@@ -32,6 +33,8 @@ commands it documents:
 - #1166: SKILL.md stays under its 2,500-token budget with the Run log rule,
   its run folder moved to references/result-envelope.md, and step 2 runs
   `{validateOutputHelper}` too.
+- #1172: `--version` is a contract flag that step 1 parses, and §5's Version
+  cell names the version it makes active in place of.
 """
 
 from __future__ import annotations
@@ -143,7 +146,7 @@ def _contract_flags() -> set[str]:
 def test_every_contract_flag_is_parsed_and_every_parsed_flag_is_listed():
     """#594: --context-file was parsed by step 1 but missing from the contract."""
     flags = _contract_flags()
-    assert flags == {"--headless", "-H", "--all", "--context-file", "--dry-run"}
+    assert flags == {"--headless", "-H", "--all", "--context-file", "--dry-run", "--version"}
     parsing = _section(_read(LOAD), "**Flag Parsing:**", "**Context File Resolution:**")
     parsed = set(re.findall(r"^- `(--[a-z-]+)` flag", parsing, re.M))
     headless = _section(_read(SKILL_MD), "2. **Resolve `{headless_mode}`**", "3. **Resolve workflow customization.**")
@@ -248,6 +251,13 @@ def test_no_step_resolves_an_activation_helper_again():
     assert "### 2. Stage Folder" in update and "### 2. Resolve the Helpers" not in update
     assert "manifest-write-failed\"`): \"`skf-manifest-ops.py` is missing" not in update
     assert "`{countTokensProbeOrder}` candidate" not in _read(SNIPPET)
+    # The two helpers a step resolves itself, both in step 1: the advisory test-report lookup, and the flip helper
+    # only a `--version` run needs, which §1 resolves before the skill-selection prompt.
+    orders = {key for path in (EXPORT / "references").glob("*.md")
+              for key in re.findall(r"^(\w+ProbeOrder):", path.read_text(encoding="utf-8"), re.M)}
+    assert orders == {"findTestReportProbeOrder", "atomicWriteProbeOrder"}, orders
+    early = _read(LOAD).split("**Skill Path Discovery", 1)[0]
+    assert "resolve `{atomicWriteHelper}`" in early and "only a `--version` run needs it" in early
 
 
 def test_each_activation_helper_has_a_step_that_calls_it():
@@ -435,9 +445,10 @@ def test_each_section_3_binding_reads_a_field_the_documented_gate_prints(tmp_pat
     proc = subprocess.run([sys.executable, str(COUNT_TOKENS_PY), str(package)], capture_output=True, text=True,
                           encoding="utf-8", timeout=60)
     assert json.loads(proc.stdout)["references_total"]["count"] == bound["references_count"]
-    # Every placeholder §5 fills from §3 is one §3 binds.
+    # Every placeholder §5 fills from §3 is one §3 binds: the versions come from §1 and §2, the test from §4b.
     cells = _summary_section()[_summary_section().index("Fill the capitalized cells"):]
-    used = set(re.findall(r"\{(\w+)\}", cells)) - {"resolved_version", "testResult", "score"}
+    used = set(re.findall(r"\{(\w+)\}", cells)) - {"resolved_version", "requested_version", "replaced_version",
+                                                      "testResult", "score"}
     assert used <= set(bound), used - set(bound)
     assert out["result"] == "PASS" and "metadata.json`:" not in read
 

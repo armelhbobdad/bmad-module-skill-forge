@@ -2,7 +2,8 @@
 """Tests for src/skf-forger/scripts/pipeline-gate.py.
 
 The circuit breaker Pipeline Mode (pipeline-mode.md step 4d) runs after AN,
-TS, AS or VS instead of reading the result by hand:
+TS, AS or VS instead of reading the result by hand, through
+`pipeline-journal.py step --envelope`, which loads these rules in process:
   - every verdict of each gated workflow: TS continues only on PASS routed to
     export (a capped FAIL whose score clears the threshold halts, a fallback
     PASS below the threshold continues, a PASS with an error status halts),
@@ -10,23 +11,33 @@ TS, AS or VS instead of reading the result by hand:
     halts on zero coverage and lets NOT_FEASIBLE with coverage on to RA
   - an AS that found upstream moved hands US the new ref in `handoff`, on a
     continue and on a CRITICAL halt alike; every other decision hands on none
+  - #1170: given the forge data folder, the skills folder, the sidecar and the
+    skill, a CLEAN AS with no upstream move passes over US, TS and EX of a
+    skill forge-status.py calls current whose forge-tier.yaml, and
+    preferences.yaml when it exists, are no newer than its verdict (`skip`
+    `US TS EX`, reason `current`, a message that names TS and EX only where
+    they come right after US), without pyyaml; a newer or missing tier
+    file, a newer preferences.yaml, an untimed record, a skill with a next
+    code, one not in the inventory or a value missing keeps the US skip
   - the envelope line and the result record, errored results, and input the
     gate cannot read, UTF-8 with a byte-order mark included (it halts)
-  - step 4d gates the envelope the step just printed, never a -latest.json
+  - step 4d records the envelope the step just printed, never a -latest.json
     record, which may be an earlier run's
   - the gate's fields and value sets match the workflows' own result
     contracts (their envelope schemas once they have them) and the Circuit
-    Breakers table, and the documented call runs as written
+    Breakers table, and the call step 4d documents runs as written
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -37,6 +48,7 @@ SCRIPT = SRC / "skf-forger" / "scripts" / "pipeline-gate.py"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 SCHEMAS = SRC / "shared" / "scripts" / "schemas"
+JOURNAL = SRC / "skf-forger" / "scripts" / "pipeline-journal.py"
 
 spec = importlib.util.spec_from_file_location("skf_pipeline_gate", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -351,6 +363,198 @@ def test_as_halts_without_a_severity_it_knows(text, reason):
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# AS: a CLEAN audit of a skill that is current passes over US, TS and EX (#1170)
+# --------------------------------------------------------------------------
+
+TESTED = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)  # the demo skill's test record
+TEST_RESULT = "skf-test-skill-result-latest.json"
+CURRENT_MESSAGE = ("No drift detected and demo is current: its active version 1.0.0 passed its test and is the "
+                   "exported one, and the forge tier has not changed since that test: skipping US, and TS and EX "
+                   "where they come right after it. Run TS demo to test it again.")
+
+
+def _write_json(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json.dumps(value).encode("utf-8"))
+
+
+def _link_active(active_link: Path, version: str) -> None:
+    """active -> version, with the Windows junction fallback test-skf-skill-inventory.py uses."""
+    try:
+        active_link.symlink_to(version)
+        return
+    except OSError as e:
+        if os.name != "nt" or getattr(e, "winerror", None) not in (1314, 5):
+            raise
+    abs_target = (active_link.parent / version).resolve()
+    done = subprocess.run(["cmd", "/c", "mklink", "/J", str(active_link), str(abs_target)],
+                          capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr or done.stdout
+
+
+def _set_time(path: Path, when: datetime) -> None:
+    os.utime(path, (when.timestamp(), when.timestamp()))
+
+
+def current_project(root: Path, name: str = "demo", *, verdict: str = "PASS", exported: str | None = "1.0.0",
+                    tested: str | None = "2026-03-01T12:00:00Z", tier_at: datetime | None = TESTED - timedelta(hours=1),
+                    prefs_at: datetime | None = None, drift: bool = False) -> dict:
+    """A project whose skill forge-status.py calls current by default: version 1.0.0 is active, PASSed its test at
+    TESTED and is the exported one, with no audit on record, and forge-tier.yaml was last written an hour before
+    the test; preferences.yaml is written, at `prefs_at`, only when that is given. Returns the gate's four keyword
+    arguments."""
+    forge, skills, sidecar = root / "forge", root / "skills", root / "sidecar"
+    package = skills / name / "1.0.0" / name
+    package.mkdir(parents=True)
+    package.joinpath("SKILL.md").write_bytes(f"---\nname: {name}\n---\n# {name}\n".encode("utf-8"))
+    _write_json(package / "metadata.json", {"name": name, "version": "1.0.0", "generated_by": "create-skill"})
+    _link_active(skills / name / "active", "1.0.0")
+    if exported is not None:
+        _write_json(skills / ".export-manifest.json", {
+            "schema_version": "2", "updated_at": "2026-03-01T13:00:00Z",
+            "exports": {name: {"active_version": exported,
+                               "versions": {exported: {"last_exported": "2026-03-01", "status": "active"}}}}})
+    record = {"runId": "20260301T120000Z-0000beef", "summary": {"result": verdict}}
+    if tested is not None:
+        record["timestamp"] = tested
+    _write_json(forge / name / "1.0.0" / TEST_RESULT, record)
+    if drift:
+        _write_json(forge / name / "1.0.0" / "audit-skill-result-latest.json",
+                    {"timestamp": "2026-03-02T09:00:00Z", "summary": {"severity": "MINOR"}})
+    sidecar.mkdir(parents=True)
+    if tier_at is not None:
+        tier = sidecar / "forge-tier.yaml"
+        tier.write_bytes(b"tier: Forge\n")
+        _set_time(tier, tier_at)
+    if prefs_at is not None:
+        preferences = sidecar / "preferences.yaml"
+        preferences.write_bytes(b"tier_override: Deep\n")
+        _set_time(preferences, prefs_at)
+    return {"forge_data_folder": str(forge), "skills_output_folder": str(skills), "sidecar": str(sidecar),
+            "skill": name}
+
+
+def _today(d: dict) -> None:
+    """The CLEAN skip of a skill not known to be current: US alone, as before #1170."""
+    assert (d["decision"], d["reason"], d["skip"], d["message"]) == (
+        "skip", "CLEAN", "US", "No drift detected: skipping update."), d
+
+
+def test_a_clean_audit_of_a_current_skill_passes_over_us_ts_and_ex(tmp_path):
+    folders = current_project(tmp_path)
+    d = decide("AS", as_envelope("CLEAN"), next_code="US", **folders)
+    assert (d["decision"], d["reason"], d["skip"], d["handoff"]) == ("skip", "current", "US TS EX", None), d
+    assert d["message"] == CURRENT_MESSAGE
+    assert mod.current_skill(**folders)["name"] == "demo"
+
+
+def test_a_tier_file_written_at_the_verdicts_time_still_counts_as_unchanged(tmp_path):
+    folders = current_project(tmp_path, tier_at=TESTED)
+    assert decide("AS", as_envelope("CLEAN"), next_code="US", **folders)["skip"] == "US TS EX"
+
+
+@pytest.mark.parametrize("prefs_at", [TESTED - timedelta(days=3), TESTED], ids=["older", "at-the-verdict"])
+def test_a_preferences_file_no_newer_than_the_verdict_keeps_the_skip(tmp_path, prefs_at):
+    """preferences.yaml's `tier_override` sets the tier TS runs at: one written before the test changed nothing."""
+    folders = current_project(tmp_path, prefs_at=prefs_at)
+    d = decide("AS", as_envelope("CLEAN"), next_code="US", **folders)
+    assert (d["skip"], d["reason"]) == ("US TS EX", "current"), d
+
+
+@pytest.mark.parametrize("state", [
+    pytest.param({"tier_at": TESTED + timedelta(seconds=1)}, id="tier-file-newer"),
+    pytest.param({"tier_at": None}, id="tier-file-missing"),
+    pytest.param({"prefs_at": TESTED + timedelta(seconds=1)}, id="preferences-newer"),
+    pytest.param({"tier_at": TESTED - timedelta(days=1), "prefs_at": TESTED + timedelta(days=1)},
+                 id="tier-override-changed-after-the-test"),
+    pytest.param({"tested": None}, id="untimed-record"),
+    pytest.param({"tested": "yesterday"}, id="unreadable-record-time"),
+    pytest.param({"verdict": "FAIL"}, id="fail"),
+    pytest.param({"verdict": "INCONCLUSIVE"}, id="inconclusive"),
+    pytest.param({"exported": None}, id="not-exported"),
+    pytest.param({"exported": "0.9.0"}, id="older-version-exported"),
+    pytest.param({"drift": True}, id="drift-on-record"),
+])
+def test_a_skill_that_is_not_current_keeps_ts_and_ex(tmp_path, state):
+    folders = current_project(tmp_path, **state)
+    _today(decide("AS", as_envelope("CLEAN"), next_code="US", **folders))
+
+
+def test_a_skill_not_in_the_inventory_keeps_ts_and_ex(tmp_path):
+    folders = {**current_project(tmp_path), "skill": "ghost"}
+    _today(decide("AS", as_envelope("CLEAN"), next_code="US", **folders))
+    for skill in ("../demo", "demo/1.0.0", ".."):
+        _today(decide("AS", as_envelope("CLEAN"), next_code="US", **{**folders, "skill": skill}))
+
+
+def test_upstream_moved_keeps_the_rule_of_today(tmp_path):
+    folders = current_project(tmp_path)
+    _today(decide("AS", as_envelope("CLEAN", upstream_moved=True, upstream_ref="v2"), next_code="US", **folders))
+    moved = decide("AS", as_envelope("CLEAN", upstream_moved=True, upstream_ref="v2", next_workflow="update-skill"),
+                   next_code="US", **folders)
+    assert (moved["decision"], moved["handoff"]) == ("continue", {"target_ref": "v2"})
+
+
+@pytest.mark.parametrize("missing", ["forge_data_folder", "skills_output_folder", "sidecar", "skill"])
+def test_a_value_missing_keeps_the_rule_of_today(tmp_path, missing):
+    folders = {**current_project(tmp_path), missing: None}
+    _today(decide("AS", as_envelope("CLEAN"), next_code="US", **folders))
+
+
+def test_no_forge_status_or_no_inventory_keeps_the_rule_of_today(tmp_path, monkeypatch):
+    folders = current_project(tmp_path)
+    _today(decide("AS", as_envelope("CLEAN"), next_code="US", **{**folders,
+                                                                "skills_output_folder": str(tmp_path / "none")}))
+    monkeypatch.setattr(mod, "FORGE_STATUS", tmp_path / "absent.py")
+    _today(decide("AS", as_envelope("CLEAN"), next_code="US", **folders))
+
+
+@pytest.mark.parametrize(("severity", "next_code", "decision"), [
+    ("MINOR", "US", "continue"), ("SIGNIFICANT", "US", "continue"), ("CLEAN", "TS", "continue"),
+    ("CLEAN", None, "continue"), ("CRITICAL", "US", "halt")])
+def test_the_folders_change_no_other_as_decision(tmp_path, severity, next_code, decision):
+    folders = current_project(tmp_path)
+    d = decide("AS", as_envelope(severity), next_code=next_code, **folders)
+    assert d == decide("AS", as_envelope(severity), next_code=next_code) and d["decision"] == decision
+
+
+def test_the_folders_are_read_for_as_only(tmp_path):
+    folders = current_project(tmp_path)
+    assert decide("TS", ts_envelope("PASS", "export-skill"), next_code="EX", **folders)["decision"] == "continue"
+
+
+def test_cli_passes_the_four_values_to_the_as_gate(tmp_path):
+    folders = current_project(tmp_path)
+    flags = ["--forge-data-folder", folders["forge_data_folder"], "--skills-output-folder",
+             folders["skills_output_folder"], "--sidecar", folders["sidecar"], "--skill", "demo"]
+    p = _run("--code", "AS", "--next", "US", *flags, stdin=as_envelope("CLEAN") + "\n")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert (json.loads(p.stdout)["skip"], json.loads(p.stdout)["reason"]) == ("US TS EX", "current")
+    p = _run("--code", "AS", "--next", "US", *flags[:-2], stdin=as_envelope("CLEAN") + "\n")
+    assert json.loads(p.stdout)["skip"] == "US"
+    help_text = _run("--help").stdout
+    for flag in ("--forge-data-folder", "--skills-output-folder", "--sidecar", "--skill"):
+        assert flag in help_text, flag
+
+
+def test_the_current_skill_rule_runs_without_pyyaml(tmp_path):
+    """The gate declares no dependency: forge-status.py's rules it loads read no YAML."""
+    folders = current_project(tmp_path)
+    code = (
+        "import importlib.util, json, sys\n"
+        "sys.modules['yaml'] = None  # any `import yaml` now raises\n"
+        f"spec = importlib.util.spec_from_file_location('gate', {str(SCRIPT)!r})\n"
+        "gate = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(gate)\n"
+        f"d = gate.gate('AS', {as_envelope('CLEAN')!r}, next_code='US', **json.loads({json.dumps(folders)!r}))\n"
+        "print(d['skip'])\n"
+    )
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert p.returncode == 0 and p.stdout.strip() == "US TS EX", p.stdout + p.stderr
+    assert re.search(r'^# dependencies = \[\]$', _read(SCRIPT), re.M)
+
+
 def vs_envelope(verdict, **extra) -> str:
     fields = {"status": "success", "report_path": "/f/feasibility-report-p-x.md",
               "report_latest_path": "/f/feasibility-report-p-latest.md", "overall_verdict": verdict,
@@ -620,7 +824,8 @@ def test_the_circuit_breaker_table_names_what_the_gate_decides():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 4 and re.fullmatch(r"[A-Z]{2}", cells[0]):
             rows[cells[0]] = " ".join(cells[1:])
-    assert set(rows) - {"CS"} == set(mod.GATED_CODES)
+    # CS and EX halt on a status of their own, which the journal reads (#1168).
+    assert set(rows) - {"CS", "EX"} == set(mod.GATED_CODES)
     for code, tokens in {"TS": ("PASS", "FAIL", "INCONCLUSIVE", "pass-with-drift", "`verdict`",
                                 "`summary.result`", "next_workflow"),
                          "AN": ("unit_counts.confirmed", "min: 1"),
@@ -637,31 +842,39 @@ def test_the_circuit_breaker_table_names_what_the_gate_decides():
 
 def _step_4d() -> str:
     text = _read(PIPELINE_MODE)
-    start = text.index("   - d. **Check the circuit breaker.**")
+    start = text.index("   - d. **Record the step**")
     return text[start:text.index("   - e. **", start)]
 
 
-def _documented_gate_call() -> tuple[list[str], str]:
-    """The call step 4d documents: its arguments and its heredoc delimiter."""
-    m = re.search(r"```bash\n\s*uv run scripts/pipeline-gate\.py (.+?) <<'(\w+)'\n.*?\n\s*\2\n\s*```",
+def _documented_step_call() -> tuple[str, str]:
+    """The call step 4d documents: its words after the script and its heredoc delimiter."""
+    m = re.search(r"```bash\n\s*uv run scripts/pipeline-journal\.py (step .+?--envelope) <<'(\w+)'\n.*?\n\s*\2\n\s*```",
                   _step_4d(), re.S)
-    assert m, "step 4d must show the gate call with a quoted heredoc"
+    assert m, "step 4d must show the journal's step --envelope call with a quoted heredoc"
     return m.group(1), m.group(2)
 
 
-@pytest.mark.parametrize("keep_optional", [True, False], ids=["with-options", "required-only"])
-def test_step_4d_gate_call_runs_as_written(keep_optional):
-    synopsis, _ = _documented_gate_call()
-    if keep_optional:
-        synopsis = re.sub(r"\[(--[^\]]+)\]", r"\1", synopsis)
-    else:
-        synopsis = re.sub(r"\s*\[--[^\]]+\]", "", synopsis)
-    values = {"<code>": "AS", "<next-code>": "US", "<N>": "1"}
+def _journal(*args, stdin=""):
+    p = subprocess.run([sys.executable, str(JOURNAL), *args], input=stdin, capture_output=True, text=True,
+                       encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stdout + p.stderr
+    return json.loads(p.stdout)
+
+
+@pytest.mark.parametrize(("severity", "decision"), [("CLEAN", "skip"), ("MINOR", "continue")])
+def test_step_4d_call_runs_the_gate_as_written(tmp_path, severity, decision):
+    """`maintain`: the journal hands the gate the next plan code, so a CLEAN audit passes over US."""
+    synopsis, _ = _documented_step_call()
+    started = _journal("start", "--run-root", str(tmp_path / "runs"), stdin="maintain demo\n")
+    values = {"<journal>": started["journal"], "<code>": "AS", "{forge_data_folder}": str(tmp_path / "forge"),
+              "{skills_output_folder}": str(tmp_path / "skills"), "{sidecar_path}": str(tmp_path / "sidecar")}
     argv = [values.get(word, word) for word in shlex.split(synopsis)]
-    assert not [w for w in argv if w.startswith("<")], argv
-    p = _run(*argv, stdin=as_envelope("CLEAN"))
-    assert p.returncode == 0, p.stderr
-    assert json.loads(p.stdout)["decision"] == ("skip" if keep_optional else "continue")
+    assert not [w for w in argv if re.search(r"[{<][a-z_-]+[}>]", w)], argv
+    out = _journal(*argv, stdin=as_envelope(severity) + "\n")
+    assert out["gate"] == decide("AS", as_envelope(severity), next_code="US")
+    assert out["gate"]["decision"] == decision
+    expected = ("TS", True) if decision == "skip" else ("US", False)
+    assert (out["next"]["code"], bool(out["skipped"])) == expected
 
 
 def test_step_4d_gates_the_envelope_the_step_just_printed():
@@ -683,10 +896,15 @@ def test_step_4d_gates_the_envelope_the_step_just_printed():
     assert (decide("TS", "", next_code="EX")["decision"], decide("TS", "")["reason"]) == ("halt", "no-result")
 
 
-def test_step_4d_passes_an_min_only_when_the_plan_has_one():
-    """forge-auto's AN entry has min null, and `--min null` is a usage error."""
-    assert "for AN with a `min` in its plan entry, `--min` that value" in _step_4d()
+def test_step_4d_passes_an_min_only_when_the_plan_has_one(tmp_path):
+    """The journal hands the gate AN's plan `min`, and the default 1 for forge-auto's AN, whose `min` is
+    null (`--min null` is a usage error of the gate's own CLI)."""
+    assert "with the next code in the plan and AN's plan `min`" in _step_4d()
     assert _run("--code", "AN", "--min", "null", stdin=an_envelope(1)).returncode == 2
+    for invocation, decision in (("AN[min:2] CS TS EX", "halt"), ("forge-auto https://github.com/a/b", "continue")):
+        started = _journal("start", "--run-root", str(tmp_path), stdin=invocation + "\n")
+        out = _journal("step", "--journal", started["journal"], "--code", "AN", "--envelope", stdin=an_envelope(1))
+        assert out["gate"]["decision"] == decision, invocation
 
 
 def test_step_4d_acts_on_the_decision_and_compares_no_score():

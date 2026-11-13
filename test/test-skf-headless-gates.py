@@ -54,6 +54,9 @@ printed no result line. So:
   in a clause with no word that negates or drops it, so a rule that only
   says to leave the flag out ("never with `run_in_background`", "never
   with `run_in_background: false`") fails too;
+- when a workflow Ferris dispatched fails in a run On Activation step 4
+  resolved headless, his last line is that workflow's envelope line (or
+  its halt reason), or a chain's pipeline summary, never the menu (#1171);
 - each skill's headless contract (the sixteen places HEADLESS_CONTRACTS
   names) says a run that printed no envelope line has no result to read,
   whatever the process exit code;
@@ -643,6 +646,31 @@ def test_every_skill_md_keeps_subagents_and_long_commands_waited_for(skill):
     block = text.split(f"\n{heading}\n", 1)[1].split("\n## ", 1)[0]
     assert block.splitlines().count(FOREGROUND_RULE) == 1, f"{skill}: the {heading} block lacks the foreground rule"
     assert text.count(FOREGROUND_RULE) == 1, skill
+
+
+def test_ferris_ends_a_headless_failure_on_its_result_line():
+    """#1171 architecture-3 and enhancement-7: a `claude -p` caller reads the last line, so a failed headless code
+    ends on the workflow's envelope line (or its halt reason), a headless chain on its pipeline summary, and only an
+    interactive run, as On Activation step 4 resolved it, goes back to the menu."""
+    text = _read(SRC / "skf-forger" / "SKILL.md")
+    [bullet] = [line for line in text.splitlines()
+                if line.startswith("- If a delegated workflow fails or is interrupted")]
+    read = "read the `{headless_mode}` On Activation step 4 resolved, never the `true` Pipeline Mode step 3 forces"
+    interactive = ("When it is false, acknowledge the failure, summarize what happened, and re-present the "
+                   "capabilities menu.")
+    headless = ("When it is true, a single code acknowledges the failure in one line, then displays the workflow's "
+                "result envelope line (`SKF_<NAME>_RESULT_JSON: ...`) verbatim as the very last line, or its halt "
+                "reason when it printed none; a chain ends on its pipeline summary (`references/pipeline-mode.md` "
+                "step 6). Show no menu and print nothing after either.")
+    for token in (read, interactive, headless):
+        assert token in bullet, token
+    assert bullet.index(read) < bullet.index(interactive) < bullet.index(headless)
+    # The menu appears in the interactive branch alone.
+    assert bullet.count("menu") == 2 and "re-present the capabilities menu" not in bullet.split(interactive, 1)[1]
+    # Step 4 is the value read; the chain's forced true lives in pipeline-mode.md step 3, step 6 its summary.
+    assert "4. **Resolve `{headless_mode}`**" in text
+    procedure = _read(SRC / "skf-forger" / "references" / "pipeline-mode.md")
+    assert "3. **Force `{headless_mode}` = true**" in procedure and "6. **Pipeline summary.**" in procedure
 
 
 def test_no_src_file_recommends_a_background_run():

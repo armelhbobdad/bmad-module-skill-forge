@@ -1,0 +1,6 @@
+type: added
+scope: skf-forger
+summary: |
+  A new `resume` pick takes the offer a stopped chain left at once: `@Ferris resume`, or `/skf-forger resume --headless` from a script (`campaign resume` stays Campaign's). A headless resume writes a failed pipeline result with no step and stops with `user-action-required: <action>` when the offer needs you to act first, so the offer stays for the next start, or with `nothing-to-resume: <message>` when there is no offer; one whose `reopen` call fails writes a failed result too. A headless start with no pick, which stops with "Nothing to run", now names `/skf-forger resume --headless` and the offer's route when a stopped chain left one.
+issues: [1169]
+prs: [1212]

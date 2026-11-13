@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-forger
+summary: |
+  The `compact_greeting` preference is gone. Only Ferris read it, from the `preferences.yaml` every SKF workflow loads, so a returning user now always gets the menu, and `skf-preflight.py` no longer prints `derived.compact_greeting`. A `compact_greeting` still set in `preferences.yaml` is ignored.
+migration: |
+  Delete the `compact_greeting` line from `_bmad/_memory/forger-sidecar/preferences.yaml`. Nothing replaces it.
+issues: [1171]
+prs: [1212]

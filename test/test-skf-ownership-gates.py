@@ -242,8 +242,10 @@ def _filled_argv(call: str, values: dict) -> list[str]:
     """A documented `uv run {skillInventoryHelper} ...` call as argv after `uv run`, placeholders filled.
 
     Placeholders (`{skill-name}` included) become sentinels before the words are split, so a
-    path keeps its spaces and backslashes.
+    path keeps its spaces and backslashes. An optional `[--flag ...]` group is left out, as a
+    run without that flag sends it (export's `[--version {requested_version}]`, #1172).
     """
+    call = re.sub(r"\s*\[--[^\[\]]+\]", "", call)
     words = shlex.split(re.sub(r"\{([\w-]+)\}", r"@@\1@@", call))
     assert words[:3] == ["uv", "run", "@@skillInventoryHelper@@"], words
     return [re.sub(r"@@([\w-]+)@@", lambda m: values[m.group(1)], w) for w in words[2:]]

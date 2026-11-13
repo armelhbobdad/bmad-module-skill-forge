@@ -316,12 +316,12 @@ def test_the_forger_hands_upstream_ref_to_us():
             "severity (`drift_score`) and the route (`next_workflow`)") in contracts
     # The Data Flow row names where the ref travels: the gate's `handoff`, then the journal, then US.
     assert ("AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, "
-            "`pipeline-journal.py step --gate` records it, and US takes it as `--target-ref`") in contracts
+            "`pipeline-journal.py step --envelope` records it, and US takes it as `--target-ref`") in contracts
     mode = _flow(_read(PIPELINE_MODE))
     # The gate carries the ref in its `handoff` and the journal records it: no --set copies it by hand.
     assert "`target_ref=<upstream_ref>`" not in mode
-    assert ("AS's `target_ref` takes no `--set`: when upstream moved, the gate prints it in its `handoff`, and "
-            "`step --gate` records it.") in mode
+    assert ("AS's `target_ref` is the gate's: when upstream moved, the gate names it in its `handoff`, and "
+            "`step --envelope` records it.") in mode
     assert "goes to US as `--target-ref <target_ref>`" in mode
 
 

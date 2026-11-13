@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-forger
+summary: |
+  A headless run of one code through Ferris that fails or is cut off, such as `/skf-forger TS cocoindex --headless`, now ends on the workflow's result envelope line (`SKF_TEST_RESULT_JSON: ...` and the like), printed verbatim as the last line after a one-line acknowledgment, or on its halt reason when it printed none, instead of on the menu, so a `claude -p` caller reads the result from the last line. A headless chain that halts ends on its pipeline summary, with no menu after it. An interactive run still summarizes the failure and shows the menu again.
+issues: [1171]
+prs: [1212]

@@ -66,6 +66,11 @@ commands it documents:
   carries each warning a step displayed and the confirmation's
   `evidence.test_results`, when it ends and when it halts; update-context
   §4c halts on a batch skill whose draft `assemble` refuses.
+- #1172: `--version` makes an earlier version active again. §2's `resolve`
+  call takes it, and §9b's `flip-link` call, then its `set` call, run here on
+  a fixture skill: the version is active in the manifest and the link, the
+  one it replaced is archived, and a version not on disk or deprecated meets
+  §2's halt condition.
 """
 
 from __future__ import annotations
@@ -91,6 +96,8 @@ EXPORT = SRC / "skf-export-skill"
 SCRIPTS = SRC / "shared" / "scripts"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+ATOMIC_WRITE = SCRIPTS / "skf-atomic-write.py"
+MANIFEST_OPS = SCRIPTS / "skf-manifest-ops.py"
 FIND_REPORT = SCRIPTS / "skf-find-test-report.py"
 REBUILD = SCRIPTS / "skf-rebuild-managed-sections.py"
 _RMS_SPEC = importlib.util.spec_from_file_location("skf_rms_export_terminal", REBUILD)
@@ -167,7 +174,7 @@ def _heredoc_calls(text: str) -> list[tuple[str, str]]:
 
 
 def _argv(command: str, values: dict[str, str], *, keep: tuple[str, ...] = ()) -> list[str]:
-    """The argv of a documented `uv run {helper} ...` call, run with this Python.
+    """The argv of a documented `uv run {helper} ...` or `python3 {helper} ...` call, run with this Python.
 
     A `[--flag ...]` synopsis group is kept when its flag is in `keep` and
     dropped otherwise; every `{name}` placeholder takes its value from `values`.
@@ -178,8 +185,9 @@ def _argv(command: str, values: dict[str, str], *, keep: tuple[str, ...] = ()) -
     command = re.sub(r"\[(--[^\[\]]+)\]", group, command)
     command = re.sub(r"\{([A-Za-z_][\w-]*)\}", lambda m: values[m.group(1)], command)
     words = shlex.split(command)
-    assert words[:2] == ["uv", "run"], command
-    return [sys.executable, *words[2:]]
+    prefix = 1 if words[:1] == ["python3"] else 2
+    assert words[:prefix] in (["python3"], ["uv", "run"]), command
+    return [sys.executable, *words[prefix:]]
 
 
 def _run(argv: list[str], stdin: str = "") -> subprocess.CompletedProcess:
@@ -912,7 +920,8 @@ def test_the_exit_4_row_names_the_preview_and_the_clear():
     assert "§3b" not in exit_4, "§3b runs nothing that can fail on a clear"
 
 
-@pytest.mark.parametrize("rel, keys", [(LOAD, ["nextStepFile", "findTestReportProbeOrder"]),
+@pytest.mark.parametrize("rel, keys", [(LOAD, ["nextStepFile", "findTestReportProbeOrder",
+                                                "atomicWriteProbeOrder"]),
                                        (SNIPPET, ["nextStepFile", "snippetFormatData"]),
                                        (UPDATE, ["nextStepFile"])])
 def test_the_step_frontmatters_hold_no_comment(rel, keys):
@@ -952,7 +961,7 @@ def test_load_skill_resolves_the_version_through_the_inventory_helper():
     load = _read(LOAD)
     step = _section(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
     resolve = ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
-               '--forge-data-folder "{forge_data_folder}"')
+               '--forge-data-folder "{forge_data_folder}" [--version {requested_version}]')
     assert [line for block in _fenced_blocks(step) for line in block] == [resolve]
     for binding in ("`{resolved_version}` ← `chosen_version`", "`{resolved_skill_package}` ← `skill_package`",
                     "`{forge_version}` ← `forge_version`",
@@ -1053,7 +1062,8 @@ def test_the_documented_calls_read_the_report_of_the_version_being_exported(tmp_
             value = value[key]
         bound[name] = value
     assert set(bound) == {"resolved_version", "resolved_skill_package", "forge_version", "forge_evidence_report",
-                          "forge_provenance_map"}
+                          "forge_provenance_map", "replaced_version"}
+    assert bound["replaced_version"] == "1.1.0", "the `active` link's version, which a `--version` run replaces"
     assert bound["forge_provenance_map"] is None, "no provenance map on disk: the api line keeps the prior `()`"
     assert bound["resolved_version"] == "1.1.0"
     assert Path(bound["resolved_skill_package"]).parts[-3:] == ("zod", "1.1.0", "zod")
@@ -1066,6 +1076,125 @@ def test_the_documented_calls_read_the_report_of_the_version_being_exported(tmp_
     assert (found["status"], found["source"], found["testResult"]) == ("found", "versioned-glob", "fail")
     assert Path(found["path"]).name == "test-report-zod-20260930T100000Z-bb.md"
     assert [Path(s["path"]).name for s in found["skipped"]] == ["test-report-zod-20260930T120000Z-cc.md"]
+
+
+def _requested_halts(resolved: dict, version: str) -> bool:
+    """§2's `requested` paragraph (prose the agent applies, restated as code): halt on no package, on a name that
+    is not a version folder (`active`, a `.skf-` folder) or on a deprecated version."""
+    rows = [row for row in resolved["versions"] if row["version"] == version]
+    return (not resolved["skill_package_exists"] or not any(row["on_disk"] for row in rows)
+            or any(row["status"] == "deprecated" for row in rows))
+
+
+def _restorable(resolved: dict) -> list[str]:
+    """The versions §2's `requested` halt names: on disk and not deprecated."""
+    return [row["version"] for row in resolved["versions"] if row["on_disk"] and row["status"] != "deprecated"]
+
+
+def test_a_version_run_makes_an_earlier_version_active_again(tmp_path):
+    """#1172: roll back to 1.0.0 with `--version`: §2's call, then §9b's flip and `set`, as the agent fills them."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge-data"
+    for version in ("0.9.0", "1.0.0", "1.1.0"):
+        _package(skills, "zod", version)
+    _link_active(skills / "zod", "1.1.0")
+    manifest = skills / ".export-manifest.json"
+    manifest.write_text(json.dumps({"schema_version": "2", "exports": {"zod": {"active_version": "1.1.0", "versions": {
+        "1.1.0": {"ides": ["claude-code"], "last_exported": "2026-10-01", "status": "active"},
+        "1.0.0": {"ides": ["claude-code"], "last_exported": "2026-09-01", "status": "archived"},
+        "0.9.0": {"ides": ["claude-code"], "last_exported": "2026-08-01", "status": "deprecated"}}}}}),
+        encoding="utf-8")
+    forge.mkdir()
+    values = {"skillInventoryHelper": INVENTORY.as_posix(), "atomicWriteHelper": ATOMIC_WRITE.as_posix(),
+              "manifestOpsHelper": MANIFEST_OPS.as_posix(), "skills_output_folder": skills.as_posix(),
+              "forge_data_folder": forge.as_posix(), "skill-name": "zod"}
+    [[resolve_call]] = _fenced_blocks(_section(_read(LOAD), "### 2. Load and Validate Skill Artifacts",
+                                               "**Validation (the export gate):**"))
+    flip_call, set_call = [line for block in _fenced_blocks(_section(_read(UPDATE), "### 9b. Update Export Manifest",
+                                                                     "### 9c. ")) for line in block]
+    assert "{atomicWriteHelper} flip-link" in flip_call and "{manifestOpsHelper} {skills_output_folder} set" in set_call
+
+    def resolve(version: str | None = None) -> tuple[int, dict]:
+        keep = ("--version",) if version is not None else ()
+        proc = _run(_argv(resolve_call, {**values, "requested_version": version or ""}, keep=keep))
+        return proc.returncode, json.loads(proc.stdout)
+
+    def restore(version: str) -> dict:
+        code, out = resolve(version)
+        resolved = out["resolve"]
+        assert (code, resolved["reason"], resolved["chosen_version"]) == (0, "requested", version)
+        assert not _requested_halts(resolved, version)
+        filled = {**values, "requested_version": version}
+        proc = _run(_argv(flip_call, filled))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["points_to"] == version
+        # `set` records the version in the exported package's metadata.json.
+        metadata = json.loads((Path(resolved["skill_package"]) / "metadata.json").read_text(encoding="utf-8"))
+        proc = _run(_argv(set_call, {**filled, "version": metadata["version"]}))
+        assert proc.returncode == 0, proc.stderr
+        return resolved
+
+    resolved = restore("1.0.0")
+    assert (resolved["symlink_target"] or resolved["active_version"]) == "1.1.0", "{replaced_version}"
+    entry = json.loads(manifest.read_text(encoding="utf-8"))["exports"]["zod"]
+    assert entry["active_version"] == "1.0.0"
+    assert {v: row["status"] for v, row in entry["versions"].items()} == {
+        "1.1.0": "archived", "1.0.0": "active", "0.9.0": "deprecated"}
+    code, out = resolve()
+    assert (code, out["resolve"]["reason"], out["resolve"]["chosen_version"]) == (0, "manifest-and-link", "1.0.0"), (
+        "a later plain export keeps the restored version")
+    # Restoring the version already active re-points the link and `set` changes nothing.
+    resolved = restore("1.0.0")
+    assert (resolved["symlink_target"] or resolved["active_version"]) == "1.0.0", "no `in place of` clause"
+    assert json.loads(manifest.read_text(encoding="utf-8"))["exports"]["zod"]["versions"]["1.1.0"]["status"] == \
+        "archived"
+    # A version not on disk, one the manifest marks deprecated, or `active` (whose package the link reaches, but
+    # which is no version folder: flipping `active` to it would loop) meets §2's halt, which names what can be restored.
+    for version in ("0.8.0", "0.9.0", "active"):
+        code, out = resolve(version)
+        assert (code, out["resolve"]["reason"]) == (0, "requested")
+        assert _requested_halts(out["resolve"], version), version
+        assert _restorable(out["resolve"]) == ["1.1.0", "1.0.0"]
+    assert resolve("active")[1]["resolve"]["skill_package_exists"], "only the `on_disk` check stops `active`"
+    # A flat skill has no version folder to make active, so nothing can be restored.
+    flat = skills / "flat"
+    flat.mkdir()
+    (flat / "SKILL.md").write_text("# flat\n", encoding="utf-8")
+    (flat / "metadata.json").write_text(json.dumps({"name": "flat", "version": "1.0.0",
+                                                    "generated_by": "create-skill"}), encoding="utf-8")
+    proc = _run(_argv(resolve_call, {**values, "skill-name": "flat", "requested_version": "1.0.0"},
+                      keep=("--version",)))
+    flat_resolved = json.loads(proc.stdout)["resolve"]
+    assert (proc.returncode, flat_resolved["reason"]) == (0, "requested")
+    assert _requested_halts(flat_resolved, "1.0.0") and _restorable(flat_resolved) == []
+    # A value that is not one folder name stops `resolve` itself: §2's rung 5.
+    code, out = resolve("a/b")
+    assert (code, out["code"]) == (1, "USAGE")
+    # The link ahead of the manifest (1.2.0 forged after the last export): the rollback replaces the link's
+    # version, which `set` cannot archive since the manifest never listed it, so §2's note says "in place of".
+    _package(skills, "zod", "1.2.0")
+    proc = _run(_argv(flip_call, {**values, "requested_version": "1.2.0"}))
+    assert proc.returncode == 0, proc.stderr
+    resolved = restore("1.0.0")
+    assert (resolved["symlink_target"], resolved["active_version"]) == ("1.2.0", "1.0.0"), "{replaced_version} is 1.2.0"
+    entry = json.loads(manifest.read_text(encoding="utf-8"))["exports"]["zod"]
+    assert entry["active_version"] == "1.0.0" and "1.2.0" not in entry["versions"]
+
+
+def test_a_version_run_whose_flip_fails_leaves_the_manifest_alone(tmp_path):
+    """#1172: §9b halts on a failed flip before `set`, so the manifest still names the version it named."""
+    skills = tmp_path / "skills"
+    for version in ("1.0.0", "1.1.0"):
+        _package(skills, "zod", version)
+    (skills / "zod" / "active").mkdir()  # a real folder, which flip-link never replaces
+    update = _section(_read(UPDATE), "### 9b. Update Export Manifest", "### 9c. ")
+    [flip_call, set_call] = [line for block in _fenced_blocks(update) for line in block]
+    proc = _run(_argv(flip_call, {"atomicWriteHelper": ATOMIC_WRITE.as_posix(), "skills_output_folder": skills.as_posix(),
+                                  "skill-name": "zod", "requested_version": "1.0.0"}))
+    assert proc.returncode != 0 and not proc.stdout.strip(), "a non-zero exit with no JSON: §9b's halt"
+    assert (skills / "zod" / "active").is_dir() and not (skills / "zod" / "active").is_symlink()
+    assert update.index(flip_call) < update.index(set_call)
+    assert ('HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9b`) with the helper\'s error, '
+            "before any `set`: the export manifest is unchanged") in update
 
 
 # --------------------------------------------------------------------------

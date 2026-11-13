@@ -26,6 +26,8 @@ The forger also accepts common pipeline aliases:
 
 **Deprecated alias:** `deepwiki` resolves to `forge-auto` (renamed to avoid collision with the DeepWiki MCP — the pipeline auto-forges a verified skill and does not call that MCP). It still works but emits a one-time deprecation notice.
 
+**Setup first:** `SF` before an alias, as in `SF forge-auto <repo-or-doc-url>`, runs Setup Forge, then the alias's chain. The alias keeps its threshold (forge-auto's `TS[min:90]`), and its arguments go to the workflow after SF. `SF deepwiki <url>` works too, and `SF onboard` stops as `onboard` does.
+
 **Note:** `campaign` is a standalone workflow invoked via `@Ferris campaign`, not a pipeline alias. It orchestrates its own multi-stage pipeline internally with dependency tracking and resume.
 
 ## Pipeline Rules
@@ -58,20 +60,24 @@ How outputs from one workflow become inputs to the next:
 | TS | EX | skill name + settled verdict | EX runs only when TS settled PASS (`next_workflow` is `export-skill`); FAIL, INCONCLUSIVE and pass-with-drift halt the pipeline before EX, with the verdict as the halt reason |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --gate` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found |
+| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --envelope` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found. Given the forge data folder, the skills folder, the sidecar and the skill, a CLEAN audit with no upstream move also passes over TS and EX when the skill is current (its active version passed its test and is exported, with no drift on record) and `forge-tier.yaml` has not changed since that test, nor `preferences.yaml`, whose `tier_override` sets the tier TS runs at: the gate's `skip` is then `US TS EX`, with the reason `current`, and the journal passes over TS and EX only where they come right after US, and no step whose bracket names another skill |
 | US | TS | skill name | Forger passes the `skill_name` US updated to TS: the skill `maintain` names, or the one a repair updates |
 | VS | RA | architecture doc path | Already known from VS invocation |
+| RA | SS | refined architecture doc path | Forger passes the `refined_path` from `SKF_REFINE_ARCHITECTURE_RESULT_JSON` as SS's `architecture_doc_path`, which runs SS in compose mode |
+| SS | TS | skill name | Forger passes the `skill_name` from `SKF_STACK_RESULT_JSON` to TS |
+| SS | EX | skill name | Same: the `skill_name` from `SKF_STACK_RESULT_JSON` |
 
 ## Circuit Breakers
 
-Circuit breakers halt the pipeline when a workflow's output doesn't meet a quality threshold. The forger's `pipeline-gate.py` script applies the AN, TS, AS and VS rows to the result envelope a workflow printed (a field name after a slash is its spelling in the workflow's result record) and answers continue, skip or halt with a reason; CS's row is a hard halt, which stops the pipeline by itself.
+Circuit breakers halt the pipeline when a workflow's output doesn't meet a quality threshold. The forger records each step with `pipeline-journal.py step --envelope`, from the result envelope line the workflow printed. For AN, TS, AS and VS it runs the gate's rules (its `pipeline-gate.py`) on that line, which apply these rows (a field name after a slash is its spelling in the workflow's result record) and answer continue, skip or halt with a reason. For every other workflow it reads the line's `status` (`skf_setup.status` for SF, `skf_update.status` for US): `success` goes on, and for US so do `no-changes`, `detect-only` and `dry-run`; the CS and EX rows name the statuses that halt with a reason of their own; and any other status halts with the envelope's `halt_reason`, else the status followed by `: <error.reason>` when the envelope names one.
 
 | Workflow | Check | Default Threshold | Halt Condition |
 |----------|-------|-------------------|----------------|
 | AN | recommended units count (`unit_counts.confirmed`) | min: 1 | Fewer units than the minimum (by default, zero skillable units found) |
-| CS | compilation success | must complete | Hard error during compilation |
+| CS | compilation success (`status`) | `success` | Hard error during compilation (`failed`), or a skill compiled with no exports: `partial` halts with `zero-exports` |
+| EX | export (`status`) | `success` | Hard error during export (`error`), or a `--dry-run` that wrote nothing: `dry-run` halts with `dry-run` |
 | TS | settled verdict (`verdict` / `summary.result`, with `next_workflow`) | TS's own: `TS[min:N]` reaches TS as `--threshold=N`, else the per-pipeline defaults apply (see init.md §1b) | Any verdict but PASS, reported as the halt reason: FAIL (including a FAIL that a post-score cap forced although the score clears the threshold), INCONCLUSIVE or pass-with-drift. TS owns its score, caps and 80% floor: a score between 80% and a higher threshold that TS settles as a fallback PASS with an evidence report continues |
-| AS | drift severity (`drift_score` / `summary.severity`) with the route (`next_workflow` / `summary.next_workflow`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next, unless `next_workflow` is `update-skill`: upstream moved, so the update still runs) |
+| AS | drift severity (`drift_score` / `summary.severity`) with the route (`next_workflow` / `summary.next_workflow`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next, unless `next_workflow` is `update-skill`: upstream moved, so the update still runs; with no upstream move it skips TS and EX too, where they come right after US, when the skill is current and `forge-tier.yaml` has not changed since its test, nor `preferences.yaml`) |
 | VS | coverage (`coverage_percentage` / `summary.coveragePercentage`) with the overall verdict (`overall_verdict` / `summary.overallVerdict`) | coverage above 0% | Zero coverage (`zero-coverage`): VS verified none of the architecture's technologies. Every verdict with coverage continues, NOT_FEASIBLE included, since RA takes each Blocked integration as a critical issue |
 
 Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipeline run (the forger passes it to TS as `--threshold=80`), and `AN[min:2]` asks AN for at least two units.
@@ -147,10 +153,12 @@ Every chained workflow's data context carries `pipeline_mode: true`, which marks
 
 At activation the forger runs `pipeline-journal.py resume`, which reads the newest journal a stopped chain left. It offers nothing when no journal is left, when a later chain recorded a result with a step in it (any pipeline result in the sidecar, the per-run records included: a record with no step, such as a parse halt's, supersedes nothing), or when the journal's skill was tested or exported after the journal's last write: a test result record or an export manifest entry, which WS reads too, dated after it. The manifest dates an export by its day only, so an export that same day counts when the manifest was written after the journal, whichever skill that write was for. Otherwise it offers one of two things:
 
-- **Resume** after an interruption (the journal is still `running`) or a halt that is no quality verdict, such as a workflow that hard-halted or a result the gate could not read: the chain re-runs the step it stopped on, then the rest of the plan, with the recorded alias, bracket values and arguments.
-- **Repair** after a quality halt: the repair the table below gives, then the chain picks up where the table says, still with the recorded alias and threshold.
+- **Resume** after an interruption (the journal is still `running`) or a halt the table below does not list, such as a workflow that hard-halted or a result the gate could not read: the chain re-runs the step it stopped on, then the rest of the plan, with the recorded alias, bracket values and arguments.
+- **Repair** after a halt the table lists (a quality verdict, a skill compiled with no exports, or a step that named no value to hand on, which running the step again does not change): the repair the table gives, then the chain picks up where the table says, still with the recorded alias and threshold.
 
 `finish` prints the same next action when the chain stops, and both print it with its `route`, the next action in one line (`US hono --from-test-report, then TS EX at the recorded threshold of 90`), and its `user_action`, what the user does before the chain picks up again (null when the chain does it all). `pipeline-journal.py reopen` applies the offer the user accepts (the Resume procedure in the forger's pipeline-mode.md), and `discard` deletes a stopped chain's run folder, so its offer is made no more.
+
+`resume` also prints the journal's `started_at` and `updated_at`, its last write, since an `interrupted` chain may still run in another session. A headless `resume` pick that takes no offer writes a failed pipeline result with no step, its `summary.halt_reason` `nothing-to-resume: <message>` when there is no offer or `user-action-required: <user_action>` when the offer needs the user first, which supersedes no journal.
 
 ### Repair Routes
 
@@ -161,8 +169,10 @@ At activation the forger runs `pipeline-journal.py resume`, which reads the newe
 | TS | `pass-with-drift`, `workspace-drift` | `retest-at-pinned-commit` | put the source back at the commit the skill pins | TS, without `--allow-workspace-drift` |
 | AS | `CRITICAL` | `review-drift-report` | review the drift report | the step after AS |
 | VS | `zero-coverage` | `create-missing-skills` | create skills for the architecture's technologies (for example `forge-quick <package>`) | VS |
+| CS | `zero-exports` | `fix-brief-scope` | fix the brief's `scope.include` or `target_version` so it reaches the package's public exports | CS |
 | AN | `no-skillable-units`, `units-below-min`, `skipped` | `new-target` | start a new chain with another target, or with a scope hint | no resume |
 | AN | `redirect` | `update-existing-skill` | run `US` on the skill the target already has | no resume |
+| CS, QS, SS, US, AN, BS, RA | `handoff-missing` | `start-rest-by-hand` | start the steps left as a new chain, with the value the step made in the first one's bracket (for example `TS[<skill>] EX`) | no resume |
 
 A halt with no resume leaves no journal behind: `finish` deletes its run folder, as it does after a chain that succeeded, and its `route` is `no resume:` and the `user_action`.
 
@@ -173,8 +183,8 @@ The forger validates the pipeline sequence and warns about:
 | Pattern | Issue | Suggestion |
 |---------|-------|------------|
 | EX before TS | Exporting untested skill | Add TS before EX |
-| US without AS | Updating without audit | Run AS first to detect what changed |
-| CS without BS or AN | Compiling without brief | Need a brief — use QS for quick path, or AN for brownfield |
+| US without AS | Updating without audit, unless the skill's active version has an audit on disk | Run AS first to detect what changed |
+| CS without BS or AN | Compiling without brief, unless the skill's `skill-brief.yaml` is on disk | Need a brief: use QS for quick path, or AN for brownfield |
 | TS after EX | Testing after export | Move TS before EX |
 | Duplicate codes | Same workflow twice | Remove duplicate |
 | `min:N` on a code other than AN or TS | Threshold ignored | Remove it, or put it on TS |

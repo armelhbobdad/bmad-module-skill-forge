@@ -26,10 +26,11 @@ drop steps document, filled in as an agent fills them, against fixtures:
   and run over the helper's output). test-skf-drop-roster.py tests the roster
   helper itself.
 - The active-version guard's refusal names a recovery that works (step 5b
-  gate run 3, enhancement-3): Export Skill takes no version, so the commands
-  its load and manifest steps document run over a fixture where `active`
-  points at the version to keep; that export publishes it and archives the
-  refused version, and the roster then lets the drop through.
+  gate run 3, enhancement-3, #1172): Export Skill with `--version` and the
+  version to keep, so the commands its load and manifest steps document run
+  over the fixture with that version: the export points `active` at it,
+  publishes it and archives the refused version, and the roster then lets the
+  drop through.
 - The prose pins: a failed manifest write halts in every mode and never reaches
   the report; `skill_name` and `version` answer their gates in both modes; the
   helpers resolve before the first prompt, each stage declares the probe
@@ -43,7 +44,7 @@ drop steps document, filled in as an agent fills them, against fixtures:
 - A repoint the helper cannot make (#732) is recorded as `active_link_dangling`
   with the helper's line and a fix that runs `skf-atomic-write.py flip-link`,
   which also works on native Windows without symlink rights (#735); the guard
-  refusal's recovery names the same command.
+  refusal's recovery, Export Skill's `--version`, runs the same command.
 """
 
 from __future__ import annotations
@@ -1043,27 +1044,26 @@ def test_roster_counts_drive_the_active_version_guard(tmp_path, statuses, refuse
 
 
 def test_the_guard_refusal_names_a_recovery_that_works():
-    """enhancement-3 (gate run 3): Export Skill has no version choice, so the refusal names the `active` link."""
+    """enhancement-3 (gate run 3), #1172: the refusal names Export Skill's `--version`, which points the
+    `active` link at the version to keep, so no step asks for a flip by hand."""
     guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
-    assert "with a different version selected" not in guard, "Export Skill takes no version"
-    assert ("point the `active` link at it (`uv run {atomicWriteHelper} flip-link --link "
-            "\"{skills_output_folder}/{target_skill}/active\" --target <version to keep>`), "
-            "run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, "
-            "then return here to drop `{version}`") in guard
+    assert "with a different version selected" not in guard, "the refusal names the command to run"
+    assert ("run `[EX] Export Skill {target_skill} --version <version to keep>`, which points the `active` link at "
+            "that version, exports it and archives `{version}`, then return here to drop `{version}`") in guard
     assert ("`<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` "
             "and `on_disk` are true and whose `status` is not `\"deprecated\"`") in guard
-    assert ("`{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry "
-            "when neither exists.") in guard
+    # The recovery runs no command of select.md's own, so it binds no helper for it (lane review finding 3).
+    assert "atomicWrite" not in _read(SELECT)
     safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
-    assert ("`uv run _bmad/skf/shared/scripts/skf-atomic-write.py flip-link --link <skills_output_folder>/<name>/active "
-            "--target <version to keep>`, which works in Git Bash, PowerShell and WSL2") in safety
-    assert "`@Ferris EX`" in safety
+    assert ("`@Ferris EX <name> --version <version to keep>`, which points the skill's `active` link at it, exports "
+            "it and archives the old one") in safety
     drop = _section(_read("src/knowledge/version-paths.md"), "### Drop (DS - Drop Skill)", "**Skill-level drop:**")
-    assert ("`uv run _bmad/skf/shared/scripts/skf-atomic-write.py flip-link --link {skill_group}/active "
-            "--target <version to keep>`") in drop
+    assert ("`[EX] Export Skill <skill> --version <version to keep>` points the `active` link at it, exports it, and "
+            "its manifest update archives the old one") in drop
     assert "switch active to another version first" not in drop
     for text in (guard, safety, drop):
         assert "ln -s" not in text, "Git Bash without symlink rights turns `ln -s` into a copy of the folder"
+        assert "flip-link" not in text, "Export Skill moves the link: no recovery asks for a flip by hand"
 
 
 def _version_to_keep(entry: dict, version: str) -> str | None:
@@ -1091,14 +1091,16 @@ def _link_active(group: Path, version: str) -> None:
             pytest.skip("neither a symlink nor a junction can be created")
 
 
-def _export_resolve(skills: Path, forge: Path, name: str) -> dict:
-    """The version Export Skill exports: its load step's documented `resolve` call."""
+def _export_resolve(skills: Path, forge: Path, name: str, version: str | None = None) -> dict:
+    """The version Export Skill exports: its load step's documented `resolve` call, with `--version` when given."""
     load = _section(_read(EXPORT_LOAD), "### 2. Load and Validate Skill Artifacts", "### 3. ")
     command = _one_command(load, "{skillInventoryHelper} resolve")
-    assert "--version" not in command, "Export Skill exports the version `resolve` chooses"
+    group = " [--version {requested_version}]"
+    assert command.endswith(group), "§2 passes `--version` only when step 1 bound it"
+    command = command[:-len(group)] + (" --version {requested_version}" if version is not None else "")
     proc = _run(command.replace("{skill-name}", "{skill_name}"),
                 {"skillInventoryHelper": str(INVENTORY), "skills_output_folder": str(skills),
-                 "forge_data_folder": str(forge), "skill_name": name})
+                 "forge_data_folder": str(forge), "skill_name": name, "requested_version": version})
     result = json.loads(proc.stdout.decode("utf-8"))
     assert proc.returncode == 0 and result["status"] == "ok", result
     return result["resolve"]
@@ -1119,19 +1121,21 @@ def test_the_guard_recovery_lets_the_drop_through(tmp_path):
     assert _export_resolve(skills, forge, "cognee")["chosen_version"] == "0.6.0"
     keep = _version_to_keep(entry, "0.6.0")
     assert keep == "0.5.0"
-    # The recovery the refusal names, as the agent fills it in.
+    # The recovery the refusal names, as the agent fills it in: Export Skill with `--version 0.5.0`.
     guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
-    recovery = re.search(r"point the `active` link at it \(`(uv run \{atomicWriteHelper\} flip-link [^`]+)`\)", guard)
-    proc = _run(recovery.group(1).replace("<version to keep>", keep),
+    assert re.search(r"run `\[EX\] Export Skill \{target_skill\} --version <version to keep>`", guard)
+    resolved = _export_resolve(skills, forge, "cognee", keep)
+    assert (resolved["chosen_version"], resolved["reason"], resolved["skill_package_exists"]) == (
+        "0.5.0", "requested", True)
+    # Export's manifest step points `active` at it, then records the version in the exported package's metadata.json.
+    update = _section(_read(EXPORT_UPDATE), "### 9b. Update Export Manifest", "### 9c. ")
+    flip = _one_command(update, "{atomicWriteHelper} flip-link")
+    proc = _run(flip.replace("{skill-name}", "{skill_name}"),
                 {"atomicWriteHelper": str(SCRIPTS / "skf-atomic-write.py"), "skills_output_folder": str(skills),
-                 "target_skill": "cognee"})
+                 "skill_name": "cognee", "requested_version": keep})
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout)["points_to"] == "0.5.0"
-    resolved = _export_resolve(skills, forge, "cognee")
-    assert (resolved["chosen_version"], resolved["reason"]) == ("0.5.0", "manifest-lags-link")
-    # Export's manifest step records the version in the exported package's metadata.json.
     metadata = json.loads((Path(resolved["skill_package"]) / "metadata.json").read_text(encoding="utf-8"))
-    update = _section(_read(EXPORT_UPDATE), "### 9b. Update Export Manifest", "### 9c. ")
     command = _one_command(update, "{manifestOpsHelper}").replace(" [--ides {ides_written}]", "")
     proc = _run(command.replace("{skill-name}", "{skill_name}"),
                 {"manifestOpsHelper": str(MANIFEST_OPS), "skills_output_folder": str(skills),
@@ -1141,6 +1145,9 @@ def test_the_guard_recovery_lets_the_drop_through(tmp_path):
     assert entry["active_version"] == "0.5.0"
     assert {row["version"]: row["status"] for row in entry["versions"]} == {
         "0.6.0": "archived", "0.5.0": "active", "0.1.0": "deprecated"}, "§7 step 2: 0.6.0 is no longer active"
+    # The manifest and the link agree, so a later plain export keeps 0.5.0.
+    assert (_export_resolve(skills, forge, "cognee")["reason"], entry["active_version"]) == (
+        "manifest-and-link", "0.5.0")
 
 
 def test_roster_lists_a_draft_skill_by_its_folders(tmp_path):

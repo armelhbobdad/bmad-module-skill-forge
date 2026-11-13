@@ -1,0 +1,6 @@
+type: added
+scope: skf-forger
+summary: |
+  Ferris now answers a described goal, such as `@Ferris I want skills for my whole monorepo`, with the one code, alias or chain the Workflow Selection table of the skill lifecycle knowledge recommends for it, then waits for your pick; on a first run, a recommendation that needs the forge tier comes with `SF` ahead of it. A headless start that describes a goal runs nothing and stops with "No workflow named." and the recommendation to start with instead. `KI` now ends with an offer to explain any knowledge fragment you name, briefly, with the menu codes whose workflows put it to work.
+issues: [1171]
+prs: [1212]

@@ -79,7 +79,7 @@ class TestPreflightHappyPath:
     def test_status_ok(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"passive_context": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
@@ -88,7 +88,7 @@ class TestPreflightHappyPath:
     def test_project_name_resolved(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"passive_context": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
@@ -97,7 +97,7 @@ class TestPreflightHappyPath:
     def test_user_name_resolved(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"passive_context": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
@@ -106,25 +106,34 @@ class TestPreflightHappyPath:
     def test_tier_forge_plus(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"passive_context": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
         assert result["derived"]["tier"] == "Forge+"
 
-    def test_compact_greeting(self, tmp_path):
+    def test_a_set_compact_greeting_is_ignored(self, tmp_path):
+        """#1171: the preference is gone, so a value left in preferences.yaml
+        changes nothing, no derived field carries it, and neither Ferris nor
+        the docs name it: a returning user always gets the menu."""
         root = make_project(
             tmp_path,
             preferences={"compact_greeting": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
-        assert result["derived"]["compact_greeting"] is True
+        assert result["status"] == "ok"
+        assert result["derived"] == {"tier": "Forge+", "tier_source": "detected", "headless_mode": False,
+                                     "is_first_run": False}
+        for path in (FORGER_SKILL, SCRIPT, REPO / "src" / "forger" / "preferences.yaml",
+                     REPO / "docs" / "agents.md", REPO / "docs" / "getting-started.md"):
+            assert "compact_greeting" not in _read(path), path
+        assert "Otherwise, present the menu." in _step("Greet, then dispatch or wait.")
 
     def test_not_first_run(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"passive_context": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
@@ -133,7 +142,7 @@ class TestPreflightHappyPath:
     def test_tier_source_detected(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"passive_context": True},
             forge_tier={"tier": "Forge+", "tier_detected_at": "2026-04-08"},
         )
         result = run_preflight(str(root))
@@ -265,6 +274,13 @@ class TestPreflightTierOverride:
         result = run_preflight(str(root))
         assert result["derived"]["tier_source"] == "override"
 
+    def test_an_override_before_any_sf_run_is_a_tier(self, tmp_path):
+        """The installer seeds `tier: ~`, and the workflows apply a valid `tier_override` over it, so Ferris's
+        first-run gate reads `derived.tier`, not `is_first_run` (lane review finding 9)."""
+        root = make_project(tmp_path, preferences={"tier_override": "Forge"}, forge_tier={"tier": None})
+        derived = run_preflight(str(root))["derived"]
+        assert (derived["tier"], derived["tier_source"], derived["is_first_run"]) == ("Forge", "override", True)
+
 
 class TestPreflightLiteralSidecarPath:
     """Suite 6: Literal sidecar_path string."""
@@ -301,7 +317,6 @@ class TestPreflightAllowMissingSidecar:
         assert result["derived"] == {
             "tier": None,
             "tier_source": None,
-            "compact_greeting": False,
             "headless_mode": False,
             "is_first_run": True,
         }
@@ -325,13 +340,13 @@ class TestPreflightAllowMissingSidecar:
     def test_existing_sidecar_is_read_as_usual(self, tmp_path):
         root = make_project(
             tmp_path,
-            preferences={"compact_greeting": True},
+            preferences={"headless_mode": True},
             forge_tier={"tier": "Forge"},
         )
         result = run_preflight(str(root), allow_missing_sidecar=True)
         assert result["sidecar"]["missing"] is False
         assert result["derived"]["tier"] == "Forge"
-        assert result["derived"]["compact_greeting"] is True
+        assert result["derived"]["headless_mode"] is True
 
     def test_undefined_sidecar_path_still_halts(self, tmp_path):
         root = make_project(tmp_path, config={
@@ -356,7 +371,7 @@ BMAD_METHOD_CONFIG = {
     "sidecar_path": "{project-root}/_bmad/_memory/forger-sidecar",
 }
 RETURNING_USER = {
-    "preferences": {"compact_greeting": True, "headless_mode": True},
+    "preferences": {"passive_context": False, "headless_mode": True},
     "forge_tier": {"tier": "Forge"},
 }
 
@@ -377,7 +392,6 @@ class TestPreflightProjectRootPlaceholder:
         assert result["derived"] == {
             "tier": "Forge",
             "tier_source": "detected",
-            "compact_greeting": True,
             "headless_mode": True,
             "is_first_run": False,
         }
@@ -456,9 +470,9 @@ class TestPreflightHeadlessMode:
     @pytest.mark.parametrize(("preferences", "expected"), [
         ({"headless_mode": True}, True),
         ({"headless_mode": False}, False),
-        # Only a YAML boolean counts, as for compact_greeting.
+        # Only a YAML boolean counts.
         ({"headless_mode": "true"}, False),
-        ({"compact_greeting": True}, False),
+        ({"passive_context": True}, False),
     ])
     def test_headless_mode(self, tmp_path, preferences, expected):
         root = make_project(tmp_path, preferences=preferences, forge_tier={"tier": "Forge"})
@@ -946,9 +960,9 @@ class TestForgerActivation:
     """Suite 11: Ferris's On Activation runs this script (#608)."""
 
     def test_order(self):
-        """The guard runs before anything loads the config, the customization
-        resolver after the preflight's halts, and the resume offer is read
-        before the greeting that carries it."""
+        """The guard runs before anything loads the config, the preflight and
+        the customization resolver run in one message, and the resume offer
+        is read before the greeting that carries it."""
         steps = _steps()
         expected = ["Config guard.", "Preflight.", "Resolve agent customization.", "Resolve `{headless_mode}`",
                     "Read the pipeline journal", "Greet, then dispatch or wait."]
@@ -961,6 +975,32 @@ class TestForgerActivation:
         assert "If `{project-root}/_bmad/skf/config.yaml` does not exist, HARD HALT" in guard
         assert "uv run" not in guard
         assert "<preflight>" not in guard
+
+    def test_one_probe_then_the_preflight_and_the_resolver_in_one_message(self):
+        """#1171 architecture-4: step 1 checks the config and both helpers in
+        one call, its config halt winning whatever the helpers, then steps 2
+        and 3 send their calls together, a preflight halt winning over the
+        resolver's output and step 3's rules waiting for both."""
+        intro = _activation().split("1. **Config guard.**", 1)[0]
+        assert ("Steps 2 and 3 send their calls together, in one message; each other step waits for what an "
+                "earlier one binds.") in intro
+        guard = _step("Config guard.")
+        assert "In one call that runs no script" in guard
+        assert ("check which of these paths exist: `{project-root}/_bmad/skf/config.yaml`, the two "
+                "`skf-preflight.py` paths step 2 names and the two `skf-resolve-customization.py` paths step 3 "
+                "names") in guard
+        assert "HARD HALT, whatever that check found for the helpers" in guard
+        preflight = _step("Preflight.")
+        assert preflight.lstrip().startswith("From step 1's check, resolve `<preflight>`")
+        assert ("Otherwise run it once, in the same message as step 3's resolver call; a halt this call returns "
+                "wins over anything the resolver printed:") in preflight
+        assert "It loads the config" not in preflight
+        assert "It prints one JSON object:" in preflight
+        resolver = _step("Resolve agent customization.")
+        assert ("(the first that exists), by step 1's check, and run this call in the same message as step 2's; "
+                "the rules below apply once both calls return:") in resolver
+        assert resolver.index("the rules below apply once both calls return") < resolver.index("```bash")
+        assert "headless-gate-convention" not in _read(FORGER_SKILL)
 
     def test_preflight_probes_the_installed_script_first(self):
         step = _step("Preflight.")
@@ -988,7 +1028,6 @@ class TestForgerActivation:
         result = json.loads(done.stdout)
         assert (Path(result["config"]["sidecar_path_resolved"]) / latest.name).is_file()
         assert result["derived"]["is_first_run"] is False
-        assert result["derived"]["compact_greeting"] is True
         assert result["derived"]["headless_mode"] is True
 
     def test_binds_each_folder_from_its_resolved_path(self):
@@ -1089,13 +1128,101 @@ class TestForgerMenu:
         assert -1 not in positions, dict(zip(paths, positions))
         assert positions == sorted(positions)
 
+    def test_first_run_qs_says_what_it_enables(self):
+        """#1171 agent-cohesion-5: principle 1 keeps its name and says where a
+        citation is line-level, so the QS highlight no longer calls its skill
+        an uncited draft."""
+        principle = next(line for line in _section(_read(FORGER_SKILL), "## Identity & Principles").splitlines()
+                         if line.startswith("- Zero hallucination tolerance"))
+        assert principle == ("- Zero hallucination tolerance: every claim traces to the source, with a line-level "
+                             "citation wherever the forge parses it and a T1-low label where it only reads it")
+        # The install-time roster copy of the persona says the same (lane review finding 12).
+        manifest = next(line for line in _read(FORGER_MANIFEST).splitlines() if line.startswith("principles:"))
+        assert manifest.startswith(f'principles: "{principle[2:]}. ')
+        greeting = _step("Greet, then dispatch or wait.")
+        assert ("**QS** (fastest trial: a skill from a GitHub URL or package name in under a minute, its public API "
+                "read from the source)") in greeting
+        assert "uncited" not in _read(FORGER_SKILL)
+
     def test_second_workflow_offers_a_fresh_session_or_a_pipeline(self):
+        """#1171: the fresh session is the remedy, its command carrying the
+        rest of the chain, each option says what it trades, and the advice
+        comes once per session."""
         dispatch = _activation().split("**Dispatch**", 1)[1]
         single = next(line for line in dispatch.splitlines() if line.startswith("- **Any other single code**"))
-        assert "When another workflow already ran in this session and `{headless_mode}` is false" in single
-        assert "fresh session (for example `@Ferris TS cocoindex`)" in single
-        assert "as a pipeline (for example `TS[cocoindex] EX`)" in single
-        assert "in place only when the user asks for that" in single
+        for token in ("When another workflow already ran in this session and `{headless_mode}` is false, first say "
+                      "in one line that context left over from that workflow can degrade this pick.",
+                      "Then recommend the command to paste into a fresh session, carrying the rest of the chain from "
+                      "this pick on (for example `@Ferris TS[cocoindex] EX`): it starts from a clean context, where "
+                      "one workflow pasted alone (`@Ferris TS cocoindex`) keeps its own questions and a chain takes "
+                      "its workflows' default answers.",
+                      "When the rest of the chain holds more than this pick (CA, RS and DS always run alone), the "
+                      "other option is the rest of the chain run now as a pipeline (for example `TS[cocoindex] EX`), "
+                      "which keeps this session's context and takes the default answers.",
+                      "Invoke the skill in place, with its own questions, only when the user asks for that.",
+                      "Give this advice once per session: every later single code runs in place without it."):
+            assert token in single, token
+        assert "two documented options" not in single
+        # The standing reminder every menu display ends on stays word for word.
+        assert ('then the line "Run each workflow in a fresh context window for best results."'
+                in _section(_read(FORGER_SKILL), "## Capabilities"))
+
+    def test_a_described_goal_gets_one_recommendation(self):
+        """#1171 agent-cohesion-6: a goal, not a code, gets one code, alias or
+        chain from the lifecycle fragment's Workflow Selection table, and a
+        headless start that describes one halts naming it."""
+        dispatch = _activation().split("**Dispatch**", 1)[1]
+        assert dispatch.startswith(": when the user responds with a code, number, command or described goal, "
+                                   "or the invocation carries one (step 6):")
+        bullets = [line for line in dispatch.splitlines() if line.startswith("- **")]
+        goal = next(line for line in bullets if line.startswith("- **A described goal**"))
+        assert bullets.index(goal) == bullets.index(next(b for b in bullets
+                                                         if b.startswith("- **Any other single code**"))) - 1
+        for token in ("not a code, number, alias, chain or a request that names one workflow plainly",
+                      "load `knowledge/skill-lifecycle.md` and answer in one line with the one code, alias or chain "
+                      "its Workflow Selection table (Example 1) recommends for that goal, written as a pick Dispatch "
+                      "runs, with a `<...>` placeholder for each input it needs (the table's `AN → CS (batch)` reads "
+                      "`AN[<project-path>] CS`), then wait for the pick",
+                      "With no forge tier yet (`derived.tier` null), a recommendation that holds AN, BS, CS, SS, TS, "
+                      "US or AS (every alias does) puts SF ahead of it as step 6 writes a first-run pick",
+                      "When the invocation carries `--headless` or `-H`, run nothing and HARD HALT: \"**No workflow "
+                      "named.** A headless start runs the code, alias or chain it names. For that goal, start me with "
+                      "`<recommendation>`.\""):
+            assert token in goal, token
+        assert "{headless_mode}" not in goal  # a start headless only by preference waits at the menu
+        assert "### Example 1: Workflow Selection Decision" in _read(LIFECYCLE)
+        picks = _step("Greet, then dispatch or wait.").split("When the invocation carries a pick", 1)[1]
+        picks = picks.split("greet in one line", 1)[0]
+        assert "a goal it describes, such as `I want skills for my whole monorepo`, which goes to Dispatch's " \
+               "described-goal bullet" in picks
+
+    def test_ki_offers_to_explain_a_fragment(self):
+        """#1171 enhancement-9: KI ends with an offer, and a named fragment is
+        explained with the codes whose workflows use it, from the Knowledge
+        Map."""
+        ki = _inline("KI")
+        assert ki.count("\n") == 1  # still one line
+        display = ki.index("Load and display `{project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv`")
+        offer = ki.index("then offer in one line to explain any fragment by name")
+        assert display < offer < ki.index("If the CSV is missing")
+        assert ("When the user names one, load its `fragment_file` (a `knowledge/` path, resolved as **Conventions** "
+                "say), explain it briefly and name the menu codes whose workflows put it to work, as the Key "
+                "Workflows column of the Knowledge Map in `knowledge/overview.md` lists them.") in ki
+        assert "| Key Workflows " in _read(REPO / "src" / "knowledge" / "overview.md")
+
+    def test_no_prose_that_no_step_acts_on(self):
+        """#1171 leanness-2, leanness-3 and architecture-6."""
+        text = _read(FORGER_SKILL)
+        critical = _section(text, "## Critical Actions")
+        assert [line for line in critical.splitlines() if line.startswith("- ")][0].endswith(
+            "to its own run folder under `{project-root}/_bmad-output/.skf-run/`.")
+        assert len([line for line in critical.splitlines() if line.startswith("- ")]) == 2
+        for gone in ("skf-knowledge-index.csv` to select", "reading from knowledge/ and workflow files elsewhere",
+                     "`references/` holds the pipeline run procedure", "these rows carry no registered skill",
+                     "It loads the config, resolves its folders", "for gate-type resolution"):
+            assert gone not in text, gone
+        assert ("e.g. `shared/references/pipeline-contracts.md` and `knowledge/skill-lifecycle.md`."
+                in _section(text, "## Conventions"))
 
     def test_ws_reads_one_status_call(self):
         """#608 determinism-5: forge-status.py joins the briefs, the inventory,
