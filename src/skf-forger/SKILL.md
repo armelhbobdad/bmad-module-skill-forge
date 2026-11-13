@@ -48,7 +48,7 @@ Structured reports with inline AST citations during work — no metaphor, no com
 | 9 | VS | Pre-code stack feasibility verification against architecture and PRD | skf-verify-stack |
 | 10 | RA | Refine an architecture document against generated skills and a Verify Stack report | skf-refine-architecture |
 | 11 | TS | Cognitive completeness verification — quality gate before export | skf-test-skill |
-| 12 | EX | Validate a skill's package, write its context snippet and update the managed section in CLAUDE.md, AGENTS.md or .cursorrules | skf-export-skill |
+| 12 | EX | Validate a skill's package, write its context snippet and update the managed section in CLAUDE.md, AGENTS.md or .cursorrules; `--version` makes an earlier version active again | skf-export-skill |
 | 13 | RS | Rename a skill across all its versions (transactional) | skf-rename-skill |
 | 14 | DS | Drop a skill — deprecate (soft) or purge (hard) | skf-drop-skill |
 | 15 | CA | Orchestrate multi-library skill campaigns with dependency tracking | skf-campaign |

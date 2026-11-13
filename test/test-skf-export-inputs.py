@@ -32,6 +32,8 @@ commands it documents:
 - #1166: SKILL.md stays under its 2,500-token budget with the Run log rule,
   its run folder moved to references/result-envelope.md, and step 2 runs
   `{validateOutputHelper}` too.
+- #1172: `--version` is a contract flag that step 1 parses, and §5's Version
+  cell names the version it makes active in place of.
 """
 
 from __future__ import annotations
@@ -143,7 +145,7 @@ def _contract_flags() -> set[str]:
 def test_every_contract_flag_is_parsed_and_every_parsed_flag_is_listed():
     """#594: --context-file was parsed by step 1 but missing from the contract."""
     flags = _contract_flags()
-    assert flags == {"--headless", "-H", "--all", "--context-file", "--dry-run"}
+    assert flags == {"--headless", "-H", "--all", "--context-file", "--dry-run", "--version"}
     parsing = _section(_read(LOAD), "**Flag Parsing:**", "**Context File Resolution:**")
     parsed = set(re.findall(r"^- `(--[a-z-]+)` flag", parsing, re.M))
     headless = _section(_read(SKILL_MD), "2. **Resolve `{headless_mode}`**", "3. **Resolve workflow customization.**")
@@ -435,9 +437,10 @@ def test_each_section_3_binding_reads_a_field_the_documented_gate_prints(tmp_pat
     proc = subprocess.run([sys.executable, str(COUNT_TOKENS_PY), str(package)], capture_output=True, text=True,
                           encoding="utf-8", timeout=60)
     assert json.loads(proc.stdout)["references_total"]["count"] == bound["references_count"]
-    # Every placeholder §5 fills from §3 is one §3 binds.
+    # Every placeholder §5 fills from §3 is one §3 binds: the versions come from §1 and §2, the test from §4b.
     cells = _summary_section()[_summary_section().index("Fill the capitalized cells"):]
-    used = set(re.findall(r"\{(\w+)\}", cells)) - {"resolved_version", "testResult", "score"}
+    used = set(re.findall(r"\{(\w+)\}", cells)) - {"resolved_version", "requested_version", "replaced_version",
+                                                      "testResult", "score"}
     assert used <= set(bound), used - set(bound)
     assert out["result"] == "PASS" and "metadata.json`:" not in read
 

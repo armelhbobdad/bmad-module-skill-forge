@@ -159,7 +159,8 @@ SKILLS = {
            "Refine an architecture document against generated skills and a Verify Stack report"),
     "TS": ("skf-test-skill", "Cognitive completeness verification: quality gate before export"),
     "EX": ("skf-export-skill", "Validate a skill's package, write its context snippet and update the managed "
-                               "section in CLAUDE.md, AGENTS.md or .cursorrules"),
+                               "section in CLAUDE.md, AGENTS.md or .cursorrules; `--version` makes an earlier "
+                               "version active again"),
     "RS": ("skf-rename-skill", "Rename a skill across all its versions (transactional)"),
     "DS": ("skf-drop-skill", "Drop a skill: deprecate (soft) or purge (hard)"),
 }

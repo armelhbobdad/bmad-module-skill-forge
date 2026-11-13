@@ -3,6 +3,9 @@ nextStepFile: 'generate-snippet.md'
 findTestReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
   - '{project-root}/src/shared/scripts/skf-find-test-report.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -58,6 +61,9 @@ Store the resolved selection as `skill_batch` — a list of one or more skill na
 - `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is every `skills[].name` of the `exportable --all` call above.
 - `--context-file` flag: Check if explicitly provided (CLAUDE.md, .cursorrules, or AGENTS.md); `references/invocation-contract.md` lists it.
 - `--dry-run` flag: Check if provided. Default: `false`
+- `--version` flag: Check if provided, and bind `{requested_version}` ← its value, else null. It names an earlier version of the one skill to make active again: §2 resolves that version, and step 3 §9b points the `active` link at it before the manifest records it. When `{requested_version}` is set:
+  - With `--all`, or when `len(skill_batch) > 1`, HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**`--version` restores one skill at a time.** Name one skill with `--version <v>`, without `--all`, then re-run."
+  - Otherwise resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}`, which step 3 §9b runs. When neither exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`): "`skf-atomic-write.py` is missing. Nothing was changed. Re-install SKF."
 
 **Context File Resolution:**
 
@@ -97,10 +103,12 @@ A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper
 The inventory helper chooses the version to export and binds its paths by the Reading Workflows rules of `knowledge/version-paths.md` (the Manifest-lag guard included), so this step never reads the export manifest or the `active` link by hand. Run:
 
 ```bash
-uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"
+uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}" [--version {requested_version}]
 ```
 
-Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{resolved_skill_package}` ← `skill_package`, `{forge_version}` ← `forge_version` (the version's forge folder), `{forge_evidence_report}` ← `paths.evidence_report.path` (that folder's `evidence-report.md`, else the flat copy an older skill keeps, else null), which step 2 derives the gotchas from, and `{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the flat copy, else null), whose `export_type` gives step 2 the `()` of an api name new to the line. Log each `resolve.errors` entry, and `resolve.manifest_error` when it is set, as an Info note, then act on `reason`:
+Pass `--version` only when §1 bound `{requested_version}`. Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{resolved_skill_package}` ← `skill_package`, `{forge_version}` ← `forge_version` (the version's forge folder), `{forge_evidence_report}` ← `paths.evidence_report.path` (that folder's `evidence-report.md`, else the flat copy an older skill keeps, else null), which step 2 derives the gotchas from, and `{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the flat copy, else null), whose `export_type` gives step 2 the `()` of an api name new to the line. Log each `resolve.errors` entry, and `resolve.manifest_error` when it is set, as an Info note, then act on `reason`:
+
+**`requested`** (a `--version` run): `resolve` takes the version as given, so check it here. Bind `{replaced_version}` ← `symlink_target`, else `active_version`: the version this run makes `{requested_version}` active in place of. When `skill_package_exists` is false, or no `versions` entry of `{requested_version}` has `on_disk` true (`active` and a `.skf-` folder are not version folders), or the `versions` entry of `{requested_version}` has `status` `"deprecated"` (deprecated versions are never exported), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §2`): "**v{requested_version} of `{skill-name}` cannot be made active:** {it has no package at `{resolved_skill_package}` / it is not a version folder of `{skill-name}` / the export manifest marks it deprecated}. Versions it can restore: {restorable}. Re-run with one of them, or without `--version`." `{restorable}` lists the `version` of each `versions` entry whose `on_disk` is true and whose `status` is not `"deprecated"`, comma-joined, else `none`. Otherwise continue, and emit the Info note "Restoring v{requested_version}: step 3 points the `active` link at it and records it as the manifest's active_version, in place of v{replaced_version}.", without its last clause when `{replaced_version}` is null or equals `{requested_version}`.
 
 1. `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Continue.
 2. `manifest-lags-link` (the Manifest-lag guard): the `active` link names a version the manifest has not caught up with, as when a create or update run flipped `active` after the last export (the SS→TS→EX order). Continue with the link's version, and emit the helper's `detail` as an Info note, followed by "Exporting v{resolved_version}: the manifest's active_version advances to it on this export." Step 3 publishes the version in `{resolved_skill_package}/metadata.json`, so the manifest catches up here.
@@ -196,7 +204,7 @@ Display one table, a row per skill in `skill_batch`, then the configuration once
 
 Fill the capitalized cells of each skill's row from its §2 to §4b results:
 
-- **Version:** `v{resolved_version}`, with ` (migrated from the flat layout)` when §2 migrated the skill on this run; `flat layout, would migrate` when `{resolved_version}` is null (a flat skill in a dry run).
+- **Version:** `v{resolved_version}`, with ` (migrated from the flat layout)` when §2 migrated the skill on this run; `flat layout, would migrate` when `{resolved_version}` is null (a flat skill in a dry run). With `--version`, append ` (made active in place of v{replaced_version})` when `{replaced_version}` is set and differs from `{requested_version}`.
 - **Type:** `{skill_type}`; for a stack, `stack ({components_count} libraries, {integrations_count} integrations)`, with `n/a` for a null count.
 - **Confidence:** `{confidence_tier}`, with ` (forge {forge_tier})` when `{forge_tier}` is set.
 - **Exports:** `{exports_count}`, then `{top_exports}`, comma-joined, in parentheses when it names one, as in `42 (z, ZodType, parse, safeParse, infer)`.

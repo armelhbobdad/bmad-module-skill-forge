@@ -159,6 +159,8 @@ Its managed section and both markers are removed; the content outside them stays
 
 **[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**
 
+{With `--version`:} **[DRY RUN] `active` would point at v{requested_version} for {skill-name}.**
+
 **Proceeding to token report...**"
 
 List every skill in `skill_batch`, and give `{ides_written}` as §9b defines it, over the targets above, or `none` when it is empty. §9 to §9c do not run: keep the `{export_stage_dir}` folder, whose drafts and previews step 4 measures, and auto-proceed to {nextStepFile}.
@@ -217,6 +219,14 @@ python3 {rebuildManagedSectionsHelper} "{context_path}" clear
 
 **`ides_written`** is the list of IDE identifiers from `config.yaml` `ides` (e.g. `claude-code`, `cursor`, `github-copilot`) whose context file §9 wrote: the `ides` of each `target_context_files` entry §9 wrote, joined, deduplicated and sorted. It is never a context file name (`CLAUDE.md`) or a skill root (`.claude/skills/`). A file §9 cleared adds no IDE, and with passive context off `ides_written` is empty.
 
+**With `--version`** (§1 bound `{requested_version}`, so the batch is one skill), and not in a dry run, first point the skill's `active` link at that version through the `{atomicWriteHelper}` step 1 §1 resolved:
+
+```bash
+uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{skill-name}/active" --target "{requested_version}"
+```
+
+It exits 0 and prints `points_to` once the link names the version: report "**`active` now points at v{requested_version}** for {skill-name}, in place of v{replaced_version}.", without the `in place of` clause when `{replaced_version}` is null or equals `{requested_version}`, then run `set` below, which records the version as `active_version` and archives the version the manifest had active. On a non-zero exit or no JSON (another run holds the flip lock, or `active` is a real folder, not a link), HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9b`) with the helper's error, before any `set`: the export manifest is unchanged, the context files §9 wrote stay written, and no snippet is written. Fix the cause, then re-run `[EX] Export Skill {skill-name} --version {requested_version}`.
+
 For each skill, run `set`, with `--ides` only when `ides_written` is not empty:
 
 ```bash
@@ -225,7 +235,7 @@ python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [-
 
 `{ides_written}` is comma-joined. `set` does the whole update, migrating a v1 manifest first, and writes the manifest atomically (the v2 shape is in `references/manifest-rebuild.md`). It exits 0 with `status: "ok"` only once the manifest is written, so that result confirms the write. Once every `set` has exited 0, bind `{manifest_path}` ← `{skills_output_folder}/.export-manifest.json`, which step 5 reports; it stays null on a dry run and after a failed write.
 
-**Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**" (list every skill in `skill_batch`; `ides_written` is empty with passive context off, so show `none`). A dry run with passive context on displayed this line at §8 and never reaches this section. Then auto-proceed to {nextStepFile}.
+**Dry-run mode:** Do NOT update the manifest or move the `active` link. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**" (list every skill in `skill_batch`; `ides_written` is empty with passive context off, so show `none`), and with `--version` also "**[DRY RUN] `active` would point at v{requested_version} for {skill-name}.**". A dry run with passive context on displayed this line at §8 and never reaches this section. Then auto-proceed to {nextStepFile}.
 
 **Error handling:** If `set` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `update-context §9b`) with the helper's `error` (its stderr when stdout holds no JSON). The context files §9 wrote stay written, and no snippet is written: re-run `[EX] Export Skill` on the batch, which writes the same sections again, records the manifest and writes the snippets.
 

@@ -180,7 +180,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
       "**Cannot drop the active version `{version}`.**
       Other non-deprecated versions of `{target_skill}` still exist. To proceed, either:
 
-      **(a)** Make the version you keep active first: point the `active` link at it (`uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{target_skill}/active" --target <version to keep>`), run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, then return here to drop `{version}`, OR
+      **(a)** Make the version you keep active first: run `[EX] Export Skill {target_skill} --version <version to keep>`, which points the `active` link at that version, exports it and archives `{version}`, then return here to drop `{version}`, OR
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 

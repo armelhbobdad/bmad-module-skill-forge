@@ -22,6 +22,10 @@ workflows:
   is bound at activation, by its name or its flag.
 
 skf-forger is the agent, not a workflow: it dispatches to these contracts.
+
+Export Skill's `--version` (#1172) is followed from its contract rows to the
+step that moves the `active` link, since a contract flag that step 3 never
+acts on would make no version active.
 """
 
 from __future__ import annotations
@@ -217,3 +221,83 @@ def test_the_named_input_scan_reads_the_contracts():
     assert {"old_name", "new_name"} <= found["skf-rename-skill"]
     assert {"architecture_doc_path", "prd_path", "previous_report_path"} <= found["skf-verify-stack"]
     assert sum(len(v) for v in found.values()) >= 20, found
+
+
+# --------------------------------------------------------------------------
+# #1172: Export Skill's `--version`, from the contract to the flip
+# --------------------------------------------------------------------------
+
+EXPORT_REFS = SRC / "skf-export-skill" / "references"
+ATOMIC_WRITE_PROBE_ORDER = ("atomicWriteProbeOrder:\n"
+                            "  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'\n"
+                            "  - '{project-root}/src/shared/scripts/skf-atomic-write.py'\n")
+FLIP_CALL = ('uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{skill-name}/active" '
+             '--target "{requested_version}"')
+SET_CALL = "python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [--ides {ides_written}]"
+DRY_RUN_ACTIVE = "**[DRY RUN] `active` would point at v{requested_version} for {skill-name}.**"
+
+
+def _between(text: str, start: str, end: str) -> str:
+    assert text.count(start) == 1, f"marker {start!r} must occur once"
+    body = text[text.index(start):]
+    assert end in body, f"marker {end!r} missing after {start!r}"
+    return body[:body.index(end)]
+
+
+def test_export_version_runs_from_the_contract_to_the_flip():
+    """#1172: the contract lists `--version`, step 1 parses it for one skill, §2 resolves it and refuses a
+    version it cannot restore, and step 3 §9b points `active` at it before `set` records it."""
+    contract = _read(EXPORT_REFS / "invocation-contract.md")
+    rows = {row.split("|")[1].strip(): row for row in contract.splitlines() if FLAG_ROW_RE.match(row)}
+    assert "`version` [optional, `--version <v>`, one skill only]" in rows["**Inputs**"]
+    flag = rows["**Flags**"][rows["**Flags**"].index("`--version <v>`"):]
+    for token in ("points `{skills_output_folder}/{skill-name}/active` at it", "archives the version it replaces",
+                  "the export manifest does not mark deprecated",
+                  "refused with `--all` or with several skills, with exit code 3, `resolution-failure`"):
+        assert token in flag, token
+    load = _read(EXPORT_REFS / "load-skill.md")
+    assert ATOMIC_WRITE_PROBE_ORDER in load.split("\n---\n", 1)[0] + "\n"
+    parsing = _between(load, "**Flag Parsing:**", "**Context File Resolution:**")
+    [bullet] = [line for line in parsing.splitlines() if line.startswith("- `--version` flag:")]
+    assert "bind `{requested_version}` ← its value, else null" in bullet
+    for token in ('With `--all`, or when `len(skill_batch) > 1`, HALT (exit code 3, `halt_reason: '
+                  '"resolution-failure"`, phase `load-skill §1`)',
+                  "resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}`",
+                  'HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`)'):
+        assert token in parsing, token
+    resolve = _between(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
+    [call] = [line for line in resolve.splitlines() if line.startswith("uv run {skillInventoryHelper} resolve ")]
+    assert call.endswith('--forge-data-folder "{forge_data_folder}" [--version {requested_version}]')
+    requested = _between(resolve, "**`requested`** (a `--version` run):", "\n1. `manifest-and-link`")
+    for token in ("`{replaced_version}` ← `symlink_target`, else `active_version`",
+                  "`skill_package_exists` is false", '`status` `"deprecated"`',
+                  "no `versions` entry of `{requested_version}` has `on_disk` true",
+                  "active_version, in place of v{replaced_version}.",
+                  'HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §2`)',
+                  "Versions it can restore: {restorable}", "`on_disk` is true", "else `none`"):
+        assert token in requested, token
+    assert "archiving" not in requested, "`set` archives the manifest's version, not always `{replaced_version}`"
+    update = _read(EXPORT_REFS / "update-context.md")
+    manifest = _between(update, "### 9b. Update Export Manifest", "### 9c. ")
+    assert FLIP_CALL in manifest and SET_CALL in manifest
+    assert manifest.index(FLIP_CALL) < manifest.index(SET_CALL), "the link moves before the manifest records it"
+    assert "**With `--version`**" in manifest and "and not in a dry run" in manifest[:manifest.index(FLIP_CALL)]
+    assert ('HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9b`) with the helper\'s '
+            "error, before any `set`") in manifest
+    assert "re-run `[EX] Export Skill {skill-name} --version {requested_version}`" in manifest
+    dry_run = manifest[manifest.index("**Dry-run mode:**"):]
+    assert "Do NOT update the manifest or move the `active` link." in dry_run and DRY_RUN_ACTIVE in dry_run
+    menu = _between(update, "### 8. Present MENU OPTIONS", "**If NOT dry-run:**")
+    assert "{With `--version`:} " + DRY_RUN_ACTIVE in menu
+    # The exit-code map names each new halt site.
+    codes = {line.split("|")[1].strip(): line for line in _read(EXPORT_REFS / "result-envelope.md").splitlines()
+             if re.match(r"\| \d ", line)}
+    for code, site in (("3", "`--version` comes with `--all` or with several skills"),
+                       ("3", "the `--version` version has no package on disk or the export manifest marks it "
+                             "deprecated"),
+                       ("4", "step 3 §9b (with `--version`, the `active` link cannot be moved"),
+                       ("4", "step 1 §1 (with `--version`, `skf-atomic-write.py` is missing)")):
+        assert site in codes[code], (code, site)
+    # Ferris's menu names the flag on the EX row (test-skf-parse-pipeline.py holds it equal to `SKILLS["EX"]`).
+    [ex_row] = [row for row in _read(SRC / "skf-forger" / "SKILL.md").splitlines() if row.startswith("| 12 | EX |")]
+    assert "; `--version` makes an earlier version active again | skf-export-skill |" in ex_row
