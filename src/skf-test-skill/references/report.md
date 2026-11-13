@@ -258,7 +258,7 @@ Run it from `{project-root}` with a bounded timeout (default 60s). On success: l
 **Cap:** {capReason}
 
 {If `thresholdFallback` is present in output frontmatter:}
-**Threshold fallback:** scored {score}% against {originalThreshold} target — accepted at 80% floor. Evidence report: {evidenceReportPath}
+**Threshold fallback:** scored {score}% against {originalThreshold} target: accepted at 80% floor (the Completeness Score section's Threshold Fallback subsection has the details)
 
 **Gaps Found:** {total_gaps}
 - Critical: {gap_counts.Critical}

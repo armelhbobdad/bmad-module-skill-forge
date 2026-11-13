@@ -75,7 +75,7 @@ You'll be asked for a project name, where to save skills and workspace files, wh
 ## Quick Start
 
 1. **Set up your environment:** `@Ferris SF` _(Setup Forge)_ detects your tools and sets your capability tier
-2. **Zero-ceremony path:** `@Ferris forge-auto <repo-or-doc-url>` _(Forge-Auto)_ turns a repo or doc URL into a verified skill in one command. It scopes, briefs, compiles, tests and exports on its own. The test aims for a 90% score but still passes a skill that scores 80% or more, and records the shortfall in an evidence report.
+2. **Zero-ceremony path:** `@Ferris forge-auto <repo-or-doc-url>` _(Forge-Auto)_ turns a repo or doc URL into a verified skill in one command. It scopes, briefs, compiles, tests and exports on its own. The test aims for a 90% score but still passes a skill that scores 80% or more, and records the shortfall in the test report.
 3. **Fast path:** `@Ferris QS <package-name-or-github-url>` _(Quick Skill)_ writes a best-effort skill with no brief and no provenance map. `@Ferris forge-quick <package-name>` also tests and exports it.
 4. **Full quality path:** `@Ferris forge <repo-url> <skill-name>` chains Brief → Create → Test → Export automatically. For maximum control, run the same steps one at a time and start a fresh session before each: `@Ferris BS` _(Brief Skill)_, `@Ferris CS` _(Create Skill)_, `@Ferris TS` _(Test Skill)_, `@Ferris EX` _(Export Skill)_.
 

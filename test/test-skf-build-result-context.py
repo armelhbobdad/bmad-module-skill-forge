@@ -201,8 +201,7 @@ def test_a_missing_ledger_or_report_is_refused(tmp_path):
 
 CASES = [
     ("pass", False, {}),
-    ("pass", False, {"thresholdFallback": "true", "originalThreshold": "'90%'",
-                     "evidenceReportPath": "'f/evidence-report-fallback.md'"}),
+    ("pass", False, {"thresholdFallback": "true", "originalThreshold": "'90%'"}),
     ("inconclusive", False, {}),
     ("fail", True, {}),
 ]
@@ -511,7 +510,7 @@ COMPUTE_SCORE = TS / "scripts" / "compute-score.py"
 compute = _load("skf_compute_score_for_settle_test", COMPUTE_SCORE)
 CATEGORIES = ("exportCoverage", "signatureAccuracy", "typeCoverage", "coherence", "externalValidation")
 VERDICT_KEYS = ("testResult", "score", "threshold", "nextWorkflow")
-FALLBACK_KEYS = ("thresholdFallback", "originalThreshold", "evidenceReportPath")
+FALLBACK_KEYS = ("thresholdFallback", "originalThreshold")
 
 
 def _settle_report(folder: Path, crlf: bool = False, **front: str) -> Path:
@@ -550,11 +549,8 @@ def _external(folder: Path, tools: list[str] | None = None) -> Path:
     return path
 
 
-def _settle(report: Path, score: Path, external: Path, evidence: str | None = "f/evidence-report-fallback.md"):
-    args = ["settle", "--report", str(report), "--score", str(score), "--external", str(external)]
-    if evidence is not None:
-        args += ["--evidence-report", evidence]
-    return _run(*args)
+def _settle(report: Path, score: Path, external: Path, *extra: str):
+    return _run("settle", "--report", str(report), "--score", str(score), "--external", str(external), *extra)
 
 
 def _front_lines(report: Path) -> dict[str, str]:
@@ -586,8 +582,7 @@ def _builds(tmp_path: Path, report: Path, score: Path) -> dict:
      ("FAIL", 2, "update-skill")),
     ("fallback", {"threshold": "'90%'"}, {"all": 85, "threshold": 90},
      {"testResult": "'pass'", "score": "'85%'", "threshold": "'80%'", "nextWorkflow": "'export-skill'",
-      "thresholdFallback": "true", "originalThreshold": "'90%'",
-      "evidenceReportPath": "'f/evidence-report-fallback.md'"},
+      "thresholdFallback": "true", "originalThreshold": "'90%'"},
      ("PASS", 0, "export-skill")),
     ("drift", {"workspaceDrift": "'overridden'"}, {"all": 91.5},
      {"testResult": "'pass-with-drift'", "score": "'91.5%'", "threshold": "'80%'", "nextWorkflow": "'update-skill'"},
@@ -610,7 +605,9 @@ def test_settle_writes_the_verdict_fields_the_build_then_accepts(tmp_path, case,
     for key, value in expected.items():
         assert lines[key] == f"{key}: {value}", (key, lines[key])
     if "thresholdFallback" not in expected:
-        assert not set(lines) & {"thresholdFallback", "originalThreshold", "evidenceReportPath"}
+        assert not set(lines) & set(FALLBACK_KEYS)
+    # #1190: settle records no evidence report path, so the report names none
+    assert "evidenceReportPath" not in lines
     # every line but the verdict fields is kept, in its place; the fallback keys come before the closing ---.
     # Keys compare whole: `thresholdSource` is no `threshold` line, and settle keeps it.
     kept = [line for line in before.decode("utf-8").split("\n") if line.split(":", 1)[0] not in VERDICT_KEYS]
@@ -628,13 +625,21 @@ def test_settle_writes_the_verdict_fields_the_build_then_accepts(tmp_path, case,
     if case == "capped-fail":
         cap = json.loads(score.read_text(encoding="utf-8"))["capReason"]
         assert f"**Result:** **FAIL**\n**Cap:** {cap}\n" in section
+    # #1190: the Result block carries no fallback line; after a fallback, settle's output ends with the subsection
+    # (score.md §6 adds its Access Degradation Notice after that output on a degraded run)
+    assert "**Threshold Fallback:**" not in section and "Evidence report" not in section
     if case == "fallback":
         assert payload["threshold_fallback"] is True and payload["original_threshold"] == 90
-        source = section.index("**Threshold Source:** bundled default (80%)\n")
-        assert section.index("**Threshold Fallback:** scored 85% against 90% target: accepted at 80% floor. "
-                             "Evidence report: f/evidence-report-fallback.md\n") > source
+        assert "evidence_report_path" not in json.dumps(payload)
+        result_block = section[section.index("### Result\n"):section.index("### Threshold Fallback\n")]
+        assert result_block.endswith("**Tooling Status:** ok\n\n")
+        assert section.endswith("### Threshold Fallback\n\n**Attempted Threshold:** 90%\n**Achieved Score:** 85%\n"
+                                "**Accepted At:** 80% floor\n**Threshold Source:** bundled default (80%)\n"
+                                "**Prior Test Report:** none found beside this report\n"
+                                "**Findings:** the Gap Report lists this run's gaps; address them to reach the 90% "
+                                "target\n")
     else:
-        assert "**Threshold Fallback:**" not in section
+        assert "### Threshold Fallback" not in section
     if case == "plain-pass":
         # a contextual run in which every category scored keeps its full weights
         assert "\n**Weight Distribution:** contextual (full)\n" in section
@@ -646,7 +651,9 @@ def test_settle_writes_the_verdict_fields_the_build_then_accepts(tmp_path, case,
 
 
 def test_settle_removes_the_fallback_keys_a_run_without_one_left(tmp_path):
-    """A rerun whose earlier score fell back: the three keys go, so build finds no fallback the output never settled."""
+    """A rerun whose earlier score fell back: the two keys go, so build finds no fallback the output never settled.
+    #1190: an `evidenceReportPath` an older run wrote is neither settle's to remove nor build's to read."""
+    old = "evidenceReportPath: 'f/evidence-report-fallback.md'"
     report = _settle_report(tmp_path, thresholdFallback="true", originalThreshold="'90%'",
                             evidenceReportPath="'f/evidence-report-fallback.md'")
     assert set(FALLBACK_KEYS) <= set(_front_lines(report))
@@ -654,7 +661,10 @@ def test_settle_removes_the_fallback_keys_a_run_without_one_left(tmp_path):
     proc = _settle(report, score, _external(tmp_path))
     assert proc.returncode == 0, proc.stderr
     assert not set(FALLBACK_KEYS) & set(_front_lines(report))
-    assert "threshold_fallback" not in _builds(tmp_path, report, score)
+    assert _front_lines(report)["evidenceReportPath"] == old
+    assert "### Threshold Fallback" not in proc.stdout
+    payload = _builds(tmp_path, report, score)
+    assert "threshold_fallback" not in payload and "evidence_report_path" not in json.dumps(payload)
 
 
 def test_settle_keeps_a_crlf_report_crlf(tmp_path):
@@ -667,8 +677,7 @@ def test_settle_keeps_a_crlf_report_crlf(tmp_path):
     assert raw.startswith(b"\xef\xbb\xbf---\r\n")
     assert b"\n" not in raw.replace(b"\r\n", b"")
     assert b"score: '85%'\r\n" in raw
-    assert (b"thresholdFallback: true\r\noriginalThreshold: '90%'\r\n"
-            b"evidenceReportPath: 'f/evidence-report-fallback.md'\r\n---\r\n") in raw
+    assert b"thresholdFallback: true\r\noriginalThreshold: '90%'\r\n---\r\n" in raw
     assert _builds(tmp_path, report, score)["threshold"] == 80
 
 
@@ -681,7 +690,6 @@ def test_settle_keeps_a_crlf_report_crlf(tmp_path):
     ("blocked", 1, "the hard gate blocked"),
     ("no-frontmatter", 1, "has no frontmatter"),
     ("unclosed-frontmatter", 1, "has no frontmatter"),
-    ("fallback-without-evidence", 2, "pass --evidence-report"),
 ])
 def test_settle_refuses_and_leaves_the_report_as_it_was(tmp_path, case, code, error):
     report = _settle_report(tmp_path, hardGate="'blocked'" if case == "blocked" else "'passed'")
@@ -690,7 +698,7 @@ def test_settle_refuses_and_leaves_the_report_as_it_was(tmp_path, case, code, er
     if case == "unclosed-frontmatter":
         report.write_bytes(b"---\ntestResult: ''\nscore: ''\n# Test Report: demo\n")
     before = report.read_bytes()
-    score = _scored(tmp_path, all=85, threshold=90) if case == "fallback-without-evidence" else _scored(tmp_path)
+    score = _scored(tmp_path)
     if case == "refused-score":
         score.write_bytes(json.dumps({"error": "threshold must be a number", "code": "INVALID_INPUT"}).encode())
     if case == "not-a-score":
@@ -702,7 +710,7 @@ def test_settle_refuses_and_leaves_the_report_as_it_was(tmp_path, case, code, er
         external = _external(tmp_path, ["skill-check", "linter"])
     if case == "missing-external":
         external = tmp_path / "gone.json"
-    proc = _settle(report, score, external, None if case == "fallback-without-evidence" else "f/e.md")
+    proc = _settle(report, score, external)
     assert proc.returncode == code, proc.stdout + proc.stderr
     assert proc.stdout == "" and len(proc.stderr.strip().splitlines()) == 1
     assert proc.stderr.startswith("error: ") and error in proc.stderr, proc.stderr
@@ -728,24 +736,21 @@ def test_a_failed_write_leaves_the_report_as_it_was(tmp_path, monkeypatch, capsy
     assert not list(tmp_path.glob(".*.settle-*.tmp"))
 
 
-def test_settle_writes_a_quote_in_the_evidence_path_as_yaml_reads_it(tmp_path):
-    """A single quote in the evidence report's path is written twice, as YAML's single-quoted form has it, and
-    report.md §4c's build reads the path back as it was."""
-    report = _settle_report(tmp_path, threshold="'90%'")
-    score = _scored(tmp_path, all=85, threshold=90)
-    evidence = "/home/o'neil/forge/demo/1.0.0/evidence-report-fallback.md"
-    proc = _settle(report, score, _external(tmp_path), evidence)
-    assert proc.returncode == 0, proc.stderr
-    doubled = evidence.replace("'", "''")
-    assert _front_lines(report)["evidenceReportPath"] == f"evidenceReportPath: '{doubled}'"
-    head = report.read_bytes().decode("utf-8").split("---", 2)[1]
-    assert yaml.safe_load(head)["evidenceReportPath"] == evidence
-    assert _builds(tmp_path, report, score)["result_contract"]["summary"]["evidence_report_path"] == evidence
-
-
 def test_a_usage_error_is_exit_2():
     proc = _run("settle", "--report", "r.md")
     assert proc.returncode == 2 and "--score" in proc.stderr
+
+
+def test_an_old_caller_passing_evidence_report_writes_nothing(tmp_path):
+    """#1190: settle takes no --evidence-report, so a score.md that still passes it gets argparse's usage error (exit
+    2), and the report keeps every byte, the fallback that would have fired included."""
+    report = _settle_report(tmp_path, threshold="'90%'")
+    before = report.read_bytes()
+    proc = _settle(report, _scored(tmp_path, all=85, threshold=90), _external(tmp_path),
+                   "--evidence-report", "f/evidence-report-fallback.md")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert proc.stdout == "" and "unrecognized arguments: --evidence-report" in proc.stderr
+    assert report.read_bytes() == before
 
 
 GOLDEN_SECTION = """## Completeness Score
@@ -793,6 +798,121 @@ def test_settle_prints_the_golden_completeness_score_section(tmp_path):
     assert _builds(tmp_path, report, score)["verdict"] == "pass-with-drift"
 
 
+# #1190: the Design Notes golden, 85 against a CLI 90% target with one earlier report of the version.
+GOLDEN_FALLBACK = """### Threshold Fallback
+
+**Attempted Threshold:** 90%
+**Achieved Score:** 85%
+**Accepted At:** 80% floor
+**Threshold Source:** CLI override (90%)
+**Prior Test Report:** `test-report-demo-20260101T000000Z-ab12cd34.md`: an earlier test report of this version
+**Findings:** the Gap Report lists this run's gaps; address them to reach the 90% target
+"""
+GOLDEN_PRIOR = "`test-report-demo-20260101T000000Z-ab12cd34.md`: an earlier test report of this version"
+
+
+@pytest.mark.parametrize("earlier, prior", [
+    # this run's own report keeps its hidden `.skf-` name, so a folder with no published report names none
+    ([], None),
+    (["test-report-demo-20260101T000000Z-ab12cd34.md"], "test-report-demo-20260101T000000Z-ab12cd34.md"),
+    # each run id starts with its UTC time: the latest stamp wins, whatever order the folder lists
+    (["test-report-demo-20260102T000000Z-bb.md", "test-report-demo-20260101T000000Z-aa.md"],
+     "test-report-demo-20260102T000000Z-bb.md"),
+    # an SKF 2.x name holds no stamp, so it ranks older than every stamped one, and a report kept under the
+    # skill's name before a rename ranks by its stamp, not by that name
+    (["test-report-demo.md", "test-report-zeta-20260103T000000Z-cc.md", "test-report-demo-20260102T000000Z-bb.md"],
+     "test-report-zeta-20260103T000000Z-cc.md"),
+    (["test-report-demo.md"], "test-report-demo.md"),
+    # the same, with names whose plain order would put the 2.x one last
+    (["test-report-demo.md", "test-report-alpha-20260103T000000Z-cc.md", "test-report-demo-20260102T000000Z-bb.md"],
+     "test-report-alpha-20260103T000000Z-cc.md"),
+], ids=["first-run", "one-earlier", "two-earlier", "legacy-and-renamed", "legacy-only", "legacy-and-renamed-from-a"])
+def test_settle_records_the_fallback_in_its_own_subsection(tmp_path, earlier, prior):
+    """#1190: a threshold fallback is recorded in the Completeness Score section, after the Result block's last
+    line, and in no file of its own: the target, the raw score, the floor, the threshold source, the latest
+    earlier test report beside this one and a pointer to the Gap Report."""
+    forge_version = tmp_path / "forge" / "demo" / "1.0.0"
+    run_dir = tmp_path / "run"
+    forge_version.mkdir(parents=True)
+    run_dir.mkdir()
+    for name in earlier:
+        (forge_version / name).write_bytes(b"---\ntestResult: 'fail'\n---\n# R\n")
+    # neither a drift report nor a folder holding a report's name, whose stamp would rank last, is a test report
+    (forge_version / "drift-report-20260103T000000Z.md").write_bytes(b"# D\n")
+    (forge_version / "test-report-demo-20991231T000000Z-zz.md").mkdir()
+    report = _settle_report(forge_version, threshold="'90%'", thresholdSource="'CLI override (90%)'")
+    score = _scored(run_dir, all=85, threshold=90)
+    proc = _settle(report, score, _external(run_dir))
+    assert proc.returncode == 0, proc.stderr
+    line = f"`{prior}`: an earlier test report of this version" if prior else "none found beside this report"
+    golden = GOLDEN_FALLBACK.replace(GOLDEN_PRIOR, line)
+    assert proc.stdout.endswith("**Tooling Status:** ok\n\n" + golden), proc.stdout
+    assert proc.stdout.count("### Threshold Fallback") == 1
+    if earlier == ["test-report-demo-20260101T000000Z-ab12cd34.md"]:
+        assert proc.stdout.endswith(GOLDEN_FALLBACK)
+    assert not list(forge_version.glob("evidence-report*"))
+    payload = _builds(tmp_path, report, score)
+    assert (payload["threshold_fallback"], payload["original_threshold"], payload["threshold"]) == (True, 90, 80)
+    summary = payload["result_contract"]["summary"]
+    assert (summary["threshold_fallback"], summary["original_threshold"]) == (True, 90)
+    assert "evidence_report_path" not in summary and "evidence_report_path" not in json.dumps(payload)
+
+
+def test_the_fallback_subsection_follows_the_scoring_notes(tmp_path):
+    """#1190: on a fallback run that also has Scoring Notes (the golden State 2 run under a drift override, against
+    a 90% target), the notes stay the Result block's last line and the subsection follows them."""
+    source = "'pipeline default (forge-auto → 90%)'"
+    report = _settle_report(tmp_path, testMode="'naive'", forgeTier="'Forge'", workspaceDrift="'overridden'",
+                            analysisConfidence="'provenance-map'", threshold="'90%'", thresholdSource=source)
+    score = _scored(tmp_path, threshold=90, mode="naive", tier="Forge", state2=True,
+                    analysisConfidence="provenance-map",
+                    scores={**dict.fromkeys(CATEGORIES), "exportCoverage": 95, "externalValidation": 88},
+                    state2Counts={"provenance": 10, "metadata": 10, "union": 14})
+    proc = _settle(report, score, _external(tmp_path, ["skill-check", "tessl"]))
+    assert proc.returncode == 0, proc.stderr
+    subsection = ("\n### Threshold Fallback\n\n**Attempted Threshold:** 90%\n**Achieved Score:** 85.55%\n"
+                  "**Accepted At:** 80% floor\n**Threshold Source:** pipeline default (forge-auto → 90%)\n"
+                  "**Prior Test Report:** none found beside this report\n"
+                  "**Findings:** the Gap Report lists this run's gaps; address them to reach the 90% target\n")
+    assert proc.stdout == GOLDEN_SECTION.replace("forge-auto → 80%", "forge-auto → 90%") + subsection
+    payload = _builds(tmp_path, report, score)
+    assert (payload["verdict"], payload["threshold_fallback"], payload["original_threshold"]) == \
+        ("pass-with-drift", True, 90)
+
+
+def test_the_prior_report_is_never_the_report_settle_writes(tmp_path):
+    """A report settle is given under its public name is never its own prior report."""
+    report = tmp_path / f"test-report-demo-{RUN_ID}.md"
+    report.write_bytes(b"---\n---\n")
+    assert mod.prior_test_report(report) is None
+    (tmp_path / "test-report-demo-20260101T000000Z-aa.md").write_bytes(b"---\n---\n")
+    assert mod.prior_test_report(report) == "test-report-demo-20260101T000000Z-aa.md"
+
+
+@pytest.mark.parametrize("names, latest", [
+    # equal stamps rank by name
+    (["test-report-zeta-20260101T000000Z-aa.md", "test-report-alpha-20260101T000000Z-aa.md"],
+     "test-report-zeta-20260101T000000Z-aa.md"),
+    # names without a stamp rank by name, below every stamped one
+    (["test-report-demo.md", "test-report-alpha.md"], "test-report-demo.md"),
+    (["test-report-zz.md", "test-report-aa-20200101T000000Z.md"], "test-report-aa-20200101T000000Z.md"),
+    # a stamp followed by anything but `-`-joined letters and digits is no run id
+    (["test-report-demo-20270101T000000Z-x_y.md", "test-report-demo-20260101T000000Z-aa.md"],
+     "test-report-demo-20260101T000000Z-aa.md"),
+    # review loop 1's probes: a pre-rename name and an SKF 2.x name rank by their stamps, not their names
+    (["test-report-zeta-20250101T000000Z-aa.md", "test-report-alpha-20260101T000000Z-bb.md"],
+     "test-report-alpha-20260101T000000Z-bb.md"),
+    (["test-report-demo.md", "test-report-demo-20261101T000000Z-bb.md"], "test-report-demo-20261101T000000Z-bb.md"),
+], ids=["equal-stamps", "no-stamps", "stamp-over-name", "not-a-run-id", "renamed", "legacy"])
+def test_the_prior_report_ranks_by_its_run_id_stamp(tmp_path, names, latest):
+    """#1190: the run-id stamp in a published report's name ranks it, not the name's plain order."""
+    report = tmp_path / f".skf-test-report-demo-{RUN_ID}.md"
+    report.write_bytes(b"---\n---\n")
+    for name in names:
+        (tmp_path / name).write_bytes(b"---\n---\n")
+    assert mod.prior_test_report(report) == latest
+
+
 @pytest.mark.parametrize("tools, label", [(["skill-check", "tessl"], "skill-check and Tessl Review"),
                                           (["skill-check"], "skill-check only"), (["tessl"], "Tessl Review only"),
                                           ([], "none: weight redistributed")])
@@ -829,11 +949,15 @@ def test_score_md_settles_through_its_command_as_written(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.startswith("## Completeness Score\n")
     lines = _front_lines(report)
-    assert lines["evidenceReportPath"] == (f"evidenceReportPath: "
-                                           f"'{forge_version.as_posix()}/evidence-report-fallback.md'")
-    assert lines["threshold"] == "threshold: '80%'"
-    assert _builds(tmp_path, report, score)["result_contract"]["summary"]["evidence_report_path"] == (
-        f"{forge_version.as_posix()}/evidence-report-fallback.md")
+    assert lines["threshold"] == "threshold: '80%'" and lines["thresholdFallback"] == "thresholdFallback: true"
+    assert "evidenceReportPath" not in lines
+    # #1190: settle's output ends with the fallback subsection, and nothing else in the folder records it
+    fallback = proc.stdout[proc.stdout.index("\n### Threshold Fallback\n"):]
+    assert fallback.count("\n### ") == 1 and "**Prior Test Report:** none found beside this report\n" in fallback
+    assert sorted(p.name for p in forge_version.iterdir()) == [report.name]
+    payload = _builds(tmp_path, report, score)
+    assert (payload["threshold_fallback"], payload["original_threshold"]) == (True, 90)
+    assert "evidence_report_path" not in json.dumps(payload)
     flow = " ".join(section6.split())
     assert "write its output unchanged as the **Completeness Score** section" in flow
     assert '(`halt_reason: "helper-failed"`, phase `score:settle`)' in flow
@@ -841,6 +965,6 @@ def test_score_md_settles_through_its_command_as_written(tmp_path):
     assert "{N}%" not in section6 and "{total}" not in section6
     # The verdict fields are settle's alone: §5 to §8 name them, and type no value for any of them.
     after = text[text.index("### 5. Determine Next Workflow Recommendation"):]
-    typed = re.findall(r"`(?:testResult|score|threshold|nextWorkflow|thresholdFallback|originalThreshold|"
-                       r"evidenceReportPath): [^`]*`", after)
+    typed = re.findall(r"`(?:testResult|score|threshold|nextWorkflow|thresholdFallback|originalThreshold): [^`]*`",
+                       after)
     assert typed == [], typed

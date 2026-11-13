@@ -12,9 +12,9 @@ follows from records the run already wrote, so this script builds it rather
 than the model retyping them from memory:
 
   - the report frontmatter: skillName, runId, testMode, hardGate,
-    testResult, workspaceDrift, score, threshold, thresholdFallback,
-    originalThreshold and evidenceReportPath (the steps write the verdict
-    inputs there, so a compacted context cannot change them), and
+    testResult, workspaceDrift, score, threshold, thresholdFallback and
+    originalThreshold (the steps write the verdict inputs there, so a
+    compacted context cannot change them), and
     analysisConfidence, which must be one of compute-score.py's
     ANALYSIS_CONFIDENCE for a scored run and a blocked one alike (score.md
     §7 writes it, or step-hard-gate.md §3 on a blocked run);
@@ -61,9 +61,8 @@ Payload (written to --output, UTF-8 JSON):
      "summary": {"score", "threshold", "result", "testMode",
                  "activeCategories", "inconclusiveReasons" (INCONCLUSIVE),
                  "capReason" (a cap fired: a non-empty string),
-                 "threshold_fallback", "original_threshold",
-                 "evidence_report_path" (fallback only), "gapCounts",
-                 "hardGate"},
+                 "threshold_fallback", "original_threshold" (fallback
+                 only), "gapCounts", "hardGate"},
      "runId": <runId>, "healthCheckDispatched": <bool>}}
 
 CLI:
@@ -97,17 +96,16 @@ Exit codes:
 Subcommand settle (score.md §6), so the model types no verdict field:
   uv run build-result-context.py settle --report <report.md>
       --score <scoring output> --external <external.json>
-      [--evidence-report <path>]
 
 writes the verdict fields `scored_fields` settles into the report
 frontmatter, each key replaced where it stands or added before the closing
 `---`, every other byte (line endings and a byte order mark included)
 kept: testResult, score and threshold (`'{n}%'`, a whole number without
 its `.0`), nextWorkflow (the table above) and, only after a threshold
-fallback, thresholdFallback: true, originalThreshold and
-evidenceReportPath (--evidence-report); without one it removes those
-three. It writes neither stepsCompleted nor analysisConfidence. Then it
-prints the Completeness Score section on stdout:
+fallback, thresholdFallback: true and originalThreshold; without one it
+removes those two. It writes neither stepsCompleted nor
+analysisConfidence. Then it prints the Completeness Score section on
+stdout:
   ### Score Breakdown  one row per compute-score.py CATEGORIES entry: the
                        score the weight applied to (state2Deduction's
                        exportCoverage when present, else input.scores; N/A
@@ -115,20 +113,30 @@ prints the Completeness Score section on stdout:
                        weighted score, then the Total row
   ### Result           Score, Threshold, Result (summary.result), Cap (a
                        cap fired), Inconclusive Reasons (INCONCLUSIVE),
-                       then Threshold Source (frontmatter), Threshold
-                       Fallback (a fallback), Weight Distribution
-                       (`{mode} (full)`, or `(redistributed)` when a
-                       category was skipped), Tier Adjustment, External
-                       Validators (--external `toolsUsed`), Analysis
-                       Confidence and Tooling Status (frontmatter), and
-                       Scoring Notes (scoringNotes, and the drift note on a
-                       pass-with-drift) when there is one
+                       then Threshold Source (frontmatter), Weight
+                       Distribution (`{mode} (full)`, or `(redistributed)`
+                       when a category was skipped), Tier Adjustment,
+                       External Validators (--external `toolsUsed`),
+                       Analysis Confidence and Tooling Status
+                       (frontmatter), and Scoring Notes (scoringNotes, and
+                       the drift note on a pass-with-drift) when there is
+                       one
+  ### Threshold Fallback  only after a threshold fallback: Attempted
+                       Threshold (originalThreshold), Achieved Score
+                       (totalScore), Accepted At (the floor), Threshold
+                       Source (frontmatter), Prior Test Report (the
+                       test-report-*.md file beside --report whose name
+                       holds the latest run-id stamp, a name without one,
+                       such as SKF 2.x's, ranking below every stamped
+                       one; or none found) and Findings (a pointer to the
+                       Gap Report)
 Exit 0 when it wrote and printed; 1 (one `error:` line on stderr, the
 report untouched) when an input is missing, unreadable or not its script's
 result (--score an INVALID_INPUT envelope or without input, weights and
 weightedScores; --external without a toolsUsed list), the report has no
-frontmatter or the hard gate blocked it, or the write fails; 2 a usage
-error, a threshold fallback without --evidence-report included.
+frontmatter or the hard gate blocked it, its folder cannot be listed after
+a threshold fallback, or the write fails; 2 a usage error (a flag argparse
+refuses, its usage on stderr).
 """
 
 from __future__ import annotations
@@ -153,7 +161,10 @@ VERDICTS = {
 NEXT_WORKFLOW = {"pass": "export-skill", "pass-with-drift": "update-skill", "fail": "update-skill",
                  "inconclusive": "manual-review"}
 # The keys settle writes only after a threshold fallback, and removes otherwise.
-FALLBACK_KEYS = ("thresholdFallback", "originalThreshold", "evidenceReportPath")
+FALLBACK_KEYS = ("thresholdFallback", "originalThreshold")
+# A published test report's run-id stamp: `-{YYYYMMDDTHHMMSSZ}`, then only `-`-joined letters and digits before
+# `.md` (the run id's shape, skf-find-test-report.py `_RUN_ID_RE`).
+_REPORT_STAMP_RE = re.compile(r"-(\d{8}T\d{6}Z)(?:-[A-Za-z0-9]+)*\.md$")
 # compute-score.py CATEGORIES -> the Score Breakdown row label
 CATEGORY_LABELS = {"exportCoverage": "Export Coverage", "signatureAccuracy": "Signature Accuracy",
                    "typeCoverage": "Type Coverage", "coherence": "Coherence",
@@ -193,8 +204,8 @@ def read_frontmatter(text: str) -> dict[str, str]:
 
     >>> read_frontmatter("---\\ntestResult: 'pass'\\nscore: 91.5%\\nsteps: ['a']\\n---\\n# R")
     {'testResult': 'pass', 'score': '91.5%', 'steps': "['a']"}
-    >>> read_frontmatter("---\\nevidenceReportPath: '/home/o''neil/e.md'\\n---\\n")
-    {'evidenceReportPath': "/home/o'neil/e.md"}
+    >>> read_frontmatter("---\\nskillDir: '/home/o''neil/skills/demo'\\n---\\n")
+    {'skillDir': "/home/o'neil/skills/demo"}
     >>> read_frontmatter("# no frontmatter")
     {}
     """
@@ -380,7 +391,6 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
     if fallback:
         summary["threshold_fallback"] = True
         summary["original_threshold"] = envelope["original_threshold"]
-        summary["evidence_report_path"] = front.get("evidenceReportPath") or None
     summary["gapCounts"] = counts
     summary["hardGate"] = front.get("hardGate") or None
 
@@ -470,9 +480,41 @@ def _tools_used(path: str) -> str:
     return label
 
 
-def settle(report: str, score: str, external: str, evidence_report: str | None = None) -> tuple[str, str]:
+def _report_rank(name: str) -> tuple[bool, str, str]:
+    """The order `prior_test_report` ranks a published test report's file name by, latest last.
+
+    A published name ends in its run id, whose `YYYYMMDDTHHMMSSZ` stamp is the run's UTC start, so the stamp
+    ranks it, whatever skill name comes before it: a report kept under the skill's name before a rename ranks
+    by its run too. A name without one, such as SKF 2.x's `test-report-{name}.md`, ranks older than every name
+    with one, and equal stamps rank by name.
+
+    >>> sorted(["test-report-demo.md", "test-report-zeta-20260103T000000Z-cc.md",
+    ...         "test-report-demo-20260102T000000Z-bb.md"], key=_report_rank)[-1]
+    'test-report-zeta-20260103T000000Z-cc.md'
+    >>> _report_rank("test-report-demo-20260101T000000Z-x_y.md")
+    (False, '', 'test-report-demo-20260101T000000Z-x_y.md')
+    """
+    stamp = _REPORT_STAMP_RE.search(name)
+    return (True, stamp.group(1), name) if stamp else (False, "", name)
+
+
+def prior_test_report(report: Path) -> str | None:
+    """The file name of the test report beside `report` whose name holds the latest run-id stamp
+    (`_report_rank`), or None when the folder holds none.
+
+    Only published reports count: this run's own report still has its hidden `.skf-` name, which the glob never
+    matches, and a `report` already published is skipped too, as is anything that is not a file.
+    """
+    try:
+        names = [p.name for p in report.parent.glob("test-report-*.md") if p.name != report.name and p.is_file()]
+    except OSError as exc:
+        raise ContextError(f"--report {report}: its folder cannot be listed: {exc}") from exc
+    return max(names, key=_report_rank) if names else None
+
+
+def settle(report: str, score: str, external: str) -> tuple[str, str]:
     """(the report text with its verdict fields written, the Completeness Score section). Raises ContextError
-    (exit 1) or UsageError (exit 2); writes nothing."""
+    (exit 1); writes nothing."""
     try:
         raw = Path(report).read_bytes()
         text = raw.decode("utf-8")
@@ -490,25 +532,24 @@ def settle(report: str, score: str, external: str, evidence_report: str | None =
     if fields is None:
         raise ContextError(f"--score {score} holds no verdict (no effectiveResult or result)")
     fell_back = fields["thresholdFallback"]
-    if fell_back and not evidence_report:
-        raise UsageError("the threshold fallback fired: pass --evidence-report with the evidence report's path")
     test_result = fields["testResult"]
     values = {"testResult": f"'{test_result}'", "score": f"'{pct(fields['score'])}'",
               "threshold": f"'{pct(fields['threshold'])}'", "nextWorkflow": f"'{NEXT_WORKFLOW[test_result]}'"}
     if fell_back:
-        values |= {"thresholdFallback": "true", "originalThreshold": f"'{pct(fields['originalThreshold'])}'",
-                   "evidenceReportPath": "'" + evidence_report.replace("'", "''") + "'"}
+        values |= {"thresholdFallback": "true", "originalThreshold": f"'{pct(fields['originalThreshold'])}'"}
     try:
         written = write_frontmatter(text, values, remove=() if fell_back else FALLBACK_KEYS)
     except ContextError as exc:
         raise ContextError(f"--report {report} {exc}") from exc
-    return written, completeness_section(scored, fields, front, validators, evidence_report)
+    prior = prior_test_report(Path(report)) if fell_back else None
+    return written, completeness_section(scored, fields, front, validators, prior)
 
 
 def completeness_section(scored: dict, fields: dict, front: dict[str, str], validators: str,
-                         evidence_report: str | None) -> str:
+                         prior_report: str | None = None) -> str:
     """The Completeness Score section score.md §6 writes, from the scoring output, the settled fields, the report
-    frontmatter and the External Validators label."""
+    frontmatter and the External Validators label; after a threshold fallback, `prior_report` is the file name of
+    the latest earlier test report beside this one (`prior_test_report`), or None when none was found."""
     inputs = scored["input"]
     given = inputs.get("scores") if isinstance(inputs.get("scores"), dict) else {}
     deduction = scored.get("state2Deduction") if isinstance(scored.get("state2Deduction"), dict) else {}
@@ -537,9 +578,6 @@ def completeness_section(scored: dict, fields: dict, front: dict[str, str], vali
         lines.append("**Inconclusive Reasons:**")
         lines += [f"- {reason}" for reason in reasons]
     lines += ["", f"**Threshold Source:** {front.get('thresholdSource', '')}"]
-    if fields["thresholdFallback"]:
-        lines.append(f"**Threshold Fallback:** scored {total} against {pct(fields['originalThreshold'])} target: "
-                     f"accepted at {pct(fields['threshold'])} floor. Evidence report: {evidence_report}")
     mode = inputs.get("mode")
     lines += [f"**Weight Distribution:** {mode} ({'redistributed' if skipped else 'full'})",
               "**Tier Adjustment:** " + ("Quick tier: signature and type coverage not scored"
@@ -552,6 +590,17 @@ def completeness_section(scored: dict, fields: dict, front: dict[str, str], vali
         notes.append(DRIFT_NOTE)
     if notes:
         lines.append(f"**Scoring Notes:** {'; '.join(notes)}")
+    if fields["thresholdFallback"]:
+        target = pct(fields["originalThreshold"])
+        prior = (f"`{prior_report}`: an earlier test report of this version" if prior_report
+                 else "none found beside this report")
+        lines += ["", "### Threshold Fallback", "",
+                  f"**Attempted Threshold:** {target}",
+                  f"**Achieved Score:** {total}",
+                  f"**Accepted At:** {pct(fields['threshold'])} floor",
+                  f"**Threshold Source:** {front.get('thresholdSource', '')}",
+                  f"**Prior Test Report:** {prior}",
+                  f"**Findings:** the Gap Report lists this run's gaps; address them to reach the {target} target"]
     return "\n".join(lines) + "\n"
 
 
@@ -574,16 +623,11 @@ def _settle_main(argv: list[str]) -> int:
     parser.add_argument("--report", required=True, help="the test report whose frontmatter takes the verdict")
     parser.add_argument("--score", required=True, help="compute-score.py's output (score.json)")
     parser.add_argument("--external", required=True, help="combine-external-scores.py's result (external.json)")
-    parser.add_argument("--evidence-report",
-                        help="the evidence report's path, written as evidenceReportPath after a threshold fallback")
     args = parser.parse_args(argv)
     try:
-        written, section = settle(args.report, args.score, args.external, args.evidence_report)
+        written, section = settle(args.report, args.score, args.external)
         # The report keeps its own line endings, so it is written back as bytes.
         _write_atomic(Path(args.report), written.encode("utf-8"))
-    except UsageError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
     except (ContextError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

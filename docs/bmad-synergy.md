@@ -35,7 +35,7 @@ The fastest way to start is [`forge-auto`](/docs/forge-auto.md). One command pro
 @Ferris forge-auto https://github.com/honojs/hono
 ```
 
-That's it. No brief file, no scope decisions, no multi-step pipeline to learn. forge-auto handles analysis, scoping, compilation, testing, and export automatically. The test aims for a 90% score; a skill that scores at least 80% but under 90% still passes, with an evidence report of what fell short, and below 80% the pipeline stops. See the [forge-auto guide](/docs/forge-auto.md) for the full syntax and input types.
+That's it. No brief file, no scope decisions, no multi-step pipeline to learn. forge-auto handles analysis, scoping, compilation, testing, and export automatically. The test aims for a 90% score; a skill that scores at least 80% but under 90% still passes, and the test report records what fell short; below 80% the pipeline stops. See the [forge-auto guide](/docs/forge-auto.md) for the full syntax and input types.
 
 If you later adopt the BMAD Method, the skills you created with forge-auto carry straight into BMM phases. They become the verified content skills that BMAD workflows consult during planning and implementation. The [phase-by-phase playbook](#skf-and-bmm-phase-by-phase-playbook) below shows exactly where each SKF workflow fits.
 

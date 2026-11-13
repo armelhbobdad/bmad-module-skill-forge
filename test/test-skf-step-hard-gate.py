@@ -331,7 +331,7 @@ class TestPipelineChain:
 
 @pytest.mark.parametrize(
     "path",
-    [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, STEP_FILE, SCORE_FILE, REPORT_FILE],
+    [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, STEP_FILE, REPORT_FILE],
     ids=lambda p: p.stem,
 )
 def test_every_ledger_reader_binds_the_same_ledger(path: pathlib.Path) -> None:
@@ -1929,20 +1929,17 @@ class TestReportTerminalSequence:
     def test_no_gap_is_classified_from_the_report_markdown(self, text: str) -> None:
         collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
         assert "Do not collect gaps again from the report's sections" in collect
-        evidence = _flow(_slice(_read(SCORE_FILE), "#### 4b.1 Generate Evidence Report", "**Evidence report template:**"))
-        assert "**Read the gaps from the gap ledger**" in evidence
-        assert "extract findings from the Coverage Analysis and Coherence Analysis sections" not in evidence
 
-    def test_the_evidence_report_takes_the_render_output(self) -> None:
-        """The script orders and counts the gaps; score.md §4b.1 sorts nothing by hand."""
-        section = _slice(_read(SCORE_FILE), "#### 4b.1 Generate Evidence Report", "### 5.")
-        command = 'uv run {gapLedgerScript} render --ledger "{ledgerFile}"'
-        assert _fence(section, command).strip() == command
-        assert "write its output unchanged under **Findings Preventing Higher Threshold**" in _flow(section)
-        assert "{the output of the render command above, unchanged}" in section
-        for gone in ("{For each gap entry", "{Count: N critical", "in the order the Gap Report uses",
-                     "The {N} findings above"):
-            assert gone not in section, gone
+    def test_the_fallback_points_at_the_gap_report(self) -> None:
+        """#1190: score.md reads no gap of its own; the fallback subsection points at the Gap Report, which §4c
+        renders from the ledger, so no step sorts or repeats the gaps by hand."""
+        score = _read(SCORE_FILE)
+        fm = _frontmatter(SCORE_FILE)
+        assert "ledgerFile" not in fm and "gapLedgerScript" not in fm
+        section = _flow(_slice(score, "### 4b. Threshold Fallback", "### 5."))
+        assert "a pointer to the Gap Report, which report.md §4c renders from the gap ledger" in section
+        for gone in ("render --ledger", "Findings Preventing Higher Threshold", "{the output of the render command"):
+            assert gone not in score, gone
 
 
 class TestDiscoveryGaps:

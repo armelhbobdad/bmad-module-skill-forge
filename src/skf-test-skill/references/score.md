@@ -3,9 +3,6 @@ nextStepFile: 'report.md'
 outputFile: '{report_file}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 scoringScript: 'scripts/compute-score.py'
-# §4b.1 reads the run's gaps from the gap ledger the stages recorded them in.
-ledgerFile: '{forge_version}/test-findings-{run_id}.json'
-gapLedgerScript: 'scripts/gap-ledger.py'
 # §6 writes the verdict fields and the Completeness Score section through it.
 resultContextScript: 'scripts/build-result-context.py'
 ---
@@ -115,60 +112,9 @@ The script applies **Cap 1** (any `toolingStatus` other than `ok`) and **Cap 2**
 
 The settled verdict is §3b's, and INCONCLUSIVE (the minimum-evidence floor, which `inconclusiveReasons` explains) is never overridden.
 
-### 4b. Threshold Fallback and Evidence Report
+### 4b. Threshold Fallback
 
-When `thresholdFallback` is true, the script accepted a FAIL at the 80% floor: `effectiveResult` is `"PASS"` and `originalThreshold` holds the target threshold. Bind `threshold_fallback: true` and `original_threshold` ← `originalThreshold`, and write the evidence report (§4b.1), whose `{totalScore}` is the script's raw `totalScore`. Without a fallback there is no evidence report.
-
-#### 4b.1 Generate Evidence Report
-
-Write the evidence report to `{forge_version}/evidence-report-fallback.md`. The report documents the quality compromise for audit purposes.
-
-**Read the gaps from the gap ledger**, not from the report's sections: the stages recorded every gap they found in `{ledgerFile}`, and the hard gate passed, so none is Critical or High. The script orders and counts them (`{gapLedgerScript}` resolves relative to the skill root):
-
-```bash
-uv run {gapLedgerScript} render --ledger "{ledgerFile}"
-```
-
-Exit 0: write its output unchanged under **Findings Preventing Higher Threshold**: the totals, the Remediation Summary and one entry per gap, by severity. A render that exits 1 prints its error on stderr: write that line there instead and continue, since the evidence report does not decide the verdict.
-
-**Check for prior remediation:** glob `{forge_version}/test-report-{skill_name}-*.md` for a prior test report. If found, note the path — this implies remediation was attempted between runs. If not found, note "first test run — no prior remediation cycle".
-
-**Evidence report template:**
-
-```markdown
-# Evidence Report: Threshold Fallback
-
-**Skill:** {skill_name}
-**Date:** {ISO-8601 timestamp}
-**Run ID:** {run_id}
-
-## Threshold Summary
-
-| Field | Value |
-|-------|-------|
-| Attempted Threshold | {original_threshold}% |
-| Achieved Score | {totalScore}% |
-| Threshold Source | {threshold_source} |
-| Final Accepted Threshold | 80% |
-
-## Findings Preventing Higher Threshold
-
-{the output of the render command above, unchanged}
-
-## Remediation Context
-
-{If prior test report exists:}
-A prior test run was found at `{prior_report_path}`, indicating remediation was attempted between runs.
-
-{If no prior test report:}
-No prior test report found for this skill version — this is the first test run.
-
-## Conclusion
-
-Skill accepted at 80% floor (original target: {original_threshold}%). The findings above prevented meeting the higher threshold. Review and address findings before the next pipeline run to achieve the {original_threshold}% target.
-```
-
-Record `evidence_report_path: '{forge_version}/evidence-report-fallback.md'` in workflow context for use by §6/§7/§8 and by report.md.
+When `thresholdFallback` is true, the script accepted a FAIL at the 80% floor: `effectiveResult` is `"PASS"` and `originalThreshold` holds the target threshold. Bind `threshold_fallback: true` and `original_threshold` ← `originalThreshold` for §8. §6's settle records the fallback in the Completeness Score section's `### Threshold Fallback` subsection: the target, the script's raw `totalScore`, the floor it was accepted at, the threshold source, the latest earlier test report beside this one, or none found, and a pointer to the Gap Report, which report.md §4c renders from the gap ledger. No other file records it.
 
 ### 5. Determine Next Workflow Recommendation
 
@@ -198,10 +144,10 @@ Recommend the next workflow by the **settled verdict** (§3b); §6's settle writ
 
 ### 6. Write the Completeness Score Section
 
-`{resultContextScript}` (it resolves relative to the skill root) writes the verdict fields the scoring output settles into the `{outputFile}` frontmatter and prints the section from `{run_dir}/score.json`, `{run_dir}/external.json` and that frontmatter. Always pass `--evidence-report`: settle writes it only after a threshold fallback. Settle rewrites the report file, so once it exits 0, read `{outputFile}` again before you edit it, here and in §7: an edit made from the copy read before settle ran would undo the fields it wrote.
+`{resultContextScript}` (it resolves relative to the skill root) writes the verdict fields the scoring output settles into the `{outputFile}` frontmatter and prints the section from `{run_dir}/score.json`, `{run_dir}/external.json` and that frontmatter. Settle rewrites the report file, so once it exits 0, read `{outputFile}` again before you edit it, here and in §7: an edit made from the copy read before settle ran would undo the fields it wrote.
 
 ```bash
-uv run {resultContextScript} settle --report "{outputFile}" --score "{run_dir}/score.json" --external "{run_dir}/external.json" --evidence-report "{forge_version}/evidence-report-fallback.md"
+uv run {resultContextScript} settle --report "{outputFile}" --score "{run_dir}/score.json" --external "{run_dir}/external.json"
 ```
 
 Exit 0: write its output unchanged as the **Completeness Score** section, in place of the template's `## Completeness Score` heading and the placeholder comment under it, in `{outputFile}`. Exit 2 is a usage error: correct the command and run it again. Exit 1 printed its error on stderr and left the report as it was: HALT with it (`halt_reason: "helper-failed"`, phase `score:settle`).
@@ -218,7 +164,7 @@ If the `analysisConfidence` §3a read is not `full`, add a degradation notice at
 
 ### 7. Update Output Frontmatter
 
-§6's settle wrote `testResult`, `score`, `threshold` (the one the verdict was settled against) and `nextWorkflow` and, after a threshold fallback, `thresholdFallback`, `originalThreshold` and `evidenceReportPath`. Update the rest of the `{outputFile}` frontmatter:
+§6's settle wrote `testResult`, `score`, `threshold` (the one the verdict was settled against) and `nextWorkflow` and, after a threshold fallback, `thresholdFallback` and `originalThreshold`. Update the rest of the `{outputFile}` frontmatter:
 - `analysisConfidence: '{full|provenance-map|metadata-only|remote-only|docs-only}'`
 - Append `'score'` to `stepsCompleted`
 
@@ -226,7 +172,7 @@ If the `analysisConfidence` §3a read is not `full`, add a degradation notice at
 
 Report the completeness score to the user: the total percentage and PASS/FAIL verdict, the per-category weighted breakdown (already appended to the report in §6), the threshold on the section's **Threshold:** line (80 after a threshold fallback), and the next workflow §5 recommends. On a capped FAIL (§5's **IF FAIL with a cap** branch), show `capReason` and recommend restoring the tooling it names and testing again, not update-skill alone: `nextWorkflow` stays `update-skill`, but no skill edit lifts a cap, and update-skill is needed as well only when the script's `result` is `FAIL` too. When `threshold_fallback` is true, include the fallback notice:
 
-**Threshold fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
+**Threshold fallback:** scored {totalScore}% against {original_threshold}% target: accepted at 80% floor (the Completeness Score section's Threshold Fallback subsection has the details)
 
 Then proceed to the gap report.
 
