@@ -39,7 +39,7 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (the [C] of `upstream-checkout.md`), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"skill_name"` once §1 named the skill, `"report_path": "{outputFile}"` once §6 wrote the report, and `"path"` when the halt names one, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (the [C] of `upstream-checkout.md`), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}`, with `{sourceTreeHelper}` resolved from `{sourceTreeProbeOrder}` when it is not bound, and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"skill_name"` once §1 named the skill, `"report_path": "{outputFile}"` once §6 wrote the report, and `"path"` when the halt names one, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"

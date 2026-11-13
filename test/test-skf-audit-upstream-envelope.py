@@ -208,6 +208,8 @@ def test_every_halt_after_the_tree_closes_it():
         envelope = _flow(_slice(_read(path), "**Halt envelope.**", "```bash"))
         assert 'first run `uv run {sourceTreeHelper} close --tree "{source_tree}"`' in envelope, path.name
         # each stage binds the helper itself, so a compacted session still resolves it
+        assert "with `{sourceTreeHelper}` resolved from `{sourceTreeProbeOrder}` when it is not bound" in envelope, \
+            path.name
         assert _frontmatter(path)["sourceTreeProbeOrder"] == [
             "{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py",
             "{project-root}/src/shared/scripts/skf-source-tree.py"], path.name
