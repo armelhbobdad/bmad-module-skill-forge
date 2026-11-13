@@ -386,20 +386,31 @@ def test_dry_run_envelope_lists_the_planned_deletions(tmp_path):
 
 REPORT_VALUES = {
     "target_skill": "cognee", "drop_mode": "purge", "target_versions": ["0.5.0"], "manifest_updated": True,
-    "forge_left_in_place": None, "keep_version": None, "headless_mode": True, "mode_source": "--mode argument",
-    "confirm_source": "headless-auto",
+    "forge_left_in_place": None, "keep_version": None,
 }
 
 
 @pytest.mark.parametrize("record_status", ["success", "partial"])
 def test_report_emit_writes_the_result_files(tmp_path, record_status):
-    """#593: the emitter names the per-run file from the clock and writes its -latest copy."""
+    """#593: the emitter names the per-run file from the clock and writes its -latest copy. #1161: the headless
+    mode and confirm decisions reach the record once, in `headless_decisions`, and the summary no longer repeats
+    them."""
     contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
     [template] = _fenced(contract, "json")
     skills = tmp_path / "skills"
     skills.mkdir()
     deleted = str(skills / "cognee" / "0.5.0")
     run_dir = _run_dir(tmp_path)
+    select = _read(SELECT)
+    mode = _section(select, "### 8. Ask Mode", "### 8b. ")
+    confirm = _section(select, "### 10. Confirmation Gate", "### 12. ")
+    decisions = [_decision(mode, "select.mode", {"drop_mode": "purge", "mode_source": "--mode argument"}),
+                 _decision(confirm, "select.confirm", {})]
+    record_command = _one_command(mode, "record --run-dir")
+    for decision in decisions:
+        (run_dir / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
+        proc = _run(record_command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+        assert proc.returncode == 0, proc.stderr
     payload = _fill_json(template, {**REPORT_VALUES, "files_deleted": [deleted], "each": deleted,
                                     "record_status": record_status})
     assert set(payload) == {"status", "skill", "drop_mode", "versions_affected", "files_deleted",
@@ -423,8 +434,11 @@ def test_report_emit_writes_the_result_files(tmp_path, record_status):
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", record["timestamp"])
     assert record["run_id"] == "Ab3dE5gH"
     assert record["outputs"] == [{"type": "skill", "path": deleted}]
-    assert record["summary"]["headless_provenance"] == {"headless": True, "mode_source": "--mode argument",
-                                                        "confirm": "headless-auto"}
+    assert record["headless_decisions"] == decisions
+    assert [(d["gate"], d["reason"]) for d in decisions] == [("select.mode", "--mode argument"),
+                                                            ("select.confirm", "headless auto-confirm")]
+    assert set(record["summary"]) == {"target_skill", "drop_mode", "versions_affected", "forge_left_in_place",
+                                      "keep_version"}
     # #1160: a drop that kept no version says so in the summary, never in the envelope.
     assert record["summary"]["keep_version"] is None and "keep_version" not in envelope
 
@@ -790,14 +804,17 @@ def test_no_drop_file_reads_a_default_mode():
                      "customize.toml.workflow.default_mode"):
             assert gone not in text, f"{path.name}: {gone}"
     assert not re.search(r"^\s*default_mode\s*=", _read(CUSTOMIZE), flags=re.M)
-    sources = _section(_read(REPORT), "- `headless_provenance` persists", "\n")
-    assert "`{mode_source}` and `{confirm_source}` the values step 1 set" in sources
+    # #1161: the record keeps the headless decisions in `headless_decisions` alone, so nothing stages them twice.
+    assert "headless_provenance" not in _read(REPORT)
+    for path in _drop_files():
+        assert "confirm_source" not in path.read_text(encoding="utf-8"), path.name
     mode = _section(_read(SELECT), "### 8. Ask Mode", "### 8b. ")
-    for source in ('`mode_source = "--mode argument"`', '`mode_source = "interactive-prompt"`',
-                   '`mode_source = "draft-skill-forced-purge"`'):
+    for source in ('`mode_source = "--mode argument"`', '`mode_source = "draft-skill-forced-purge"`'):
         assert source in mode, source
+    # Only a headless run records the select.mode decision, and it never reaches the prompt.
+    assert "interactive-prompt" not in mode
     stored = _section(_read(SELECT), "### 12. Load Next Step", None)
-    assert "`mode_source`" in stored and "`confirm_source`" in stored
+    assert "`mode_source`" not in stored
 
 
 def test_any_non_empty_forbid_value_turns_the_purge_guard_on():

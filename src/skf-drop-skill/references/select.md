@@ -178,11 +178,11 @@ If the command fails, go on: only that entry is lost.
 
 1. A `mode` argument other than `purge`: HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the halt envelope: "`{target_skill}` has no manifest entry, so there is nothing to deprecate. Re-run with `--mode purge` to delete it."
 2. `{headless_mode}` is true and no `mode` argument was passed: HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the halt envelope: "headless mode: `{target_skill}` has no manifest entry, so only a purge applies; re-run with `--mode purge`."
-3. Otherwise force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`), inform the user: "**Mode forced to purge:** `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted.", and apply §8b. An interactive run still confirms the purge at §10.
+3. Otherwise force `drop_mode = "purge"` (bind `mode_source = "draft-skill-forced-purge"`), inform the user: "**Mode forced to purge:** `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted.", and apply §8b. An interactive run still confirms the purge at §10.
 
 **If `target_in_manifest = true`:**
 
-**If a `mode` argument was supplied at invocation:** if it is `"deprecate"` or `"purge"`, set `drop_mode` from it and record the decision source `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the halt envelope: "invalid `--mode` value `{supplied}`: expected `deprecate` or `purge`."
+**If a `mode` argument was supplied at invocation:** if it is `"deprecate"` or `"purge"`, set `drop_mode` from it and bind `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the halt envelope: "invalid `--mode` value `{supplied}`: expected `deprecate` or `purge`."
 
 **Otherwise:** If `{headless_mode}` is true (no `mode` arg), there is no input to prompt for: HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the halt envelope: "headless mode requires `--mode deprecate|purge` to set the drop mode." Otherwise, prompt the user. Before showing the menu, run the §8b purge check at the current scope; when `{purge_verdict}` is not `"ok"`, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal message for `{purge_reason}`}."
 
@@ -194,7 +194,7 @@ If the command fails, go on: only that entry is lost.
 
 Wait for user selection.
 
-Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P), and record `mode_source = "interactive-prompt"`.
+Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P).
 
 ### 8b. Purge Guard
 
@@ -294,15 +294,15 @@ uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}"
 
 A dry run passes no `--result-dir`, so it writes no result file. Then, in either mode, delete the run folder (`rm -rf "{run_dir}"`) and HALT (exit code 0). In a headless run, display the line the emitter printed verbatim (the `message` of its stderr JSON when it exits non-zero) after the delete and before the HALT, with nothing after it, so a `claude -p` caller reads it as the final message. The manifest, filesystem, and context files are untouched.
 
-**Otherwise (not a dry-run), GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], record `confirm_source = "headless-auto"`, stage `{run_dir}/decision.json` as `{"gate": "select.confirm", "default_action": "Y", "taken_action": "Y", "reason": "headless auto-confirm"}` and run the §8 `record` command, and log: "headless: auto-confirmed drop of {target_skill}"
+**Otherwise (not a dry-run), GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], stage `{run_dir}/decision.json` as `{"gate": "select.confirm", "default_action": "Y", "taken_action": "Y", "reason": "headless auto-confirm"}` and run the §8 `record` command, and log: "headless: auto-confirmed drop of {target_skill}"
 
 Wait for explicit user response.
 
-- **If `Y`** → record `confirm_source = "user-explicit"` and proceed to section 12
+- **If `Y`** → proceed to section 12
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made. (Tip: invoke with `--dry-run` next time to preview the operation without reaching the commit prompt.)" HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `select:confirm`).
 - **Any other input** → re-display the confirmation and ask again
 
 ### 12. Load Next Step
 
-Step 2 reads the decisions this step bound where it made them: `target_skill`, `target_in_manifest`, `target_versions`, `drop_mode`, `is_skill_level`, `affected_directories`, `mode_source`, `forge_left_in_place`, `keep_version` (null when §7 bound none), `target_context_files` and `confirm_source`. `{nextStepFile}` performs the destructive mutation, so load it only after the §10 gate returned `Y`: chaining any earlier would drop without the user's explicit consent. Load, read the full file, and then execute it.
+Step 2 reads the decisions this step bound where it made them: `target_skill`, `target_in_manifest`, `target_versions`, `drop_mode`, `is_skill_level`, `affected_directories`, `forge_left_in_place`, `keep_version` (null when §7 bound none) and `target_context_files`. `{nextStepFile}` performs the destructive mutation, so load it only after the §10 gate returned `Y`: chaining any earlier would drop without the user's explicit consent. Load, read the full file, and then execute it.
 
