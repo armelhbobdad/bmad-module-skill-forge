@@ -65,14 +65,7 @@ Load, read the full file and then execute `{nextStepFile}`. The no-PRD path ends
 
 ### 2. Extract Requirements
 
-Parse the PRD/vision document for capability requirements.
-
-**Look for:**
-- **Feature descriptions** — explicit capabilities the product must have
-- **Technical requirements** — performance targets, scalability needs, platform support
-- **Non-functional requirements** — offline-first, real-time sync, multi-language support, accessibility, security constraints
-- **Integration requirements** — third-party service dependencies, API contracts
-- **Infrastructure requirements** — deployment targets, CI/CD needs, monitoring
+Take the PRD's path from `prdDoc` in the `{outputFile}` frontmatter, then parse that document for capability requirements.
 
 **Build a requirements list** with each entry containing:
 - `requirement_id` — sequential identifier (R1, R2, R3...)
@@ -84,22 +77,12 @@ Parse the PRD/vision document for capability requirements.
 
 For each requirement, evaluate whether the combined capabilities of the generated skills address it. Work from the `summaries` step 3 wrote to `{skillSummariesFile}`, one per skill matched to a Covered technology that it could read (its `exports`, `capabilities`, `protocols_inferred` and `data_formats_inferred`), never from a SKILL.md read in this context: step 3 already read each one. A skill its `unread` list names counts toward no verdict.
 
-**Assessment method:**
-- Match each requirement against the skills' `capabilities` and `exports`
-- Check if skill exports provide functions, types, or patterns relevant to the requirement
-- Consider combinations of multiple skills that together address a requirement
-- For non-functional requirements, check if the summaries name relevant configuration or patterns
-- When a verdict turns on a detail no summary holds, delegate it: one subagent reads that skill's SKILL.md and returns only `{"requirement_id": "…", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed", "evidence": "…"}`
+When a verdict turns on a detail no summary holds, delegate it: one subagent reads that skill's SKILL.md and returns only `{"requirement_id": "…", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed", "evidence": "…"}`.
 
 **Assign verdict per requirement:**
 - **Fulfilled** — one or more skills clearly provide the needed capability, with specific exports or patterns identified
 - **Partially Fulfilled** — skills provide related capability but gaps remain (specify what is covered and what is not)
 - **Not Addressed** — no skill in the stack provides capability relevant to this requirement
-
-**Each verdict includes:**
-- Which skills contribute (if any)
-- Specific exports or capabilities from those skills that are relevant
-- For Partially Fulfilled: what gap remains
 
 **Count the verdicts deterministically.** Write `{run_dir}/requirement-rows.json` as `{"rows": [{"requirement_id": "R1", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed"}, …]}`, one row per requirement, and run:
 
@@ -136,7 +119,7 @@ uv run {coverageTallyScript} --kind requirements --stdin < "{run_dir}/requiremen
 
 Write `{run_dir}/requirements-section.md`, the Requirements Coverage content that goes under `## Recommendations` (the shared schema's fixed top-level headings are Executive Summary, Coverage Analysis, Integration Verdicts, Recommendations, Evidence Sources; requirements detail lives under Recommendations):
 - Include the full requirements coverage table, with its **Not read:** lines
-- Include recommendations for Not Addressed and Partially Fulfilled items
+- Include the gap §4 shows for each Partially Fulfilled requirement, and no recommendation: synthesize writes one for each Not Addressed and Partially Fulfilled requirement, in its prioritized list
 
 The helper writes the `### Requirements Coverage` line, so the file holds no `#`, `##` or `###` heading. Then run the calls in order, stopping at the first that exits non-zero:
 

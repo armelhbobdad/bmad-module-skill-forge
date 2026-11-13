@@ -70,8 +70,7 @@ For each non-verified finding across all passes, generate one actionable next st
 - Do not emit a [CS]/[QS] recommendation for a Replaced technology — forging a skill for a technology that is being deleted is exactly the misfire this category prevents.
 
 **Risky integration (from Step 03):**
-- If protocol mismatch → "Consider adding a bridge layer between `{lib_a}` and `{lib_b}` (e.g., HTTP adapter, message queue). Document the bridge in the architecture."
-- If type incompatibility → "Add a serialization/conversion layer between `{lib_a}` and `{lib_b}` to resolve the type mismatch identified in their API surfaces."
+- If a protocol, type or language gap → name the specific bridge for `{lib_a}` ↔ `{lib_b}`: one already in the stack (Tauri's JS↔Rust IPC, say), else a named library, codec or adapter that closes the gap, and where the architecture document records it, or must add it. If no bridge can be named, write "No named bridge identified: manual research required" and one sentence on the selection criteria the user should apply.
 - If circular dependency (a step 3 cycle row: `cycle` in its `lib_a`, the chain in its `lib_b`) → "`{A → B → C → A}` form a circular integration dependency: each skill's SKILL.md cites the next. Check that the architecture gives the calls between them one direction, or place an adapter between them, before you build on it."
 - If a skill changed mid-run (the rationale "skill modified mid-run") → "`{skill}` changed while this run read it, so `{lib_a}` ↔ `{lib_b}` was not rated: re-run **[VS]**."
 - If a skill's API surface could not be read (the rationale "API surface unreadable") → "`{skill}`'s SKILL.md could not be read into an API summary, even on a second read, so `{lib_a}` ↔ `{lib_b}` was not rated: re-run **[VS]**."
@@ -80,8 +79,7 @@ For each non-verified finding across all passes, generate one actionable next st
 - "Neither `{lib_a}`'s nor `{lib_b}`'s SKILL.md names the other, so the pair stays `Plausible` until one of them does. When a page documents how the two work together (a `{lib_a}` guide that uses `{lib_b}`, say), add it to that skill's brief as a `doc_urls` entry with **[BS] Brief Skill**, re-create the skill with **[CS] Create Skill**, then re-run **[VS]**. Until then, prototype the integration before you rely on it."
 
 **Blocked integration (from Step 03):**
-- If language barrier → "Replace `{lib_a}` with a `{lib_b_language}`-compatible alternative, or introduce an IPC/FFI bridge. Redesign the integration path in the architecture document."
-- If fundamental incompatibility → "Replace `{blocked_lib}` with an alternative that is compatible with `{other_lib}` in the same domain, or redesign the integration path in the architecture document."
+- Name a replacement for `{blocked_lib}` (whichever of the pair's two libraries gives way) or the bridge that lets it work with `{other_lib}`, and the integration path the architecture document must change; a replacement follows the Named-candidate requirement below, and a bridge is named as the Risky line above names one.
 - **Named-candidate requirement:** For every Blocked integration where the recommendation proposes replacement, propose AT LEAST ONE named alternative library with a one-line justification (e.g., "Consider `{candidate_name}` — same domain as `{blocked_lib}`, native {target_language} support, compatible with `{other_lib}` via {mechanism}."). If you cannot name at least one concrete candidate, state explicitly: "No named candidate identified — manual research required" and still include one sentence on the selection criteria the user should apply. A Blocked recommendation without either a named candidate or the explicit no-candidate notice is a schema violation.
 
 **Not Addressed requirement (from Step 04):**

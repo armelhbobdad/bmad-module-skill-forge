@@ -67,7 +67,13 @@ and pin the prose around them:
 - step 1 checks the skills before its prompt, asks once more for a PRD or
   previous-report path that was not found and records it when headless, from
   a file the record command reads, and fills only the per-run frontmatter
-  keys; SKILL.md points to references/invocation-contract.md (#1200).
+  keys; SKILL.md points to references/invocation-contract.md (#1200);
+- synthesize alone writes the `## Recommendations` list, one item per finding the
+  rollup counts, each Risky or Blocked item naming its bridge or replacement;
+  report.md presents that list once, after the verdict line and before the
+  Suggested next workflow block, and its summary reads the frontmatter keys
+  themselves, with N/A only for a skipped requirements pass; requirements.md
+  takes the PRD's path from `prdDoc` and states each rule once (#1201).
 """
 
 from __future__ import annotations
@@ -97,6 +103,8 @@ SCANNER = SCRIPTS / "skf-scan-skill-md-structure.py"
 FIND_CYCLES = SCRIPTS / "skf-find-cycles.py"
 COMENTION = SCRIPTS / "skf-comention-pairs.py"
 REPORT_DELTA = SKILL / "scripts" / "skf-report-delta.py"
+REPORT_UPDATE = SKILL / "scripts" / "skf-report-update.py"
+ROLLUP = SKILL / "scripts" / "skf-verdict-rollup.py"
 TALLY = SKILL / "scripts" / "skf-coverage-tally.py"
 PIPELINE_GATE = SRC / "skf-forger" / "scripts" / "pipeline-gate.py"
 EXIT_CODES = REFERENCES / "exit-codes.md"
@@ -1203,6 +1211,148 @@ def test_a_blocked_recommendation_follows_the_named_candidate_requirement():
     blocked = _section(_read(REFERENCES / "synthesize.md"), "**Blocked integration (from Step 03):**",
                        "**Not Addressed requirement")
     assert "**Named-candidate requirement:**" in blocked
+    # #1201 leanness-2: one line asks for the replacement or the bridge, under that rule, in place of
+    # the stock sentences that named neither.
+    lines = [line for line in blocked.splitlines() if line.startswith("- ")]
+    assert len(lines) == 2 and lines[1].startswith("- **Named-candidate requirement:**"), lines
+    for needle in ("a replacement for `{blocked_lib}`", "the bridge that lets it work with `{other_lib}`",
+                   "the integration path the architecture document must change",
+                   "a replacement follows the Named-candidate requirement below",
+                   "and a bridge is named as the Risky line above names one."):
+        assert needle in lines[0], needle
+    synthesize = _read(REFERENCES / "synthesize.md")
+    for stock in ("Consider adding a bridge layer", "Add a serialization/conversion layer",
+                  "introduce an IPC/FFI bridge", "with an alternative that is compatible with"):
+        assert stock not in synthesize, stock
+    assert "- Recommendations must name specific tools, libraries, or actions" in synthesize
+
+
+def test_a_risky_recommendation_names_the_bridge_for_its_pair():
+    """#1201 leanness-2: a protocol, type or language gap gets the bridge for this pair, already in the stack or
+    named, and where the architecture document records it or must add it, or a notice that none could be named,
+    as a Blocked replacement has; the cycle, mid-run and unreadable lines follow."""
+    risky = _section(_read(REFERENCES / "synthesize.md"), "**Risky integration (from Step 03):**",
+                     "**Plausible integration")
+    lines = [line for line in risky.splitlines() if line.startswith("- ")]
+    assert lines[0].startswith("- If a protocol, type or language gap → name the specific bridge for "
+                               "`{lib_a}` ↔ `{lib_b}`: "), lines[0]
+    for needle in ("one already in the stack", "else a named library, codec or adapter that closes the gap",
+                   "and where the architecture document records it, or must add it.",
+                   "If no bridge can be named, write \"No named bridge identified: manual research required\" and "
+                   "one sentence on the selection criteria the user should apply."):
+        assert needle in lines[0], needle
+    starts = ["- If circular dependency", "- If a skill changed mid-run", "- If a skill's API surface could not be read"]
+    assert [line[:len(start)] for line, start in zip(lines[1:], starts)] == starts and len(lines) == 4, lines
+
+
+def test_synthesize_alone_writes_the_requirement_recommendations():
+    """#1201 architecture-4: requirements.md §5 writes the table and the Partially Fulfilled gaps and no
+    recommendation, so `## Recommendations` lists each one once, under synthesize's prioritized list, and their
+    number is the rollup's `recommendationCount`."""
+    requirements = _read(REFERENCES / "requirements.md")
+    assert "Include recommendations for Not Addressed and Partially Fulfilled items" not in requirements
+    write = _section(requirements, "### 5. Append to Report", "### 6.")
+    bullets = [line for line in write.splitlines() if line.startswith("- ")]
+    assert bullets == [
+        "- Include the full requirements coverage table, with its **Not read:** lines",
+        "- Include the gap §4 shows for each Partially Fulfilled requirement, and no recommendation: synthesize "
+        "writes one for each Not Addressed and Partially Fulfilled requirement, in its prioritized list"]
+    assert "**Gap:** {what remains unaddressed}" in _section(requirements, "### 4. Display Requirements Results",
+                                                             "### 5.")
+    synthesize = _read(REFERENCES / "synthesize.md")
+    recommendations = _section(synthesize, "### 2. Generate Prescriptive Recommendations", "### 3.")
+    assert "**Not Addressed requirement (from Step 04):**" in recommendations
+    assert "**Partially Fulfilled requirement (from Step 04):**" in recommendations
+    assert ("`{run_dir}/recommendations.md`: the prioritized recommendation list"
+            in _section(synthesize, "### 5. Append to Report", "### 6."))
+    # R1 Fulfilled, R2 Not Addressed, R3 Partially Fulfilled and no other finding: two items.
+    spec = importlib.util.spec_from_file_location("skf_verdict_rollup_contract", ROLLUP)
+    rollup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rollup)
+    out = rollup.rollup({"coveragePercentage": 100, "coveredCount": 2, "missingCount": 0, "replacedCount": 0,
+                         "pairsVerified": 1, "pairsPlausible": 0, "pairsRisky": 0, "pairsBlocked": 0,
+                         "requirementsEvaluated": True, "requirementsNotAddressed": 1, "requirementsPartial": 1})
+    assert out["recommendationCount"] == 2
+    assert {kind: n for kind, n in out["recommendations"].items() if n} == {"notAddressed": 1, "partial": 1}
+
+
+def test_report_presents_the_recommendations_once():
+    """#1201 leanness-3: one pass gives the verdict line, synthesize's list in its order (about 5 of each kind,
+    the rest left to the report), then the Suggested next workflow block, the only place the count shows."""
+    report = _read(REFERENCES / "report.md")
+    assert "Present Detailed Findings" not in report
+    assert "There are {recommendationCount} items to address" not in report
+    present = _section(report, "### 4. Present Findings and Next Steps", "### 4b. Result Contract")
+    order = ["- **`FEASIBLE`:**", "- **`CONDITIONALLY_FEASIBLE`:**", "- **`NOT_FEASIBLE`:**",
+             "Then walk the list under `### Prioritized Recommendations`", "**Suggested next workflow**"]
+    at = [present.index(token) for token in order]
+    assert at == sorted(at), order
+    # The list stops at the delta heading synthesize writes after it, and each kind's count is the rollup's.
+    for needle in ("in its order, which ends at the `#### Delta from Previous Run` heading",
+                   "`{run_dir}/rollup.json`, the verdict rollup synthesize wrote, gives under `recommendations` "
+                   "how many items of each kind the list holds, in the list's order",
+                   "name about 5 of each kind", "say how many more `{outputFile}` lists, from that count",
+                   "as synthesize wrote it, and add no count of your own"):
+        assert needle in present, needle
+    assert "{recommendationCount}" not in present and "then list the" not in present
+    assert "only recommendation list" not in present
+    synthesize = _read(REFERENCES / "synthesize.md")
+    assert "under a `#### Delta from Previous Run` heading; then the suggested next workflow, last" in synthesize
+    assert 'uv run {verdictRollupScript} --report "{outputFile}" > "{run_dir}/rollup.json"' in synthesize
+    # §4 reads the rollup before §5 deletes the run folder that holds it.
+    assert report.index('rm -rf "{run_dir}"') > report.index("### 5. Finish")
+    block = _section(_read(REFERENCES / "synthesize.md"), "**Suggested next workflow**", "### 5.")
+    assert "\"Address the {recommendationCount} recommendations above" in block
+
+
+def test_the_summary_reads_the_frontmatter_keys_and_shows_a_zero_count():
+    """#1201 leanness-9: §1 names the keys with no alias and the table reads them, so a completed requirements
+    pass that counted 0 shows 0, and only a skipped pass shows N/A (no PRD)."""
+    report = _read(REFERENCES / "report.md")
+    assert "(as `" not in report
+    for alias in ("verified_count", "plausible_count", "risky_count", "blocked_count", "fulfilled_count",
+                  "partial_count", "not_addressed_count"):
+        assert alias not in report, alias
+    assert '"recommendation_count": <recommendationCount>' in _section(report, "### 4b. Result Contract",
+                                                                       "### 5. Finish")
+    summary = _section(report, "### 2. Present Summary", "### 4.")
+    cells = {row.split("|")[1].strip(): row.split("|")[2].strip()
+             for row in summary.splitlines() if row.startswith("| **")}
+    for metric, key in (("Verified", "pairsVerified"), ("Plausible", "pairsPlausible"), ("Risky", "pairsRisky"),
+                        ("Blocked", "pairsBlocked")):
+        assert cells[f"**Integrations {metric}**"] == "{" + key + "}"
+    for metric, key in (("Fulfilled", "requirementsFulfilled"), ("Partially Fulfilled", "requirementsPartial"),
+                        ("Not Addressed", "requirementsNotAddressed")):
+        assert cells[f"**Requirements {metric}**"] == (
+            "{" + key + ", or 'N/A (no PRD)' when `requirementsPass` is \"skipped\"}")
+    # The value each requirements call records is the one the cells test.
+    spec = importlib.util.spec_from_file_location("skf_report_update_contract", REPORT_UPDATE)
+    update = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(update)
+    assert update.KINDS["requirements-skipped"].fixed == (("requirementsPass", "skipped"),)
+    assert update.KINDS["requirements"].fixed == (("requirementsPass", "completed"),)
+
+
+def test_requirements_takes_the_prd_path_from_the_report_and_states_each_rule_once():
+    """#1201 architecture-9, leanness-4: §2 opens with where the PRD path comes from, as coverage.md does for
+    the architecture document; §3 keeps the summaries rule, the delegation and the three verdict definitions."""
+    requirements = _read(REFERENCES / "requirements.md")
+    extract = _section(requirements, "### 2. Extract Requirements", "### 3.")
+    assert extract.split("\n\n")[1] == ("Take the PRD's path from `prdDoc` in the `{outputFile}` frontmatter, "
+                                        "then parse that document for capability requirements.")
+    assert ("Take the architecture document's path from `architectureDoc` in the `{outputFile}` frontmatter"
+            in _read(REFERENCES / "coverage.md"))
+    assert "feature, technical, non-functional, integration, or infrastructure" in extract
+    for gone in ("**Look for:**", "**Assessment method:**", "Match each requirement against",
+                 "**Each verdict includes:**"):
+        assert gone not in requirements, gone
+    assess = _section(requirements, "### 3. Assess Stack Coverage", "### 4.")
+    paragraphs = assess.split("\n\n")
+    assert any(p.startswith("When a verdict turns on a detail no summary holds, delegate it: one subagent reads "
+                            "that skill's SKILL.md and returns only") for p in paragraphs)
+    [definitions] = [p for p in paragraphs if p.startswith("**Assign verdict per requirement:**")]
+    assert [line.split("**")[1] for line in definitions.splitlines()[1:]] == [
+        "Fulfilled", "Partially Fulfilled", "Not Addressed"]
 
 
 def test_requirements_reads_the_step_3_summaries_not_skill_md():
