@@ -608,15 +608,34 @@ def crossref_section_7b(skill_md_text, pkg_dir):
     return missing, orphans
 
 
+def _stack_reference_files(references):
+    """(per-library reference files, integration pair files) of a stack's
+    references/ folder, each sorted. A library name with a `/` (a scoped npm
+    package, a Go module path) lands in subfolders, as
+    skf-render-stack-metadata.py references writes it, so both look below
+    the top level: the library files are every .md under references/ but
+    stack-catalog.md and those under integrations/, the pair files every .md
+    under references/integrations/."""
+    ref_files, pair_files = [], []
+    if references.is_dir():
+        for p in sorted(references.rglob("*.md")):
+            parts = p.relative_to(references).parts
+            if len(parts) > 1 and parts[0] == "integrations":
+                pair_files.append(p)
+            elif parts != ("stack-catalog.md",):
+                ref_files.append(p)
+    return ref_files, pair_files
+
+
 def validate_stack_counts(skill_dir, meta):
     """Validate stack-package count equalities against on-disk reference files.
 
     Deterministic integer arithmetic the validate.md prompt previously did by
     hand each run:
       - library_count (metadata) == number of per-library reference files
-        (references/*.md, excluding the integrations/ subdir and stack-catalog.md)
+        (references/**/*.md, excluding the integrations/ subdir and stack-catalog.md)
       - integration_count (metadata) == number of integration pair files
-        (references/integrations/*.md)
+        (references/integrations/**/*.md)
       - sum(confidence_distribution over t1, t1_low, t2, t3) == library_count
 
     Returns (issues, observed) where issues use the same {severity, field,
@@ -624,23 +643,8 @@ def validate_stack_counts(skill_dir, meta):
     counts so the prompt can echo numbers without recomputing them.
     """
     skill_dir = Path(skill_dir)
-    references = skill_dir / "references"
-
-    # Per-library reference files: top-level references/*.md.
-    # glob("*.md") is non-recursive, so references/integrations/*.md is
-    # excluded automatically; stack-catalog.md is excluded by name.
-    ref_file_count = 0
-    if references.is_dir():
-        for p in sorted(references.glob("*.md")):
-            if p.name == "stack-catalog.md":
-                continue
-            ref_file_count += 1
-
-    # Integration pair files: references/integrations/*.md.
-    integrations_dir = references / "integrations"
-    pair_file_count = 0
-    if integrations_dir.is_dir():
-        pair_file_count = sum(1 for _ in integrations_dir.glob("*.md"))
+    ref_files, pair_files = _stack_reference_files(skill_dir / "references")
+    ref_file_count, pair_file_count = len(ref_files), len(pair_files)
 
     library_count_meta = meta.get("library_count")
     integration_count_meta = meta.get("integration_count")
@@ -1093,11 +1097,8 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
                         f"the pair entry `#### {entry}` in SKILL.md has no `**Confidence:**` T-code label")
 
     # --- Reference and pair files (§6) and their tier labels (§7) -------------
-    ref_files = []
-    if references.is_dir():
-        ref_files = [p for p in sorted(references.glob("*.md")) if p.name != "stack-catalog.md"]
+    ref_files, pair_files = _stack_reference_files(references)
     pair_dir = references / "integrations"
-    pair_files = sorted(pair_dir.glob("*.md")) if pair_dir.is_dir() else []
     for files, kind, line_re, line_name, required in (
         (ref_files, "reference_files", _VERSION_LINE_RE, "**Version:**", _LIBRARY_FILE_HEADINGS),
         (pair_files, "pair_files", _TYPE_LINE_RE, "**Type:**", _PAIR_FILE_HEADINGS),

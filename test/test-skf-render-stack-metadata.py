@@ -1653,8 +1653,13 @@ def test_a_scoped_name_lands_where_the_link_and_the_validator_look(tmp_path):
                                                             "integrations/@scope/react-zod.md"]
     validator = _load(VALIDATOR, "skf_validate_output_scoped_reference")
     meta = {"libraries": ["@scope/react", "zod"], "integration_pairs": [["@scope/react", "zod"]]}
-    issues, _observed = validator.validate_stack_structure(out.parent, meta)
+    issues, observed = validator.validate_stack_structure(out.parent, meta)
     assert not [issue for issue in issues if issue["check"] == "references"], issues
+    assert (observed["reference_files"], observed["pair_files"]) == (2, 1), "the nested files are checked too"
+    counts = {"library_count": 2, "integration_count": 1,
+              "confidence_distribution": {"t1": 1, "t1_low": 1, "t2": 0, "t3": 0}}
+    issues, observed = validator.validate_stack_counts(out.parent, counts)
+    assert issues == [] and (observed["ref_file_count"], observed["pair_file_count"]) == (2, 1), issues
 
 
 def test_a_failed_write_leaves_nothing(tmp_path):
