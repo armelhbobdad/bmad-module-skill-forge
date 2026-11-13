@@ -2767,9 +2767,25 @@ def _force_utf8(*streams) -> None:
                 stream.reconfigure(encoding="utf-8", errors=errors)
 
 
+def _join_mark_values(argv: list[str]) -> list[str]:
+    """Join each `--not-applicable <mark>` into one `--not-applicable=<mark>` token. Before Python 3.12, argparse
+    reads a value that starts with `-` (such as a negative index) as another option and exits with its usage line, so
+    the adapter's own refusal, a JSON error on stdout, never ran; joined, every mark reaches the adapter."""
+    joined: list[str] = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--not-applicable" and i + 1 < len(argv):
+            joined.append(f"--not-applicable={argv[i + 1]}")
+            i += 2
+            continue
+        joined.append(argv[i])
+        i += 1
+    return joined
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8(sys.stdin, sys.stdout, sys.stderr)
-    args = _build_parser().parse_args(argv)
+    args = _build_parser().parse_args(_join_mark_values(sys.argv[1:] if argv is None else list(argv)))
     return args.func(args)
 
 
