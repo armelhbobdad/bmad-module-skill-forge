@@ -637,6 +637,32 @@ class TestHaltReasonForm:
         assert (env["skill_name"], env["mode"], env["exit_code"]) == ("unknown", mode, 4)
         assert "warnings" not in env
 
+    def test_the_write_probe_halt_carries_a_resolver_failure_read_on_stdin(self):
+        """The write probe halts before the run folder exists, so no sink holds the resolver warning On Activation
+        kept: `--customization-resolver-unavailable-from -` reads the reason on stdin, which the halt-reason form
+        leaves free, and the line still says the `_bmad/custom/` overrides were not applied."""
+        reason = "SKF helper skf-resolve-customization.py not found: it's `$(touch pwned)`"
+        done = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit-halt", "--workflow", "skf-brief-skill",
+                               "--target", "stderr", "--halt-reason", "write-failed", "--mode", "auto",
+                               "--customization-resolver-unavailable-from", "-"], input=reason + "\n",
+                              capture_output=True, text=True, encoding="utf-8", timeout=30)
+        env = self._line(done)
+        assert (env["mode"], env["exit_code"]) == ("auto", 4)
+        assert env["warnings"] == [f"customization_resolver_unavailable: {reason}"]
+
+    @pytest.mark.parametrize("extra", [
+        (),
+        ("--phase", "step 0:write-probe", "--reason", "-"),
+        ("--phase", "step 0:write-probe", "--reason", "cannot write: <message>", "--stderr-from", "-"),
+    ], ids=["payload-on-stdin", "reason-on-stdin", "stderr-on-stdin"])
+    def test_a_resolver_reason_on_stdin_is_refused_where_stdin_holds_something_else(self, extra):
+        done = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit-halt", "--workflow", "skf-brief-skill",
+                               "--target", "stderr", *extra, "--customization-resolver-unavailable-from", "-"],
+                              input='{"halt_reason": "write-failed"}', capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        assert done.returncode == 1 and "--customization-resolver-unavailable-from -" in done.stderr
+        assert "SKF_BRIEF_RESULT_JSON" not in done.stdout + done.stderr
+
     @pytest.mark.parametrize("state,warning", [
         (b"{not json", "halt_state_unreadable: halt-state.json"),
         (b'["interactive"]', "halt_state_unreadable: halt-state.json"),

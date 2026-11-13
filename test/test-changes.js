@@ -2059,6 +2059,21 @@ test('extractSurfaces: menu codes, aliases, flags, exit codes, halts, keys and s
   assert.deepStrictEqual(found.skillFiles, ['src/skf-forger/SKILL.md', 'src/skf-setup/SKILL.md']);
 });
 
+test('extractSurfaces: a halt_reason an emitter call gives as --halt-reason counts, a placeholder does not', () => {
+  const found = surfaces.extractSurfaces(
+    memoryTree({
+      'src/skf-tool/references/halts.md':
+        'emit `uv run {emitEnvelopeHelper} emit-halt --workflow skf-tool --target stderr --halt-reason write-failed`, then HALT.\n' +
+        "`emit-halt --phase '<phase>' --halt-reason '<halt_reason>'`, `--halt-reason <class>`, `--halt-reason='tool-missing'`\n",
+    }),
+  );
+  const reasons = [...found.items.values()]
+    .filter((item) => item.kind === 'halt-reason')
+    .map((item) => `${item.workflow} ${item.token}`)
+    .sort();
+  assert.deepStrictEqual(reasons, ['skf-tool tool-missing', 'skf-tool write-failed']);
+});
+
 test('diffSurfaces: removals are hard, additions additive, the rest for review', () => {
   const head = {
     ...SURFACE_BASE,

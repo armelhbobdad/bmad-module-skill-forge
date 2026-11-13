@@ -56,6 +56,11 @@ Subcommands:
              no stdin, so a halt line is one command. --reason, --path,
              --stderr-from, --skill-name, --old-name and --new-name still
              need --phase, and --mode needs --phase or --halt-reason.
+             --customization-resolver-unavailable-from takes the resolver's
+             failure reason as on emit, in every form, and `-` reads it on
+             stdin when nothing else does (with --phase or --halt-reason,
+             and neither --reason - nor --stderr-from -), so a halt
+             before the run folder exists still reports it.
              The payload must give a non-empty `phase` and `reason` only
              when the workflow's envelope declares an `error`, `phase` or
              `reason` property (skf-brief-skill's declares none). With
@@ -338,8 +343,8 @@ Context payload shape (consumed by `emit` for skf-setup):
   When the On Activation customization resolver was missing or failed,
   pass its one-line reason as `customization_resolver_unavailable`, or
   name the file that holds it with
-  --customization-resolver-unavailable-from (emit, render-report and
-  emit-blocked): the emitter takes that file's diagnostic as --stderr-from
+  --customization-resolver-unavailable-from (emit, emit-halt, render-report
+  and emit-blocked): the emitter takes that file's diagnostic as --stderr-from
   does, folded to one line (`(no error message)` for a missing or empty
   file), in place of the payload's own, so no step escapes the reason
   into JSON or a shell argument. The run then used only the skill's own
@@ -2252,6 +2257,13 @@ def halt_payload(args) -> dict | None:
     """
     given = {"--reason": args.reason, "--stderr-from": args.stderr_from,
              **{flag: getattr(args, key) for flag, key in HALT_OPTION_KEYS}}
+    if getattr(args, "customization_resolver_unavailable_from", None) == "-":
+        if args.phase is None and args.halt_reason is None:
+            _die(1, "emit-halt: --customization-resolver-unavailable-from - needs --phase or --halt-reason "
+                    "(without them the payload is read on stdin)")
+        if "-" in (args.reason, args.stderr_from):
+            _die(1, "emit-halt: --customization-resolver-unavailable-from - and --reason - or --stderr-from - "
+                    "would both read stdin; pass one of them as a file")
     if args.phase is None:
         form = args.halt_reason is not None
         named = [flag for flag, value in given.items()
@@ -2353,7 +2365,7 @@ def main() -> None:
                        help="skf-setup: the run was headless (its orphan default is headless-default).")
         p.add_argument("--quiet", action="store_true",
                        help="skf-setup: the run was quiet (its orphan default is quiet-default).")
-    for p in (p_emit, p_render, p_blocked):
+    for p in (p_emit, p_halt, p_render, p_blocked):
         p.add_argument("--customization-resolver-unavailable-from", default=None, metavar="FILE",
                        help="The file that holds the On Activation resolver's failure reason: the emitter takes "
                             "its diagnostic, folded to one line, and the envelope warns that the _bmad/custom/ "

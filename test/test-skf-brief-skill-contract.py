@@ -486,6 +486,24 @@ def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
     assert "- **`valid: true`**" not in _read(GATHER_INTENT)
 
 
+def test_the_write_probe_halt_still_reports_a_resolver_failure():
+    """#1134 review: the write probe halts before the run folder exists, so the resolver warning On Activation
+    step 3 kept is in no sink; the documented command passes it on stdin, and the line carries it."""
+    command, body = _heredoc(_read(PREFLIGHT), "SKF_REASON")
+    assert body == "{customization_resolver_unavailable}"
+    assert "--run-dir" not in command and command.endswith("--customization-resolver-unavailable-from - <<'SKF_REASON'")
+    hostile = "SKF helper skf-resolve-customization.py not found: it's `$(touch pwned)`"
+    proc = _run([*_argv(command), "--mode", "auto"], stdin=hostile + "\n")
+    assert proc.returncode == 0 and proc.stdout == "", proc.stderr
+    [line] = proc.stderr.splitlines()
+    envelope = _envelope(line)
+    assert (envelope["halt_reason"], envelope["exit_code"], envelope["mode"]) == ("write-failed", 4, "auto")
+    assert envelope["warnings"] == [f"customization_resolver_unavailable: {hostile}"]
+    result = " ".join(_section(_read(CONTRACT), "## Result Contract (Headless)").split())
+    assert ("its line carries no recorded warning, only the `customization_resolver_unavailable` one when On "
+            "Activation step 3 kept a resolver failure") in result
+
+
 def test_no_brief_prose_names_a_dev_only_shared_path():
     """#1112 (brief-skill architecture-5): `src/shared/` exists only in dev. A probe order names it after the
     installed path, always as `{project-root}/src/shared/...` (the frontmatter `*ProbeOrder` lists and SKILL.md's

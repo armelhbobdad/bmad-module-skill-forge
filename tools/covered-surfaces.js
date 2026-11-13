@@ -40,7 +40,8 @@
  *   workflow's SKILL.md and references/*.md, with their meaning
  * - Preference keys (src/forger/preferences.yaml) and install config keys
  *   (src/module.yaml)
- * - halt_reason and error.phase values written in the Markdown under src/
+ * - halt_reason and error.phase values written in the Markdown under src/,
+ *   a halt_reason also as the value of an emitter's `--halt-reason` option
  * - Tool minimums: the `minimum` of each tool in
  *   src/shared/tool-requirements.yaml, keyed by the tool and named by its
  *   `name` (a tool with a null minimum has none)
@@ -582,15 +583,18 @@ function exitCodeItems(tree, add) {
 }
 
 const HALT_REASON = /halt_reason[`"]?\s*:?\s*[`"]([a-z0-9][a-z0-9-]*)[`"]/g;
+// `emit-halt ... --halt-reason write-failed`; a placeholder such as '<halt_reason>' is not a value.
+const HALT_REASON_OPTION = /--halt-reason[ =]['"]?([a-z0-9][a-z0-9-]*)(?![\w-])/g;
 const ERROR_PHASE = /phase[`"]?\s*:?\s*[`"]([a-z0-9]+(?: [a-z0-9]+)*:[a-z0-9][a-z0-9-]*)[`"]/g;
 
 function haltItems(tree, add) {
   for (const file of tree.files) {
     if (!file.endsWith('.md')) continue;
     const text = tree.read(file);
-    if (!text || (!text.includes('halt_reason') && !text.includes('phase'))) continue;
+    if (!text || (!text.includes('halt_reason') && !text.includes('--halt-reason') && !text.includes('phase'))) continue;
     const workflow = workflowOf(file);
     for (const match of text.matchAll(HALT_REASON)) add({ kind: 'halt-reason', workflow, token: match[1] });
+    for (const match of text.matchAll(HALT_REASON_OPTION)) add({ kind: 'halt-reason', workflow, token: match[1] });
     for (const match of text.matchAll(ERROR_PHASE)) add({ kind: 'error-phase', workflow, token: match[1] });
   }
 }

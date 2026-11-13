@@ -3218,7 +3218,7 @@ def test_emit_and_render_report_read_the_resolver_reason_from_its_file(tmp_path)
 
 def test_the_resolver_file_option_is_documented():
     doc = _folded_doc()
-    for token in ("--customization-resolver-unavailable-from FILE", "(emit, render-report and emit-blocked)",
+    for token in ("--customization-resolver-unavailable-from FILE", "(emit, emit-halt, render-report and emit-blocked)",
                   "`(no error message)` for a missing or empty file"):
         assert token in doc, token
 
