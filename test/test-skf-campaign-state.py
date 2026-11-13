@@ -330,7 +330,10 @@ class TestAdditionalPropertiesRejected:
 
 
 def _frontmatter(path: pathlib.Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    """The file's YAML frontmatter, or {} for a file that does not open with one (a BOM is read past)."""
+    text = path.read_text(encoding="utf-8-sig")
+    if not text.startswith("---"):
+        return {}
     return yaml.safe_load(text.split("---", 2)[1]) or {}
 
 
@@ -347,11 +350,14 @@ class TestWorkspaceContract:
                 assert fm["stateFile"] == "{campaignWorkspacePath}/_campaign-state.yaml", path.name
             if "backupFile" in fm:
                 assert fm["backupFile"] == "{campaignWorkspacePath}/_campaign-state.yaml.bak", path.name
-        assert declared >= 11
+        assert declared == 12  # step-01 to step-11 and step-resume
 
     def test_directive_name(self) -> None:
-        fm = _frontmatter(CAMPAIGN_DIR / "references" / "campaign-directive-spec.md")
-        assert fm["directiveFile"] == "_campaign-directive.md"
+        # The spec declares no unused frontmatter (#1140): its body names the default file.
+        path = CAMPAIGN_DIR / "references" / "campaign-directive-spec.md"
+        assert _frontmatter(path) == {}
+        assert not path.read_text(encoding="utf-8").startswith("---")
+        assert "default filename `_campaign-directive.md`" in " ".join(path.read_text(encoding="utf-8").split())
 
     def test_capability_row_in_module_help(self) -> None:
         rows = [line.split(",") for line in MODULE_HELP_PATH.read_text(encoding="utf-8").splitlines()]
@@ -558,18 +564,20 @@ class TestRefinementField:
 
 
 # ---------------------------------------------------------------------------
-# customize.toml: what quality_gate_hard = "zero-critical-high" counts
+# customize.toml: what the hard gate (always zero-critical-high) counts
 # ---------------------------------------------------------------------------
 
 
 class TestQualityGateHardComment:
     def test_missing_exports_no_longer_count(self) -> None:
+        # #1142: the hard gate is no setting, so its sentences sit in the section's lead and the soft target's comment.
         text = (CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8")
-        block = text.split('quality_gate_hard = "zero-critical-high"', 1)[0].rsplit("# --- Quality gate ---", 1)[1]
+        block = text.split("# --- Quality gate ---", 1)[1].split("quality_gate_soft_target =", 1)[0]
         comment = " ".join(line.lstrip("#").strip() for line in block.splitlines() if line.strip())
-        assert "passes a skill only when its test-skill run finds no Critical or High gap" in comment
-        assert "A missing export is a Medium gap" in comment
-        assert "no longer counts against this gate" in comment
+        assert ("The hard gate is not a setting: a skill passes it only when its test-skill run finds no Critical or "
+                "High gap") in comment
+        assert ("A missing export is a Medium gap: it lowers the coverage score and no longer counts against the hard "
+                "gate.") in comment
 
 
 # ---------------------------------------------------------------------------
@@ -615,3 +623,50 @@ class TestSkillMdStructure:
         assert "SKF_CAMPAIGN_RESULT_JSON" in skill_content, (
             "SKILL.md must document the SKF_CAMPAIGN_RESULT_JSON envelope"
         )
+
+
+# ---------------------------------------------------------------------------
+# #1143: campaign.unattended and skills[].halt_reason
+# ---------------------------------------------------------------------------
+
+
+class TestUnattendedField:
+    @pytest.mark.parametrize("value", [True, False, None], ids=["true", "false", "null"])
+    def test_a_boolean_or_null_passes(self, schema: dict, value) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["unattended"] = value
+        validate(instance=state, schema=schema)
+
+    def test_absent_passes(self, schema: dict) -> None:
+        assert "unattended" not in VALID_MINIMAL_STATE["campaign"]
+        validate(instance=VALID_MINIMAL_STATE, schema=schema)
+
+    def test_a_string_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["unattended"] = "yes"
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
+
+    def test_not_required(self, schema: dict) -> None:
+        assert "unattended" not in schema["properties"]["campaign"]["required"]
+
+
+class TestSkillHaltReason:
+    @pytest.mark.parametrize("value", ["exit 4", None], ids=["string", "null"])
+    def test_a_string_or_null_passes(self, schema: dict, value) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["halt_reason"] = value
+        validate(instance=state, schema=schema)
+
+    def test_absent_passes(self, schema: dict) -> None:
+        assert all("halt_reason" not in skill for skill in VALID_FULL_STATE["skills"])
+        validate(instance=VALID_FULL_STATE, schema=schema)
+
+    def test_an_integer_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["halt_reason"] = 4
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
+
+    def test_not_required(self, schema: dict) -> None:
+        assert "halt_reason" not in schema["properties"]["skills"]["items"]["required"]

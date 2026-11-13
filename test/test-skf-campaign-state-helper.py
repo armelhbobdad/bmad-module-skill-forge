@@ -259,6 +259,18 @@ class TestInit:
         assert rc == 0
         assert out["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
 
+    def test_the_hard_gate_defaults_to_the_only_one(self, tmp_path, capsys):
+        # #1142: customize.toml no longer ships quality_gate_hard, so step-01 passes no --hard.
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        path = tmp_path / "_campaign-state.yaml"
+        rc, out = _run(capsys, "init", "--state-file", str(path), "--targets-file", str(targets), "--name", "demo",
+                       "--soft-target", "90", "--soft-fallback", "80")
+        assert rc == 0
+        assert _read(path)["campaign"]["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90,
+                                                           "soft_fallback": 80}
+        assert out["gate_from_brief"] == {}
+
     def test_a_gate_the_gate_script_rejects_writes_nothing(self, tmp_path, capsys):
         targets = tmp_path / "targets.json"
         targets.write_text(json.dumps(TARGETS), encoding="utf-8")
@@ -356,9 +368,9 @@ class TestInitBrief:
         targets = tmp_path / "targets.json"
         targets.write_text(json.dumps(TARGETS), encoding="utf-8")
         brief = tmp_path / "campaign-brief.yaml"
-        rc, _ = _init(capsys, tmp_path / "_campaign-state.yaml", targets, "--brief-out", str(brief),
-                      "--brief-template", str(BRIEF_TEMPLATE), "--architecture-doc-path", "docs/arch.md",
-                      "--notes", "ship it, don't wait")
+        rc, out = _init(capsys, tmp_path / "_campaign-state.yaml", targets, "--brief-out", str(brief),
+                        "--brief-template", str(BRIEF_TEMPLATE), "--architecture-doc-path", "docs/arch.md",
+                        "--notes", "ship it, don't wait")
         assert rc == 0
         written = brief.read_text(encoding="utf-8")
         template = BRIEF_TEMPLATE.read_text(encoding="utf-8")
@@ -370,7 +382,10 @@ class TestInitBrief:
         assert data["created_at"] == STAMP == _read(tmp_path / "_campaign-state.yaml")["campaign"]["started_at"]
         # Every field a target's source gave it is kept, hints and repo_url included.
         assert data["targets"] == TARGETS["targets"]
-        assert data["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}
+        # #1142: no seeding brief set a gate value, so the brief holds none; the state keeps the whole gate.
+        assert data["quality_gate"] == {}
+        assert out["gate_from_brief"] == {}
+        assert out["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}
         assert (data["architecture_doc_path"], data["notes"]) == ("docs/arch.md", "ship it, don't wait")
 
     def test_brief_takes_the_settled_gate_and_the_seed_briefs_notes(self, tmp_path, capsys):
@@ -379,12 +394,61 @@ class TestInitBrief:
         seed = tmp_path / "seed-brief.yaml"
         seed.write_text("quality_gate:\n  soft_target: 85\nnotes: from the seed\n", encoding="utf-8")
         brief = tmp_path / "ws" / "campaign-brief.yaml"
-        rc, _ = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
-                      "--brief-out", str(brief))
+        rc, out = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                        "--brief-out", str(brief))
         assert rc == 0
         data = yaml.safe_load(brief.read_text(encoding="utf-8"))
-        assert data["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
+        # #1142: the brief keeps the one value the seed set; the state holds the whole settled gate.
+        assert data["quality_gate"] == {"soft_target": 85}
+        assert out["gate_from_brief"] == {"soft_target": 85}
+        assert _read(tmp_path / "ws" / "_campaign-state.yaml")["campaign"]["quality_gate"] == {
+            "hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
         assert (data["notes"], data["architecture_doc_path"]) == ("from the seed", "")
+
+    def test_a_brief_seeded_again_takes_the_new_customize_values(self, tmp_path, capsys):
+        # #1142: a brief init wrote from the customize.toml values (90/80) used to freeze them, so a later
+        # quality_gate_soft_target override did nothing when that brief seeded a campaign again.
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        first = tmp_path / "one" / "campaign-brief.yaml"
+        assert _init(capsys, tmp_path / "one" / "_campaign-state.yaml", targets, "--brief-out", str(first))[0] == 0
+        state = tmp_path / "two" / "_campaign-state.yaml"
+        second = tmp_path / "two" / "campaign-brief.yaml"
+        rc, out = _run(capsys, "init", "--state-file", str(state), "--targets-file", str(targets), "--name", "demo",
+                       "--soft-target", "95", "--soft-fallback", "80", "--brief-file", str(first),
+                       "--brief-out", str(second))
+        assert rc == 0
+        assert _read(state)["campaign"]["quality_gate"]["soft_target"] == 95
+        assert yaml.safe_load(second.read_text(encoding="utf-8"))["quality_gate"] == {}
+        assert out["gate_from_brief"] == {}
+
+    def test_a_brief_that_sets_every_gate_value_keeps_them_all(self, tmp_path, capsys):
+        # A brief an earlier version wrote holds all three values: each still comes from the brief.
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        seed = tmp_path / "seed-brief.yaml"
+        seed.write_text("quality_gate:\n  hard: zero-critical-high\n  soft_target: 92\n  soft_fallback: 85\n",
+                        encoding="utf-8")
+        brief = tmp_path / "ws" / "campaign-brief.yaml"
+        rc, out = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                        "--brief-out", str(brief))
+        assert rc == 0
+        gate = {"hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85}
+        assert yaml.safe_load(brief.read_text(encoding="utf-8"))["quality_gate"] == gate
+        assert out["gate_from_brief"] == gate
+        assert list(out["gate_from_brief"]) == ["hard", "soft_target", "soft_fallback"]
+        assert out["quality_gate"] == gate
+
+    def test_a_brief_hard_gate_other_than_the_only_one_writes_nothing(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        seed = tmp_path / "seed-brief.yaml"
+        seed.write_text("quality_gate:\n  hard: lenient\n", encoding="utf-8")
+        ws = tmp_path / "ws"
+        rc, err = _init(capsys, ws / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                        "--brief-out", str(ws / "campaign-brief.yaml"))
+        assert (rc, err["code"]) == (2, "INVALID_GATE")
+        assert not ws.exists()
 
     def test_without_brief_out_no_brief_is_written(self, tmp_path, capsys):
         targets = tmp_path / "targets.json"
@@ -677,6 +741,92 @@ class TestAppendWorkarounds:
         assert rc == 0
         assert out["added"] == ["[doc-rot] b: removal"]
         assert _read(path)["skills"][0]["workarounds_applied"] == ["[doc-rot] a: rename", "[doc-rot] b: removal"]
+
+
+def _correction(affected: str, category: str, **fields) -> dict:
+    """A record as create-skill's doc-rot step writes it to doc-rot-corrections.json."""
+    return {"source": "changelog.md", "pattern": category, "candidate_category": category,
+            "context_line": f"- {category}: {affected}", "affected": affected, **fields}
+
+
+class TestAppendDocRotFile:
+    """#1141: campaign records the corrections create-skill kept from the file it wrote, not from context."""
+
+    def _append(self, capsys, path, source):
+        return _run(capsys, "append-workarounds", "--state-file", str(path), "--skill", "core",
+                    "--doc-rot-file", str(source))
+
+    def test_one_entry_per_kept_correction_each_once(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core", workarounds_applied=["[doc-rot] a: Rename"])]))
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text(json.dumps([_correction("a", "Rename"), _correction("b", "Removal"),
+                                      _correction("b", "Removal", source="releases.md")]), encoding="utf-8")
+        rc, out = self._append(capsys, path, source)
+        assert rc == 0
+        assert out["added"] == ["[doc-rot] b: Removal"]
+        assert _read(path)["skills"][0]["workarounds_applied"] == ["[doc-rot] a: Rename", "[doc-rot] b: Removal"]
+
+    def test_a_resumed_skill_records_nothing_twice(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text(json.dumps([_correction("Client.close_all", "Removal")]), encoding="utf-8")
+        assert self._append(capsys, path, source)[1]["added"] == ["[doc-rot] Client.close_all: Removal"]
+        assert self._append(capsys, path, source)[1]["added"] == []
+        assert _read(path)["skills"][0]["workarounds_applied"] == ["[doc-rot] Client.close_all: Removal"]
+
+    @pytest.mark.parametrize("content", [None, "[]"], ids=["no-file", "empty-array"])
+    def test_nothing_kept_records_nothing(self, tmp_path, capsys, content):
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        source = tmp_path / "doc-rot-corrections.json"
+        if content is not None:
+            source.write_text(content, encoding="utf-8")
+        rc, out = self._append(capsys, path, source)
+        assert (rc, out["added"]) == (0, [])
+        assert _read(path)["skills"][0]["workarounds_applied"] == []
+
+    def test_a_control_character_in_a_value_reads_as_itself(self, tmp_path, capsys):
+        """The record is written through a heredoc that escapes only `"` and `\\`: a tab a context_line keeps from
+        the upstream line, which strict JSON refuses, still records the correction (#1141)."""
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text('[{"source": "s", "pattern": "p", "candidate_category": "Removal", '
+                          '"context_line": "foo()\t// deprecated", "affected": "foo"}]', encoding="utf-8")
+        rc, out = self._append(capsys, path, source)
+        assert (rc, out["added"]) == (0, ["[doc-rot] foo: Removal"])
+
+    @pytest.mark.parametrize(
+        "content, code",
+        [("{}", "input-unreadable"),
+         ("not json", "input-unreadable"),
+         ("", "input-unreadable"),
+         ('[{"candidate_category": "Removal"}]', "input-invalid"),
+         ('[{"affected": "a", "candidate_category": "  "}]', "input-invalid"),
+         ('[{"affected": 3, "candidate_category": "Removal"}]', "input-invalid"),
+         ('[{"affected": "a", "candidate_category": "Rename"}, "b"]', "input-invalid")],
+        ids=["object", "not-json", "empty", "no-affected", "blank-category", "number", "not-an-object"],
+    )
+    def test_a_file_it_cannot_read_writes_nothing(self, tmp_path, capsys, content, code):
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        before = path.read_bytes()
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text(content, encoding="utf-8")
+        rc, err = self._append(capsys, path, source)
+        assert (rc, err["code"]) == (2, code)
+        assert path.read_bytes() == before
+        assert not _bak(path).exists()
+
+    def test_entries_and_a_file_do_not_combine(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["append-workarounds", "--state-file", "s", "--skill", "core", "--entry", "x",
+                      "--doc-rot-file", "f.json"])
+        assert exc.value.code == 2
+        assert "argument --doc-rot-file: not allowed with argument --entry" in capsys.readouterr().err
+
+    def test_one_source_is_required(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["append-workarounds", "--state-file", "s", "--skill", "core"])
+        assert exc.value.code == 2
+        assert "one of the arguments --entry --doc-rot-file is required" in capsys.readouterr().err
 
 
 class TestSetCampaign:
@@ -1000,6 +1150,77 @@ class TestRecoverAndLog:
             f"- {STAMP} (auto) headless: auto-proceed past plan-confirmation gate",
             f"- {LATER} (event) core failed: FAIL",
         ]
+
+    def test_log_once_skips_an_entry_the_log_holds(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        notice = "Directive: Skip List names `ghost`, which is no skill in this campaign"
+        rc, first = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", notice)
+        assert (rc, first["skipped"]) == (0, False)
+        before = log.read_bytes()
+        for text in (notice, notice.replace(" names ", "   names\n  ")):
+            rc, again = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", text)
+            assert (rc, again["skipped"], again["entry"]) == (0, True, first["entry"])
+            assert log.read_bytes() == before
+
+    def test_log_once_appends_another_text_or_type(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        assert _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")[0] == 0
+        for kind, text in (("event", "Directive: b"), ("auto", "Directive: a")):
+            rc, out = _run(capsys, "log", "--log-file", str(log), "--type", kind, "--once", "--text", text)
+            assert (rc, out["skipped"]) == (0, False)
+        assert log.read_text(encoding="utf-8").splitlines() == [
+            f"- {STAMP} (event) Directive: a", f"- {LATER} (event) Directive: b", f"- {LATER} (auto) Directive: a"]
+
+    def test_log_once_reads_the_whole_log(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_bytes(b"- 2026-09-01T00:00:00+00:00 (event) Directive: a\r\n- 2026-09-01T00:00:01+00:00 (auto) b\r\n")
+        rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive:  a")
+        assert (rc, out["skipped"], out["entry"]) == (0, True, "- 2026-09-01T00:00:00+00:00 (event) Directive: a")
+
+    def test_log_once_counts_only_this_campaigns_lines(self, tmp_path, capsys):
+        """#1141: an overwrite archives the state but leaves the log, so an earlier campaign's line never counts."""
+        _write(tmp_path, _state())  # started_at 2026-10-01T10:00:00Z
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_bytes(b"- 2026-09-30T23:59:59+00:00 (event) Directive: a\n")
+        rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert (rc, out["skipped"]) == (0, False)
+        rc, again = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert (rc, again["skipped"], again["entry"]) == (0, True, out["entry"])
+        assert log.read_text(encoding="utf-8").splitlines() == [
+            "- 2026-09-30T23:59:59+00:00 (event) Directive: a", f"- {STAMP} (event) Directive: a"]
+
+    def test_a_campaign_seeded_again_logs_its_notice(self, tmp_path, capsys, monkeypatch):
+        """step-01 §0 archives, §2 inits a new campaign beside the same log: its first notice is logged again."""
+        stamps = iter(["2026-10-01T10:00:00+00:00", "2026-10-01T10:05:00+00:00", "2026-10-02T09:00:00+00:00",
+                       "2026-10-02T09:00:01+00:00"])
+        monkeypatch.setattr(mod, "now", lambda: next(stamps, "2026-10-02T09:30:00+00:00"))
+        state, brief = tmp_path / "_campaign-state.yaml", tmp_path / "campaign-brief.yaml"
+        log, targets = tmp_path / "_campaign-decision-log.md", tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        init = ("init", "--state-file", str(state), "--targets-file", str(targets), "--name", "demo",
+                "--soft-target", "90", "--soft-fallback", "80", "--brief-out", str(brief))
+        notice = ("log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert _run(capsys, *init)[0] == 0
+        assert _run(capsys, *notice)[1]["skipped"] is False
+        assert _run(capsys, "archive", "--state-file", str(state), "--brief-file", str(brief))[0] == 0
+        assert _run(capsys, *init)[0] == 0
+        assert _run(capsys, *notice)[1]["skipped"] is False
+        assert _run(capsys, *notice)[1]["skipped"] is True
+        assert log.read_text(encoding="utf-8").splitlines() == [
+            "- 2026-10-01T10:05:00+00:00 (event) Directive: a", "- 2026-10-02T09:30:00+00:00 (event) Directive: a"]
+
+    def test_log_once_on_a_missing_log_appends(self, tmp_path, capsys):
+        log = tmp_path / "campaign" / "_campaign-decision-log.md"
+        rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert (rc, out["skipped"]) == (0, False)
+        assert log.read_text(encoding="utf-8").splitlines() == [f"- {STAMP} (event) Directive: a"]
+
+    def test_log_without_once_always_appends(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        for _ in range(2):
+            rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--text", "core failed")
+            assert (rc, out["skipped"]) == (0, False)
+        assert len(log.read_text(encoding="utf-8").splitlines()) == 2
 
     def test_log_type_is_closed(self, tmp_path):
         with pytest.raises(SystemExit) as exc:
@@ -1350,3 +1571,266 @@ def test_help_lists_every_operation(capsys):
         assert op in out
     for stage, name in mod.STEP_FILES.items():
         assert name.startswith(f"step-{stage + 1:02d}-")
+
+
+# --------------------------------------------------------------------------
+# #1143: set-skill --pin and --halt-reason, --unattended, apply-batch reasons
+# --------------------------------------------------------------------------
+
+
+class TestSetSkillPin:
+    """step-03 §4 writes the pin the operator corrects; the pin script reads the state's pin."""
+
+    def _pins(self, tmp_path):
+        return _write(tmp_path, _state(stage=1, skills=[_skill("core", pin="9.9.9"), _skill("util", tier="B")]))
+
+    @pytest.mark.parametrize("pin", ["1.2.0", "v1.2.0", " 1.2.0 "], ids=["plain", "v-prefix", "padded"])
+    def test_a_tier_a_version_is_written(self, tmp_path, capsys, pin):
+        path = self._pins(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", pin)
+        assert rc == 0
+        assert _read(path)["skills"][0]["pin"] == pin.strip()
+        assert out["changed"] == [f"core.pin={pin.strip()}"]
+
+    def test_a_tier_a_branch_writes_nothing(self, tmp_path, capsys):
+        path = self._pins(tmp_path)
+        before = path.read_bytes()
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", "main")
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert "no X.Y.Z version" in err["error"]
+        assert path.read_bytes() == before and not _bak(path).exists()
+
+    def test_a_tier_b_branch_is_written(self, tmp_path, capsys):
+        path = self._pins(tmp_path)
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "util", "--pin", "main")[0] == 0
+        assert _read(path)["skills"][1]["pin"] == "main"
+
+    @pytest.mark.parametrize("pin", ["", "   "], ids=["empty", "blank"])
+    def test_an_empty_pin_is_the_latest_release(self, tmp_path, capsys, pin):
+        path = self._pins(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", pin)
+        assert rc == 0 and out["changed"] == ["core.pin=null"]
+        core = _read(path)["skills"][0]
+        assert core["pin"] is None and core["status"] == "pending"
+
+    def _brief(self, tmp_path, targets=None) -> pathlib.Path:
+        brief = tmp_path / "campaign-brief.yaml"
+        body = {"campaign_name": "demo", "targets": targets if targets is not None else [
+            {"name": "core", "repo_url": "https://github.com/acme/core", "tier": "A", "pin": "9.9.9",
+             "depends_on": [], "language_hint": "python"},
+            {"name": "util", "repo_url": "https://github.com/acme/util", "tier": "B", "pin": None, "depends_on": []}]}
+        brief.write_bytes(b"# Machine-generated campaign brief\n# Written by init\n\n"
+                          + yaml.safe_dump(body, sort_keys=False).encode("utf-8"))
+        return brief
+
+    def test_the_brief_target_takes_the_corrected_pin_too(self, tmp_path, capsys):
+        """#1143: the kickoff's brief summary and a campaign seeded from the brief again see the corrected pin."""
+        path, brief = self._pins(tmp_path), self._brief(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", "1.2.0",
+                       "--brief-file", str(brief))
+        assert rc == 0 and out["changed"] == ["core.pin=1.2.0", "brief"]
+        assert _read(path)["skills"][0]["pin"] == "1.2.0"
+        text = brief.read_text(encoding="utf-8")
+        assert text.startswith("# Machine-generated campaign brief\n# Written by init\n\ncampaign_name: demo\n")
+        core, util = yaml.safe_load(text)["targets"]
+        assert core == {"name": "core", "repo_url": "https://github.com/acme/core", "tier": "A", "pin": "1.2.0",
+                        "depends_on": [], "language_hint": "python"}
+        assert util["pin"] is None
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", "",
+                    "--brief-file", str(brief))[0] == 0
+        assert yaml.safe_load(brief.read_text(encoding="utf-8"))["targets"][0]["pin"] is None
+
+    @pytest.mark.parametrize("pin, targets, code", [
+        ("main", None, "input-invalid"),
+        ("1.2.0", [{"name": "util", "repo_url": "https://github.com/acme/util", "tier": "B"}], "input-invalid"),
+    ], ids=["refused-pin", "no-target"])
+    def test_a_refused_write_reaches_neither_file(self, tmp_path, capsys, pin, targets, code):
+        path, brief = self._pins(tmp_path), self._brief(tmp_path, targets)
+        before = (path.read_bytes(), brief.read_bytes())
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", pin,
+                       "--brief-file", str(brief))
+        assert (rc, err["code"]) == (2, code)
+        assert (path.read_bytes(), brief.read_bytes()) == before and not _bak(path).exists()
+
+    def test_a_brief_file_goes_with_a_pin(self, tmp_path, capsys):
+        path, brief = self._pins(tmp_path), self._brief(tmp_path)
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "active",
+                       "--brief-file", str(brief))
+        assert (rc, err["code"], err["error"]) == (2, "input-invalid", "--brief-file goes with --pin")
+        assert not _bak(path).exists()
+
+    def test_the_check_is_the_manifest_parsers(self):
+        manifest = _load("campaign-parse-manifest")
+        assert mod._module(mod.MANIFEST_SCRIPT).VERSION_RE.pattern == manifest.VERSION_RE.pattern
+
+
+class TestSetSkillHaltReason:
+    @pytest.mark.parametrize("status", ["failed", "skipped"])
+    def test_written_with_a_failed_or_skipped_status(self, tmp_path, capsys, status):
+        path = _write(tmp_path, _state())
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", status,
+                       "--halt-reason", "unmet dependency: base is failed")
+        assert rc == 0
+        assert out["changed"] == [f"core.status={status}", "core.halt_reason"]
+        state = _read(path)
+        assert state["skills"][0]["halt_reason"] == "unmet dependency: base is failed"
+        assert mod.validation_errors(state) == []
+
+    def test_without_a_reason_it_is_null(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core", halt_reason="exit 4")]))
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "failed")[0] == 0
+        assert _read(path)["skills"][0]["halt_reason"] is None
+
+    def test_a_reason_is_kept_on_one_line(self, tmp_path, capsys):
+        path = _write(tmp_path, _state())
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "failed",
+                    "--halt-reason", "  exit 4\n  no result ")[0] == 0
+        assert _read(path)["skills"][0]["halt_reason"] == "exit 4 no result"
+
+    @pytest.mark.parametrize("status", ["pending", "active", "completed"])
+    def test_another_status_removes_it(self, tmp_path, capsys, status):
+        path = _write(tmp_path, _state(skills=[_skill("core", status="failed", halt_reason="exit 4")]))
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", status)
+        assert rc == 0 and "core.halt_reason=removed" in out["changed"]
+        assert "halt_reason" not in _read(path)["skills"][0]
+
+    def test_a_write_without_a_status_keeps_it(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core", status="failed", halt_reason="exit 4")]))
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--brief-path", "b.yaml")[0] == 0
+        assert _read(path)["skills"][0]["halt_reason"] == "exit 4"
+
+    @pytest.mark.parametrize("extra", [["--status", "active"], ["--status", "completed"], []],
+                             ids=["active", "completed", "no-status"])
+    def test_a_reason_goes_only_with_failed_or_skipped(self, tmp_path, capsys, extra):
+        path = _write(tmp_path, _state())
+        before = path.read_bytes()
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", *extra, "--halt-reason", "x")
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert path.read_bytes() == before and not _bak(path).exists()
+
+
+class TestUnattended:
+    def test_apply_plan_records_the_plan_gates_choice(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(order=[]))
+        rc, out = _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1", "--unattended")
+        assert rc == 0 and out["unattended"] is True and "campaign.unattended=true" in out["changed"]
+        state = _read(path)
+        assert state["campaign"]["unattended"] is True and state["campaign"]["current_stage"] == 1
+
+    @pytest.mark.parametrize("before", [None, False, "absent"], ids=["null", "false", "absent"])
+    def test_proceed_writes_false(self, tmp_path, capsys, before):
+        state = _state(order=[])
+        if before != "absent":
+            state["campaign"]["unattended"] = before
+        path = _write(tmp_path, state)
+        # [P]roceed, or headless.
+        rc, out = _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1")
+        assert rc == 0 and out["unattended"] is False and "campaign.unattended=false" in out["changed"]
+        assert _read(path)["campaign"]["unattended"] is False
+
+    def test_proceed_keeps_the_true_a_resume_wrote(self, tmp_path, capsys):
+        # A campaign cancelled at the plan gate resumes there: `campaign resume --unattended`
+        # writes true, then [P]roceed (or headless) at the gate must not turn it off.
+        path = _write(tmp_path, _state(order=[]))
+        assert _run(capsys, "set-campaign", "--state-file", str(path), "--unattended")[0] == 0
+        rc, out = _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1")
+        assert rc == 0 and out["unattended"] is True and "campaign.unattended=true" in out["changed"]
+        assert _read(path)["campaign"]["unattended"] is True
+        # A later pass of the gate keeps it too.
+        assert _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1")[1]["unattended"] is True
+
+    def test_set_campaign_sets_it_and_a_later_write_keeps_it(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(stage=3))
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--unattended")
+        assert rc == 0 and out["changed"] == ["campaign.unattended=true"]
+        assert _read(path)["campaign"]["unattended"] is True
+        assert _run(capsys, "set-campaign", "--state-file", str(path), "--architecture-doc-path", "docs/a.md")[0] == 0
+        assert _run(capsys, "set-stage", "--state-file", str(path), "--stage", "4")[0] == 0
+        assert _read(path)["campaign"]["unattended"] is True
+
+    def test_an_older_state_has_none(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(stage=3))
+        assert _run(capsys, "set-stage", "--state-file", str(path), "--stage", "4")[0] == 0
+        assert "unattended" not in _read(path)["campaign"]
+
+
+def _batch_map(tmp_path, lines, skipped=()):
+    batch_map = tmp_path / "_batch-map.json"
+    batch_map.write_text(json.dumps({"batch_file": "b", "lines": [
+        {"batch": n, "skill": name, "target": name, "line": name} for n, name in enumerate(lines, start=1)],
+        "skipped_by_directive": list(skipped)}), encoding="utf-8")
+    return batch_map
+
+
+class TestApplyBatchReasons:
+    def test_start_records_the_skip_list_reason_and_clears_a_rerun(self, tmp_path, capsys):
+        skills = [_skill("util", tier="B", status="failed", halt_reason="no-batch-result"),
+                  _skill("cli", tier="B"), _skill("doc", tier="B")]
+        path = _write(tmp_path, _state(stage=4, skills=skills))
+        batch_map = _batch_map(tmp_path, ["util"], [{"name": "cli", "reason": "mid-rewrite"},
+                                                    {"name": "doc", "reason": None}])
+        rc, out = _run(capsys, "apply-batch", "--state-file", str(path), "--map-file", str(batch_map), "--start")
+        assert rc == 0
+        # The helper's output keeps its shape: the reason lands in the state.
+        assert (out["activated"], out["completed"], out["failed"]) == (["util"], [], [])
+        assert out["skipped"] == [{"name": "cli", "reason": "mid-rewrite"}, {"name": "doc", "reason": None}]
+        util, cli, doc = _read(path)["skills"]
+        assert "halt_reason" not in util
+        assert cli["halt_reason"] == "directive Skip List: mid-rewrite"
+        assert doc["halt_reason"] == "directive Skip List"
+
+    def test_no_results_records_no_batch_result(self, tmp_path, capsys):
+        skills = [_skill("util", tier="B", status="active"), _skill("cli", tier="B", status="active")]
+        path = _write(tmp_path, _state(stage=4, skills=skills))
+        rc, out = _run(capsys, "apply-batch", "--state-file", str(path), "--map-file",
+                       str(_batch_map(tmp_path, ["util", "cli"])), "--no-results", "--stage", "5")
+        assert rc == 0
+        assert out["failed"] == [{"skill": "util", "error_code": "no-batch-result"},
+                                 {"skill": "cli", "error_code": "no-batch-result"}]
+        assert [s["halt_reason"] for s in _read(path)["skills"]] == ["no-batch-result", "no-batch-result"]
+
+    def test_results_record_each_error_code(self, tmp_path, capsys):
+        skills = [_skill("util", tier="B", status="active", halt_reason="stale"),
+                  _skill("cli", tier="B", status="active"), _skill("doc", tier="B", status="active")]
+        path = _write(tmp_path, _state(stage=4, skills=skills))
+        results = tmp_path / "_batch-results.json"
+        results.write_text(json.dumps({"results": [
+            {"skill": "util", "status": "completed", "quality_score": 84, "skill_path": "skills/util"},
+            {"skill": "cli", "status": "failed", "error_code": "extraction-failed"},
+            {"skill": "doc", "status": "failed", "error_code": None}]}), encoding="utf-8")
+        rc, out = _run(capsys, "apply-batch", "--state-file", str(path), "--map-file",
+                       str(_batch_map(tmp_path, ["util", "cli", "doc"])), "--results-file", str(results))
+        assert rc == 0
+        assert (out["completed"], out["failed"]) == (
+            ["util"], [{"skill": "cli", "error_code": "extraction-failed"}, {"skill": "doc", "error_code": None}])
+        util, cli, doc = _read(path)["skills"]
+        assert "halt_reason" not in util
+        assert (cli["halt_reason"], doc["halt_reason"]) == ("extraction-failed", None)
+
+
+def test_a_reason_and_a_log_the_helper_wrote_reach_the_report(tmp_path, capsys):
+    report = _load("campaign-report")
+    skills = [_skill("core", status="completed", quality_score=95), _skill("web", depends_on=["core"]),
+              _skill("util", tier="B")]
+    path = _write(tmp_path, _state(stage=4, skills=skills))
+    log = tmp_path / "_campaign-decision-log.md"
+    # An earlier campaign's line, stamped before this state's started_at: archive leaves the log in place.
+    log.write_text("- 2026-09-30T09:00:00+00:00 (decision) overwrite: archived demo\n", encoding="utf-8")
+    for kind, text in (("decision", "pin: core 9.9.9 corrected to 1.2.0"), ("event", "core failed: exit 4"),
+                       ("auto", "unattended: skipped web: core is failed")):
+        assert _run(capsys, "log", "--log-file", str(log), "--type", kind, "--text", text)[0] == 0
+    assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "web", "--status", "skipped",
+                "--halt-reason", "unmet dependency: core is failed")[0] == 0
+    assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "util", "--status", "failed",
+                "--halt-reason", "exit 4")[0] == 0
+    template = REPO_ROOT / "src" / "skf-campaign" / "templates" / "campaign-report-template.md"
+    output = tmp_path / "campaign-report.md"
+    assert report.run(str(path), str(template), str(output), decision_log=str(log)) == 0
+    capsys.readouterr()
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert "- **util** (Tier B): exit 4" in lines
+    assert "- **web** (Tier A): unmet dependency: core is failed" in lines
+    decisions = lines[lines.index("## Operator Decisions") + 1:]
+    logged = [line for line in decisions if line.startswith("- ")]
+    assert [line.split(" ", 2)[2] for line in logged] == [
+        "(decision) pin: core 9.9.9 corrected to 1.2.0", "(auto) unattended: skipped web: core is failed"]

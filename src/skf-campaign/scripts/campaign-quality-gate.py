@@ -21,16 +21,21 @@ Subcommands:
   check     Settle and validate the gate step-01 writes to state: each of
             `hard`, `soft_target` and `soft_fallback` from the brief's
             `quality_gate` (--brief-file) when it gives one, else from the
-            customize.toml values passed in. `hard` must be
-            `zero-critical-high` (test-skill's own hard gate, the only one
-            there is); `soft_target` and `soft_fallback` are numbers from 0
-            to 100, the fallback not above the target.
+            values passed in (`hard` from --hard, the soft values from
+            customize.toml). `hard` must be `zero-critical-high`
+            (test-skill's own hard gate, the only one there is);
+            `soft_target` and `soft_fallback` are numbers from 0 to 100,
+            the fallback not above the target. `from_brief` lists the keys
+            the brief gave, so Setup writes only those into the new brief.
   resolve   One Tier A skill's run at step-05: whether the directive's Skip
             List names it, the threshold its test run gets (`threshold`, the
             effective `soft_target`) and, with --brief-file, the inputs
             brief-skill takes for it (`brief_skill`: `target_repo` from the
             brief, `target_version` the skill's pin, the brief target's
             language and scope hints), so no step reads them out of prose.
+            Its `directive_notice` puts the directive's `unparsed` items and
+            `warnings` in one sorted line, the same for every skill, which
+            step-05 logs once.
   record    Settle a Tier A skill from the SKF_TEST_RESULT_JSON line its
             test run printed (stdin, or the file --result names). Only the
             verdict PASS completes the skill; FAIL, INCONCLUSIVE,
@@ -74,10 +79,15 @@ CLI:
   uv run campaign-quality-gate.py classify --state-file <p> [--directive-file <p>]
 
 Output (one JSON object on stdout):
-  check:    {"hard", "soft_target", "soft_fallback"}
+  check:    {"hard", "soft_target", "soft_fallback", "from_brief": [...]},
+             `from_brief` the keys, in that order, the brief's quality_gate
+             gave with a non-null value ([] without a brief)
   resolve:  {"skill", "skip", "skip_reason", "hard", "soft_target",
              "soft_fallback", "threshold", "overrides": [...],
-             "unparsed": [...], "warnings": [...]}, and with --brief-file
+             "unparsed": [...], "warnings": [...], "directive_notice":
+             "Directive: <item>; <item>" (null when both lists are empty),
+             each unparsed item "<section> line <N> not parsed: <text>"},
+             and with --brief-file
              "brief_skill": {"target_repo", "skill_name", "target_version",
              "language_hint", "scope_hint"} (null when the skill has none)
   record:   {"skill", "status": "completed|failed", "verdict",
@@ -87,7 +97,8 @@ Output (one JSON object on stdout):
              "verdict", "reason"}],
              "export": [...], "excluded": [{"name", "tier", "quality_score",
              "verdict", "reason"}], "counts": {"pass", "fallback", "fail"},
-             "unparsed": [...], "warnings": [...]}
+             "unparsed": [...], "warnings": [...], "directive_notice"}, the
+             notice resolve gives for the same directive
 
 Exit codes:
   0  result printed (for record, read `status`)
@@ -241,6 +252,17 @@ def _unknown_name_warnings(directive: dict[str, Any], names: set[str]) -> list[s
     return warnings
 
 
+def directive_notice(unparsed: list[dict[str, Any]], warnings: list[str]) -> str | None:
+    """One line for the directive's problems, sorted, or None when it has none.
+
+    It names no skill, so every resolve and classify call over one directive
+    gives the same line, which step-05 and step-10 log once.
+    """
+    items = [f"{entry['section']} line {entry['line']} not parsed: {entry['text']}" for entry in unparsed]
+    items += list(warnings)
+    return "Directive: " + "; ".join(sorted(items)) if items else None
+
+
 # --------------------------------------------------------------------------
 # Gate
 # --------------------------------------------------------------------------
@@ -340,6 +362,7 @@ def check(hard: str, soft_target: str, soft_fallback: str, brief: dict[str, Any]
         except ValueError:
             gate[key] = raw
     applied = []
+    from_brief = []
     brief_gate = (brief or {}).get("quality_gate")
     if brief_gate is not None and not isinstance(brief_gate, dict):
         raise GateError("The brief's quality_gate is not a mapping", "INVALID_GATE",
@@ -348,7 +371,8 @@ def check(hard: str, soft_target: str, soft_fallback: str, brief: dict[str, Any]
         if (brief_gate or {}).get(key) is not None:
             gate[key] = brief_gate[key]
             applied.append(f"campaign brief: {key} {brief_gate[key]}")
-    return _checked(gate, applied)
+            from_brief.append(key)
+    return {**_checked(gate, applied), "from_brief": from_brief}
 
 
 def _hint(target: dict[str, Any], fields: tuple[str, ...]) -> str | None:
@@ -389,6 +413,7 @@ def resolve(
     gate = _checked(gate, applied)
     skipped = skill in directive["skip"]
     extra = {} if brief is None else {"brief_skill": brief_skill_inputs(state, brief, skill)}
+    warnings = _unknown_name_warnings(directive, names)
     return {
         "skill": skill,
         "skip": skipped,
@@ -397,7 +422,8 @@ def resolve(
         "threshold": gate["soft_target"],
         "overrides": applied,
         "unparsed": directive["unparsed"],
-        "warnings": _unknown_name_warnings(directive, names),
+        "warnings": warnings,
+        "directive_notice": directive_notice(directive["unparsed"], warnings),
         **extra,
     }
 
@@ -480,6 +506,7 @@ def export_name(skill: dict[str, Any]) -> Any:
 def classify(state: dict[str, Any], directive: dict[str, Any]) -> dict[str, Any]:
     base = state["campaign"]["quality_gate"]
     names = {s.get("name") for s in state["skills"] if isinstance(s, dict)}
+    warnings = _unknown_name_warnings(directive, names)
     rows: list[dict[str, Any]] = []
     for skill in state["skills"]:
         if not isinstance(skill, dict) or skill.get("status") != "completed":
@@ -516,7 +543,8 @@ def classify(state: dict[str, Any], directive: dict[str, Any]) -> dict[str, Any]
         ],
         "counts": {v: sum(1 for r in rows if r["verdict"] == v) for v in ("pass", "fallback", "fail")},
         "unparsed": directive["unparsed"],
-        "warnings": _unknown_name_warnings(directive, names),
+        "warnings": warnings,
+        "directive_notice": directive_notice(directive["unparsed"], warnings),
     }
 
 

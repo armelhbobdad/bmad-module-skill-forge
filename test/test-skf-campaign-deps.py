@@ -3,6 +3,10 @@
 
 Validates topological sort computation, circular dependency detection,
 dangling reference detection, and per-skill dependency readiness checks.
+
+#1141: --compute names a cycle's edges (`cycle_edges`), and --render prints
+step-02's strategy view from the state in the order --compute gives, so the
+model no longer joins `execution_order` with `skills[]` by hand.
 """
 
 from __future__ import annotations
@@ -10,6 +14,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,13 +40,13 @@ spec.loader.exec_module(mod)
 # Fixtures
 # --------------------------------------------------------------------------
 
-def _make_skill(name, depends_on=None, tier="A", status="pending"):
+def _make_skill(name, depends_on=None, tier="A", status="pending", pin=None):
     return {
         "name": name,
         "status": status,
         "depends_on": depends_on or [],
         "tier": tier,
-        "pin": None,
+        "pin": pin,
         "brief_path": None,
         "skill_path": None,
         "quality_score": None,
@@ -554,3 +561,130 @@ class TestOneDependencyRule:
         with patch("sys.stdout", io.StringIO()), patch("sys.stderr", err):
             assert mod.compute(str(state_file)) == 1
         assert "app depends on unknown skill 'ghost'" in json.loads(err.getvalue())["error"]
+
+
+# --------------------------------------------------------------------------
+# --compute names a cycle's edges; --render prints the strategy view (#1141)
+# --------------------------------------------------------------------------
+
+CYCLE = [
+    _make_skill("A", depends_on=["B"]),
+    _make_skill("B", depends_on=["A"]),
+    _make_skill("C", depends_on=["A"]),
+]
+PLAN = [
+    _make_skill("cli", depends_on=["core"], tier="B"),
+    _make_skill("web", depends_on=["core"], pin="2.0.1"),
+    _make_skill("core", pin="1.2.0"),
+]
+
+
+def _render(tmp_path, skills, name="demo"):
+    state = _make_state(skills)
+    state["campaign"]["name"] = name
+    state_file = tmp_path / "state.yaml"
+    _write_yaml(state_file, state)
+    out, err = io.StringIO(), io.StringIO()
+    with patch("sys.stdout", out), patch("sys.stderr", err):
+        exit_code = mod.render(str(state_file))
+    return exit_code, out.getvalue(), err.getvalue()
+
+
+class TestCycleEdges:
+    def test_every_edge_between_unplaced_skills_sorted(self, tmp_path):
+        exit_code, output, _ = _compute(tmp_path, CYCLE)
+        assert exit_code == 1
+        assert output["cycle_participants"] == ["A", "B", "C"]
+        assert output["cycle_edges"] == [
+            {"skill": "A", "depends_on": "B"},
+            {"skill": "B", "depends_on": "A"},
+            {"skill": "C", "depends_on": "A"},
+        ]
+
+    def test_an_edge_from_a_placed_skill_is_not_a_cycle_edge(self, tmp_path):
+        exit_code, output, _ = _compute(tmp_path, [
+            _make_skill("root"),
+            _make_skill("x", depends_on=["root", "y"]),
+            _make_skill("y", depends_on=["x"]),
+        ])
+        assert exit_code == 1
+        assert output["cycle_edges"] == [{"skill": "x", "depends_on": "y"}, {"skill": "y", "depends_on": "x"}]
+
+    def test_a_dependency_named_twice_is_one_edge(self, tmp_path):
+        _, output, _ = _compute(tmp_path, [_make_skill("a", depends_on=["b", "b"]), _make_skill("b", ["a"])])
+        assert output["cycle_edges"] == [{"skill": "a", "depends_on": "b"}, {"skill": "b", "depends_on": "a"}]
+
+    @pytest.mark.parametrize("skills", [PLAN, [_make_skill("lib", tier="B"), _make_skill("app", ["lib"])]],
+                             ids=["ordered", "tier-inversion"])
+    def test_null_without_a_cycle(self, tmp_path, skills):
+        _, output, _ = _compute(tmp_path, skills)
+        assert output["cycle_edges"] is None
+
+
+class TestRender:
+    def test_the_strategy_view(self, tmp_path):
+        exit_code, out, err = _render(tmp_path, PLAN)
+        assert (exit_code, err) == (0, "")
+        assert out.splitlines() == [
+            "CAMPAIGN STRATEGY: demo",
+            "",
+            "EXECUTION ORDER:",
+            "  1. core [Tier A] 1.2.0",
+            "  2. web [Tier A] 2.0.1, depends on: core",
+            "  3. cli [Tier B] latest, depends on: core",
+            "",
+            "QUALITY GATE: zero-critical-high, soft target 90%, soft fallback 80%",
+            "TIERS: 2 Tier A (full pipeline), 1 Tier B (QS batch)",
+        ]
+        out.encode("ascii")
+
+    def test_rows_follow_the_compute_order(self, tmp_path):
+        skills = [_make_skill("d", ["b", "c"]), _make_skill("c", ["a"]), _make_skill("b", ["a"]), _make_skill("a")]
+        _, output, _ = _compute(tmp_path, skills)
+        _, out, _ = _render(tmp_path, skills)
+        rows = [line.split(". ", 1)[1].split(" ", 1)[0] for line in out.splitlines() if line.startswith("  ")]
+        assert rows == output["execution_order"] == ["a", "b", "c", "d"]
+        assert "  4. d [Tier A] latest, depends on: b, c" in out.splitlines()
+
+    @pytest.mark.parametrize(
+        "skills, code",
+        [(CYCLE, "CIRCULAR_DEPENDENCY"),
+         ([_make_skill("lib", tier="B"), _make_skill("app", ["lib"])], "TIER_INVERSION"),
+         ([_make_skill("app", ["ghost"])], "DANGLING_DEPENDENCY")],
+        ids=["cycle", "tier-inversion", "dangling"],
+    )
+    def test_a_plan_compute_rejects_prints_no_view(self, tmp_path, skills, code):
+        exit_code, out, err = _render(tmp_path, skills)
+        assert (exit_code, out) == (1, "")
+        assert json.loads(err)["code"] == code
+
+    def test_an_unreadable_state_is_exit_2(self, tmp_path):
+        out, err = io.StringIO(), io.StringIO()
+        with patch("sys.stdout", out), patch("sys.stderr", err):
+            assert mod.render(str(tmp_path / "missing.yaml")) == 2
+        assert out.getvalue() == ""
+        assert json.loads(err.getvalue())["code"] == "STATE_NOT_FOUND"
+
+    def test_a_dependency_named_twice_is_listed_once(self, tmp_path):
+        _, out, _ = _render(tmp_path, [_make_skill("core"), _make_skill("web", depends_on=["core", "core"])])
+        assert "  2. web [Tier A] latest, depends on: core" in out.splitlines()
+
+    def test_a_name_outside_the_console_code_page_prints_as_utf8(self, tmp_path):
+        state = _make_state(PLAN)
+        state["campaign"]["name"] = "Stack \u6570\u636e \u03a9"
+        state_file = tmp_path / "state.yaml"
+        _write_yaml(state_file, state)
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "--render", "--state-file", str(state_file)],
+                              capture_output=True, env=env, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.decode("utf-8").splitlines()[0] == "CAMPAIGN STRATEGY: Stack \u6570\u636e \u03a9"
+
+    def test_cli(self, tmp_path):
+        state_file = tmp_path / "state.yaml"
+        _write_yaml(state_file, _make_state(PLAN))
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "--render", "--state-file", str(state_file)],
+                              capture_output=True, text=True, encoding="utf-8", timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.splitlines()[0] == "CAMPAIGN STRATEGY: test-campaign"
+        assert proc.stdout.splitlines()[-1] == "TIERS: 2 Tier A (full pipeline), 1 Tier B (QS batch)"

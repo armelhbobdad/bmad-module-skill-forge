@@ -1,0 +1,6 @@
+type: changed
+scope: skf-campaign
+summary: |
+  Campaign Setup now writes into `campaign-brief.yaml` only the quality gate values set by the brief the campaign was seeded from, and keeps the whole gate in `_campaign-state.yaml`. It used to write the whole settled gate, the customize.toml values included (and the brief template held 90 and 80), so a campaign seeded again from that brief kept the old values and a later `quality_gate_soft_target` or `quality_gate_soft_fallback` override did nothing. Setup logs each value the seeding brief set as an `event` in the decision log, `campaign-state.py init` returns them as `gate_from_brief`, and `campaign-quality-gate.py check` lists their keys as `from_brief`. A brief an earlier version wrote still holds all three values, and each still wins over customize.toml: remove from its `quality_gate` the values meant to come from customize.toml.
+issues: [1142]
+prs: [1214]

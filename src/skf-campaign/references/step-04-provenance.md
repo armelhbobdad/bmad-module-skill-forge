@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-05-skill-loop.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 provenanceResultsFile: '{campaignWorkspacePath}/_provenance-results.json'
@@ -47,7 +46,7 @@ It writes `results[]`, one per skill with its `commit_sha` (of the skill's `pin`
 
 ### §4: Handle Inaccessible Repos
 
-If `all_accessible` is `false` (script exit 1), HALT (exit code 6, `inaccessible-repo`) and list each inaccessible repo with its URL, its `error_class` and its `error`. When the script returns a non-null `systemic_hint` (every target failed the same way: unauthenticated `gh`, no network, a rate limit, an organization's SSO policy), show that root-cause line first, above the per-repo errors, never in their place. Do NOT partially proceed: all repos must be verified before writing state.
+If `all_accessible` is `false` (script exit 1), HALT (exit code 6, `inaccessible-repo`) and list each inaccessible repo with its URL, its `error_class` and its `error`. When the script returns a non-null `systemic_hint` (every target failed the same way: unauthenticated `gh`, no network, a rate limit, an organization's SSO policy), show that root-cause line first, above the per-repo errors, never in their place.
 
 ### §5: Write State
 

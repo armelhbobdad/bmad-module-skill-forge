@@ -1,5 +1,4 @@
 ---
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
@@ -20,7 +19,7 @@ Validate campaign state integrity, recover it from its backup when it must, get 
 
 ## RULES
 
-- Leave state untouched except for the two recovery or reset choices below (§1 backup restore, §3 `[R]e-run`), each through `{stateScript}`, and on a non-zero exit HALT with the same code. A log entry is `uv run {stateScript} log --log-file {decisionLogFile} --type <decision|auto|event> --text '<entry>'`.
+- Leave state untouched except for the three writes below (§1 backup restore, §3 `[R]e-run`, §4 `--unattended`), each through `{stateScript}`, and on a non-zero exit HALT with the same code. A log entry is `uv run {stateScript} log --log-file {decisionLogFile} --type <decision|auto|event> --text '<entry>'`.
 - The chain target is the `step_file` the helper's `resume` operation (`{stateScript}`) returns: never work the stage out by hand.
 - If `{headless_mode}` is true, auto-proceed through any confirmation gates with the default action and log each auto-decision (type `auto`); emit the progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`. A campaign already complete (§3) is no error halt: it ends with the success line.
 
@@ -42,7 +41,7 @@ It copies `{backupFile}` over `{stateFile}` only when the backup validates. On e
 
 ### §2: Backup Check
 
-Unless §1 recovered from it, check `{backupFile}`. When it does not exist, warn "No backup file found: campaign may have been created but never modified." When `uv run {validateScript} --state-file {backupFile}` fails, warn "Backup file fails validation: cannot use for recovery." Continue with the primary either way: each write copies the primary it replaces to `.bak`, so a valid primary is never older than its backup.
+Skip this check when §1 recovered from the backup or `{backupFile}` does not exist. When `uv run {validateScript} --state-file {backupFile}` fails, warn "Backup file fails validation: cannot use for recovery." and continue with the primary.
 
 ### §3: Determine Resume Point
 
@@ -52,7 +51,7 @@ Ask the state helper, passing `--from` when the invocation named a skill:
 uv run {stateScript} resume --state-file {stateFile} [--from <skill>]
 ```
 
-It returns the stage to resume and its `step_file`, with the `reason`: `active-skill` (a skill an interruption left `active` resumes its own stage, with no `+1`: a Tier A skill the skill loop, which skips finished skills until it reaches it; a Tier B skill the batch stage, whose batch script, `campaign-render-batch.py`, selects the interrupted active Tier B skills together with the pending ones, so resume resets no status), `next-stage` (the stage after `current_stage`, the highest completed stage), `terminal-cap` (stage 10 runs again, never a stage 11), `from-skill` or `from-next`. Then:
+It returns the stage to resume, its `step_file` and a `reason`. Then:
 
 - **`complete: true`:** nothing is left to resume, which is no error halt: stop with exit code 0 and display "Campaign has reached its final stage. All skills have been processed." (after `--next`: "All remaining skills are complete. Run `campaign` to start a new campaign.") In headless mode, end with the campaign's success line instead of an error envelope. When `reason` is `complete` and `{resultContextFile}` exists (step-11 §2 wrote it), run `uv run {emitEnvelopeHelper} emit --workflow skf-campaign < {resultContextFile}` (the shared emitter: Result Contract in `references/campaign-contracts.md`); otherwise give the same command `{"status": "success", "skills_completed": <completed>, "skills_failed": <failed>, "decision_log": "{decisionLogFile}"}` on stdin, with the counts `uv run {statusScript} --state-file {stateFile}` returns. Display the line it prints verbatim as the run's last line, with nothing after it.
 - **`stage` 1 with no `{briefFile}`:** Setup stopped after it wrote the state but before the brief, which every later stage reads: HALT (exit code 8, `missing-brief`): "Setup did not finish. Run `campaign` and choose overwrite to start the campaign again."
@@ -67,17 +66,9 @@ It returns the stage to resume and its `step_file`, with the `reason`: `active-s
 
 ### §4: Resume Routing
 
-Derive the skill counts deterministically: `uv run {statusScript} --state-file {stateFile}` returns `completed`, `total`, and the per-status counts (`pending` / `active` / `failed` / `skipped`); do not hand-count `skills[]`. Display a resume summary before chaining:
+When the invocation passed `--unattended`, run `uv run {stateScript} set-campaign --state-file {stateFile} --unattended` and log it with `uv run {stateScript} log --log-file {decisionLogFile} --type decision --text 'unattended: set by campaign resume --unattended'`: from here on the skill loop takes each blocked skill's headless default, and Export still asks.
 
-```
-CAMPAIGN RESUME: {campaign.name}
-
-  Resuming from: Stage {stage} ({step_file})
-  Target skill:  {skill} (if --from was used, otherwise "auto-detected" or "N/A")
-  Skills completed: {completed} / {total}
-  Skills remaining: {pending} pending, {active} active, {failed} failed, {skipped} skipped
-  Last updated:  {campaign.last_updated}
-```
+Before chaining, show the campaign name, the stage and `step_file` it resumes, the `--from` skill when one was named, the `completed` and `total` skills and the `pending`, `active`, `failed` and `skipped` counts that `uv run {statusScript} --state-file {stateFile}` returns (never a hand count of `skills[]`), and `campaign.last_updated`.
 
 ## OUTPUT
 

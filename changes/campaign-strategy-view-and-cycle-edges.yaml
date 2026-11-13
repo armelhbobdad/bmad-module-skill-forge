@@ -1,0 +1,6 @@
+type: changed
+scope: skf-campaign
+summary: |
+  Campaign's Strategy stage now shows the plan that `campaign-deps.py --render` prints from the state: each skill in execution order with its tier, its pin (or `latest`) and what it depends on, then the quality gate and the tier counts. The separate dependency map is gone, since each row names its dependencies. When the plan has a cycle, `campaign-deps.py --compute` now lists each dependency between the skills it could not order (`cycle_edges`), and Strategy names those edges when it stops with exit code 4.
+issues: [1141]
+prs: [1214]

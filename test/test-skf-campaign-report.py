@@ -661,3 +661,128 @@ class TestStageOutcomes:
         assert rc == 0
         report = output_file.read_text(encoding="utf-8")
         assert "Stage" not in report and "{{" not in report
+
+
+# ---------------------------------------------------------------------------
+# #1143: why each skill failed or was skipped, and the operator's decisions
+# ---------------------------------------------------------------------------
+
+
+def _reasoned_state() -> dict[str, Any]:
+    state = _minimal_state()
+    alpha, beta = state["skills"]
+    alpha.update(status="failed", quality_score=None, halt_reason="threshold-not-met")
+    beta.update(status="skipped", quality_score=None, halt_reason="unmet dependency: skill-alpha is failed")
+    state["skills"].append({**beta, "name": "skill-gamma", "halt_reason": None})
+    return state
+
+
+LOG_LINES = (
+    "- 2026-01-01T00:05:00+00:00 (decision) pin: skill-alpha 9.9.9 corrected to 1.0.0",
+    "- 2026-01-01T00:06:00+00:00 (event) skill-alpha failed: threshold-not-met",
+    "- 2026-01-01T00:07:00+00:00 (auto) unattended: skipped skill-beta: skill-alpha is failed",
+    "notes the operator typed by hand (decision) are not log lines",
+)
+
+
+class TestHaltReasonsAndOperatorDecisions:
+    def test_a_reason_follows_its_skill(self):
+        lines = mod._compute_aggregates(_reasoned_state())["failed_skipped_section"].splitlines()
+        assert "- **skill-alpha** (Tier A): threshold-not-met" in lines
+        assert "- **skill-beta** (Tier B): unmet dependency: skill-alpha is failed" in lines
+
+    def test_a_skill_with_no_reason_keeps_its_line(self):
+        lines = mod._compute_aggregates(_reasoned_state())["failed_skipped_section"].splitlines()
+        assert "- **skill-gamma** (Tier B)" in lines
+        legacy = _minimal_state()
+        legacy["skills"][0]["status"] = "failed"
+        assert "- **skill-alpha** (Tier A)" in mod._compute_aggregates(legacy)["failed_skipped_section"].splitlines()
+
+    def test_operator_decisions_keep_decision_and_auto_lines(self, tmp_path: Path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_text("\n".join(LOG_LINES) + "\n", encoding="utf-8")
+        output_file = tmp_path / "report.md"
+        rc = mod.run(str(_write_state(tmp_path, _reasoned_state())), str(_write_template(tmp_path)),
+                     str(output_file), decision_log=str(log))
+        assert rc == 0
+        lines = output_file.read_text(encoding="utf-8").splitlines()
+        section = lines[lines.index("## Operator Decisions") + 1:]
+        assert [line for line in section if line] == [LOG_LINES[0], LOG_LINES[2]]
+        assert "- **skill-alpha** (Tier A): threshold-not-met" in lines
+        assert json.loads(capsys.readouterr().out)["status"] == "success"
+
+    @pytest.mark.parametrize("started_at", ["2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00Z"],
+                             ids=["helper-stamp", "z-stamp"])
+    def test_an_earlier_campaigns_lines_are_left_out(self, tmp_path: Path, capsys, started_at):
+        # An overwrite archives the state but leaves the log: it holds the old campaign's lines and the
+        # overwrite line step-01 §0 writes before init stamps this campaign's started_at.
+        earlier = (
+            "- 2025-12-31T23:10:00+00:00 (decision) pin: skill-old 0.1.0 corrected to 0.2.0",
+            "- 2025-12-31T23:20:00+00:00 (auto) headless: skipped skill-old: skill-base is failed",
+            "- 2025-12-31T23:59:59+00:00 (decision) overwrite: archived old-campaign",
+        )
+        at_start = "- 2026-01-01T00:00:00+00:00 (decision) unattended: chosen at the plan gate"
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_text("\n".join((*earlier, at_start, *LOG_LINES)) + "\n", encoding="utf-8")
+        state = _reasoned_state()
+        state["campaign"]["started_at"] = started_at
+        state_file = _write_state(tmp_path, state)
+        output_file = tmp_path / "report.md"
+        assert mod.run(str(state_file), str(_write_template(tmp_path)), str(output_file), decision_log=str(log)) == 0
+        capsys.readouterr()
+        lines = output_file.read_text(encoding="utf-8").splitlines()
+        section = lines[lines.index("## Operator Decisions") + 1:]
+        assert [line for line in section if line] == [at_start, LOG_LINES[0], LOG_LINES[2]]
+
+    def test_only_an_earlier_campaigns_lines_say_none_were_logged(self, tmp_path: Path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_text("- 2025-12-31T23:59:59+00:00 (decision) overwrite: archived old-campaign\n", encoding="utf-8")
+        output_file = tmp_path / "report.md"
+        assert mod.run(str(_write_state(tmp_path, _minimal_state())), str(_write_template(tmp_path)),
+                       str(output_file), decision_log=str(log)) == 0
+        capsys.readouterr()
+        lines = output_file.read_text(encoding="utf-8").splitlines()
+        assert lines[lines.index("## Operator Decisions") + 2] == "No operator decisions were logged."
+
+    @pytest.mark.parametrize(
+        "case, sentence",
+        [("no-flag", "No decision log was given."), ("missing", "No operator decisions were logged."),
+         ("only-events", "No operator decisions were logged."), ("not-utf8", "The decision log could not be read."),
+         ("a-folder", "The decision log could not be read.")],
+    )
+    def test_without_decisions_the_section_says_why(self, tmp_path: Path, capsys, case, sentence):
+        log = tmp_path / "_campaign-decision-log.md"
+        if case == "only-events":
+            log.write_text(LOG_LINES[1] + "\n", encoding="utf-8")
+        elif case == "not-utf8":
+            log.write_bytes(b"- 2026-01-01T00:05:00+00:00 (decision) caf\xe9\n")
+        elif case == "a-folder":
+            log.mkdir()
+        output_file = tmp_path / "report.md"
+        context = tmp_path / "_result-context.json"
+        rc = mod.run(str(_write_state(tmp_path, _minimal_state())), str(_write_template(tmp_path)),
+                     str(output_file), str(context), None if case == "no-flag" else str(log))
+        assert rc == 0
+        lines = output_file.read_text(encoding="utf-8").splitlines()
+        assert lines[lines.index("## Operator Decisions") + 2] == sentence
+        # The result and the envelope do not change.
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "success" and "operator_decisions" not in result
+        assert "operator_decisions" not in json.loads(context.read_text(encoding="utf-8"))
+
+    def test_the_template_ends_with_the_section(self):
+        text = (SCRIPT.parent.parent / "templates" / "campaign-report-template.md").read_text(encoding="utf-8")
+        assert text.endswith("## Failed / Skipped Skills\n\n{{failed_skipped_section}}\n\n"
+                             "## Operator Decisions\n\n{{operator_decisions}}\n")
+
+    def test_inserted_text_is_never_read_as_a_placeholder(self, tmp_path: Path, capsys):
+        state = _reasoned_state()
+        state["skills"][0]["halt_reason"] = "{{operator_decisions}} and {{campaign_name}}"
+        output_file = tmp_path / "report.md"
+        rc = mod.run(str(_write_state(tmp_path, state)),
+                     str(_write_template(tmp_path, content="{{failed_skipped_section}}\n{{operator_decisions}}\n")),
+                     str(output_file))
+        assert rc == 0
+        report = output_file.read_text(encoding="utf-8")
+        assert "- **skill-alpha** (Tier A): {{operator_decisions}} and {{campaign_name}}" in report.splitlines()
+        assert report.splitlines()[-1] == "No decision log was given."

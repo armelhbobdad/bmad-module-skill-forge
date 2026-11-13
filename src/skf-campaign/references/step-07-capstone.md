@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-08-verify.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 gateScript: 'scripts/campaign-quality-gate.py'
@@ -48,7 +47,7 @@ Invoke `skf-create-stack-skill` with `--headless` and these inputs, so it asks n
 - `mode`: `compose`
 - `skills`: the §2 `export_name` values, comma-separated (compose mode takes them as its constituent skill folders)
 - `stack_name`: the `stack_name` that `uv run {manifestScript} --stack-name {stateFile}` prints, the campaign name as a skill name cut to leave room for the `-stack` SS appends; when it prints null, leave the input out and SS names the stack `{project_name}-stack`
-- `architecture_doc_path`: `campaign.architecture_doc_path`, only when state sets it
+- `architecture_doc_path`: `campaign.architecture_doc_path`, the document Setup was given or found, only when state sets it and that file exists (SS halts on a path that names no readable file)
 
 Keep the `SKF_STACK_RESULT_JSON` line it prints for §4, which records it: on stdout, or on stderr when SS halts. On `status` `error`, log its `halt_reason` (type `event`); a run with that line on neither stream is recorded in §4. Verification and the campaign report still run either way.
 
@@ -62,16 +61,7 @@ uv run {stateScript} set-campaign --state-file {stateFile} --capstone - --stage 
 SKF_RESULT
 ```
 
-From a `success` envelope it sets `campaign.capstone`, the campaign-level summary (the composed skill itself lives at `skill_path`):
-
-- `campaign.capstone.skill_path`: `skill_package` from the SS envelope
-- `campaign.capstone.quality_score`: `quality_score` from the SS envelope (the skill-check score SS records, null when skill-check did not run; it is not a test-skill score)
-- `campaign.capstone.verified`: `null` for now; set by the verify stage (step-08) once the stack is checked
-- `campaign.capstone.completed_at`: the time of the write, from the clock
-
 An `error` envelope sets `campaign.capstone` to `null` (the helper names it in `not_recorded`). When §2 found no skill to compose, record no capstone instead: `uv run {stateScript} set-campaign --state-file {stateFile} --no-capstone --stage 6`. When SS printed no `SKF_STACK_RESULT_JSON` line on stdout or stderr, there is no result to read, whatever its exit code: record it with `uv run {stateScript} set-campaign --state-file {stateFile} --no-result capstone --stage 6`, log "no SKF_STACK_RESULT_JSON line (exit <code>)" with SS's exit code (type `event`), and go on. When the helper's `not_recorded` row gives the halt reason `result-unreadable` (SS printed a line that does not parse, or one with no `status` or `exit_code`), log "unparseable SKF_STACK_RESULT_JSON line" (type `event`) and go on.
-
-The capstone is a derived artifact: it is **not** tracked as a skill entry in the `skills[]` array. The constituent skill list and any verbose detail are reported in the step output and are available to downstream steps (verify, refine).
 
 ## OUTPUT
 

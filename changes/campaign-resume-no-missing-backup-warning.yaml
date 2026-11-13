@@ -1,0 +1,6 @@
+type: changed
+scope: skf-campaign
+summary: |
+  `campaign resume` no longer warns "No backup file found" when there is no `_campaign-state.yaml.bak`, which is the normal state after Setup. It still warns when the backup exists but fails validation, and then goes on with the primary state.
+issues: [1140]
+prs: [1214]

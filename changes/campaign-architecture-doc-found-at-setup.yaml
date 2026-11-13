@@ -1,0 +1,6 @@
+type: changed
+scope: skf-campaign
+summary: |
+  Campaign Setup now looks for the architecture document when none is given, in an interactive run and a headless one: `docs/architecture.md`, then `_bmad-output/planning-artifacts/architecture.md`. The draft it shows names the document it found, or says none was found, so Verification and Refinement will be skipped, and the path it found is saved in the state. The Capstone now passes a found document to `skf-create-stack-skill` as well, as it did one you gave, so the stack skill maps the integrations between the skills and orders its layers from it; a recorded document whose file is gone is left out, where Create Stack Skill used to stop on it. Verification and Refinement no longer stop mid-run to ask for a missing architecture document: when the state holds none they look in the same two places, and with none they skip themselves and log it as an `event` in every run, where an interactive run used to ask and saved nothing when you declined.
+issues: [1143]
+prs: [1214]

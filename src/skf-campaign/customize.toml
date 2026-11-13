@@ -68,14 +68,14 @@ campaign_workspace_path = "{forge_data_folder}/_campaign"
 # then the `quality_gate` of the campaign-brief.yaml Setup reads (from
 # --brief or its opening question, field by field), then these values.
 # Override here to change the org-wide default without forking the skill.
-#
-# quality_gate_hard: `zero-critical-high` is the only accepted value (Setup
-# halts on any other). It passes a skill only when its test-skill run finds
-# no Critical or High gap. A missing export is a Medium gap: it lowers the
-# coverage score and no longer counts against this gate.
+# The hard gate is not a setting: a skill passes it only when its test-skill
+# run finds no Critical or High gap (a campaign brief may name only
+# `zero-critical-high`).
 #
 # quality_gate_soft_target: every Tier A test run gets it as `--threshold`,
-# and a completed skill scoring at or above it exports as `pass`.
+# and a completed skill scoring at or above it exports as `pass`. A missing
+# export is a Medium gap: it lowers the coverage score and no longer counts
+# against the hard gate.
 # quality_gate_soft_fallback: a completed skill scoring below the target but
 # at or above this exports as `fallback`; one below it, or with no score, is
 # listed at Export and not exported. test-skill fails a Tier A skill below
@@ -83,7 +83,6 @@ campaign_workspace_path = "{forge_data_folder}/_campaign"
 # soft_fallback below 80 only matters for Tier B skills, checked by their
 # quick-skill (skill-check) score, or for a soft_target below 80.
 
-quality_gate_hard = "zero-critical-high"
 quality_gate_soft_target = 90
 quality_gate_soft_fallback = 80
 
@@ -99,7 +98,6 @@ quality_gate_soft_fallback = 80
 
 report_template_path = "templates/campaign-report-template.md"
 kickoff_template_path = "templates/kickoff-template.md"
-brief_template_path = "templates/campaign-brief-template.yaml"
 
 # Optional post-completion hook: a shell command, not an instruction. When
 # non-empty, step-11 runs it from {project-root} once the campaign is

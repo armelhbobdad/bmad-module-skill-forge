@@ -42,14 +42,13 @@ Run these steps once, in order, before dispatching to Mode Routing.
    Resolve each scalar now (so step files never repeat the conditional) and stash as workflow-context variables:
 
    - `{campaignWorkspacePath}` ← `workflow.campaign_workspace_path` if non-empty, else `{forge_data_folder}/_campaign`
-   - `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}` ← the `quality_gate_*` scalars (defaults `zero-critical-high` / `90` / `80`): the base gate, which step-01 §2 and `scripts/campaign-quality-gate.py` adjust with the brief and the directive
+   - `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}` ← the `quality_gate_*` scalars (defaults `90` / `80`): the base gate, which step-01 §2 and `scripts/campaign-quality-gate.py` adjust with the brief and the directive
    - `{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else `templates/campaign-report-template.md`
    - `{kickoffTemplatePath}` ← `workflow.kickoff_template_path` if non-empty, else `templates/kickoff-template.md`
-   - `{briefTemplatePath}` ← `workflow.brief_template_path` if non-empty, else `templates/campaign-brief-template.yaml`
    - `{onComplete}` ← `workflow.on_complete` (empty = no-op)
    - `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists)
 
-   Bind each path as the path it names: `{forge_data_folder}` and `{project-root}` replaced by their values, a bare path (one that starts with neither and is not absolute) taken from `{skill-root}`. Unless the invocation is `campaign status`, check now that `{reportTemplatePath}`, `{kickoffTemplatePath}` and `{briefTemplatePath}` are readable files (`test -f`, `test -r`). For each that is not, display "`<key>` names `<path>`, which is not a readable file. Point it at your copy in `{project-root}/_bmad/custom/skf-campaign.toml` or `.user.toml`, or re-install SKF when it is a bundled template.", then HALT (exit code 2, `invalid-input`) before Mode Routing, with the error envelope of `references/campaign-contracts.md` at phase `activation` and with every message displayed as its halt message: nothing is written. A run given `--brief` or `--manifest` is headless for this HALT, since step 4 makes it so.
+   Bind each path as the path it names: `{forge_data_folder}` and `{project-root}` replaced by their values, a bare path (one that starts with neither and is not absolute) taken from `{skill-root}`. Unless the invocation is `campaign status`, check now that `{reportTemplatePath}` and `{kickoffTemplatePath}` are readable files (`test -f`, `test -r`). For each that is not, display "`<key>` names `<path>`, which is not a readable file. Point it at your copy in `{project-root}/_bmad/custom/skf-campaign.toml` or `.user.toml`, or re-install SKF when it is a bundled template.", then HALT (exit code 2, `invalid-input`) before Mode Routing, with the error envelope of `references/campaign-contracts.md` at phase `activation` and with every message displayed as its halt message: nothing is written. A run given `--brief` or `--manifest` is headless for this HALT, since step 4 makes it so.
 
    Load `workflow.persistent_facts` (if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff, whose loader runs the same drop and glob code. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, after step 3's template check has passed and step 4 has parsed the CLI overrides.
 
@@ -61,6 +60,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
    | `--brief <file>` | Seed step-01 targets from a `campaign-brief.yaml` instead of interactive prompts. Implies `--headless`. |
    | `--manifest <file>` | Seed step-01 targets from a plain-text `name,repo_url,tier,pin` manifest. Implies `--headless`. |
    | `--from <skill>` | Resume override — see Mode Routing. |
+   | `--unattended` | With `campaign resume`: from then on the skill loop takes each blocked skill's headless default and logs it (type `auto`), while every other gate, Export's included, still asks (step-resume §4). A new campaign chooses it at the plan gate, `[U]nattended`. |
 
    If `--brief` or `--manifest` is set, force `{headless_mode} = true` (log "headless: coerced by --brief/--manifest" if it was false). This is deliberate: a seeded run is an unattended run (CI), so it takes the default at every gate. To review the plan and the export, give the same file at the Setup question instead, which stays interactive. step-01 §1 documents the manifest format and validates every target.
 
@@ -88,7 +88,7 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|
 | 0 | Setup | references/step-01-setup.md | Yes |
 | 1 | Strategy | references/step-02-strategy.md | No (plan confirmation; headless takes [P]) |
-| 2 | Pin Validation | references/step-03-pins.md | Yes |
+| 2 | Pin Validation | references/step-03-pins.md | Conditional (an invalid pin; headless HALTs) |
 | 3 | Provenance | references/step-04-provenance.md | Yes |
 | 4 | Skill Loop | references/step-05-skill-loop.md | Conditional (a blocked dependency) |
 | 5 | Tier B Batch | references/step-06-batch.md | Yes |
@@ -104,7 +104,7 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | `campaign` to start a new campaign; `campaign resume [--from=<skill>]` to resume from last active or specified skill; `campaign status` for a read-only progress summary |
+| **Inputs** | `campaign` to start a new campaign; `campaign resume [--from=<skill>] [--unattended]` to resume from last active or specified skill; `campaign status` for a read-only progress summary |
 | **Outputs** | `_campaign-state.yaml` (state), `campaign-brief.yaml` (machine-generated brief), `campaign-report.md` (post-campaign summary), `_campaign-decision-log.md` (append-only rationale), all under `{campaignWorkspacePath}`; `SKF_CAMPAIGN_RESULT_JSON` (headless envelope) |
 
 ## Contracts
@@ -115,7 +115,7 @@ Exit codes, the HARD-HALT error envelope, the **State Contract** (`scripts/campa
 
 On invocation:
 
-1. **`campaign resume [--from=<skill>]`**: load `references/step-resume.md` (validates state, recovers from backup, chains to the stage `campaign-state.py resume` computes). `--from=<skill>` overrides the resume point to the named skill.
+1. **`campaign resume [--from=<skill>] [--unattended]`**: load `references/step-resume.md` (validates state, recovers from backup, chains to the stage `campaign-state.py resume` computes). `--from=<skill>` overrides the resume point to the named skill; `--unattended` makes the rest of the campaign unattended (On Activation step 4).
 2. **`campaign`** (new, no existing state) to run from stage 0 (Setup).
-3. **`campaign`** (state exists): when `{campaignWorkspacePath}/_campaign-state.yaml` or its `.bak` exists, prompt **resume** (via `references/step-resume.md`) or **overwrite**. On overwrite, first run `uv run scripts/campaign-state.py archive --state-file {campaignWorkspacePath}/_campaign-state.yaml --brief-file {campaignWorkspacePath}/campaign-brief.yaml`, which moves the state, its `.bak` and the brief into a new folder under `{campaignWorkspacePath}/archive/`, and log the `archive_dir` it returns (type `decision`) before chaining to step-01 (its `init` refuses to overwrite a state or backup). A `--brief` that named the workspace's `campaign-brief.yaml` is then read from `archive_dir`. **GATE [default: resume]**: in headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
-4. **`campaign status`** (read-only): load `{campaignWorkspacePath}/_campaign-state.yaml`, validate it via `campaign-validate-state.py`, then run `uv run scripts/campaign-status.py --state-file {campaignWorkspacePath}/_campaign-state.yaml` and display its summary (campaign name, current stage, completed-vs-total, per-status counts) followed by the last ~15 lines of `{campaignWorkspacePath}/_campaign-decision-log.md` for the recent decision trail, then stop. No backup, no mutation, no chaining. Exit 0 (or 9 if the state is unrecoverable).
+3. **`campaign`** (state exists): when `{campaignWorkspacePath}/_campaign-state.yaml` or its `.bak` exists, prompt **resume** (via `references/step-resume.md`) or **overwrite** (via `references/step-01-setup.md`, whose §0 archives the old campaign first). **GATE [default: resume]**: in headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
+4. **`campaign status`** (read-only): load `{campaignWorkspacePath}/_campaign-state.yaml`, validate it via `campaign-validate-state.py`, then run `uv run scripts/campaign-status.py --state-file {campaignWorkspacePath}/_campaign-state.yaml` and display its summary (campaign name, current stage, completed-vs-total, per-status counts) followed by the last ~15 lines of `{campaignWorkspacePath}/_campaign-decision-log.md` for the recent decision trail, then stop. No backup, no mutation, no chaining. A missing state says no campaign has started and HALTs (exit code 2, `invalid-input`); a failed validation HALTs (exit code 3, `invalid-state`) and, when `_campaign-state.yaml.bak` exists, points to `campaign resume`, which can recover it; each HALT is at phase `status`. Otherwise exit 0.

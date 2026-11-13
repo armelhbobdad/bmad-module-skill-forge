@@ -106,7 +106,7 @@ def _run(argv, capsys, stdin=None, monkeypatch=None):
 
 class TestCheck:
     def test_default_gate_passes(self):
-        assert mod.check("zero-critical-high", "90", "80") == GATE
+        assert mod.check("zero-critical-high", "90", "80") == {**GATE, "from_brief": []}
 
     def test_whole_float_prints_as_int(self):
         assert mod.check("zero-critical-high", "90.0", "80")["soft_target"] == 90
@@ -137,16 +137,25 @@ class TestCheck:
     def test_cli_prints_the_gate(self, capsys):
         rc, out, _ = _run(["check", "--hard", "zero-critical-high", "--soft-target", "95", "--soft-fallback", "85"], capsys)
         assert rc == 0
-        assert out == {"hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 85}
+        assert out == {"hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 85, "from_brief": []}
 
     def test_brief_wins_field_by_field(self):
+        # A null value sets nothing, so `from_brief` (#1142) leaves it out.
         brief = {"quality_gate": {"soft_target": 95, "soft_fallback": None}}
         assert mod.check("zero-critical-high", "90", "80", brief) == {
-            "hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 80,
+            "hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 80, "from_brief": ["soft_target"],
+        }
+
+    def test_from_brief_lists_every_key_the_brief_set_in_gate_order(self):
+        brief = {"quality_gate": {"soft_fallback": 85, "soft_target": 92, "hard": "zero-critical-high"}}
+        assert mod.check("zero-critical-high", "90", "80", brief) == {
+            "hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85,
+            "from_brief": ["hard", "soft_target", "soft_fallback"],
         }
 
     def test_brief_without_a_gate_keeps_the_base(self):
-        assert mod.check("zero-critical-high", "90", "80", {"targets": []}) == GATE
+        assert mod.check("zero-critical-high", "90", "80", {"targets": []}) == {**GATE, "from_brief": []}
+        assert mod.check("zero-critical-high", "90", "80", {"quality_gate": {}})["from_brief"] == []
 
     def test_brief_value_that_breaks_the_gate_names_the_brief(self):
         with pytest.raises(mod.GateError) as exc:
@@ -164,7 +173,8 @@ class TestCheck:
         rc, out, _ = _run(["check", "--hard", "zero-critical-high", "--soft-target", "90", "--soft-fallback", "80",
                            "--brief-file", str(brief)], capsys)
         assert rc == 0
-        assert out == {"hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85}
+        assert out == {"hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85,
+                       "from_brief": ["hard", "soft_target", "soft_fallback"]}
 
     @pytest.mark.parametrize("content, code", [(None, "BRIEF_NOT_FOUND"), (b"- a\n", "BRIEF_UNREADABLE"),
                                                (b"quality_gate: 90\n", "INVALID_GATE")],
@@ -340,6 +350,98 @@ class TestResolve:
 
     def test_no_brief_no_inputs(self):
         assert "brief_skill" not in mod.resolve(self.STATE, mod.parse_directive(""), "core")
+
+
+class TestDirectiveNotice:
+    """#1141: one sorted line for the directive's problems, the same for every skill, so step-05 logs it once."""
+
+    STATE = TestResolve.STATE
+    DIRECTIVE = "## Skip List\n- ghost\n\n## Quality Overrides\n- soft_target: 85\n- core: soft_target high\n"
+
+    def test_no_problem_is_null(self):
+        text = "## Skip List\n- legacy\n\n## Quality Overrides\n- soft_target: 85\n"
+        assert mod.resolve(self.STATE, mod.parse_directive(text), "core")["directive_notice"] is None
+        assert mod.resolve(self.STATE, mod.parse_directive(""), "core")["directive_notice"] is None
+
+    def test_an_unparsed_line_and_an_unknown_name_in_one_sorted_line(self):
+        r = mod.resolve(self.STATE, mod.parse_directive(self.DIRECTIVE), "core")
+        assert r["directive_notice"] == (
+            "Directive: Quality Overrides line 6 not parsed: core: soft_target high; "
+            "Skip List names `ghost`, which is no skill in this campaign"
+        )
+
+    def test_every_skill_gets_the_same_notice(self):
+        directive = mod.parse_directive(self.DIRECTIVE)
+        notices = {mod.resolve(self.STATE, directive, name)["directive_notice"] for name in ("core", "web", "legacy")}
+        assert len(notices) == 1 and None not in notices
+
+    def test_cli_prints_it(self, tmp_path, capsys):
+        state = _write_state(tmp_path, self.STATE)
+        directive = _write_directive(tmp_path, self.DIRECTIVE)
+        rc, out, _ = _run(
+            ["resolve", "--state-file", str(state), "--skill", "web", "--directive-file", str(directive)], capsys
+        )
+        assert rc == 0
+        assert out["directive_notice"].startswith("Directive: Quality Overrides line 6 not parsed: ")
+
+    def test_classify_gives_the_notice_resolve_gives(self):
+        """Export logs the notice the skill loop logged, so `--once` keeps it to one line."""
+        directive = mod.parse_directive(self.DIRECTIVE)
+        notice = mod.resolve(self.STATE, directive, "core")["directive_notice"]
+        assert notice is not None
+        assert mod.classify(self.STATE, directive)["directive_notice"] == notice
+        assert mod.classify(self.STATE, mod.parse_directive(""))["directive_notice"] is None
+
+
+def _state_script():
+    spec = importlib.util.spec_from_file_location("campaign_state_gate_test", SCRIPT.with_name("campaign-state.py"))
+    state_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(state_mod)
+    return state_mod
+
+
+def _resolve_and_log(capsys, state_mod, state, directive, log, name):
+    """step-05's two moves: resolve the skill, then log a notice that is not null with --once."""
+    rc, out, _ = _run(["resolve", "--state-file", str(state), "--skill", name, "--directive-file", str(directive)],
+                      capsys)
+    assert rc == 0
+    if out["directive_notice"] is not None:
+        assert state_mod.main(["log", "--log-file", str(log), "--type", "event", "--once",
+                               "--text", out["directive_notice"]]) == 0
+        capsys.readouterr()
+
+
+def test_three_skills_log_one_notice(tmp_path, capsys):
+    """Two resolve calls for each of three skills, each logged with --once: the log holds the notice once."""
+    state_mod = _state_script()
+    state = _write_state(tmp_path, TestResolve.STATE)
+    directive = _write_directive(tmp_path, "## Quality Overrides\n- core: soft_target high\n")
+    log = tmp_path / "_campaign-decision-log.md"
+    for name in ("core", "web", "legacy"):
+        for _ in range(2):
+            _resolve_and_log(capsys, state_mod, state, directive, log, name)
+    lines = log.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert lines[0].endswith("(event) Directive: Quality Overrides line 2 not parsed: core: soft_target high")
+
+
+def test_an_edited_directive_logs_its_new_notice(tmp_path, capsys):
+    """A directive edited between skills gives a new notice, which is appended; one with no problem logs nothing."""
+    state_mod = _state_script()
+    state = _write_state(tmp_path, TestResolve.STATE)
+    log = tmp_path / "_campaign-decision-log.md"
+    directive = _write_directive(tmp_path, "## Skip List\n- legacy\n")
+    _resolve_and_log(capsys, state_mod, state, directive, log, "core")
+    assert not log.exists()
+    _write_directive(tmp_path, "## Skip List\n- ghost\n")
+    _resolve_and_log(capsys, state_mod, state, directive, log, "web")
+    _write_directive(tmp_path, "## Skip List\n- ghost\n- phantom\n")
+    _resolve_and_log(capsys, state_mod, state, directive, log, "legacy")
+    assert [line.split(") ", 1)[1] for line in log.read_text(encoding="utf-8").splitlines()] == [
+        "Directive: Skip List names `ghost`, which is no skill in this campaign",
+        "Directive: Skip List names `ghost`, which is no skill in this campaign; "
+        "Skip List names `phantom`, which is no skill in this campaign",
+    ]
 
 
 class TestBriefSkillInputs:
@@ -579,10 +681,11 @@ def test_steps_bind_the_gate_script(name):
 def test_setup_settles_the_gate_with_the_script(tmp_path, capsys):
     # Setup's init (campaign-state.py) runs this script's check before it writes the state.
     text = _text("step-01-setup.md")
-    assert ("init --state-file {stateFile} --targets-file - --name \"<campaign_name>\" --hard \"{qualityGateHard}\" "
+    # #1142: the hard gate is no setting, so step-01 passes no --hard and init takes the only one.
+    assert ("init --state-file {stateFile} --targets-file - --name \"<campaign_name>\" "
             "--soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>]"
             ) in text
-    assert "settles and checks the gate with `campaign-quality-gate.py check`" in text
+    assert "--hard" not in text and "{qualityGateHard}" not in text
     assert "field by field" not in text
     spec = importlib.util.spec_from_file_location("campaign_state_gate_test", SCRIPT.parent / "campaign-state.py")
     helper = importlib.util.module_from_spec(spec)
@@ -629,10 +732,23 @@ class TestSkillLoopProse:
         assert "keep its `threshold`" not in self.TEXT
 
     def test_completed_skill_records_its_path(self):
-        assert "--status completed --quality-score <quality_score> --skill-path <skill_package>`, with its `quality_score` and the `{skill_package}` CS named" in self.TEXT
+        # #1141: CS's path is recorded right after CS, so the completed call no longer carries it.
+        completed = next(line for line in self.TEXT.splitlines() if line.startswith("   - `status` `completed`"))
+        assert "--status completed --quality-score <quality_score>`, with its `quality_score`;" in completed
+        assert "--skill-path" not in completed and "skill_package" not in completed
+        cs = next(line for line in self.TEXT.splitlines() if "**CS** (`skf-create-skill`)" in line)
+        assert "--skill {skill_name} --skill-path <skill_package>`" in cs
 
-    def test_directive_problems_are_logged_once_per_stage(self):
-        assert "once per stage, from the first resolve call" in self.TEXT
+    def test_directive_problems_are_logged_once(self):
+        log = "uv run {stateScript} log --log-file {decisionLogFile} --type event --once --text '<directive_notice>'"
+        gate = self.TEXT[self.TEXT.index("3. Resolve the skill's run"):self.TEXT.index("4. Run `uv run {depsScript}")]
+        assert gate.index("--brief-file {briefFile}") < gate.index(log) < gate.index("When `skip` is true")
+        assert "when its `directive_notice` is not null, log it" in gate
+        ts = next(line for line in self.TEXT.splitlines() if "**TS** (`skf-test-skill`)" in line)
+        resolve = ts.index("uv run {gateScript} resolve --state-file {stateFile} --skill {skill_name}")
+        assert resolve < ts.index("log its `directive_notice` with `--once` as §4 does") < ts.index("--threshold=")
+        assert "once per stage" not in self.TEXT
+        assert "reports different ones" not in self.TEXT
 
     def test_test_skill_gets_the_threshold_and_alias(self):
         assert "`{skill_name} --headless --threshold={threshold}`" in self.TEXT
@@ -668,8 +784,13 @@ def test_export_takes_only_the_classified_candidates():
     text = _text("step-10-export.md")
     assert "uv run {gateScript} classify --state-file {stateFile}" in text
     assert "For each `skills[]` row of §3 whose `name` is in `export[]`" in text
-    assert "| Gate | Export Name |" in text
+    assert ("Show one row per `skills[]` entry with its name, tier, quality score, verdict, `export_name` and "
+            "skill path, then each `excluded[]` skill with its score and `reason`") in text
     assert "For each completed skill (from §3)" not in text
+    # #1141: Export logs the directive's problems as the skill loop does, one notice with --once.
+    assert ("and the call's `directive_notice`, when not null, with `--once` as step-05 does: `uv run {stateScript} log "
+            "--log-file {decisionLogFile} --type event --once --text '<directive_notice>'`") in text
+    assert "each `unparsed` or `warnings` entry" not in text
 
 
 def test_export_runs_under_the_export_name_and_records_each_outcome():
@@ -690,8 +811,11 @@ def test_exit_13_is_a_contract_code():
 
 def test_customize_states_the_precedence_and_the_only_hard_gate():
     text = (CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8")
-    block = text.split("# --- Quality gate ---", 1)[1].split("quality_gate_hard =", 1)[0]
+    block = text.split("# --- Quality gate ---", 1)[1].split("quality_gate_soft_target =", 1)[0]
     comment = " ".join(line.lstrip("#").strip() for line in block.splitlines() if line.strip())
     assert "the directive's `## Quality Overrides` (while the campaign runs), then the `quality_gate` of the campaign-brief.yaml Setup reads" in comment
-    assert "`zero-critical-high` is the only accepted value" in comment
+    # #1142: a key with one legal value is no setting; the comment says the hard gate is fixed.
+    assert ("The hard gate is not a setting: a skill passes it only when its test-skill run finds no Critical or "
+            "High gap (a campaign brief may name only `zero-critical-high`).") in comment
+    assert "quality_gate_hard" not in text
     assert mod.HARD_GATES == ("zero-critical-high",)

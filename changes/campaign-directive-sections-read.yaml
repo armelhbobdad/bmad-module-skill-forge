@@ -1,0 +1,5 @@
+type: docs
+summary: |
+  The campaign directive docs now list only the two sections Campaign's scripts parse, `## Quality Overrides` and `## Skip List`. `## Pipeline Flags` and `## Notes` are no longer listed, since nothing parsed them: any other heading is read as general guidance, which changes no sub-skill's flags or inputs.
+issues: [1140]
+prs: [1214]

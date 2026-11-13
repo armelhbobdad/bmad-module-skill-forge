@@ -4,9 +4,10 @@
 # ///
 """Campaign Deps — dependency computation and enforcement for campaign skills.
 
-Two modes:
+Three modes:
   --compute: topological sort of all skills from depends_on edges
   --check:   verify a single skill's dependencies are satisfied
+  --render:  the strategy view step-02 shows, in the order --compute gives
 
 A Tier A skill may not depend on a Tier B skill: Tier B skills are built in
 the batch stage, after the skill loop that builds Tier A skills, so the Tier A
@@ -21,18 +22,45 @@ headless default: `skip` when every unmet dependency failed or was skipped
 (it can never complete in this run), `halt` when one is still pending or
 active (an order the loop cannot follow).
 
+On a cycle, `cycle_participants` are the skills the sort could not place and
+`cycle_edges` every depends_on edge between two of them, so the cycle is
+named without reading the state by hand.
+
+--render orders the skills with the same code as --compute and prints the
+strategy view as text with ASCII marks: each skill in execution order with
+its tier, its pin (or `latest`) and what it depends on, then the campaign's
+quality gate and the tier counts. On a plan --compute rejects it exits as
+--compute does and prints no view; a cycle is then a CIRCULAR_DEPENDENCY
+error on stderr that names the participants and edges, since --render
+prints no JSON. A dependency named twice is listed once, in the view and in
+`cycle_edges`. Text goes out as UTF-8, so a campaign name in any script
+prints on a Windows console too.
+
 CLI:
   uv run campaign-deps.py --compute --state-file <path>
+  uv run campaign-deps.py --render --state-file <path>
   uv run campaign-deps.py --check --state-file <path> --skill <name>
   uv run campaign-deps.py --check --state-file <path> --skill <name> --force
 
-Output (JSON on stdout):
-  --compute:
+Output (on stdout):
+  --compute (JSON):
     {"execution_order": [...], "circular_deps_detected": bool,
-     "cycle_participants": [...] | null, "tier_counts": {"A": int, "B": int},
+     "cycle_participants": [...] | null,
+     "cycle_edges": [{"skill", "depends_on"}] | null,
+     "tier_counts": {"A": int, "B": int},
      "tier_inversions": [{"skill": "<Tier A>", "depends_on": "<Tier B>"}]}
 
-  --check:
+  --render (text):
+    CAMPAIGN STRATEGY: <campaign name>
+
+    EXECUTION ORDER:
+      1. <skill> [Tier <A|B>] <pin|latest>
+      2. <skill> [Tier <A|B>] <pin|latest>, depends on: <dep>, <dep>
+
+    QUALITY GATE: <hard>, soft target <N>%, soft fallback <N>%
+    TIERS: <n> Tier A (full pipeline), <m> Tier B (QS batch)
+
+  --check (JSON):
     {"skill": "name", "ready": bool, "unmet_deps": [...], "forced": bool,
      "unmet_status": {"<dep>": "<status>"}, "default_action": "skip" | "halt" | null}
 
@@ -79,23 +107,33 @@ def _build_skill_map(skills: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return {s["name"]: s for s in skills}
 
 
-def compute(state_file: str) -> int:
+class _StateError(Exception):
+    """A state the modes cannot read: reported on stderr with exit 2."""
+
+    def __init__(self, message: str, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _read_state(state_file: str) -> Dict[str, Any]:
     path = Path(state_file)
     if not path.is_file():
-        _emit_error(f"State file not found: {state_file}", "STATE_NOT_FOUND")
-        return 2
-
+        raise _StateError(f"State file not found: {state_file}", "STATE_NOT_FOUND")
     try:
         state = _load_yaml(path)
     except Exception as exc:
-        _emit_error(f"Failed to parse state file: {exc}", "STATE_PARSE_ERROR")
-        return 2
+        raise _StateError(f"Failed to parse state file: {exc}", "STATE_PARSE_ERROR") from exc
+    if not isinstance(state, dict) or not isinstance(state.get("skills", []), list):
+        raise _StateError("State file 'skills' is not an array", "INVALID_STATE")
+    return state
 
-    skills = state.get("skills", [])
-    if not isinstance(skills, list):
-        _emit_error("State file 'skills' is not an array", "INVALID_STATE")
-        return 2
 
+def plan(skills: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The execution order of the skills, and why the stages cannot follow it, if they cannot.
+
+    --compute and --render both order the skills here. `dangling` lists
+    each depends_on name no skill has; the order is not computed then.
+    """
     skill_map = _build_skill_map(skills)
 
     tier_counts = {"A": 0, "B": 0}
@@ -105,18 +143,17 @@ def compute(state_file: str) -> int:
             tier_counts[tier] += 1
 
     problems = _dependency_problems(list(skill_map.values()))
-    dangling = [
-        f"{d['skill']} depends on unknown skill '{d['depends_on']}'"
-        for d in problems["dangling_depends_on"]
-    ]
-    if dangling:
-        _emit_error(
-            f"Dangling dependency references: {'; '.join(dangling)}",
-            "DANGLING_DEPENDENCY",
-        )
-        return 1
-
-    inversions = problems["tier_inversions"]
+    result: Dict[str, Any] = {
+        "execution_order": [],
+        "circular_deps_detected": False,
+        "cycle_participants": None,
+        "cycle_edges": None,
+        "tier_counts": tier_counts,
+        "tier_inversions": problems["tier_inversions"],
+        "dangling": problems["dangling_depends_on"],
+    }
+    if result["dangling"]:
+        return result
 
     in_degree: Dict[str, int] = {name: 0 for name in skill_map}
     adjacency: Dict[str, List[str]] = {name: [] for name in skill_map}
@@ -145,38 +182,115 @@ def compute(state_file: str) -> int:
             if in_degree[dependent] == 0:
                 heapq.heappush(heap, _tier_key(dependent))
 
+    result["execution_order"] = execution_order
     if len(execution_order) < len(skill_map):
-        cycle_participants = sorted(
-            n for n in skill_map if n not in set(execution_order)
-        )
-        output = {
-            "execution_order": execution_order,
-            "circular_deps_detected": True,
-            "cycle_participants": cycle_participants,
-            "tier_counts": tier_counts,
-            "tier_inversions": inversions,
-        }
+        placed = set(execution_order)
+        participants = sorted(n for n in skill_map if n not in placed)
+        unplaced = set(participants)
+        result["circular_deps_detected"] = True
+        result["cycle_participants"] = participants
+        result["cycle_edges"] = [
+            {"skill": name, "depends_on": dep}
+            for name, dep in sorted(
+                (name, dep)
+                for name in participants
+                for dep in dict.fromkeys(skill_map[name].get("depends_on", []) or [])
+                if dep in unplaced
+            )
+        ]
+    return result
+
+
+def _dangling_error(result: Dict[str, Any]) -> None:
+    dangling = [f"{d['skill']} depends on unknown skill '{d['depends_on']}'" for d in result["dangling"]]
+    _emit_error(f"Dangling dependency references: {'; '.join(dangling)}", "DANGLING_DEPENDENCY")
+
+
+def _inversion_error(result: Dict[str, Any]) -> None:
+    _emit_error(
+        "Tier A skills depend on Tier B skills, which are built after them: "
+        + "; ".join(f"{i['skill']} depends on {i['depends_on']}" for i in result["tier_inversions"]),
+        "TIER_INVERSION",
+    )
+
+
+def compute(state_file: str) -> int:
+    try:
+        state = _read_state(state_file)
+    except _StateError as exc:
+        _emit_error(str(exc), exc.code)
+        return 2
+
+    result = plan(state.get("skills", []))
+    if result["dangling"]:
+        _dangling_error(result)
+        return 1
+
+    output = {key: value for key, value in result.items() if key != "dangling"}
+    if result["circular_deps_detected"]:
         json.dump(output, sys.stdout, separators=(",", ":"))
         sys.stdout.write("\n")
         return 1
 
-    if inversions:
-        _emit_error(
-            "Tier A skills depend on Tier B skills, which are built after them: "
-            + "; ".join(f"{i['skill']} depends on {i['depends_on']}" for i in inversions),
-            "TIER_INVERSION",
-        )
+    if result["tier_inversions"]:
+        _inversion_error(result)
 
-    output = {
-        "execution_order": execution_order,
-        "circular_deps_detected": False,
-        "cycle_participants": None,
-        "tier_counts": tier_counts,
-        "tier_inversions": inversions,
-    }
     json.dump(output, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")
-    return 1 if inversions else 0
+    return 1 if result["tier_inversions"] else 0
+
+
+def _percent(value: Any) -> str:
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return f"{value}%"
+
+
+def render(state_file: str) -> int:
+    """Print the strategy view, or exit as --compute does on a plan it rejects."""
+    try:
+        state = _read_state(state_file)
+    except _StateError as exc:
+        _emit_error(str(exc), exc.code)
+        return 2
+
+    skills = state.get("skills", [])
+    result = plan(skills)
+    if result["dangling"]:
+        _dangling_error(result)
+        return 1
+    if result["circular_deps_detected"]:
+        edges = "; ".join(f"{e['skill']} depends on {e['depends_on']}" for e in result["cycle_edges"])
+        _emit_error(
+            f"Circular dependencies among {', '.join(result['cycle_participants'])}: {edges}",
+            "CIRCULAR_DEPENDENCY",
+        )
+        return 1
+    if result["tier_inversions"]:
+        _inversion_error(result)
+        return 1
+
+    skill_map = _build_skill_map(skills)
+    campaign = state.get("campaign") if isinstance(state.get("campaign"), dict) else {}
+    gate = campaign.get("quality_gate") if isinstance(campaign.get("quality_gate"), dict) else {}
+    lines = [f"CAMPAIGN STRATEGY: {campaign.get('name', '')}", "", "EXECUTION ORDER:"]
+    for number, name in enumerate(result["execution_order"], start=1):
+        skill = skill_map[name]
+        pin = skill.get("pin")
+        row = f"  {number}. {name} [Tier {skill.get('tier')}] {pin if pin not in (None, '') else 'latest'}"
+        deps = list(dict.fromkeys(skill.get("depends_on", []) or []))
+        if deps:
+            row += f", depends on: {', '.join(deps)}"
+        lines.append(row)
+    counts = result["tier_counts"]
+    lines += [
+        "",
+        f"QUALITY GATE: {gate.get('hard')}, soft target {_percent(gate.get('soft_target'))}, "
+        f"soft fallback {_percent(gate.get('soft_fallback'))}",
+        f"TIERS: {counts['A']} Tier A (full pipeline), {counts['B']} Tier B (QS batch)",
+    ]
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
 
 
 def check(state_file: str, skill_name: str, force: bool = False) -> int:
@@ -262,6 +376,11 @@ def main() -> int:
         action="store_true",
         help="Check if a skill's dependencies are satisfied",
     )
+    mode.add_argument(
+        "--render",
+        action="store_true",
+        help="Print the strategy view, in the order --compute gives",
+    )
     parser.add_argument("--state-file", required=True, help="Path to _campaign-state.yaml")
     parser.add_argument("--skill", help="Skill name (required for --check)")
     parser.add_argument(
@@ -276,8 +395,26 @@ def main() -> int:
 
     if args.compute:
         return compute(args.state_file)
+    if args.render:
+        return render(args.state_file)
     return check(args.state_file, args.skill, force=args.force)
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every
+    character a campaign name may hold.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     raise SystemExit(main())

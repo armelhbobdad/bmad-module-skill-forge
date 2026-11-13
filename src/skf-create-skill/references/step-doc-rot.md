@@ -15,7 +15,7 @@ Annotate the compiled SKILL.md with a `## CORRECTION` block for each live upstre
 
 - Auto-proceed step — no user interaction required
 - Graceful skip — if no corrections are found in any feeder artifact, proceed without modification
-- Only modify the compiled SKILL.md (correction block insertion) and references (if corrections target referenced content)
+- Only modify the compiled SKILL.md (correction block insertion), references (if corrections target referenced content) and §4's `doc-rot-corrections.json`
 - Do not modify feeder artifacts (evidence-report.md, provenance-map.json, metadata.json) — this step READS them only
 - Do not modify frontmatter — correction blocks are body content only
 - Write a block only for a candidate the §2 judgment pass keeps: a keyword match alone is never a correction
@@ -114,6 +114,16 @@ Store: `corrections_added: {count of blocks inserted}`
 ### §4. Log Results
 
 Log: `"doc-rot: {corrections_added} correction blocks added from {feeder_artifacts_scanned_count} feeder artifacts ({match_count} candidates: {corrections_rejected} rejected by the judgment pass, {corrections_capped} over the cap of 10; the scan collapsed {deduped_count} duplicates and left out {capped_count} candidates over its cap of {cap})"`
+
+Write `correction_matches` to the staging folder as a JSON array, one object per kept record in its order, each value a JSON string with any `"` or `\` in it escaped (`context_line` is the upstream line as written and can hold both), so a caller such as campaign records the corrections from disk rather than from this run's context:
+
+```bash
+cat > "{project-root}/_bmad-output/.skf-stage/{skill-name}/doc-rot-corrections.json" <<'SKF_JSON'
+[{"source": "{source}", "pattern": "{pattern}", "candidate_category": "{candidate_category}", "context_line": "{context_line}", "affected": "{affected}"}]
+SKF_JSON
+```
+
+A run whose judgment pass kept nothing skips this section, so it writes no file, and compile (step 5) empties the staging folder every run, so the file is always this run's.
 
 Set context:
 - `doc_rot_triggered: true`

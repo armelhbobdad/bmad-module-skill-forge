@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-campaign
+summary: |
+  Campaign drops two customization settings that could not do what they offered. `quality_gate_hard` had one accepted value, `zero-critical-high`, so the hard gate is now fixed: a skill passes it only when its Test Skill run finds no Critical or High gap, and a campaign brief's `quality_gate` may still name only `zero-critical-high`. `brief_template_path` swapped the template Setup writes `campaign-brief.yaml` from, but no later stage reads anything a copy could add, so Setup now always writes the brief from the bundled template. Both settings are ignored when an override sets them. `campaign-state.py init` no longer needs `--hard`, which defaults to `zero-critical-high`.
+migration: |
+  Remove `quality_gate_hard` and `brief_template_path` from `_bmad/custom/skf-campaign.toml` and `_bmad/custom/skf-campaign.user.toml`. A copy of the brief template no longer applies, so you can delete it.
+issues: [1142]
+prs: [1214]
