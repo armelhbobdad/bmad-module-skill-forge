@@ -88,13 +88,13 @@ ceilings at compile time:
 
 ## context-snippet.md Format (Vercel-Aligned)
 
-Indexed format targeting ~80-120 tokens per stack:
+Indexed format targeting ~80-120 tokens per stack, each integration pair as `{a}+{b}` (`|integrations: none` for a stack with no pair):
 
 ```markdown
 [{stack_name} v{version}]|root: skills/{stack_name}/
 |IMPORTANT: {stack_name} — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
-|integrations: {pattern-1}, {pattern-2}
+|integrations: {lib-a}+{lib-b}, {lib-c}+{lib-d}
 |gotchas: {1-2 most critical integration pitfalls}
 ```
 
@@ -160,7 +160,7 @@ from here.
 
 **Type:** {pattern_type}
 **Co-import files:** {count}
-**Confidence:** {T1/T1-low/T2/T3 [composed]}
+**Confidence:** {T1/T1-low/T2/T3} ({qualifier}) *(compose-mode: then [composed], or [inferred from shared domain] for that qualifier, and [VS: Risky] or [VS: Blocked] for those pair verdicts)*
 
 ## Integration Pattern
 [Detailed description of how these libraries connect]

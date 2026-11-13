@@ -1,6 +1,6 @@
 # Stack metadata.json Contract
 
-The `metadata.json` every stack package carries, which step 7 §6 writes. This file is fixed: `stack_skill_template_path` overrides only the SKILL.md, context-snippet, catalog and reference-file structures of `assets/stack-skill-template.md`, never this contract. `generated_by`, `tool_versions.skf`, and `skill_type` with `forge_tier` or `confidence_tier` are the markers SKF's ownership check reads, so a stack written without them would be refused as not SKF output by every later run.
+The `metadata.json` every stack package carries, which step 7 §6 writes. This file is fixed: `stack_skill_template_path` overrides only the SKILL.md, context-snippet, catalog and reference-file structures of `assets/stack-skill-template.md`, never this contract, and in the lines `skf-render-stack-metadata.py` writes in the bundled form (each reference and pair file's header lines, Key Exports and Key Files, the Library Reference Index rows and the context snippet's lines) a copy shapes only the prose the steps fill and any section it adds. `generated_by`, `tool_versions.skf`, and `skill_type` with `forge_tier` or `confidence_tier` are the markers SKF's ownership check reads, so a stack written without them would be refused as not SKF output by every later run.
 
 ## metadata.json Structure
 

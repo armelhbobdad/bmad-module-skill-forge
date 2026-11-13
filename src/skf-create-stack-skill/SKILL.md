@@ -76,7 +76,7 @@ Every step that emits a warning appends an entry to `workflow_warnings[]`, the o
 
    Bind these three as workflow-context variables, taking the default when the merged value is empty or absent:
 
-   - `{stackSkillTemplatePath}` ← `workflow.stack_skill_template_path`, else `assets/stack-skill-template.md` (the SKILL.md, snippet and reference-file structures; `assets/metadata-contract.md` holds the `metadata.json` contract, which no override replaces)
+   - `{stackSkillTemplatePath}` ← `workflow.stack_skill_template_path`, else `assets/stack-skill-template.md` (the SKILL.md, snippet and reference-file structures, less the lines `skf-render-stack-metadata.py` writes; never `assets/metadata-contract.md`)
    - `{integrationPatternsPath}` ← `workflow.integration_patterns_path`, else `references/integration-patterns.md`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (`references/report.md` §2c then runs no hook)
 
