@@ -1135,8 +1135,8 @@ def _list_boundary(awk: str, tree: list[str], boundary: str, run_dir: Path, c: i
     command, _, out = awk.partition(" > ")
     if shutil.which("awk"):
         listed = subprocess.run(shlex.split(command), capture_output=True, check=True, timeout=60).stdout
-    else:  # the paths awk keeps: those that start with "<boundary path>/"
-        listed = "".join(f"{p}\n" for p in tree if p.startswith(boundary + "/")).encode("utf-8")
+    else:  # the paths awk keeps: those that start with "<boundary path>/", every one for "."
+        listed = "".join(f"{p}\n" for p in tree if boundary == "." or p.startswith(boundary + "/")).encode("utf-8")
     Path(out.strip('"').replace("{c}", str(c))).write_bytes(listed)
 
 
@@ -1165,6 +1165,8 @@ def test_each_boundary_takes_its_patterns_from_its_own_listing(tmp_path):
     assert (language, json.loads(printed.stdout)["include"]) == ("typescript", ["packages/auth/lib/**/*.ts"])
 
 
+SPLIT_WARNING = ("`uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning 'split: <boundary path> left "
+                 "out: no source file in a language SKF detects'`")
 SPLIT_CALL = ('uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file "{run_dir}/manifests-1.json" '
               '--manifest-dir "{scan_root}" --member "<boundary path>" --tree-file "{run_dir}/tree-{c}.txt"')
 
@@ -1177,7 +1179,8 @@ def test_each_boundary_is_classified_by_one_documented_call(tmp_path):
     out by its count, the setup.py package (exit 1) takes full-library, and a package git does not
     track yet (its listing is empty, so the call exits 2) is left out without halting."""
     awk, call = _split_block()
-    assert awk == "awk -v p=\"<boundary path>/\" 'index($0, p) == 1' \"{run_dir}/tree.txt\" > \"{run_dir}/tree-{c}.txt\""
+    assert awk == ("awk -v p=\"<boundary path>/\" 'p == \"./\" || index($0, p) == 1' \"{run_dir}/tree.txt\" > "
+                   "\"{run_dir}/tree-{c}.txt\"")
     assert call == SPLIT_CALL
     section = _section(_read(SPLIT), "### 4a.", "### 5a.")
     for needle in ("- **Exit 2:** when `tree-{c}.txt` is empty (git tracks none of the member's files: an untracked "
@@ -1188,7 +1191,10 @@ def test_each_boundary_is_classified_by_one_documented_call(tmp_path):
                    "sparse-checkout add '/<boundary path>/README*'",
                    "the case you choose sets this boundary's shape, never the run's `{shape}`",
                    "`shape`, `confidence`, `export_count`, `package_count` and `{scope_type}` feed §6a",
-                   "- **`source_file_count` 0** (on exit 0 or 1): a trivial member; leave it out.",
+                   "- **`source_file_count` 0** (on exit 0 or 1): no file in a language `skf-detect-language.py` "
+                   "reads: a trivial member, or one whose code is all `.vue`, `.svelte`, C or another language it "
+                   "does not read; leave it out and record it as a warning, so it reaches the envelope: "
+                   + SPLIT_WARNING,
                    "- **Exit 0:** `{scope_type}` ← its `scope_type`. When its `signals` hold "
                    "`app_or_library:framework_dep` or `language_or_user:parser_dep`, judge and record it as "
                    "step-auto-scope.md §4 does",
@@ -1242,13 +1248,66 @@ def test_each_boundary_is_classified_by_one_documented_call(tmp_path):
         assert proc.returncode in (0, 1), proc.stderr
         out = json.loads(proc.stdout)
         if out["source_file_count"] == 0:
+            command = SPLIT_WARNING.strip("`").replace("<boundary path>", boundary)
+            record = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+            assert record.returncode == 0, record.stderr
             continue
         kept[boundary] = (proc.returncode, out["shape"], out["scope_type"] if proc.returncode == 0 else "full-library")
     assert kept == {"packages/cli": (0, "reference-app", "reference-app"),
                     "packages/core": (0, "library-API", "full-library"),
                     "packages/legacy": (1, "unknown", "full-library")}
+    # The package left out by its count is named in the run's warnings, so it is not dropped unseen
+    # (#1128 lane review: a package of .vue or C files counts no source file either).
+    warnings = (run_dir / "warnings.jsonl").read_text(encoding="utf-8")
+    assert "split: packages/types left out: no source file in a language SKF detects" in warnings
+    assert "packages/fresh" not in warnings, "an untracked package is left out by its empty listing"
     proc = _run(call.replace("<boundary path>", "packages/nope"), {**values, "c": "9"})
     assert proc.returncode == 2 and json.loads(proc.stderr)["code"] == "MEMBER_NOT_FOUND", "§4a halts"
+
+
+def test_a_root_package_is_listed_whole_and_kept_by_its_count(tmp_path):
+    """#1128 lane review: a Cargo root `[package]` beside its `[workspace]` is a split boundary at the
+    scan root (`.`), which the scan's `candidates[]` lists. Its listing is every file, so the script
+    counts its source files instead of finding an empty `./` prefix listing, and its patterns leave
+    the other boundaries out."""
+    section = _section(_read(SPLIT), "### 4a.", "### 5a.")
+    assert ("the scan root's own package (boundary path `.`) too when its manifest is not `private` and the scan's "
+            "`candidates[]` lists `.`") in section
+    assert "list its files (every file for the scan root's package)" in section
+    assert ("the scan root's package, which lists every file, also excludes `<path>/**` for each other kept "
+            "boundary") in _section(_read(SPLIT), "### 5a.", "### 6a.")
+    repo = tmp_path / "ws"
+    files = {
+        "Cargo.toml": '[package]\nname = "root"\nversion = "0.1.0"\n\n[workspace]\nmembers = ["crates/a"]\n',
+        "src/lib.rs": "pub fn r() {}\n",
+        "src/z.rs": "pub fn z() {}\n",
+        "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n',
+        "crates/a/src/lib.rs": "pub fn a() {}\n",
+    }
+    for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_bytes(text.encode("utf-8"))
+    run_dir = _run_dir(tmp_path)
+    tree = sorted(files)
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), "scan", str(repo)], capture_output=True, timeout=60)
+    assert scan.returncode == 0, scan.stderr
+    (run_dir / "manifests-1.json").write_bytes(scan.stdout)
+    envelope = json.loads(scan.stdout)
+    assert [c["path"] for c in envelope["candidates"]] == [".", "crates/a"]
+    assert next(m for m in envelope["manifests"] if m["path"] == "Cargo.toml")["private"] is False
+    awk, call = _split_block()
+    values = {"shapeDetectHelper": str(SHAPE), "project_path": repo.as_posix(), "run_dir": str(run_dir),
+              "scan_root": str(repo)}
+    for c, boundary in enumerate((".", "crates/a"), 1):
+        _list_boundary(awk, tree, boundary, run_dir, c)
+        listed = (run_dir / f"tree-{c}.txt").read_text(encoding="utf-8").split()
+        assert listed == (tree if boundary == "." else [p for p in tree if p.startswith("crates/a/")])
+        proc = _run(call.replace("<boundary path>", boundary), {**values, "c": str(c)})
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["shape"], out["package_count"]) == ("library-API", 1), "its own manifest alone"
+        assert out["source_file_count"] > 0, boundary
 
 
 def test_the_shape_reference_keeps_only_the_judged_rows_and_the_ladder():

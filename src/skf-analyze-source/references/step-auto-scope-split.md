@@ -30,15 +30,15 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 ### 4a. Decompose by Workspace Package
 
-Each workspace package of the §2 manifest scan with its own manifest is a candidate boundary, less a member outside the folders `scope_hint` focuses on or under a folder it skips. For candidate `{c}`, list its files and classify it from its own manifest and files:
+Each workspace package of the §2 manifest scan with its own manifest is a candidate boundary, the scan root's own package (boundary path `.`) too when its manifest is not `private` and the scan's `candidates[]` lists `.` (code of its own beside the workspace, as a Cargo root `[package]` holds), less a member outside the folders `scope_hint` focuses on or under a folder it skips. For candidate `{c}`, list its files (every file for the scan root's package) and classify it from its own manifest and files:
 
 ```bash
-awk -v p="<boundary path>/" 'index($0, p) == 1' "{run_dir}/tree.txt" > "{run_dir}/tree-{c}.txt"
+awk -v p="<boundary path>/" 'p == "./" || index($0, p) == 1' "{run_dir}/tree.txt" > "{run_dir}/tree-{c}.txt"
 uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file "{run_dir}/manifests-1.json" --manifest-dir "{scan_root}" --member "<boundary path>" --tree-file "{run_dir}/tree-{c}.txt"
 ```
 
 - **Exit 2:** when `tree-{c}.txt` is empty (git tracks none of the member's files: an untracked or submodule folder), a trivial member; leave it out. Otherwise HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope-split:4a`): "Shape detection failed for <boundary path>: {the `error` its stderr JSON names}."
-- **`source_file_count` 0** (on exit 0 or 1): a trivial member; leave it out.
+- **`source_file_count` 0** (on exit 0 or 1): no file in a language `skf-detect-language.py` reads: a trivial member, or one whose code is all `.vue`, `.svelte`, C or another language it does not read; leave it out and record it as a warning, so it reaches the envelope: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'split: <boundary path> left out: no source file in a language SKF detects'` (if the command fails, go on).
 - **Exit 0:** `{scope_type}` ← its `scope_type`. When its `signals` hold `app_or_library:framework_dep` or `language_or_user:parser_dep`, judge and record it as step-auto-scope.md §4 does, from the boundary manifest's `description` or its folder's README (a remote fetch brings it in with `git -C "{scan_root}" sparse-checkout add '/<boundary path>/README*'`), with the boundary path in the `reason`: the case you choose sets this boundary's shape, never the run's `{shape}`, and when it changes that shape, its `{scope_type}` is the type the case's row gives.
 - **Exit 1** (no shape, but source files): `{scope_type}` ← `full-library`, with shape `unknown`.
 
@@ -60,7 +60,7 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'coexistence:
 
 ### 5a. Generate Multi-Scope Patterns
 
-For boundary `{i}`, detect its language from `tree-{c}.txt`, the file list §4a wrote for it as candidate `{c}`, without `--workspace-signal` (the workspace root's language would answer for every boundary) and read it as §5 says, the boundary's own manifest standing for the scan-root manifest. Its include and exclude patterns are the ones `scope-patterns` prints for that language, rooted at the boundary's source folder (`packages/auth/src/**/*.ts`):
+For boundary `{i}`, detect its language from `tree-{c}.txt`, the file list §4a wrote for it as candidate `{c}`, without `--workspace-signal` (the workspace root's language would answer for every boundary) and read it as §5 says, the boundary's own manifest standing for the scan-root manifest. Its include and exclude patterns are the ones `scope-patterns` prints for that language, rooted at the boundary's source folder (`packages/auth/src/**/*.ts`); the scan root's package, which lists every file, also excludes `<path>/**` for each other kept boundary:
 
 ```bash
 uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{c}.txt"
