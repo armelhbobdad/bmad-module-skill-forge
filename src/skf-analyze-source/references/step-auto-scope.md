@@ -60,7 +60,7 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 ### 0. URL Type Detection
 
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`): "`skf-skill-inventory.py` is missing. Re-install SKF." The helper classifies `{project_path}` (the first of `project_paths[]`):
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`): "`skf-skill-inventory.py` is missing. Re-install SKF." The helper classifies `{project_path}`, the one entry of `project_paths[]` (init halts an `[auto]` run given several):
 
 ```bash
 uv run {skillInventoryHelper} derive-name --target "{project_path}" --probe-git
@@ -152,33 +152,31 @@ Load `references/step-shape-detect.md` as reference for shape detection invocati
 
 ### 2. Manifest Scan
 
-Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on its `kind`: §0 gave `{kind}` and `{clone_url}` for its target, and §0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.
-
-**For each path in `project_paths[]`:**
+Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on the `{kind}` §0 gave:
 
 - **`kind` is `local`:** scan it directly. Its **scan root** is the path itself, with a leading `~` written as `$HOME`: the commands below quote every path, and a `~` inside double quotes does not expand.
 
   ```bash
-  uv run {scanManifestsHelper} scan "<the path's scan root>" > "{run_dir}/manifests-{i}.json"
+  uv run {scanManifestsHelper} scan "<the path's scan root>" > "{run_dir}/manifests-1.json"
   ```
 
-- **`kind` is `remote`:** auto-scope has no working tree yet and the scanner cannot read a URL. Fetch **just the manifests** into the run folder (blobless + sparse + depth-1: no source blobs, typically KB to MB even for large monorepos); `{run_dir}/clone-{i}`, for the `{i}`-th entry of `project_paths[]` (`clone-1` for §0's target), is the path's **scan root**:
+- **`kind` is `remote`:** auto-scope has no working tree yet and the scanner cannot read a URL. Fetch **just the manifests** into the run folder (blobless + sparse + depth-1: no source blobs, typically KB to MB even for large monorepos); `{run_dir}/clone-1` is its **scan root**:
 
   ```bash
-  git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} "{clone_url}" "{run_dir}/clone-{i}"
-  git -C "{run_dir}/clone-{i}" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' '**/pom.xml' '**/build.gradle' '**/build.gradle.kts' '**/Package.swift' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml' 'lerna.json' 'rush.json' 'nx.json'
-  git -C "{run_dir}/clone-{i}" checkout
-  uv run {scanManifestsHelper} scan "{run_dir}/clone-{i}" > "{run_dir}/manifests-{i}.json"
+  git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} "{clone_url}" "{run_dir}/clone-1"
+  git -C "{run_dir}/clone-1" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' '**/pom.xml' '**/build.gradle' '**/build.gradle.kts' '**/Package.swift' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml' 'lerna.json' 'rush.json' 'nx.json'
+  git -C "{run_dir}/clone-1" checkout
+  uv run {scanManifestsHelper} scan "{run_dir}/clone-1" > "{run_dir}/manifests-1.json"
   ```
 
-  where `{pinned_branch_flag}` is `--branch {pinned_ref}` when a pin was resolved in §0b (so manifests match the target version), otherwise omitted. If a `git` command fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, path `{path}`): "{path} could not be fetched: {the first stderr line}." The clone stays in the run folder until the run ends, so §3 and §5 read it in later commands.
+  where `{pinned_branch_flag}` is `--branch {pinned_ref}` when a pin was resolved in §0b (so manifests match the target version), otherwise omitted. If a `git` command fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, path `{project_path}`): "{project_path} could not be fetched: {the first stderr line}." The clone stays in the run folder until the run ends, so §3 and §5 read it in later commands.
 
-Each `{run_dir}/manifests-{i}.json` holds the scanner's JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`, each `path` relative to the scan root. The scanner discovers the project root plus monorepo workspace members (npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems) and sets the `monorepo` flag, so members are found without hand-listing each workspace convention, for both local trees and remote fetches. Shape detection (§3) reads `{run_dir}/manifests-1.json` itself, so no manifest list passes through you. From the envelope, record:
+`{run_dir}/manifests-1.json` holds the scanner's JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`, each `path` relative to the scan root. The scanner discovers the project root plus monorepo workspace members (npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems) and sets the `monorepo` flag, so members are found without hand-listing each workspace convention, for both local trees and remote fetches. Shape detection (§3) reads `{run_dir}/manifests-1.json` itself, so no manifest list passes through you. From the envelope, record:
 
 1. **The `monorepo` flag**, a signal for the decomposition decision in §3a.
 2. **The names and flags §3b, §6 and the split branch read:** the scan-root manifest's `name` and `private` (the `manifests[]` entry whose `path` has no folder), each member manifest's `name`, `private` and `internal_deps`, and `umbrella_candidates[]`. Read them from the envelope; never open a member manifest for them.
 
-**List the target's files once.** Shape detection (§3) and language detection (§5 and the split branch) read the whole file list of the target (`{project_path}`, §0's target) from one run file, `{run_dir}/tree.txt`, so the listing never passes through you or a shell variable. Write it with the first command that fits the target, where `{scan_root}` is the target's scan root:
+**List the target's files once.** Shape detection (§3) and language detection (§5 and the split branch) read the whole file list of the target (`{project_path}`) from one run file, `{run_dir}/tree.txt`, so the listing never passes through you or a shell variable. Write it with the first command that fits the target, where `{scan_root}` is the target's scan root:
 
 ```bash
 git -C "{scan_root}" -c core.quotePath=false ls-tree -r --name-only HEAD > "{run_dir}/tree.txt"

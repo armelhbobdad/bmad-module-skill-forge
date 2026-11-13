@@ -33,8 +33,16 @@ fixtures:
 - Step 5b gate run 7 determinism-1: both derive-name call sites pass
   --probe-git, and an address git reads as a repository, asks credentials
   for or leaves unanswered halts the [auto] path in section 0, before
-  coexistence, for every project path (and fails the scan root) with the
-  helper's message; a missing git goes docs-only with a warning.
+  coexistence (and fails the scan root), with the helper's message; a
+  missing git goes docs-only with a warning.
+- #1123: a repository browser page whose repository git reads at the .git
+  clone URL of a shorter part of its address (down to owner/repo), or at a
+  Bitbucket Data Center /scm/ address, halts the same way and names that
+  clone URL, and an http:// address is never
+  told to drop https://. An [auto] call given several project paths (a
+  documentation URL first or later among them), --target-ref or
+  --target-refs halts in init section 2b with exit 2 before any analysis,
+  and step 1a section 2 fetches its one target into clone-1.
 - Step 5b gate run 7 architecture-1: an unfinished report whose `mode` is
   'auto' is archived like one an [auto] invocation finds, and continue.md
   never routes a resume back into auto-scope; the fallback report, marked
@@ -768,14 +776,14 @@ def test_the_documented_listing_feeds_shape_and_language_detection(tmp_path):
     tree = subprocess.run(argv, capture_output=True, check=True, timeout=60).stdout
     (Path(out.strip('"').replace("{run_dir}", str(run_dir)))).write_bytes(tree)
     values = {"run_dir": str(run_dir), "shapeDetectHelper": str(SHAPE), "detectLanguageHelper": str(LANGUAGE),
-              "project_path": repo.as_posix(), "scan_root": repo.as_posix(), "i": "1",
+              "project_path": repo.as_posix(), "scan_root": repo.as_posix(),
               "scanManifestsHelper": str(SCRIPTS / "skf-scan-manifests.py")}
     # The §2 scan of a local path writes the envelope shape detection reads.
     scan_cmd = _one_command(_section(text, "### 2. Manifest Scan", "### 3."), '<the path\'s scan root>')
     scan_cmd, _, scan_out = scan_cmd.replace("<the path's scan root>", "{scan_root}").partition(" > ")
     scanned = _run(scan_cmd, values)
     assert scanned.returncode == 0, scanned.stderr
-    Path(scan_out.strip('"').replace("{run_dir}", str(run_dir)).replace("{i}", "1")).write_bytes(scanned.stdout)
+    Path(scan_out.strip('"').replace("{run_dir}", str(run_dir))).write_bytes(scanned.stdout)
     shape = _run(_one_command(text, "uv run {shapeDetectHelper}"), values)
     assert shape.returncode == 0, shape.stderr
     assert any(s.startswith("grammar_file:") for s in json.loads(shape.stdout)["signals"])
@@ -804,8 +812,8 @@ def test_a_remote_target_takes_its_patterns_from_the_listing(tmp_path):
     _git("config", "uploadpack.allowFilter", "true", cwd=origin)
     text = _read(AUTO)
     run_dir = _run_dir(tmp_path)
-    [fetch] = _fenced(_section(text, "- **`kind` is `remote`:**", "Each `{run_dir}/manifests-{i}.json`"), "bash")
-    values = {"clone_url": origin.as_uri(), "run_dir": run_dir.as_posix(), "i": "1", "pinned_branch_flag": ""}
+    [fetch] = _fenced(_section(text, "- **`kind` is `remote`:**", "`{run_dir}/manifests-1.json` holds"), "bash")
+    values = {"clone_url": origin.as_uri(), "run_dir": run_dir.as_posix(), "pinned_branch_flag": ""}
     for line in [line for line in fetch.strip().split("\n") if line.startswith("git ")]:
         argv = shlex.split(re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], line))
         subprocess.run(argv, check=True, capture_output=True, timeout=60)
@@ -902,13 +910,15 @@ def test_a_home_relative_target_is_listed(tmp_path):
     assert (run_dir / "tree.txt").read_bytes().decode("utf-8").split() == ["src/core.py"]
 
 
-def test_each_remote_path_is_fetched_into_its_own_folder():
-    """Two remote project paths never clone into one folder, and a failed fetch halts."""
+def test_the_remote_target_is_fetched_into_the_run_folder():
+    """[auto] takes one target (#1123), fetched into clone-1, the folder §3 and §5 read, and a
+    failed fetch halts naming it."""
     section = _section(_read(AUTO), "### 2. Manifest Scan", "### 3.")
     clone = _one_command(section, "git clone")
-    assert clone.endswith('"{run_dir}/clone-{i}"')
+    assert clone.endswith('"{run_dir}/clone-1"')
     assert '"{run_dir}/clone"' not in section
-    assert 'HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, path `{path}`)' in section
+    assert ('HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, '
+            'path `{project_path}`): "{project_path} could not be fetched: {the first stderr line}."') in section
     assert all('"{scan_root}"' in line for line in _fenced(section, "bash")[-1].strip().split("\n"))
 
 
@@ -1183,6 +1193,9 @@ PROMPTS_OFF = b"fatal: could not read Username for 'https://codeberg.org': termi
 HALTS = {"repository": f"{PAGE_ADDRESS} is a git repository: {REMEDY}.",
          "credentials": f"{PAGE_ADDRESS} {CREDENTIALS}.",
          "unanswered": f"{PAGE_ADDRESS} {UNANSWERED}."}
+# A browser page of that repository, which git reads only at its `.git` clone URL (#1123).
+BROWSER_PAGE = f"{PAGE_ADDRESS}/src/branch/forgejo"
+PAGE_HALT = f"{BROWSER_PAGE} is a page of the git repository {PAGE_ADDRESS}.git: rerun with that clone URL."
 
 
 @pytest.mark.parametrize("path", [AUTO, SCAN_ROOT], ids=["step-auto-scope", "scan-root"])
@@ -1220,15 +1233,43 @@ def test_both_call_sites_probe_the_page_address_with_git(path, exit_code, stderr
     out = json.loads(capsys.readouterr().out)
     assert (out["kind"], out["name"], out["clone_url"], out["git_probe"], out["halt_message"]) == (
         "docs", "codeberg-org", None, verdict, HALTS.get(verdict))
+    assert out["clone_hint"] is None
     assert calls == [["git", "ls-remote", "--exit-code", "--heads", PAGE_ADDRESS]]
 
 
-@pytest.mark.parametrize("verdict", sorted(HALTS))
+@pytest.mark.parametrize("path", [AUTO, SCAN_ROOT], ids=["step-auto-scope", "scan-root"])
+def test_both_call_sites_name_the_repository_behind_a_browser_page(path, monkeypatch, capsys):
+    """#1123 determinism-1: a Codeberg branch page, which git cannot read at its address, gives
+    the documented call the `.git` clone URL git reads at a shorter part of it, and the message a
+    run stops with names it; before, the page went docs-only and an [auto] run reported success."""
+    [call] = [line for block in _fenced(_read(path), "bash") for line in block.split("\n")
+              if " derive-name --target " in line]
+    argv = _argv(call, {"skillInventoryHelper": INVENTORY.as_posix(), "project_path": BROWSER_PAGE,
+                        "path": BROWSER_PAGE})
+    inventory, calls = _inventory(), []
+
+    def git(cmd, **kwargs):
+        calls.append(cmd[-1])
+        if cmd[-1] == f"{PAGE_ADDRESS}.git":
+            return subprocess.CompletedProcess(cmd, 0)
+        kwargs["stderr"].write(b"fatal: repository not found\n")
+        return subprocess.CompletedProcess(cmd, 128)
+
+    monkeypatch.setattr(inventory.subprocess, "run", git)
+    assert inventory._main_derive_name(argv[3:]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["kind"], out["name"], out["clone_url"], out["git_probe"], out["clone_hint"], out["halt_message"]) == (
+        "docs", "codeberg-org", None, "repository-page", f"{PAGE_ADDRESS}.git", PAGE_HALT)
+    assert calls == [BROWSER_PAGE, f"{PAGE_ADDRESS}/src/branch.git", f"{PAGE_ADDRESS}/src.git", f"{PAGE_ADDRESS}.git"]
+
+
+@pytest.mark.parametrize("verdict", [*sorted(HALTS), "repository-page"])
 def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_path, verdict):
     """The [auto] path halts in section 0 with the message the helper gives, before coexistence
     (section 0c) can offer a merge into an unrelated skill named after the same host, and before
-    the docs-only branch can write a brief; section 2 halts the same way for every other path
-    (gate run 7 fix round 8). The step-by-step chain's scan root fails with the same message."""
+    the docs-only branch can write a brief; a repository browser page halts the same way (#1123).
+    [auto] takes one target, so section 2 probes no other path (#1123). The step-by-step chain's
+    scan root fails with the same message."""
     auto = _read(AUTO)
     [row] = [line for line in auto.splitlines() if line.startswith("| `docs` | Documentation URL |")]
     assert row == ('| `docs` | Documentation URL | HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, '
@@ -1241,25 +1282,31 @@ def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_
             "documentation URL, §1 for every other kind.") in coexistence
     assert coexistence.count("go on to the route") == 2 and coexistence.count("goes on to the route") == 1
     assert coexistence.count("auto-docs-only.md") == 1
-    # Every other project path halts the same way, under section 2's phase and with its own address.
-    manifest_scan = _section(auto, "### 2. Manifest Scan", "**For each path in `project_paths[]`:**")
-    assert ("§0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run "
-            "as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.") in manifest_scan
-    # The docs-only branch holds no halt of its own on git's verdict any more.
+    # [auto] takes one target (#1123): section 0 classifies it, and section 2 classifies no other path.
+    assert ("The helper classifies `{project_path}`, the one entry of `project_paths[]` (init halts an `[auto]` "
+            "run given several):") in auto
+    assert "the first of `project_paths[]`" not in auto
+    manifest_scan = _section(auto, "### 2. Manifest Scan", "### 3.")
+    assert "how you point it at the target depends on the `{kind}` §0 gave:" in manifest_scan
+    for gone in ("{i}", "derive-name", "For each path", "any other path", "as in §0"):
+        assert gone not in manifest_scan, gone
+    # The docs-only branch holds no halt of its own on git's verdict any more, and no step restates
+    # the helper's messages.
     for path in (AUTO, DOCS, SCAN_ROOT):
         text = _read(path)
-        for gone in ("git_repository", "git_credentials", "asks for credentials", "is a git repository"):
+        for gone in ("git_repository", "git_credentials", "asks for credentials", "is a git repository",
+                     "is a page of the git repository"):
             assert gone not in text, (path.name, gone)
-    for phase in ("step-auto-scope:0", "step-auto-scope:2"):
-        run_dir = _run_dir(tmp_path / phase.replace(":", "-"))
-        (run_dir / "halt.json").write_bytes(json.dumps(
-            {"phase": phase, "reason": HALTS[verdict], "halt_reason": "resolution-failure", "mode": "auto",
-             "path": PAGE_ADDRESS}).encode("utf-8"))
-        proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
-        assert proc.returncode == 0, proc.stderr
-        envelope = _envelope(proc.stderr)
-        assert (envelope["halt_reason"], envelope["exit_code"]) == ("resolution-failure", 3)
-        assert envelope["error"] == {"phase": phase, "reason": HALTS[verdict], "path": PAGE_ADDRESS}
+    target, reason = (BROWSER_PAGE, PAGE_HALT) if verdict == "repository-page" else (PAGE_ADDRESS, HALTS[verdict])
+    run_dir = _run_dir(tmp_path)
+    (run_dir / "halt.json").write_bytes(json.dumps(
+        {"phase": "step-auto-scope:0", "reason": reason, "halt_reason": "resolution-failure", "mode": "auto",
+         "path": target}).encode("utf-8"))
+    proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stderr)
+    assert (envelope["halt_reason"], envelope["exit_code"]) == ("resolution-failure", 3)
+    assert envelope["error"] == {"phase": "step-auto-scope:0", "reason": reason, "path": target}
     docs = _section(_read(SCAN_ROOT), "- **A documentation URL**", "When a command fails")
     assert ("Treat it as a command that failed with its `halt_message` as the first stderr line when it gives one "
             "(the message the [auto] path halts with), else with \"{path} is a documentation URL: run the analysis "
@@ -1267,33 +1314,160 @@ def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_
 
 
 def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
-    """An address git reads as a repository stops the run; a repository browser page git cannot
-    read at its address is still documentation, and both texts say to give its clone URL (gate
-    run 7 fix round 8: SKF reads no browser page for the clone URL it advertises)."""
+    """An address git reads as a repository stops the run; so does a repository browser page whose
+    repository git reads at the `.git` clone URL of a shorter part of its address that keeps at
+    least owner/repo, or at a Bitbucket Data Center /scm/ address, and the run names that clone URL
+    (#1123). A page whose repository git finds neither way (a repository one folder below the host,
+    or one git reads only without `.git`, among them), or does not reach in the 20 s the address and
+    its shorter parts share, is still documentation, and the texts say to give its clone URL (gate
+    run 7 fix round 8, #1123 reviews 1 and 2: no text promises a stop the helper never makes). An http:// address is never told to drop https://, which SKF puts back (#1123
+    round8-2)."""
     [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
     for site in ("step 1a §0 (a documentation URL that git reads as a repository, which on most hosts is the "
                  "repository's main page, one whose server asks for credentials, or one that gives git no answer "
-                 "in 20 s: rerun with its `.git` clone URL, its address without https:// or its SSH address, or a "
-                 "documentation URL that answers; a repository browser page git cannot read at that address, such "
-                 "as a Bitbucket Data Center `/projects/<p>/repos/<r>` page, a SourceForge or Launchpad code page "
-                 "or a link to a file or folder inside a repository, is still read as documentation, so give its "
-                 "clone URL)",
+                 "in 20 s: rerun with its `.git` clone URL, its address without https:// (an https address only) "
+                 "or its SSH address, or a documentation URL that answers; a repository browser page whose "
+                 "repository git reads at the `.git` clone URL of a shorter part of its address that keeps at "
+                 "least `owner/repo`, such as a Codeberg `/src/branch/...` or GitLab `/-/tree/...` link or a link "
+                 "to a file or folder inside a repository, or a Bitbucket Data Center `/projects/<p>/repos/<r>` "
+                 "page, whose repository git reads at `/scm/<p>/<r>.git`: rerun with the clone URL the message "
+                 "names; a page whose repository git finds neither way, such as a SourceForge or Launchpad code "
+                 "page, a page of a repository one folder below the host or of one git reads only without `.git`, "
+                 "is still read as documentation, and so is one whose repository git does not reach within the "
+                 "20 s the address and its shorter parts share, so give its clone URL)",
                  "step 1a §0a (docs-only URL unreachable);",
-                 "another path halts as in §0"):
+                 "step 1a §2 (the remote target cannot be fetched, or its files cannot be listed);"):
         assert site in row3, site
-    [doc_url] = [line for line in _read(REPO / "docs" / "forge-auto.md").splitlines()
-                 if line.startswith("- **Doc URL**")]
-    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-git-url-any-host.yaml"))["summary"]
-    for text in (doc_url, fragment):
-        for claim in ("which on most hosts", "the repository's main page", "asks for credentials",
-                      "gets no answer from the address in 20 seconds", "a documentation URL that answers",
-                      "Bitbucket Data Center `/projects/<p>/repos/<r>` page", "SourceForge or Launchpad code page",
-                      "a link to a file or folder inside a repository"):
+    assert "another path halts as in §0" not in row3
+    guide = _read(REPO / "docs" / "forge-auto.md").splitlines()
+    [repo_url] = [line for line in guide if line.startswith("- **Repo URL**")]
+    assert "its address without `https://` (on a server that takes https) or its SSH address" in repo_url
+    [doc_url] = [line for line in guide if line.startswith("- **Doc URL**")]
+    for claim in ("stops in four cases", "which on most hosts", "the repository's main page", "asks for credentials",
+                  "gets no answer from the address in 20 seconds", "a documentation URL that answers",
+                  "(for an `http://` address, its `.git` clone URL with `http://`, or its SSH address)",
+                  "When git cannot read the address but reads a repository at the `.git` clone URL of a shorter "
+                  "part of it that keeps at least `owner/repo`, as for a Codeberg",
+                  "SKF stops and names that clone URL.",
+                  "A repository page whose repository git finds neither way, such as a SourceForge or Launchpad code "
+                  "page, a page of a repository one folder below the host (`https://git.example.com/<repo>/tree/...`) "
+                  "or of one git reads only without `.git` (a sourcehut page), is still read as documentation: give "
+                  "its clone URL instead.",
+                  # The address and every shorter part share one budget (#1123 review 2).
+                  "The address and the shorter parts SKF tries share one 20-second limit, so a long link on a slow "
+                  "server can run out of time before its repository is found and is then read as documentation too.",
+                  "Without git installed, SKF reads the address as documentation and warns"):
+        assert claim in doc_url, claim
+    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-repository-page-clone-url.yaml"))
+    assert (fragment["type"], fragment["scope"], fragment["issues"]) == ("breaking", "skf-analyze-source", [1123])
+    assert fragment["migration"].strip() == "Rerun with the clone URL the message names."
+    for claim in ("Codeberg `/src/branch/...`", "GitLab `/-/tree/...`", "a link to a file or folder inside a repository",
+                  "Bitbucket Data Center `/projects/<p>/repos/<r>` page", "`/scm/<p>/<r>.git`",
+                  "that keeps at least `owner/repo`", "SourceForge or Launchpad code page",
+                  "a page of a repository one folder below the host", "of one git reads only without `.git`",
+                  "is still read as documentation"):
+        for text in (row3, doc_url, fragment["summary"]):
             assert claim in text, claim
-    assert ("A repository browser page that git cannot read at its address is still read as documentation: "
-            "a Bitbucket Data Center") in doc_url and "inside a repository. Give its clone URL instead." in doc_url
-    assert "is still read as documentation: give its clone URL." in fragment
-    assert "Without git installed, SKF reads the address as documentation and warns" in doc_url
+    assert ("names the repository's `.git` clone URL when git reads the repository at a shorter part of the "
+            "address that keeps at least `owner/repo` (given with `.git`) or, for Bitbucket Data Center, at its "
+            "`/scm/<p>/<r>.git` address.") in fragment["summary"]
+    assert ("So is a page whose repository git does not reach within the 20 seconds the address and the shorter "
+            "parts tried share.") in fragment["summary"]
+    for text in (row3, doc_url, fragment["summary"]):
+        assert "reads a repository at a shorter part" not in text and "at a shorter part of its address," not in text
+    assert "`.git` clone URL with `http://`" in fragment["summary"] and "exit `3`" in fragment["summary"]
+
+
+# The flags of an [auto] call init section 2b halts on, and the halt each gets (#1123).
+AUTO_CALLS = [
+    pytest.param({"--project-path": "https://docs.example.com/guide,https://github.com/acme/mono"}, "paths",
+                 id="docs-first"),
+    pytest.param({"--project-path": "https://github.com/acme/mono,https://docs.example.com/guide"}, "paths",
+                 id="docs-later"),
+    pytest.param({"--project-path": "acme/mono", "--target-ref": "v1.2.0"}, "refs", id="target-ref"),
+    pytest.param({"--project-path": "acme/mono", "--target-refs": "acme/mono:v1"}, "refs", id="target-refs"),
+    pytest.param({"--project-path": "acme/mono,"}, None, id="trailing-comma"),
+]
+
+
+@pytest.mark.parametrize(("flags", "halt"), AUTO_CALLS)
+def test_an_auto_call_given_several_paths_or_a_ref_flag_halts_in_init(tmp_path, flags, halt):
+    """#1123 architecture-2 and round8-1: [auto] analyzes one target and pins it with --pin, so a
+    call naming several project paths, a documentation URL first or later among them, or passing
+    --target-ref or --target-refs halts in init section 2b with exit 2, before the report is
+    created and step 1a loads. Before, it analyzed the first path alone, dropped the others and
+    the ref, and reported success. An empty entry a trailing comma leaves is not a path."""
+    init = _read(INIT)
+    section = _section(init, "### 2b. Auto Mode Check", "### 3.")
+    [item] = [line for line in section.splitlines() if line.startswith("1. **Resolve project path:**")]
+    sites = [(m.group(1), m.group(2), m.group(4), re.match(r'\): "([^"]+)"', item[m.end():]).group(1))
+             for m in HALT_SITE.finditer(item)]
+    assert [site[:3] for site in sites] == [("2", "input-missing", "init:2b")] * 3, sites
+    no_path, several, refs = (site[3] for site in sites)
+    assert no_path == "**Auto mode requires `--project-path`: no project path available.**"
+    assert several == ("**Auto mode analyzes one target, and `--project-path` names {N}.** Run `[auto]` once "
+                       "for each, or analyze them together without `[auto]`.")
+    # --pin takes a GitHub repository's tag or branch only (skf-validate-pins.py), so every other
+    # target is sent to the step-by-step chain, which reads it at --target-ref (#1123 review 1).
+    assert refs == ("**Auto mode pins with `--pin`, not `--target-ref` or `--target-refs`.** Pass a GitHub "
+                    "repository's tag or branch as `--pin <ref>`; to read another repository or a local path at a "
+                    "ref, analyze it without `[auto]`, with `--target-ref`.")
+    # The count halt reads project_paths[], so it holds whether init split --project-path or took
+    # the list a continuation left, and a value of empty entries alone is no path (#1123 review 1).
+    assert ("set `project_paths[]` from it (comma-split if multiple; an empty entry, as a trailing comma leaves, "
+            "is dropped). If `project_paths[]` is still empty, HARD HALT") in item
+    assert "When `project_paths[]` holds more than one path, `{N}` of them, HARD HALT" in item
+    assert "the split gives" not in item and "If neither is available" not in item
+    assert "When `--target-ref` or `--target-refs` was passed" in item
+    # Both halts come before the report is created and before the route to step 1a.
+    assert (section.index(item) < section.index("**Create the analysis report**")
+            < section.index("execute `references/step-auto-scope.md`"))
+    # The split, as the prose says: comma-separated, an empty entry dropped.
+    paths = [entry.strip() for entry in flags["--project-path"].split(",") if entry.strip()]
+    if halt is None:
+        assert paths == ["acme/mono"], "one target: the run goes on"
+        return
+    message = {"paths": several.replace("{N}", str(len(paths))), "refs": refs}[halt]
+    assert (len(paths) > 1) == (halt == "paths")
+    assert ("--target-ref" in flags or "--target-refs" in flags) == (halt == "refs")
+    [template] = re.findall(r"stage `\{run_dir\}/halt\.json` as `(\{[^`]*\})`",
+                            _section(init, "## MANDATORY SEQUENCE", "### "))
+    # The message goes in once the template is filled: `<ref>` in it is no placeholder.
+    payload = _fill(template, {"phase": "init:2b", "the halt message": "", "halt_reason": "input-missing",
+                               "auto": "auto"})
+    assert payload == {"phase": "init:2b", "reason": "", "halt_reason": "input-missing", "mode": "auto"}
+    payload["reason"] = message
+    run_dir = _run_dir(tmp_path)
+    (run_dir / "halt.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == b"", "the only envelope is the halt on stderr"
+    envelope = _envelope(proc.stderr)
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["mode"]) == (2, "input-missing", "auto")
+    assert envelope["error"] == {"phase": "init:2b", "reason": message}
+    assert envelope["brief_paths"] == [] and not list(tmp_path.rglob("analyze-source-result-*.json"))
+    # The contract and the Invocation Contract say the same.
+    [row2] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 2 ")]
+    assert ("step 1 §2b (auto mode without `--project-path`, with more than one project path, or with "
+            "`--target-ref` or `--target-refs`)") in row2
+    skill = _read(SKILL).splitlines()
+    [auto_flag] = [line for line in skill if line.startswith("| **Auto flag** |")]
+    assert "Requires `--project-path` naming one target." in auto_flag
+    [inputs] = [line for line in skill if line.startswith("| **Headless inputs** |")]
+    assert "`--project-path <path>` (comma-separated for several; one for `[auto]`)" in inputs
+    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-auto-one-target.yaml"))
+    assert (fragment["type"], fragment["scope"], fragment["issues"]) == ("breaking", "skf-analyze-source", [1123])
+    assert "now exits `2` (`input-missing`, `error.phase` `init:2b`)" in fragment["summary"]
+    # Without a ref flag, [auto] read a GitHub repository at its latest release tag, any other
+    # remote at its latest commit and a local path as it stood, so the summary names no ref the
+    # ignored flags gave way to (#1123 review 2).
+    assert fragment["summary"].rstrip().endswith("and it ignored the ref flags.")
+    assert "latest release" not in fragment["summary"]
+    assert fragment["migration"].strip() == (
+        "Run `AN[auto]` once for each path, or analyze several paths together without `[auto]`. Pin an `[auto]` "
+        "run on a GitHub repository with `--pin <tag-or-branch>` in place of `--target-ref` or `--target-refs`; "
+        "to read another repository or a local path at a ref, analyze it without `[auto]`, where `--target-ref` "
+        "and `--target-refs` still work.")
 
 
 def test_a_missing_git_goes_docs_only_with_a_warning_naming_it(tmp_path):

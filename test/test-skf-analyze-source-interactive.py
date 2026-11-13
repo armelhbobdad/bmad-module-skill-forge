@@ -709,7 +709,7 @@ def test_the_auto_routing_reads_the_target_kind():
     for gone in ("Starts with `/`", "or is an existing directory", "a bare hostname", "{path} \"{run_dir}/clone-{i}\""):
         assert gone not in text, gone
     assert text.count('--repo-url "{clone_url}"') == 2 and "--repo-url {project_path}" not in text
-    clone = 'git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} "{clone_url}" "{run_dir}/clone-{i}"'
+    clone = 'git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} "{clone_url}" "{run_dir}/clone-1"'
     assert clone in text
     assert "- **`kind` is `local`:** scan it directly." in text and "- **`kind` is `remote`:**" in text
 

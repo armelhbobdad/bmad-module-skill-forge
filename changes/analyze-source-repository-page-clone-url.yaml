@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-analyze-source
+summary: |
+  Analyze Source given a repository browser page, such as a Codeberg `/src/branch/...` link, a self-hosted GitLab `/-/tree/...` link, a link to a file or folder inside a repository or a Bitbucket Data Center `/projects/<p>/repos/<r>` page, now stops with exit `3` (`resolution-failure`) and names the repository's `.git` clone URL when git reads the repository at a shorter part of the address that keeps at least `owner/repo` (given with `.git`) or, for Bitbucket Data Center, at its `/scm/<p>/<r>.git` address. A page whose repository git finds neither way, such as a SourceForge or Launchpad code page, a page of a repository one folder below the host or of one git reads only without `.git`, is still read as documentation. So is a page whose repository git does not reach within the 20 seconds the address and the shorter parts tried share. Before, an `AN[auto]` run (forge-auto included) wrote a docs-only brief from the page and reported success. When git reads an `http://` address as a repository, the stop message now asks for its `.git` clone URL with `http://` or its SSH address, no longer for the address without `https://`, which SKF clones over https.
+migration: |
+  Rerun with the clone URL the message names.
+issues: [1123]
