@@ -10,11 +10,12 @@ hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
 # Resolve `{skillInventoryHelper}` to the first existing path. §1 lists the
-# skills SKF generated when the invocation names none (interactive only), and
-# step 4 runs it with `--skill` before a flat skill moves: only a flat skill
-# whose metadata.json carries an SKF marker (`flat_skf`) is migrated. If
-# neither exists, §1 shows its prompt without the list and §6c records no
-# source version.
+# skills SKF generated when the invocation names none (interactive only),
+# resolves the version to update with its `resolve`, and runs it with
+# `--skill` before a flat skill moves: only a flat skill whose metadata.json
+# carries an SKF marker (`flat_skf`) is migrated. If neither exists, §1 shows
+# its prompt without the list and halts with no version to update (a flat
+# skill takes its not-SKF-output halt), and §6c records no source version.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
@@ -23,9 +24,10 @@ skillInventoryProbeOrder:
 runLockProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
   - '{project-root}/src/shared/scripts/skf-run-lock.py'
-# Resolve `{sourceTreeHelper}` to the first existing path.
-# HALT if neither resolves: without it a remote skill is read at whatever
-# commit SKF's shared clone of its repository is on.
+# Resolve `{sourceTreeHelper}` to the first existing path: §6b reads a
+# remote skill's source with its `open`, and §6 asks its `classify` whether
+# a skill is remote. HALT if neither resolves: without it a remote skill is
+# read at whatever commit SKF's shared clone of its repository is on.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -38,6 +40,11 @@ findTestReportProbeOrder:
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+# `{loadProvenanceHelper}`: §4's export count and provenance age. If neither
+# exists, §7 shows both as `unknown`.
+loadProvenanceProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
+  - '{project-root}/src/shared/scripts/skf-load-provenance.py'
 # SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
 # stage; resolve them again when a binding was lost: first existing path wins.
 # The warnings and gate decisions go to the run log through the first; the
@@ -100,23 +107,35 @@ Provide either:
 - `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the gap-driven.md §3 guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and gap-driven.md §3 halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 5 will NOT automatically re-pin
 - `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map (not with `--from-test-report`, which needs the map): without it, a headless run halts `blocked` there rather than silently rebuilding
 - `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` (for example the `upstream_ref` an audit reports). When the update writes, step 5 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
+- `--source-root <path>` (a skill read from a local folder, in any mode) to read the source from that folder instead of the `source_root` metadata.json records, for a source that moved. When the update writes, step 5 records it as the new `source_root`, so later runs read it too
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
 - `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
 
 **Skill:** {user provides a number from the list, a name or a path}"
 
 **Version-Aware Path Resolution:**
-1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
-2. If found: **Manifest-lag guard.** Also read the `active` link at `{skills_output_folder}/{skill-name}/active`. When it resolves to a different version than `active_version`, bind `{active_version}` to the link's target version instead and show an Info note: "manifest active_version {M} lags the active link {N}: updating {N}, the version the last update or forge wrote; run export-skill to publish it." The manifest advances only when export-skill runs, while every update that writes makes a new version and points `active` at it (step 5 §8): a manifest-first read would update the previous version again, and step 4 §6b would then stop at the version folder the last update created. Resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` (see `knowledge/version-paths.md` "Reading Workflows")
-3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — bind `{active_version}` to the version it names and resolve to `{skill_group}/active/{skill-name}/`
-4. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
-   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout: nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:read-only-flat-layout"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"`, with `version` and `previous_version` `"unknown"`. Otherwise run `uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and show its `message` as an Info note, then run `uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← `skill_package`: they now name the version folder. When `migrate` exits 1, HALT with its `error`. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:migrate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "migrate: {its error}"`, with `version` and `previous_version` `"unknown"`.
-   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or update it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:ownership-gate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "not-skf-output: {the reason the message shows}"`, with `version` and `previous_version` `"unknown"`.
-5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
-6. Bind `{baseline_version}` to the pre-update version: for an update this is the version being updated, i.e. the `{active_version}` steps 1–3 resolved, or the one step 4 bound after migrating. Step 2 §1c passes `{baseline_version}` to `skf-provenance-gap-dispatch.py` as a required argument; leaving it unbound makes the helper search a wrong/empty directory and silently return `no-report`, dropping the major-version off-ramp.
 
-Resolve the path to an absolute skill folder location.
+Bind `{skill_name}` ← the name given (a folder path gives the name of its skill folder directly under `{skills_output_folder}`). Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and, from `{project-root}`, run:
+
+```bash
+uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} --forge-data-folder "{forge_data_folder}"
+```
+
+It chooses the version by the Reading Workflows rules of `knowledge/version-paths.md`, the Manifest-lag guard included, and checks that its package is on disk, so this step never reads the export manifest or the `active` link by hand. Show each `resolve.errors` entry, and `resolve.manifest_error` when it is set, as an Info note, then act on `reason`:
+
+1. `manifest-and-link`, `manifest` or `link`: bind below.
+2. `manifest-lags-link` (the **Manifest-lag guard**): bind below, which takes the link's version, and show an Info note with the `resolve` object's `active_version` and `symlink_target`: "manifest active_version {active_version} lags the active link {symlink_target}: updating {symlink_target}, the version the last update or forge wrote; run export-skill to publish it." The manifest advances only when export-skill runs, while every update that writes makes a new version and points `active` at it (step 5 §8): a manifest-first read would update the previous version again, and step 4 §6b would then stop at the version folder the last update created.
+3. `newest-on-disk`: neither the manifest nor the `active` link names a version whose package is on disk (a link to an empty version folder, say), and the newest version folder holds one. Bind below, show the helper's `detail` as an Info note and add `version-newest-on-disk: {detail}` to `warnings[]`.
+4. `flat-layout`: fall back to the flat path `{skills_output_folder}/{skill-name}/`, where `SKILL.md` sits at the skill folder root with no version folder yet. Check that SKF generated it before anything moves:
+   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout: nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:read-only-flat-layout"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"`, with `version` and `previous_version` `"unknown"`. Otherwise run `uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and show its `message` as an Info note, then run `uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← `skill_package`, and every other binding below, anew: they now name the version folder. When `migrate` exits 1, HALT with its `error`. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:migrate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "migrate: {its error}"`, with `version` and `previous_version` `"unknown"`.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or update it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:ownership-gate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "not-skf-output: {the reason the message shows}"`, with `version` and `previous_version` `"unknown"`.
+5. `missing`, or the helper exits 1 with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version of the skill is on disk. Bind `{resolved_skill_package}` ← `skill_package`, else `{skills_output_folder}/{skill_name}`, and HALT at once with §2's missing-SKILL.md payload and message (halt procedure: `status: "blocked"`, `phase: "init:validate-artifacts"`, `path: "{resolved_skill_package}/SKILL.md"`, `reason: "no SKILL.md in the skill package"`). This runs before the §1b lock, so there is no lock to release.
+6. Any other result (exit 1 with another `code`, another exit, or no JSON): HALT (halt procedure: `status: "blocked"`, `phase: "init:resolve"`, `path: "{skills_output_folder}/{skill_name}"`, `reason: "resolve-failed: {its error, or its first stderr line}"`), with `version` and `previous_version` `"unknown"`. When no candidate resolves: take item 4's **Otherwise** branch if `{skills_output_folder}/{skill_name}/SKILL.md` exists, else this HALT with "skf-skill-inventory.py is missing; re-install SKF" as its error. Either runs before the §1b lock, so there is no lock to release.
+
+**Bind** from the `resolve` object: `{active_version}` and `{baseline_version}` ← `chosen_version`, `{skill_package}` and `{resolved_skill_package}` ← `skill_package` (every later step loads the skill's artifacts there), and `{forge_version}` ← `forge_version`. `{baseline_version}` is the pre-update version, which step 2 §1c passes to `skf-provenance-gap-dispatch.py` as a required argument.
+
+`update_mode` is `normal` until the test-report lookup below or §4b's [G] sets `gap-driven`, or §4 sets `degraded`.
 
 **If `--from-test-report` was provided (or user references a test report):** find the newest finished test report of the resolved skill with `{findTestReportHelper}` (resolve it ← first existing path in `{findTestReportProbeOrder}`). From `{project-root}`, run:
 
@@ -127,7 +146,7 @@ uv run {findTestReportHelper} find \
     [--version "{active_version}"]
 ```
 
-Pass `--version` whenever `{active_version}` is bound: steps 1-3 above bind it, and step 4 binds it after migrating a flat skill. Never glob, sort or read a report's frontmatter by hand.
+Pass `--version`: §1 always binds `{active_version}`. Never glob, sort or read a report's frontmatter by hand.
 
 - **`status` is `found` and `report_exists` is true:** set `test_report_path` ← `path`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`. Name the report the helper picked (its file name, such as `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`, with its `testResult`, `score` and `source`) and each newer one it passed over as unfinished (`skipped[]`), so an operator can find them from the log, and add each of its `warnings[]` to `warnings[]` as `test-report: <entry>`.
 - **Otherwise** (`not-found`; `found` with `report_exists` false, a result file naming a report that is gone; no candidate resolves; or the command fails or prints no JSON): warn that no test report was found, with the cause, and continue in normal source drift mode.
@@ -137,6 +156,8 @@ Pass `--version` whenever `{active_version}` is bound: steps 1-3 above bind it, 
 **If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown), when a provenance map is present, or in gap-driven mode, where §4 halts `blocked` instead.
 
 **If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`; when §4b switches a run to gap-driven mode, it unsets it with the same warning.
+
+**If `--source-root` was provided:** set `{source_root_override}` to its path, made absolute (a relative path is read from `{project-root}`) and written with `/`. §6 applies it in every mode: it replaces the `source_root` metadata.json records for a skill read from a local folder, and halts for any other.
 
 **If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes (gap-driven.md §2 in gap-driven mode), jump directly to step 6 (report): skip re-extract, merge and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before gap-driven.md §3 runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only`: the workspace drift guard runs after the gaps are translated, which `--detect-only` skips").
 
@@ -227,9 +248,15 @@ After loading metadata.json, check `skill_type`:
 
 ### 4. Load Provenance Map
 
-**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file through their helpers (step 2's, gap-driven.md §1's in a repair, and step 5's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
+**Bind `{provenance_map_path}`** ← the `paths.provenance_map.path` of §1's `resolve` object: `{forge_version}/provenance-map.json`, else the flat `{forge_data_folder}/{skill_name}/provenance-map.json` an older skill keeps, else null. Do not load the map into context: the steps that need it read the file through their helpers (step 2's, gap-driven.md §1's in a repair, and step 5's `apply`). For what §7 shows, when `{provenance_map_path}` is not null, resolve `{loadProvenanceHelper}` ← first existing path in `{loadProvenanceProbeOrder}` and, from `{project-root}`, run:
 
-**If provenance map missing at both paths:**
+```bash
+uv run {loadProvenanceHelper} normalize "{provenance_map_path}" --age-from-last-update
+```
+
+Bind `{export_count}` ← `export_count` (the map's `entries[]`) and `{provenance_age_days}` ← `age_days`, the days since the map's `last_update`, else its `generated_at`, else the file's last change. On exit 1 (a map that is not JSON, or not a JSON object, which every later helper refuses too), HALT (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{provenance_map_path}"`, `reason: "provenance-invalid: {its first stderr line}"`). When no candidate resolves or it prints no JSON, bind both `unknown`.
+
+**If `{provenance_map_path}` is null:**
 
 **When `update_mode` is `gap-driven`, offer no [D]**, interactive or headless, `--allow-degraded` included: a repair spot-checks the report's gaps against this map. HALT (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "gap-driven-needs-provenance-map: run a normal update first, which offers the degraded rebuild and writes a map, then re-run test-skill"`) and display "**A repair from a test report needs a provenance map, and `{skill_name}` has none.** Run a normal update first, which offers the degraded rebuild and writes a map, then re-run test-skill."
 
@@ -244,12 +271,12 @@ Without a provenance map, update-skill cannot perform targeted change detection.
 
 Select: [D] Degraded / [X] Abort"
 
-- If D: set `degraded_mode = true`, proceed with full extraction scope
+- If D: set `degraded_mode = true` and `update_mode: degraded`, proceed with full extraction scope
 - If X: HALT (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map; the user chose to run create-skill first"`)
 
 **GATE [default: HALT unless `--allow-degraded`]**: in `{headless_mode}` without `--allow-degraded` (default), do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. HALT instead (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"`).
 
-**In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and record the decision in the run's decision log, from `{project-root}`:
+**In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true` and `update_mode: degraded`, proceed with full extraction scope, and record the decision in the run's decision log, from `{project-root}`:
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
@@ -302,22 +329,26 @@ When `detect_only_mode` or `dry_run_mode` is true, run the same command without 
 
 Bind the source fields from the `metadata.json` loaded in §2 (the provenance map does not carry `source_root`): `{source_root}` ← `source_root`, `{source_repo}` ← `source_repo`, `{source_ref}` ← `source_ref` and `{source_commit}` ← `source_commit`, each an empty string when the field is null or missing. `{source_ref}` and `{source_commit}` keep these values for the whole run: step 5 records any new commit in the artifacts only.
 
-- **Docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json, as step 3 §1 checks): there is no source tree. Skip §6b, §6c and the path check below. If `{target_ref_override}` is set, HALT as §6b's **Every §6b HALT** describes, with `{source_tree_reason}` = `target-ref-needs-remote-source` and `{source_tree_message}` = "`--target-ref` applies only to a skill forged from a remote repository".
+**A remote skill takes no `--source-root`.** When `{source_root_override}` is set, resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} classify --source-repo "{source_repo}" --source-root "{source_root}"`. It makes no network call and builds no tree: it prints the verdict §6b's `open` starts from, with `remote` true when `{source_repo}` names a remote repository, whatever `{source_root}` holds. On `remote` true, the skill is read from that repository, in every mode, gap-driven included, never from a local folder: HALT as §6b's **Every §6b HALT** describes, with `{source_tree_reason}` = `source-root-needs-local-source` and `{source_tree_message}` = "`--source-root` applies only to a skill read from a local folder". When no candidate resolves, or the command exits non-zero or prints no JSON, HALT the same way with `helper-failed` and the message §6b's last bullet gives.
+
+- **Docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json, as step 3 §1 checks): there is no source tree. Skip §6b, §6c and the path check below. If `{target_ref_override}` is set, HALT as §6b's **Every §6b HALT** describes, with `{source_tree_reason}` = `target-ref-needs-remote-source` and `{source_tree_message}` = "`--target-ref` applies only to a skill forged from a remote repository". If `{source_root_override}` is set, HALT the same way, with `source-root-needs-local-source` and the message above.
 - **Gap-driven mode** (`update_mode` is `gap-driven`): a repair reads the commit the skill is pinned to, and gap-driven.md §3 checks that `{source_root}` holds it before reading anything. Skip §6b and §6c and run the path check below.
-- **Every other mode**, `--detect-only` and `--dry-run` included: run §6b. §6b runs the path check below only when the helper reports `skipped`.
+- **Every other mode**, `--detect-only` and `--dry-run` included: run §6b, whose `open` takes the `source_root` metadata.json records, never `{source_root_override}`. §6b runs the path check below only when the helper reports `skipped`; with `{source_root_override}` set it always does, since the `classify` call above lets through only a skill that is not remote.
 
-**Path check:** validate that `{source_root}` exists and is accessible.
+**Path check:** when `{source_root_override}` is set, first bind `{source_root}` ← `{source_root_override}`; when that path is not a folder, HALT in either mode (halt procedure: `status: "blocked"`, `phase: "init:resolve-source-path"`, `path: "{source_root_override}"`, `reason: "source-root-missing: --source-root {source_root_override} is not a folder"`). Then validate that `{source_root}` exists and is accessible.
 
-**If the source path is invalid or missing:**
+**If the source path is invalid or missing:** first run the `classify` call above when it has not run, halting `helper-failed` as above when it fails (`remote` true does not halt here: no `--source-root` was passed), and bind `{source_remote}` ← its `remote` (false when it ran above: a remote skill halted there).
 
 "**Source path from metadata.json is invalid:** `{source_root}`
 
 Provide the current source code path:
 **Path:** {user provides path}"
 
-Bind `{source_root}` to the path the user gives.
+Bind `{source_root}` to the path the user gives, made absolute as §1's `--source-root` handler does, and ask again until it names a folder. When `{source_remote}` is false, bind `{source_root_override}` to it too, so step 5 records the folder the source moved to. A remote skill reads it for this run only: `{source_root_override}` stays unset, and metadata.json keeps the `source_root` it records.
 
-**In `{headless_mode}`:** there is no operator to supply a path. HALT (halt procedure: `status: "blocked"`, `phase: "init:resolve-source-path"`, `path: "{source_root}"`, `reason: "source_root from metadata.json is invalid or inaccessible and no interactive path can be supplied"`).
+**In `{headless_mode}`:** there is no operator to supply a path. HALT (halt procedure: `status: "blocked"`, `phase: "init:resolve-source-path"`, `path: "{source_root}"`, `reason: "source_root from metadata.json is invalid or inaccessible and no interactive path can be supplied; re-run with --source-root <path>"`) and display "**The source folder `{source_root}` is gone.** Re-run with `--source-root <path>` naming the folder the source moved to." For a remote skill (`{source_remote}` true), which takes no `--source-root`, the `reason` ends at "can be supplied" and the display keeps only its first sentence.
+
+Whenever `{source_root}` takes `{source_root_override}` and that folder is not the `source_root` metadata.json records, add `source-root-overridden: {the source_root metadata.json records, or none} -> {source_root_override}` to `warnings[]`: step 5 records the new folder in metadata.json when the update writes (write.md §2).
 
 ### 6b. Prepare the Source Tree
 
@@ -358,7 +389,7 @@ Dispatch on `{source_tree_status}`:
 
 ### 6c. Detect the Source Version
 
-Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's version from `{source_root}` by the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` (its `{extractPublicApiHelper}` call, from `{extractPublicApiProbeOrder}`), with this skill's `name` and metadata.json `language` for the brief's. When no version file gives one, leave `{source_version_detected}` unset and skip the rest of this section. Otherwise compare it with the metadata.json `version` through `{skillInventoryHelper}` (resolve it ← first existing path in `{skillInventoryProbeOrder}`), from `{project-root}`:
+Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's version from `{source_root}` by the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` (its `{extractPublicApiHelper}` call, from `{extractPublicApiProbeOrder}`), with `{skill_name}` as `{brief.name}` and the metadata.json `language` as `{brief.language}`. When no version file gives one, leave `{source_version_detected}` unset and skip the rest of this section. Otherwise compare it with the metadata.json `version` through `{skillInventoryHelper}` (resolve it ← first existing path in `{skillInventoryProbeOrder}`), from `{project-root}`:
 
 ```bash
 uv run {skillInventoryHelper} version order "{the source's version}" "{version}"
@@ -383,10 +414,10 @@ It prints `order` and `major_minor` (the source's version against `{version}`) a
 | **Source** | {source_display} |
 | **Source commit** | {source_commit_line} |
 | **Forge Tier** | {forge_tier} (current) vs {original_tier} (at creation) |
-| **Provenance Age** | {days} days since last extraction |
+| **Provenance Age** | {provenance_age_days} days since last extraction |
 | **Exports** | {export_count} tracked exports |
 | **[MANUAL] Sections** | {manual_count} preserved sections |
-| **Mode** | {normal/degraded/gap-driven} |
+| **Mode** | {update_mode} |
 
 **Analysis plan:** {tier_description}
 - {Quick: text pattern diff → T1-low findings}
@@ -394,6 +425,8 @@ It prints `order` and `major_minor` (the source's version against `{version}`) a
 - {Deep: AST structural + QMD semantic diff → the same labels as Forge, plus T2 findings}
 
 **Ready to detect changes and update this skill?**"
+
+In degraded mode, the Provenance Age and Exports rows read `no provenance map`.
 
 `{source_display}` is `{source_repo}` at `{target_ref}` when `{source_tree_status}` is `ready` or `offline` — plus ` (re-pinned from {source_ref})` when `{target_ref_override}` is set — and `{source_root}` otherwise. `{source_commit_line}` shows commits as their first 8 characters:
 
@@ -411,7 +444,7 @@ Steps 5 and 6 reuse `{source_display}` and `{source_commit_line}`.
 
 ```bash
 cat > "{run_dir}/run-context.json" <<'SKF_JSON'
-{"skill_name": "{skill_name}", "baseline_version": "{baseline_version}", "forge_tier": "{forge_tier}", "update_mode": "<normal, gap-driven or degraded>", "headless_mode": {headless_mode}, "degraded_mode": {degraded_mode}, "detect_only_mode": {detect_only_mode}, "dry_run_mode": {dry_run_mode}, "allow_workspace_drift": {allow_workspace_drift}, "allow_degraded": {allow_degraded}, "test_report_path": "{test_report_path}", "test_report_run_id": "{test_report_run_id}", "target_ref_override": "{target_ref_override}", "lock_owner": "{lock_owner}", "skill_package": "{skill_package}", "forge_version": "{forge_version}", "provenance_map_path": "{provenance_map_path}", "manual_inventory": "{manual_inventory}", "source_root": "{source_root}", "source_repo": "{source_repo}", "source_ref": "{source_ref}", "source_commit": "{source_commit}", "source_tree_status": "{source_tree_status}", "source_tree": "{source_tree}", "workspace_clone": "{workspace_clone}", "target_ref": "{target_ref}", "target_commit": "{target_commit}", "source_moved": {source_moved}, "source_diff_status": "{source_diff_status}", "source_changed_files": "{source_changed_files}", "tree_timeout": {tree_timeout}, "source_version_detected": "{source_version_detected}", "source_display": "{source_display}", "source_commit_line": "{source_commit_line}"}
+{"skill_name": "{skill_name}", "baseline_version": "{baseline_version}", "forge_tier": "{forge_tier}", "update_mode": "<normal, gap-driven or degraded>", "headless_mode": {headless_mode}, "degraded_mode": {degraded_mode}, "detect_only_mode": {detect_only_mode}, "dry_run_mode": {dry_run_mode}, "allow_workspace_drift": {allow_workspace_drift}, "allow_degraded": {allow_degraded}, "test_report_path": "{test_report_path}", "test_report_run_id": "{test_report_run_id}", "target_ref_override": "{target_ref_override}", "source_root_override": "{source_root_override}", "lock_owner": "{lock_owner}", "skill_package": "{skill_package}", "forge_version": "{forge_version}", "provenance_map_path": "{provenance_map_path}", "manual_inventory": "{manual_inventory}", "source_root": "{source_root}", "source_repo": "{source_repo}", "source_ref": "{source_ref}", "source_commit": "{source_commit}", "source_tree_status": "{source_tree_status}", "source_tree": "{source_tree}", "workspace_clone": "{workspace_clone}", "target_ref": "{target_ref}", "target_commit": "{target_commit}", "source_moved": {source_moved}, "source_diff_status": "{source_diff_status}", "source_changed_files": "{source_changed_files}", "tree_timeout": {tree_timeout}, "source_version_detected": "{source_version_detected}", "source_display": "{source_display}", "source_commit_line": "{source_commit_line}"}
 SKF_JSON
 ```
 

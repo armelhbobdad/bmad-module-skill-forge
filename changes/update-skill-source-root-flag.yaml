@@ -1,0 +1,5 @@
+type: added
+scope: skf-update-skill
+summary: |
+  Update Skill takes a new `--source-root <path>` flag for a skill built from a local folder that has moved: the run reads the source there, in every mode, adds a `source-root-overridden` warning, and records the new folder as `source_root` in `metadata.json` when it writes, so later runs read it too. A path that is not a folder halts `blocked` at `init:resolve-source-path` with `source-root-missing`. A skill read from a remote repository, at any tier and in every mode, and a docs-only skill halt `blocked` with `source-root-needs-local-source`. A folder you name when Update Skill asks for a moved local source is recorded the same way, while one you name for a remote skill is read for that run only, and a headless run whose local folder is gone now says to re-run with `--source-root`. `skf-build-change-manifest.py metadata` takes `--source-root` to write it, and the new `skf-source-tree.py classify` tells, with no network call, whether a skill is read from a remote repository.
+issues: [1193]

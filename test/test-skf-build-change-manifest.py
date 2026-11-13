@@ -2372,6 +2372,22 @@ class TestUpdateMetadata:
                                      generation_date="2026-10-01T10:00:00Z", source_ref="")
         assert (out["source_commit"], out["source_ref"]) == ("aaa", None)
 
+    def test_the_cli_records_a_moved_local_source_root(self, tmp_path: Path) -> None:
+        """#1193 enhancement-5: `--source-root` records the folder a run's `--source-root` override read, so the
+        next run reads it; an empty one sets null, and a call without it keeps the recorded folder."""
+        moved = (tmp_path / "new source").as_posix()
+        target, argv = _metadata_files(tmp_path, {**_skill_metadata(), "source_root": "/gone/lib"})
+        result = _run_cli(*argv, "--source-root", moved)
+        assert result.returncode == 0, result.stderr
+        written = json.loads(target.read_bytes())
+        assert (written["source_root"], written["source_commit"], written["source_ref"]) == (moved, "aaa", "v1")
+        target, argv = _metadata_files(tmp_path, {**_skill_metadata(), "source_root": "/gone/lib"})
+        assert _run_cli(*argv, "--source-root", "").returncode == 0
+        assert json.loads(target.read_bytes())["source_root"] is None
+        target, argv = _metadata_files(tmp_path, {**_skill_metadata(), "source_root": "/gone/lib"})
+        assert _run_cli(*argv).returncode == 0
+        assert json.loads(target.read_bytes())["source_root"] == "/gone/lib"
+
     def test_the_cli_stamps_the_tool_versions_this_run_used(self, tmp_path: Path) -> None:
         """#801: tool_versions named the toolchain of the run that created the skill, however many updates later."""
         skf_root, extraction = tmp_path / "skf", tmp_path / "extraction.json"

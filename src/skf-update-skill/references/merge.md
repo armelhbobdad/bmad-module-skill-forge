@@ -28,8 +28,8 @@ verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
 # stage; resolve them again when a binding was lost: first existing path wins.
-# §8's gate decision goes to the run log through the first; the halt
-# procedure and §6b's record of what this run writes run the second.
+# §6b's warnings and §8's gate decision go to the run log through the first;
+# the halt procedure and §6b's record of what this run writes run the second.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -41,6 +41,12 @@ runStateProbeOrder:
 runLockProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
   - '{project-root}/src/shared/scripts/skf-run-lock.py'
+# Resolve `{writeSkillBriefHelper}` to the first existing path when §6b
+# writes a repair's rescopes into the skill brief; HALT if neither resolves:
+# never edit the brief by hand.
+writeSkillBriefProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
+  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -75,6 +81,8 @@ SKF_JSON
 Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Once §6b has run `begin`, the helper first undoes what this run wrote: in gap-driven mode it restores the package, the version's provenance map and evidence report, and the skill brief from the snapshot `begin` took; in every other mode it removes the version folders `begin` recorded (never one the `active` link names). Then it removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Tell the user in one line what it restored and removed, and name each path its `failed[]` lists for the user to restore or delete by hand. The emitter adds `files_written: []`: after the rollback nothing this run wrote stands. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "merge:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place.
+
+**Warnings go to the run log.** Record each warning this step adds to `warnings[]` the moment it is raised: write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or backticks), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. The halt line and the result line read warnings only from `{run_dir}/warnings.jsonl`.
 
 ### 1. Load Merge Rules
 
@@ -279,6 +287,8 @@ uv run {runLockHelper} acquire \
 - **Gap-driven mode** (`update_mode` is `gap-driven`): a repair keeps the version it repairs — `{new_version}` is the metadata.json `version`, SKILL.md is written into the current `{skill_package}`, and the version folder below is skipped.
 - **Every other mode** (normal, degraded and docs-only): `{new_version}` is `{source_version_detected}` when step 1 §6c recorded one (a higher version than the previous metadata version), otherwise the previous version with its patch number incremented, as `{skillInventoryHelper}` computes it (resolve it ← first existing path in `{skillInventoryProbeOrder}`). From `{project-root}`, run `uv run {skillInventoryHelper} version next-patch "{version}"` with the metadata.json `version` and bind `{new_version}` ← `next_patch`: `1.2.3` gives `1.2.4`, and a pre-release gives its release (`1.2.3-rc.1` gives `1.2.3`). Never increment it by hand. Both values are version folder names already: the helper drops build metadata. When no candidate resolves, or the command exits 1 (`code` `NOT_A_VERSION`: the metadata.json `version` names no version) or prints no JSON, HALT with status `halted-for-write-failure` before writing anything: "**The next version of {skill_name} could not be computed:** {the helper's `error`, or 'skf-skill-inventory.py is missing; re-install SKF'}. Nothing was written. When the metadata.json `version` names no version, set the version the skill was forged at there, then re-run." The halt procedure takes `phase: "merge:new-version-folder"`, `path: "{skill_package}/metadata.json"`, `reason: "next-version-failed: {that message}"`.
 
+  **Skip an emptied version folder.** While `{skill_group}/{new_version}/` exists and holds no `{skill_name}/` folder (the test init.md §1's `resolve` applies to a version folder: an `active` link to an emptied folder names it, and `resolve` chose an older version), bind `{new_version}` ← the `next_patch` of `uv run {skillInventoryHelper} version next-patch "{new_version}"`, with the halt above. Then add, for each folder skipped, `version-folder-skipped: {skill_group}/{that version}/ holds no skill; this update writes {new_version}` to `warnings[]`. The folder skipped stays as it is: this update writes into no folder the `active` link names and overwrites nothing. A version folder that holds the package, and a forge folder alone, still take the version-exists halt below.
+
 **Record what this run writes**, before its first write, so a later halt, or the next update after a crash, can undo it. From `{project-root}`, with `{runStateHelper}`:
 
 - **Gap-driven mode:** snapshot everything the repair may write in place:
@@ -346,7 +356,15 @@ If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, p
 
 **Write the merged files in place** (gap-driven mode only; every other mode wrote them in step 4 above):
 
-1. **The rescopes' brief amendments.** For each manifest entry with a `rescope` (rule R1), append its `scope.amendments[]` entry and add its path to `scope.exclude` in `{forge_data_folder}/{skill_name}/skill-brief.yaml`, preserving every other field; skip an amendment the brief already holds (same `action`, `category` and `path`) and a path `scope.exclude` already lists, so a re-run never adds them twice.
+1. **The rescopes' brief amendments**, when a manifest entry has a `rescope` (rule R1): write them all in one call. Resolve `{writeSkillBriefHelper}` ← first existing path in `{writeSkillBriefProbeOrder}` and, from `{project-root}`, run:
+
+   ```bash
+   uv run {writeSkillBriefHelper} amend --target "{forge_data_folder}/{skill_name}/skill-brief.yaml" <<'SKF_BRIEF_DECISION'
+   {"exclude": ["<each rescope's exclude>"], "amendments": [<each rescope's amendment object>]}
+   SKF_BRIEF_DECISION
+   ```
+
+   Write each payload value as a JSON string: escape `"` and `\`, write a line break or tab inside a value as `\n` or `\t`, and write every path with `/`. It appends each `exclude` path `scope.exclude` does not list and each amendment whose path and category do not already have its action as their latest (`skipped_duplicates` counts the others), so a re-run never adds them twice, and keeps every other field. On a non-zero exit, no JSON or no candidate, HALT with status `halted-for-write-failure` (halt procedure: `phase: "merge:brief-amend"`, `path: "{forge_data_folder}/{skill_name}/skill-brief.yaml"`, `reason: "<its stderr, or skf-write-skill-brief.py is missing; re-install SKF>"`); its rollback restores the brief from the snapshot.
 2. **Stage and verify SKILL.md in the run folder.** Write the merged SKILL.md (UTF-8) to `{run_dir}/SKILL.md`, and each `references/*.md` the merge changed or added, at any priority, to `{run_dir}/references/`, and list each one it removed, one `references/<name>.md` path a line, in `{run_dir}/references-removed.txt`, then, from `{project-root}`:
 
    ```bash

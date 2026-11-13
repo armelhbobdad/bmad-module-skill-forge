@@ -196,15 +196,17 @@ def test_report_and_contract_name_the_new_version():
 
 
 def test_init_follows_the_active_link():
-    """After an update, `active` names the new version and the manifest still the exported one."""
-    paths = _slice(_read(INIT), "**Version-Aware Path Resolution:**", "\n5. Store the resolved path")
-    step2 = _slice(paths, "\n2. If found:", "\n3. ")
-    assert "**Manifest-lag guard.**" in step2
-    assert "bind `{active_version}` to the link's target version instead" in step2
-    assert step2.index("**Manifest-lag guard.**") < step2.index("Resolve to `{skill_package}`")
-    step3 = _slice(paths, "\n3. If not in manifest:", "\n4. ")
-    assert "bind `{active_version}` to the version it names" in step3
-    assert "the `{active_version}` steps 1–3 resolved" in _read(INIT)
+    """After an update, `active` names the new version and the manifest still the exported one: init.md §1's
+    `resolve` takes the link's version (the Manifest-lag guard), and §1 binds every path from its result (#1193)."""
+    paths = _slice(_read(INIT), "**Version-Aware Path Resolution:**", "\n5. `missing`")
+    assert ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} '
+            '--forge-data-folder "{forge_data_folder}"') in paths
+    step2 = _slice(paths, "\n2. `manifest-lags-link`", "\n3. ")
+    assert "(the **Manifest-lag guard**): bind below, which takes the link's version" in step2
+    assert ("manifest active_version {active_version} lags the active link {symlink_target}: updating "
+            "{symlink_target}") in step2
+    bind = _slice(_read(INIT), "**Bind** from the `resolve` object:", "\n")
+    assert "`{active_version}` and `{baseline_version}` ← `chosen_version`" in bind
     us = _slice(_read(SRC / "knowledge" / "version-paths.md"),
                 "**Update-skill (US)** writes each new version into a folder of its own", "\n")
     assert "Manifest-lag guard" in us and "a second update before an export builds on the first" in us
@@ -409,10 +411,9 @@ def test_new_forge_folder_takes_a_flat_forge_skills_files(tmp_path):
     # no audit-skill file reads extraction-rules.yaml
     assert "audit-skill reads the extraction rules" not in _read(MERGE)
     # the binding the rule keys on: init.md §4 falls back to the flat map
-    four = _slice(_read(INIT), "**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`**",
-                  "\n")
-    assert ("fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to "
-            "the path found") in four
+    four = _slice(_read(INIT), "**Bind `{provenance_map_path}`** ←", "\n")
+    assert ("the `paths.provenance_map.path` of §1's `resolve` object: `{forge_version}/provenance-map.json`, else "
+            "the flat `{forge_data_folder}/{skill_name}/provenance-map.json` an older skill keeps, else null") in four
 
     names = ("provenance-map.json", "evidence-report.md", "extraction-rules.yaml")
 

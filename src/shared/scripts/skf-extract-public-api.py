@@ -18,7 +18,8 @@ Four modes:
                  --follow also reads the modules an `export *` chain passes
                  names on from, fetching them first with --repo, and
                  --resolve-version looks up a version the manifest does
-                 not state. Multi-module monorepos are caller-orchestrated:
+                 not state, and --package-name picks the file it reads
+                 the version from. Multi-module monorepos are caller-orchestrated:
                  invoke once per module, aggregate.
   --mode full    The ast-grep recipe runner (skf-create-skill and the
                  workflows that extract as it does): runs the recipes in
@@ -128,6 +129,12 @@ or the files, read from disk (stdin is then never read):
       [--follow-file <path>]... [--tree-file <listing>] [--fetch-list <file>]
       [--follow] [--resolve-version] [--repo <owner/repo> [--ref <ref>]]
 
+or, for the source's version alone, the version file picked under
+--source-root:
+
+  --mode quick --language <language> --source-root <dir> --resolve-version
+      --package-name <name> [--entry-file <path>]...
+
 --all-sources (java, kotlin or swift, whose public declarations are public
 in whatever file they sit, with --source-root) reads as entries, after any
 --entry-file and each once, every file under --source-root (listed as full
@@ -176,6 +183,27 @@ one a tag gives drops a leading `v`. For JavaScript and TypeScript read
 with --repo at the default branch, a manifest pre-release (`-alpha`,
 `-beta`, `-rc`, `-next`, `-canary`) gives way to the newest release, with
 a warning. When nothing gives a version, a warning says so.
+
+--package-name <name> (with --resolve-version and --source-root, and no
+--manifest-file) picks the version file under --source-root itself, so no
+caller chooses which manifest names the version, and reads it as
+--manifest-file would:
+
+  python  pyproject.toml, else setup.py, else setup.cfg, at the root
+  rust    the root Cargo.toml
+  js, ts  among the package.json files skf-scan-manifests.py's
+          find_manifests lists (excluded and hidden folders left out), the
+          one whose `name` is <name> or gives it as a skill name
+          (skf-skill-inventory.py's _manifest_skill_name), whole or without
+          its `@scope/` (`@acme/foo` matches `acme-foo` and `foo`), else
+          one with a `bin` field, else the root one; a tie goes to the
+          shallowest, then to path order
+
+The output then also holds `manifest_file`, the file picked (relative to
+--source-root, with `/`), and `rule`: `name`, `bin` or `root`. With no file
+(another language, or none of them present) both are null, the release tag
+is not looked up, and `version` is null with a warning. stdin is never
+read.
 
 With --source-root, each Python, JavaScript and TypeScript export also
 carries `defined_in`: the file that defines it, traced as full mode traces
@@ -240,7 +268,7 @@ Output JSON shape (stdout):
     "unlisted":     [{"file", "line", "statement", "specifier",
                       "module_file"}, ...],
     "followed":     ["src/core.ts", ...],              (--follow only)
-    "reexport_files": ["src/core.ts", ...]        (the files the entry
+    "reexport_files": ["src/core.ts", ...],       (the files the entry
                                                    files pass names on
                                                    from: each export's
                                                    defined_in, else, for a
@@ -257,6 +285,8 @@ Output JSON shape (stdout):
                                                    --source-root and for
                                                    a language with no
                                                    defined_in)
+    "manifest_file": "packages/foo/package.json",     (--package-name only;
+    "rule":          "name" | "bin" | "root"           both null with no file)
   }
 
 `unlisted` holds one record per statement whose names come from a module
@@ -285,8 +315,10 @@ Exit codes (quick):
        a --tree-file that cannot be read or a --fetch-list that cannot be
        written, --follow without --tree-file and --source-root,
        --resolve-version without --source-root, --repo or --ref without
-       --follow or --resolve-version (--ref without --repo), or a --repo or
-       --ref skf-github-fetch.py does not accept. A module --follow could
+       --follow or --resolve-version (--ref without --repo), a --repo or
+       --ref skf-github-fetch.py does not accept, or --package-name in
+       another mode, empty, with --manifest-file, or without
+       --resolve-version and --source-root. A module --follow could
        not read, and a version --resolve-version could not find, change no
        exit code.
 
@@ -1897,8 +1929,9 @@ def _sibling(filename: str):
     skf-source-tree.py (git without the caller's hooks and git variables,
     and a tool lookup that never takes a shim planted in the current
     folder), skf-resolve-authoritative-files.py (the brief's YAML and glob
-    rules) and skf-detect-workspaces.py (monorepo detection). Raises
-    RunnerError."""
+    rules), skf-detect-workspaces.py (monorepo detection), and
+    skf-scan-manifests.py and skf-skill-inventory.py (--package-name's
+    manifests and skill names). Raises RunnerError."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = Path(__file__).resolve().parent / filename
@@ -5562,6 +5595,12 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="look up a version the manifest does not state: a version file, a Cargo workspace "
                             "root, then a release tag (of --repo at --ref, else git describe in --source-root); "
                             "needs --source-root")
+    quick.add_argument("--package-name", metavar="NAME",
+                       help="with --resolve-version and --source-root, in place of --manifest-file: pick the "
+                            "version file under --source-root (Python pyproject.toml, setup.py, setup.cfg; Rust "
+                            "Cargo.toml; JS/TS the package.json named NAME, whole or without its @scope/, as given "
+                            "or as a skill name, else one with a bin field, else the root one) and report it as "
+                            "manifest_file, with the rule that chose it")
     quick.add_argument("--repo", metavar="OWNER/REPO",
                        help="with --follow: fetch each module from this GitHub repository into --source-root "
                             "first (skf-github-fetch.py); with --resolve-version: the repository whose tags "
@@ -5913,6 +5952,68 @@ def _release_tag(args: argparse.Namespace, warnings: list[str]) -> tuple[str, st
     return (version, tag) if version else None
 
 
+PY_VERSION_FILES = ("pyproject.toml", "setup.py", "setup.cfg")
+
+
+def _package_json_facts(path: Path) -> tuple[object, object]:
+    """(name, bin) of a package.json, both None when it is not a JSON object."""
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    return data.get("name"), data.get("bin")
+
+
+def select_version_file(language: str, root: Path, package_name: str) -> tuple[str | None, str | None]:
+    """--package-name: (the version file under `root`, relative with `/`,
+    and the rule that picked it: "name", "bin" or "root"), else (None,
+    None). Python: pyproject.toml, setup.py, then setup.cfg at the root;
+    Rust: the root Cargo.toml; JavaScript or TypeScript: among the
+    package.json files find_manifests lists, the one whose `name` is
+    `package_name` or gives it as a skill name, whole or without its
+    `@scope/` (`@acme/foo` matches `acme-foo` and `foo`), else one with a
+    `bin` field, else the root one, the shallowest then the first by path
+    winning a tie. Raises QuickInputError."""
+    language = language.lower()
+    if language == "python":
+        return next(((name, "root") for name in PY_VERSION_FILES if (root / name).is_file()), (None, None))
+    if language == "rust":
+        return ("Cargo.toml", "root") if (root / "Cargo.toml").is_file() else (None, None)
+    if language not in JS_FAMILY:
+        return None, None
+    try:
+        found = _sibling("skf-scan-manifests.py").find_manifests(root)
+        skill_name = _sibling("skf-skill-inventory.py")._manifest_skill_name
+    except RunnerError as exc:
+        raise QuickInputError(str(exc)) from exc
+    packages = sorted((path.relative_to(root).as_posix() for path in found if path.name == "package.json"),
+                      key=lambda rel: (rel.count("/"), rel))
+    def names(name: str) -> set[str]:
+        """The names a package's `name` answers to: as given and as a skill
+        name, whole and, for `@scope/pkg`, without its scope."""
+        forms = {name, skill_name(name)}
+        if name.startswith("@") and "/" in name:
+            bare = name.split("/", 1)[1]
+            forms |= {bare, skill_name(bare)}
+        return forms - {""}
+
+    named: list[str] = []
+    with_bin: list[str] = []
+    for rel in packages:
+        name, bin_field = _package_json_facts(root / rel)
+        if isinstance(name, str) and name.strip() and package_name in names(name.strip()):
+            named.append(rel)
+        elif bin_field:
+            with_bin.append(rel)
+    if named:
+        return named[0], "name"
+    if with_bin:
+        return with_bin[0], "bin"
+    return ("package.json", "root") if "package.json" in packages else (None, None)
+
+
 def resolve_version(args: argparse.Namespace, result: dict, tree: list[str] | None) -> None:
     """--resolve-version: when the manifest states no version, look it up
     (Python: _python_version_file; Rust: _cargo_workspace_version; then any
@@ -6181,9 +6282,12 @@ def main(argv: list[str]) -> int:
                          "are public wherever they sit")
         if args.source_root is None:
             parser.error("--all-sources lists the files under --source-root: pass it")
+    named = args.package_name is not None
+    if named and args.mode != "quick":
+        parser.error("--package-name: quick mode only (--mode quick), with --resolve-version and --source-root")
     listing = [f"--{flag.replace('_', '-')}" for flag in LISTING_FLAGS if getattr(args, flag) is not None]
     following = [f"--{flag.replace('_', '-')}" for flag in FOLLOW_FLAGS if getattr(args, flag) not in (None, False)]
-    if following and (args.mode != "quick" or not files):
+    if following and (args.mode != "quick" or not (files or named)):
         parser.error(f"{', '.join(following)}: quick mode only, with --manifest-file or --entry-file")
     own = [f"--{flag}" for flag in DENOMINATOR_OWN_FLAGS if getattr(args, flag) is not None]
     if own and args.mode != "denominator":
@@ -6206,19 +6310,23 @@ def main(argv: list[str]) -> int:
         return _main_entries(args, parser)
     if args.scope is not None:
         parser.error("--scope: entries mode only (--mode entries)")
-    if listing and not files:
+    if listing and not (files or named):
         parser.error(f"{', '.join(listing)}: quick mode takes them only with --manifest-file or --entry-file")
     given = [f"--{flag.replace('_', '-')}" for flag in FULL_MODE_FLAGS
-             if getattr(args, flag) is not None and not (files and flag in QUICK_FILE_FLAGS)]
+             if getattr(args, flag) is not None and not ((files or named) and flag in QUICK_FILE_FLAGS)]
     if given:
         hint = ""
         if any(flag in given for flag in ("--source-root", "--language")):
             hint = " (quick mode takes --source-root and --language only with --manifest-file or --entry-file)"
         parser.error(f"{', '.join(given)}: full mode only (--mode full){hint}")
 
-    if files:
+    if files or named:
         if not args.language or len(args.language) != 1:
-            parser.error("--manifest-file and --entry-file take one --language")
+            parser.error("--manifest-file, --entry-file and --package-name take one --language")
+        if named and (args.manifest_file is not None or not args.resolve_version or args.source_root is None
+                      or not args.package_name.strip()):
+            parser.error("--package-name picks the version file --resolve-version reads under --source-root: "
+                         "pass a name with --resolve-version and --source-root, and no --manifest-file")
         if (args.repo is not None or args.ref is not None) and not (args.follow or args.resolve_version):
             parser.error("--repo and --ref fetch the modules --follow reads and name the tags --resolve-version "
                          "reads, so pass --follow or --resolve-version")
@@ -6229,14 +6337,28 @@ def main(argv: list[str]) -> int:
         if args.resolve_version and args.source_root is None:
             parser.error("--resolve-version reads the version files under --source-root: pass it")
         try:
+            picked: tuple[str | None, str | None] = (None, None)
+            if named:
+                if not Path(args.source_root).is_dir():
+                    raise QuickInputError(f"--source-root is not a folder: {args.source_root}")
+                picked = select_version_file(args.language[0], Path(args.source_root), args.package_name)
+                args.manifest_file = picked[0]
             payload = _quick_files_payload(args)
             result = extract(payload)
             if "_error" not in result:
                 result["warnings"][:0] = payload.get("warnings", [])
             if args.follow and "_error" not in result:
                 result = _follow(args, result)
-            if args.resolve_version and "_error" not in result:
+            if named and picked[0] is None and "_error" not in result:
+                result["version"], result["version_source"] = None, None
+                result["warnings"].append(
+                    f"--package-name found no version file for {args.language[0]} under --source-root (Python: "
+                    f"pyproject.toml, setup.py or setup.cfg; Rust: Cargo.toml; JavaScript or TypeScript: a "
+                    f"package.json); version is null")
+            elif args.resolve_version and "_error" not in result:
                 resolve_version(args, result, payload.get("tree"))
+            if named and "_error" not in result:
+                result["manifest_file"], result["rule"] = picked
             if args.source_root is not None and "_error" not in result:
                 _defined_in(Path(args.source_root), result)
                 _reexport_files(Path(args.source_root), result, payload.get("tree") or [],

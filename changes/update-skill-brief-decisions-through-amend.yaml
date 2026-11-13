@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill now writes its promote, skip and headless-deferral decisions on newly found documents and out-of-scope paths, and a repair's rescopes, to the skill brief with `skf-write-skill-brief.py amend` instead of editing the brief by hand. A promoted path no longer narrows an empty `scope.include`, which already covers every file. `amend` now takes `exclude` paths and skips a decision that is already the latest one for its path (`skipped_duplicates` counts them), so a re-run records nothing twice while a changed decision is still recorded. A decision the brief cannot record adds a `brief-not-amended` warning and leaves that document untracked, so the next run asks again, and a repair whose rescopes cannot be written stops with `halted-for-write-failure` (`error.phase` `merge:brief-amend`) and is undone.
+issues: [1193]

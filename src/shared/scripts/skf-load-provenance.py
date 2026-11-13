@@ -37,7 +37,7 @@ skf-resolve-authoritative-files.py (and with it PyYAML, which the PEP 723
 header above declares) only to read a brief that exists.
 
 Subcommand:
-  normalize <map.json> [--now <ISO-8601>]
+  normalize <map.json> [--now <ISO-8601>] [--age-from-last-update]
       Emit JSON:
         {
           "bounded_scan_files": ["<rel-path, forward-slash>", ...],
@@ -52,7 +52,7 @@ Subcommand:
           "export_count": <int>,
           "generated_at": "<YYYY-MM-DDTHH:MM:SSZ or null>",
           "age_days": <int or null>,
-          "age_source": "generated_at" | "mtime" | null
+          "age_source": "last_update" | "generated_at" | "mtime" | null
         }
 
       Bounded scan = union of `entries[].source_file` and
@@ -93,6 +93,11 @@ Subcommand:
           below 0), or from the file's modification time when the map has
           no usable `generated_at` (`age_source` says which; null when
           neither is known). `--now` fixes "now" for a reproducible run.
+        - `--age-from-last-update` (update-skill init.md §4, the days
+          since the last extraction): `age_days` counts from the map's
+          top-level `last_update` when it is an ISO-8601 date or
+          date-time (`age_source` `last_update`), else as above. The
+          other fields do not change.
 
   baseline --metadata <metadata.json> --current-tier <tier> [--brief <skill-brief.yaml>]
            [--provenance-map <map.json>] [--now <ISO-8601>]
@@ -137,6 +142,7 @@ Subcommand:
 
 CLI examples:
   uv run skf-load-provenance.py normalize /path/to/provenance-map.json
+  uv run skf-load-provenance.py normalize /path/to/provenance-map.json --age-from-last-update
   uv run skf-load-provenance.py normalize /path/to/provenance-map.json --now 2026-05-01T00:00:00Z
   uv run skf-load-provenance.py baseline --metadata /path/to/metadata.json --current-tier Forge \\
       --brief /path/to/skill-brief.yaml --provenance-map /path/to/provenance-map.json
@@ -368,17 +374,22 @@ def export_count(data: dict) -> int:
 
 
 def provenance_age(
-    data: dict, mtime: datetime | None = None, now: datetime | None = None
+    data: dict, mtime: datetime | None = None, now: datetime | None = None,
+    from_last_update: bool = False,
 ) -> dict:
     """{generated_at, age_days, age_source} for the audit baseline.
 
     `generated_at` is the map's field in UTC (null when absent or not
     ISO-8601). The age counts whole days from it to `now` (the current time
     when None), else from `mtime` (the file's modification time), never
-    below 0.
+    below 0. With `from_last_update`, the map's `last_update`, when it
+    reads as ISO-8601, comes before `generated_at`.
     """
     generated = _parse_iso_utc(data.get("generated_at"))
-    if generated is not None:
+    updated = _parse_iso_utc(data.get("last_update")) if from_last_update else None
+    if updated is not None:
+        since, source = updated, "last_update"
+    elif generated is not None:
         since, source = generated, "generated_at"
     elif mtime is not None:
         since, source = mtime, "mtime"
@@ -395,7 +406,8 @@ def provenance_age(
 
 
 def normalize(
-    data: dict, mtime: datetime | None = None, now: datetime | None = None
+    data: dict, mtime: datetime | None = None, now: datetime | None = None,
+    from_last_update: bool = False,
 ) -> dict:
     """Build the full normalized projection record."""
     is_stack, legacy = detect_stack_flags(data)
@@ -417,7 +429,7 @@ def normalize(
         "reexport_map": extract_reexport_map(data),
         "source_library_by_file": source_library_by_file(data),
         "export_count": export_count(data),
-        **provenance_age(data, mtime, now),
+        **provenance_age(data, mtime, now, from_last_update),
     }
 
 
@@ -586,7 +598,7 @@ def _cmd_normalize(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    result = normalize(data, mtime=mtime, now=now)
+    result = normalize(data, mtime=mtime, now=now, from_last_update=args.age_from_last_update)
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -634,6 +646,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_norm.add_argument(
         "--now",
         help="ISO-8601 date-time that age_days counts to (default: the current time)",
+    )
+    p_norm.add_argument(
+        "--age-from-last-update",
+        action="store_true",
+        help="count age_days from the map's last_update when it is ISO-8601, before generated_at",
     )
     p_norm.set_defaults(func=_cmd_normalize)
     p_base = sub.add_parser(

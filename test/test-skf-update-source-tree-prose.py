@@ -451,7 +451,7 @@ def test_no_provenance_map_stops_a_repair_and_a_degraded_run_goes_through_init()
     both modes, `--allow-degraded` included), and a headless `--allow-degraded` run goes on through §4b to §8 as
     an interactive [D] does, never straight to change detection."""
     four = _slice(_read(INIT), "### 4. Load Provenance Map", "### 4b.")
-    missing = four[four.index("**If provenance map missing at both paths:**"):]
+    missing = four[four.index("**If `{provenance_map_path}` is null:**"):]
     repair = _slice(missing, "**When `update_mode` is `gap-driven`, offer no [D]**", "\n")
     for token in ("interactive or headless, `--allow-degraded` included",
                   "a repair spot-checks the report's gaps against this map",
@@ -1756,8 +1756,9 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
                   "`proposed-amendment: excluded {path} (scope-expansion); not written:"):
         assert token in r1, token
     in_place = _slice(_read(MERGE), "**Write the merged files in place**", "**Do NOT write here:**")
-    assert ("skip an amendment the brief already holds (same `action`, `category` and `path`) and a path "
-            "`scope.exclude` already lists, so a re-run never adds them twice") in in_place
+    assert ("It appends each `exclude` path `scope.exclude` does not list and each amendment whose path and "
+            "category do not already have its action as their latest (`skipped_duplicates` counts the others), so "
+            "a re-run never adds them twice") in in_place
     summary = yaml.safe_load(_read(REPO_ROOT / "changes" / "update-drift-override-halts.yaml"))["summary"]
     for token in ("no count of the public API", "and as a rescope (a gap that takes an export out of the skill's "
                   "scope) does", "the stats keep the public API counts `metadata.json` records",
@@ -2721,7 +2722,9 @@ def test_write_apply_reads_the_map_init_bound(tmp_path):
                   "the same bytes `apply` reads",
                   "In a repair `{provenance_map_path}` is the only map there is"):
         assert token in lead, token
-    assert "Bind `{provenance_map_path}` to the path found" in _read(INIT)
+    assert ("**Bind `{provenance_map_path}`** ← the `paths.provenance_map.path` of §1's `resolve` object: "
+            "`{forge_version}/provenance-map.json`, else the flat `{forge_data_folder}/{skill_name}/provenance-map.json` "
+            "an older skill keeps, else null") in _read(INIT)
     # a gap-driven repair of a flat-forge skill: the map is flat, the version folder holds only the test report
     group = tmp_path / "forge data" / "lib"
     forge_version = group / "1.0.0"
@@ -4377,8 +4380,7 @@ def test_the_test_report_is_found_by_the_shared_helper(tmp_path):
                   "`{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`",
                   "with its `testResult`, `score` and `source`", "(`skipped[]`)",
                   "`found` with `report_exists` false, a result file naming a report that is gone",
-                  "Pass `--version` whenever `{active_version}` is bound: steps 1-3 above bind it, and step 4 "
-                  "binds it after migrating a flat skill."):
+                  "Pass `--version`: §1 always binds `{active_version}`."):
         assert token in lookup, token
     forge = tmp_path / "forge data"
     newest = _report_fixture(forge / "lib" / "1.0.0", "20260930T101010Z-2-bbbb", "fail", "2026-09-30T10:10:10Z")
@@ -4400,20 +4402,22 @@ def test_a_migrated_flat_skill_binds_the_version_folder():
     """#1121: step 4 runs `migrate`, then `resolve`, and binds the version the migration made, so the
     test-report lookup passes `--version` and finds the report the migration moved into the version folder."""
     init = _read(INIT)
-    paths = _slice(init, "**Version-Aware Path Resolution:**", "\n5. Store the resolved path")
-    step4 = paths[paths.index("\n4. If neither:"):]
+    paths = _slice(init, "**Version-Aware Path Resolution:**", "\n5. `missing`")
+    step4 = paths[paths.index("\n4. `flat-layout`:"):]
     migrate = ('`uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} '
                '--forge-data-folder "{forge_data_folder}"`')
     resolve = ('`uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
                '--forge-data-folder "{forge_data_folder}"`')
-    bind = "bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← `skill_package`"
+    bind = ("bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← "
+            "`skill_package`, and every other binding below, anew: they now name the version folder")
     for token in (migrate, resolve, bind, 'phase: "init:migrate"', 'reason: "migrate: {its error}"'):
         assert token in step4, token
     assert step4.index(migrate) < step4.index(resolve) < step4.index(bind) < step4.index('phase: "init:migrate"')
     assert "migration rules" not in init and "auto-migrate" not in init
-    step6 = _slice(init, "\n6. Bind `{baseline_version}`", "\n")
-    assert "the `{active_version}` steps 1–3 resolved, or the one step 4 bound after migrating" in step6
-    assert "has no version" not in step6 and "\u2014" not in step6
+    bound = _slice(init, "**Bind** from the `resolve` object:", "\n")
+    assert ("`{active_version}` and `{baseline_version}` ← `chosen_version`, `{skill_package}` and "
+            "`{resolved_skill_package}` ← `skill_package`") in bound
+    assert "has no version" not in bound and "\u2014" not in bound
     assert "init:migrate" in _halt_sites()[1]
 
 
@@ -4602,8 +4606,7 @@ def test_the_documented_resolver_call_classifies_the_mirror(tmp_path, capsys):
     assert '--provenance-map "{provenance_map_path}"' in call
     for token in ("**`already_tracked[]`:**", "**`already_in_scope[]`:**", "with no prompt, as create-skill §2a does",
                   "**`pre_decided[]` with `prior_action: \"promoted\"`:**", "**`unresolved[]`:**",
-                  "except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already "
-                  "recorded: write no second amendment for it", "as the helper reported them",
+                  "`amend` skips a deferral the brief already holds", "as the helper reported them",
                   "Never walk, match or hash these files by hand"):
         assert token in one_b, token
     for gone in ("1. **Walk the source tree.**", "uv run {hashContentHelper} hash"):
@@ -5036,7 +5039,7 @@ def test_every_route_out_of_step_3_honours_dry_run():
         assert "{forge_data_folder}/{skill_name}/skill-brief.yaml" not in body, section
         assert "{brief_path}" in body, section
     # §1b's decision protocol, which §1c follows, writes every amendment to `{brief_path}` (#600 leanness-7)
-    assert "every brief write goes to `{brief_path}` (the run folder's copy in a read-only mode)" in \
+    assert "Each decision goes to `{brief_path}` (the run folder's copy in a read-only mode) at once, in one call" in \
         _slice(detect, "### 1b.", "### 1c.")
     assert "`--brief \"{brief_path}\"`" in detect or '--brief "{brief_path}"' in detect
     for path in (REPORT,):
@@ -5236,7 +5239,7 @@ def test_headless_skips_are_deferred_for_a_person(tmp_path):
     headless = _slice(one_b, "**GATE [default: defer]**: in headless mode (`{headless_mode}` is true)", "\n5. ")
     assert 'action: "deferred-headless"' in headless and 'action: "skipped"' not in headless
     assert "never records a skip no person chose" in headless
-    assert "except for a candidate whose `prior_action` is `deferred-headless`" in headless
+    assert "`amend` skips a deferral the brief already holds" in headless
     assert "Steps 4 and 5 are the decision protocol for a scope candidate, which §1c follows too" in one_b
     one_c = _slice(detect, "### 1c.", "**Record for evidence report:**")
     c_headless = _slice(one_c, "4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true)", "\n5. ")
@@ -6486,7 +6489,8 @@ def test_the_run_context_lives_in_the_run_folder():
     assert list(doc) == [
         "skill_name", "baseline_version", "forge_tier", "update_mode", "headless_mode", "degraded_mode",
         "detect_only_mode", "dry_run_mode", "allow_workspace_drift", "allow_degraded", "test_report_path",
-        "test_report_run_id", "target_ref_override", "lock_owner", "skill_package", "forge_version",
+        "test_report_run_id", "target_ref_override", "source_root_override", "lock_owner", "skill_package",
+        "forge_version",
         "provenance_map_path", "manual_inventory", "source_root", "source_repo", "source_ref", "source_commit",
         "source_tree_status", "source_tree", "workspace_clone", "target_ref", "target_commit", "source_moved",
         "source_diff_status", "source_changed_files", "tree_timeout", "source_version_detected", "source_display",
@@ -6702,7 +6706,8 @@ def test_every_stage_records_the_warnings_it_raises():
     it raises it, as each gate records its decision, so the halt line and the result line, which read warnings
     only from `{run_dir}/warnings.jsonl`, carry it after a long run's context is compacted."""
     rules = _stage_warning_rules()
-    assert set(rules) >= {"init.md", "detect-changes.md", "gap-driven.md", "re-extract.md", "write.md", "report.md"}
+    assert set(rules) >= {"init.md", "detect-changes.md", "gap-driven.md", "re-extract.md", "merge.md", "write.md",
+                          "report.md"}
     # each states the one rule once, word for word: a copy that drifts from the others fails here
     assert set(rules.values()) == {WARNING_RULE_LINE}, rules
     # after its halt procedure and before its first section; report.md, which has no halt procedure, as one of its
@@ -6714,8 +6719,9 @@ def test_every_stage_records_the_warnings_it_raises():
         else:
             steps = _slice(text, "## Steps", "\n### ")
             assert HALT_PROCEDURE in steps and steps.index(HALT_PROCEDURE) < steps.index(WARNING_RULE), name
-    # merge.md raises no warning, so it carries no copy of the rule, and no file carries one it does not need
-    assert "merge.md" not in rules and "to `warnings[]`" not in _read(MERGE)
+    # merge.md raises one warning, §6b's `version-folder-skipped` (#1193), so it carries the rule too; no file
+    # carries one it does not need
+    assert "`version-folder-skipped: " in _slice(_read(MERGE), "**Skip an emptied version folder.**", "\n")
     assert {path.name for path in REFS.glob("*.md") if WARNING_RULE in _read(path)} == set(rules)
     # SKILL.md's Run log rule leaves the call to the step that names it: its old inline form, `--warning "<text>"`,
     # breaks on the quotes, `$` and backticks a warning can hold
@@ -6809,3 +6815,408 @@ def test_the_rule_files_hold_no_copy_of_merge():
     init = _read(INIT)
     assert "manualSectionRulesFile" not in init and "manualSectionRulesFile" in merge
 
+
+
+# --------------------------------------------------------------------------
+# #1193: init and scope resolve and record the run's inputs through helpers
+# --------------------------------------------------------------------------
+
+LOAD_PROVENANCE = SRC / "shared" / "scripts" / "skf-load-provenance.py"
+WRITE_BRIEF = SRC / "shared" / "scripts" / "skf-write-skill-brief.py"
+BUILD_MANIFEST = SRC / "shared" / "scripts" / "skf-build-change-manifest.py"
+
+
+def _link_active(active_link: Path, version: str) -> None:
+    """Create active->version, with test-skf-skill-inventory.py's junction fallback on Windows."""
+    try:
+        active_link.symlink_to(version)
+        return
+    except OSError as e:
+        if os.name != "nt" or getattr(e, "winerror", None) not in (1314, 5):
+            raise
+        abs_target = (active_link.parent / version).resolve()
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(active_link), str(abs_target)],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise OSError(f"junction fallback failed: {result.stderr.strip() or result.stdout.strip()}") from e
+
+
+def _version_resolution() -> str:
+    return _slice(_read(INIT), "**Version-Aware Path Resolution:**", "**If `--from-test-report` was provided")
+
+
+def test_init_resolves_the_version_with_the_inventory_helper(tmp_path):
+    """determinism-4: §1 runs `resolve`, dispatches on its `reason` and binds every path from it, so an `active`
+    link to an empty version folder no longer halts at "No SKILL.md found": the manifest's version, or with no
+    manifest entry the newest version on disk, is updated."""
+    init = _read(INIT)
+    paths = _version_resolution()
+    call = _fence(paths, "uv run {skillInventoryHelper} resolve")
+    assert call.strip() == ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} '
+                            '--forge-data-folder "{forge_data_folder}"')
+    assert yaml.safe_load(_frontmatter(init))["skillInventoryProbeOrder"] == _probe("skf-skill-inventory.py")
+    assert ".export-manifest.json" not in init and "Resolve the path to an absolute skill folder location" not in init
+    items = re.findall(r"^(\d)\. (`[a-z-]+`(?:, `[a-z-]+`)*(?: or `[a-z-]+`)?|Any other result)", paths, re.M)
+    assert items == [("1", "`manifest-and-link`, `manifest` or `link`"), ("2", "`manifest-lags-link`"),
+                     ("3", "`newest-on-disk`"), ("4", "`flat-layout`"), ("5", "`missing`"),
+                     ("6", "Any other result")]
+    newest = _slice(paths, "\n3. `newest-on-disk`", "\n4. ")
+    assert "show the helper's `detail` as an Info note and add `version-newest-on-disk: {detail}` to `warnings[]`" \
+        in newest
+    missing = _slice(paths, "\n5. `missing`", "\n6. ")
+    for token in ("`SKILL_NOT_FOUND` or `DIR_NOT_FOUND`",
+                  "HALT at once with §2's missing-SKILL.md payload and message",
+                  '(halt procedure: `status: "blocked"`, `phase: "init:validate-artifacts"`, '
+                  '`path: "{resolved_skill_package}/SKILL.md"`, `reason: "no SKILL.md in the skill package"`)',
+                  "before the §1b lock"):
+        assert token in missing, token
+    other = _slice(paths, "\n6. Any other result", "\n\n")
+    for token in ('phase: "init:resolve"', 'reason: "resolve-failed: {its error, or its first stderr line}"',
+                  "take item 4's **Otherwise** branch", "skf-skill-inventory.py is missing; re-install SKF"):
+        assert token in other, token
+    bound = _slice(paths, "**Bind** from the `resolve` object:", "\n")
+    for token in ("`{active_version}` and `{baseline_version}` ← `chosen_version`",
+                  "`{skill_package}` and `{resolved_skill_package}` ← `skill_package`",
+                  "`{forge_version}` ← `forge_version`", "`skf-provenance-gap-dispatch.py`"):
+        assert token in bound, token
+    assert paths.index("\n6. Any other result") < paths.index("**Bind** from the `resolve` object:")
+    # the documented call on a skill whose `active` link names an empty version folder
+    skills, forge = tmp_path / "skills folder", tmp_path / "forge data"
+    (skills / "lib" / "1.0.1" / "lib").mkdir(parents=True)
+    (skills / "lib" / "1.0.1" / "lib" / "SKILL.md").write_bytes(b"---\nname: lib\n---\n")
+    (skills / "lib" / "1.0.2").mkdir()
+    _link_active(skills / "lib" / "active", "1.0.2")
+    (forge / "lib" / "1.0.1").mkdir(parents=True)
+    (forge / "lib" / "1.0.1" / "provenance-map.json").write_bytes(b'{"entries": []}')
+    manifest = skills / ".export-manifest.json"
+    manifest.write_bytes(json.dumps({"schema_version": "2", "exports": {"lib": {
+        "active_version": "1.0.1", "versions": {"1.0.1": {"status": "active"}}}}}).encode("utf-8"))
+    values = {"skills_output_folder": str(skills), "skill_name": "lib", "forge_data_folder": str(forge)}
+    argv = _argv(call, "skillInventoryHelper", values)
+    code, out = _run_script(INVENTORY_HELPER, argv)
+    resolved = out["resolve"]
+    assert (code, resolved["reason"], resolved["chosen_version"]) == (0, "manifest", "1.0.1"), out
+    assert Path(resolved["skill_package"]) == skills / "lib" / "1.0.1" / "lib"
+    assert Path(resolved["forge_version"]) == forge / "lib" / "1.0.1"
+    assert Path(resolved["paths"]["provenance_map"]["path"]) == forge / "lib" / "1.0.1" / "provenance-map.json"
+    # a skill never exported: the newest version on disk, with the detail the warning quotes
+    manifest.write_bytes(json.dumps({"schema_version": "2", "exports": {}}).encode("utf-8"))
+    code, out = _run_script(INVENTORY_HELPER, argv)
+    resolved = out["resolve"]
+    assert (code, resolved["reason"], resolved["chosen_version"]) == (0, "newest-on-disk", "1.0.1"), out
+    assert "1.0.1 is the newest version folder" in resolved["detail"]
+    # a manifest that lags the link: the link's version, whose package is on disk, with what the note quotes
+    (skills / "lib" / "1.0.2" / "lib").mkdir()
+    manifest.write_bytes(json.dumps({"schema_version": "2", "exports": {"lib": {
+        "active_version": "1.0.1", "versions": {"1.0.1": {"status": "active"}}}}}).encode("utf-8"))
+    code, out = _run_script(INVENTORY_HELPER, argv)
+    resolved = out["resolve"]
+    assert (code, resolved["reason"], resolved["chosen_version"]) == (0, "manifest-lags-link", "1.0.2"), out
+    assert (resolved["active_version"], resolved["symlink_target"]) == ("1.0.1", "1.0.2")
+    # nothing of the skill on disk: item 5's halt
+    code, out = _run_script(INVENTORY_HELPER, _argv(call, "skillInventoryHelper", {**values, "skill_name": "gone"}))
+    assert (code, out["code"]) == (1, "SKILL_NOT_FOUND"), out
+
+
+def test_a_degraded_run_binds_its_mode():
+    """architecture-3: both §4 branches that take [D] bind `update_mode: degraded`, and categories.json, the
+    baseline's and the report's Mode rows and the result line carry the bound mode, never a literal `normal`."""
+    init = _read(INIT)
+    four = _slice(init, "### 4. Load Provenance Map", "### 4b.")
+    assert "- If D: set `degraded_mode = true` and `update_mode: degraded`, proceed with full extraction scope" in four
+    allowed = four[four.index("**In `{headless_mode}` with `--allow-degraded`"):]
+    assert "Set `degraded_mode = true` and `update_mode: degraded`, proceed with full extraction scope" in allowed
+    assert ("`update_mode` is `normal` until the test-report lookup below or §4b's [G] sets `gap-driven`, or §4 sets "
+            "`degraded`.") in _version_resolution()
+    assert "| **Mode** | {update_mode} |" in _slice(init, "### 7. Present Baseline Summary", "### 8.")
+    detect = _read(DETECT)
+    block = _fence(detect, 'cat > "{run_dir}/categories.json"')
+    assert '{"degraded_mode": <bool>, "update_mode": "{update_mode}"}' in block and '"normal"' not in block
+    assert "`update_mode` (`normal` or `degraded`, as init.md bound it)" in detect
+    assert '"update_mode": "normal" | "gap-driven" | "degraded"' in _read(BUILD_MANIFEST)
+    assert "| **Mode** | {update_mode}{mode_fallback_note} |" in _read(REPORT)
+    assert "`full` for `degraded`" in _slice(_read(WRITE), "`{update_type}` follows the run's mode", "\n")
+
+
+def test_the_baseline_counts_and_ages_the_map_with_the_helper(tmp_path):
+    """determinism-4: §4 takes the map from §1's `resolve` and its export count and age from `normalize`, the age
+    counted from the map's `last_update`, the last extraction."""
+    from datetime import datetime, timedelta, timezone
+
+    init = _read(INIT)
+    assert yaml.safe_load(_frontmatter(init))["loadProvenanceProbeOrder"] == _probe("skf-load-provenance.py")
+    four = _slice(init, "### 4. Load Provenance Map", "### 4b.")
+    call = _fence(four, "uv run {loadProvenanceHelper} normalize")
+    for token in ("**Bind `{provenance_map_path}`** ← the `paths.provenance_map.path` of §1's `resolve` object",
+                  "Bind `{export_count}` ← `export_count`", "`{provenance_age_days}` ← `age_days`",
+                  'phase: "init:load-provenance-map"', 'path: "{provenance_map_path}"',
+                  'reason: "provenance-invalid: {its first stderr line}"', "bind both `unknown`",
+                  "**If `{provenance_map_path}` is null:**"):
+        assert token in four, token
+    assert "fall back to" not in four and "missing at both paths" not in four
+    seven = _slice(init, "### 7. Present Baseline Summary", "### 8.")
+    assert "| **Provenance Age** | {provenance_age_days} days since last extraction |" in seven
+    assert "In degraded mode, the Provenance Age and Exports rows read `no provenance map`." in seven
+    now = datetime.now(timezone.utc)
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    map_path = tmp_path / "forge data" / "provenance-map.json"
+    map_path.parent.mkdir(parents=True)
+    map_path.write_bytes(json.dumps({"generated_at": (now - timedelta(days=300)).strftime(stamp),
+                                     "last_update": (now - timedelta(days=30, minutes=5)).strftime(stamp),
+                                     "entries": [{"export_name": "a"}, {"export_name": "b"}]}).encode("utf-8"))
+    argv = _argv(call, "loadProvenanceHelper", {"provenance_map_path": str(map_path)})
+    code, out = _run_script(LOAD_PROVENANCE, argv)
+    assert (code, out["export_count"], out["age_days"], out["age_source"]) == (0, 2, 30, "last_update"), out
+    map_path.write_bytes(b"{not json")
+    proc = subprocess.run([sys.executable, str(LOAD_PROVENANCE), *argv], capture_output=True, encoding="utf-8")
+    assert proc.returncode == 1 and "malformed JSON" in proc.stderr
+
+
+def test_a_moved_local_source_is_named_with_source_root(tmp_path):
+    """enhancement-5: `--source-root` replaces a local skill's recorded folder in either mode, halts for a remote
+    or docs-only skill and for a path that is no folder, warns, and step 5 records it in metadata.json, which the
+    next run's §6 reads."""
+    init = _read(INIT)
+    request = _slice(init, "### 1. Request Skill Path", "**Skill:**")
+    assert "- `--source-root <path>` (a skill read from a local folder, in any mode)" in request
+    handler = _slice(init, "**If `--source-root` was provided:**", "\n")
+    assert "set `{source_root_override}` to its path, made absolute (a relative path is read from `{project-root}`)" \
+        in handler
+    assert init.index("**If `--target-ref` was provided:**") < init.index("**If `--source-root` was provided:**") \
+        < init.index("**If `--detect-only` was provided:**")
+    six = _slice(init, "### 6. Resolve the Source", "### 6b.")
+    assert "`{source_root}` ← `source_root`" in six
+    for token in ("`{source_tree_reason}` = `source-root-needs-local-source`",
+                  "\"`--source-root` applies only to a skill read from a local folder\"",
+                  "first bind `{source_root}` ← `{source_root_override}`",
+                  'phase: "init:resolve-source-path"', 'path: "{source_root_override}"',
+                  'reason: "source-root-missing: --source-root {source_root_override} is not a folder"',
+                  "Bind `{source_root}` to the path the user gives",
+                  "When `{source_remote}` is false, bind `{source_root_override}` to it too",
+                  "ask again until it names a folder", "re-run with --source-root <path>",
+                  "Whenever `{source_root}` takes `{source_root_override}` and that folder is not the `source_root` "
+                  "metadata.json records, add `source-root-overridden: {the source_root metadata.json records, or "
+                  "none} -> {source_root_override}`"):
+        assert token in six, token
+    assert '"target_ref_override": "{target_ref_override}", "source_root_override": "{source_root_override}"' in init
+    write = _read(WRITE)
+    two = _slice(write, "- **Record the source commit**", "\n")
+    assert "also pass `--source-root \"{source_root_override}\"`, gap-driven mode included" in two
+    call = _fence(write, "uv run {buildChangeManifestHelper} metadata")
+    assert '[--source-root "{source_root_override}"]' in call
+    for path in (CONTRACT, REPO_ROOT / "docs" / "workflows.md"):
+        assert "`--source-root <path>`" in _read(path), path.name
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    for name in ("source-root-overridden", "version-newest-on-disk", "brief-not-amended"):
+        assert name in warnings, name
+    # the documented metadata call records the folder the run read
+    package, run_dir = tmp_path / "pkg", tmp_path / "run"
+    package.mkdir()
+    run_dir.mkdir()
+    (package / "metadata.json").write_bytes(json.dumps({"name": "lib", "version": "1.0.0",
+                                                        "source_root": "/gone/lib"}).encode("utf-8"))
+    (run_dir / "metadata-lists.json").write_bytes(b'{"exports": [], "scripts": [], "assets": []}')
+    (run_dir / "stats.json").write_bytes(json.dumps({"stats": {"scripts_count": 0, "assets_count": 0},
+                                                     "confidence_distribution": {}}).encode("utf-8"))
+    moved = (tmp_path / "moved source").as_posix()
+    values = {"skill_package": str(package), "run_dir": str(run_dir), "new_version": "1.0.1",
+              "generation_date": "2026-11-13T10:00:00Z", "project-root": str(tmp_path), "source_root_override": moved}
+    code, out = _run_script(BUILD_MANIFEST, _argv_with(call, "buildChangeManifestHelper", values,
+                                                       keep=("--source-root",)))
+    assert code == 0, out
+    assert json.loads((package / "metadata.json").read_bytes())["source_root"] == moved
+
+
+def test_scope_decisions_reach_the_brief_through_amend(tmp_path):
+    """determinism-2: §1b, §1c and a repair's rescopes write the skill brief with `amend`, which keeps an empty
+    include empty and records a decision once, never by hand."""
+    detect, merge = _read(DETECT), _read(MERGE)
+    for text in (detect, merge):
+        assert yaml.safe_load(_frontmatter(text))["writeSkillBriefProbeOrder"] == _probe("skf-write-skill-brief.py")
+    one_b = _slice(detect, "### 1b.", "### 1c.")
+    block = _fence(one_b, "uv run {writeSkillBriefHelper} amend")
+    [call] = [line.strip() for line in block.splitlines() if "{writeSkillBriefHelper}" in line]
+    assert call == "uv run {writeSkillBriefHelper} amend --target \"{brief_path}\" <<'SKF_BRIEF_DECISION'"
+    for token in ("Pass `include` for [P] only", "only when that list is not empty",
+                  "skips an amendment whose path and category already have that action as their latest",
+                  "add `brief-not-amended: {path}: {its stderr, or skf-write-skill-brief.py is missing}` to "
+                  "`warnings[]` and go on", "`amend` skips a deferral the brief already holds",
+                  "write the decision with `include: [\"{path}\"]` and an amendment `action: \"promoted\"`",
+                  "write the decision with no `include` and an amendment `action: \"skipped\"`"):
+        assert token in one_b, token
+    one_c = _slice(detect, "### 1c.", "**Record for evidence report:**")
+    assert "[P] passes the path in `include` as the drift report gives it, wildcards kept" in one_c
+    in_place = _slice(merge, "**Write the merged files in place**", "**Do NOT write here:**")
+    rescope = _fence(in_place, "uv run {writeSkillBriefHelper} amend")
+    for token in ('phase: "merge:brief-amend"', "its rollback restores the brief from the snapshot",
+                  "HALT with status `halted-for-write-failure`"):
+        assert token in in_place, token
+    for gone in ("write the amended brief back to disk", "append `candidate.path` to `brief.scope.include`",
+                 "appends the path to `scope.include`", "append its `scope.amendments[]` entry",
+                 "add its path to `scope.exclude`", "write no second amendment"):
+        assert gone not in detect and gone not in merge, gone
+    # §1b's documented call: a promoted glob leaves an empty include empty and records the decision
+    brief = tmp_path / "skill-brief.yaml"
+    brief.write_bytes(b"name: lib\nscope:\n  type: full-library\n  include: []\n  exclude: []\n  notes: ''\n")
+    payload = block.splitlines()[1].strip()
+    for text, value in (("{path}", "docs/**/AGENTS.md"), ("promoted|skipped|deferred-headless", "promoted"),
+                        ("{reason}", "r"), ("{basename}", "AGENTS.md"), ("{today ISO}", "2026-11-13")):
+        payload = payload.replace(text, value)
+    argv = _argv(call.split(" <<", 1)[0], "writeSkillBriefHelper", {"brief_path": str(brief)})
+    proc = subprocess.run([sys.executable, str(WRITE_BRIEF), *argv], input=payload, capture_output=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    scope = yaml.safe_load(brief.read_text(encoding="utf-8"))["scope"]
+    assert scope["include"] == [] and [a["action"] for a in scope["amendments"]] == ["promoted"]
+    # merge's documented call, run twice as a re-run of the repair would: the second adds nothing
+    [line] = [line.strip() for line in rescope.splitlines() if "{writeSkillBriefHelper}" in line]
+    amendment = {"path": "src/internal.py", "action": "excluded", "category": "scope-expansion", "reason": "internal",
+                 "date": "2026-11-13", "workflow": "skf-update-skill"}
+    payload = rescope.splitlines()[1].strip().replace('"<each rescope\'s exclude>"', json.dumps("src/internal.py")) \
+        .replace("<each rescope's amendment object>", json.dumps(amendment))
+    argv = _argv(line.split(" <<", 1)[0], "writeSkillBriefHelper",
+                 {"forge_data_folder": str(tmp_path), "skill_name": "lib"})
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "skill-brief.yaml").write_bytes(brief.read_bytes())
+    outs = []
+    for _ in range(2):
+        proc = subprocess.run([sys.executable, str(WRITE_BRIEF), *argv], input=payload, capture_output=True,
+                              encoding="utf-8")
+        assert proc.returncode == 0, proc.stderr
+        outs.append(json.loads(proc.stdout))
+    assert [(o["excluded"], o["appended"], o["skipped_duplicates"]) for o in outs] == [
+        (["src/internal.py"], 1, 0), ([], 0, 1)]
+    scope = yaml.safe_load((tmp_path / "lib" / "skill-brief.yaml").read_text(encoding="utf-8"))["scope"]
+    assert scope["exclude"] == ["src/internal.py"] and [a["action"] for a in scope["amendments"]] == [
+        "promoted", "excluded"]
+
+
+def test_source_root_is_refused_for_a_remote_skill_in_every_mode(tmp_path, monkeypatch):
+    """review 1 (enhancement-5): §6 asks `classify` before any mode's branch, so `--source-root` halts for a skill
+    whose `source_repo` is a remote repository in gap-driven mode too, which runs no §6b, and for a Quick-tier skill
+    whose `open` reports `skipped`. A folder the user names for such a skill is read for the run only, never
+    recorded, and the headless halt names `--source-root` only for a skill that takes it."""
+    six = _slice(_read(INIT), "### 6. Resolve the Source", "### 6b.")
+    refusal = _slice(six, "**A remote skill takes no `--source-root`.**", "\n")
+    call = re.search(r"`(uv run \{sourceTreeHelper\} classify [^`]*)`", refusal).group(1)
+    assert call == 'uv run {sourceTreeHelper} classify --source-repo "{source_repo}" --source-root "{source_root}"'
+    for token in ("When `{source_root_override}` is set", "It makes no network call and builds no tree",
+                  "in every mode, gap-driven included", "`{source_tree_reason}` = `source-root-needs-local-source`",
+                  "HALT the same way with `helper-failed`"):
+        assert token in refusal, token
+    assert six.index(refusal) < six.index("- **Docs-only skill**") < six.index("- **Gap-driven mode**") \
+        < six.index("- **Every other mode**")
+    assert "`ready` or `offline`" not in _slice(six, "- **Every other mode**", "\n")
+    invalid = _slice(six, "**If the source path is invalid or missing:**", "Whenever `{source_root}` takes")
+    for token in ("first run the `classify` call above when it has not run, halting `helper-failed` as above when "
+                  "it fails (`remote` true does not halt here: no `--source-root` was passed)",
+                  "bind `{source_remote}` ← its `remote`",
+                  "When `{source_remote}` is false, bind `{source_root_override}` to it too",
+                  "A remote skill reads it for this run only: `{source_root_override}` stays unset",
+                  "For a remote skill (`{source_remote}` true), which takes no `--source-root`"):
+        assert token in invalid, token
+    assert "source-root-needs-local-source" in _slice(
+        _read(REPO_ROOT / "docs" / "troubleshooting.md"), "### Update Skill stops with `blocked` before detecting",
+        "\n### ")
+    # the documented call: a Quick-tier skill (its root a URL), a remote skill whose root is a local folder, and a
+    # skill built from a local folder; `classify` reads `remote` from `source_repo` and never the network
+    monkeypatch.setenv("SKF_WORKSPACE", str(tmp_path / "ws"))
+    local = tmp_path / "moved source"
+    local.mkdir()
+    url = "https://github.com/acme/lib"
+    for repo, root, remote, skip in ((url, url, True, "not-workspace-clone"),
+                                     (url, str(local), True, "not-workspace-clone"),
+                                     (str(local), str(local), False, "not-remote")):
+        code, out = _run_script(HELPER, _argv(call, "sourceTreeHelper", {"source_repo": repo, "source_root": root}))
+        assert (code, out["remote"], out["skip_reason"]) == (0, remote, skip), out
+    assert _subparser_flags("classify") == {"--source-repo", "--source-root"}
+    assert not (tmp_path / "ws").exists()
+
+
+def test_an_emptied_next_version_folder_is_skipped(tmp_path, capsys):
+    """review 1 (determinism-4): init's `resolve` takes the manifest's 1.0.1 past an `active` link to an emptied
+    1.0.2, whose next patch is that very folder, so `begin` would exit 3 and merge halt "already exists" after
+    detection. merge §6b skips a version folder that holds no skill, with a warning, and a 1.0.2 that holds the
+    package still takes the version-exists halt."""
+    merge = _read(MERGE)
+    choose = _slice(merge, "**Choose the version this update writes**", "**Record what this run writes**")
+    skip = _slice(choose, "**Skip an emptied version folder.**", "\n")
+    for token in ("While `{skill_group}/{new_version}/` exists and holds no `{skill_name}/` folder",
+                  "the test init.md §1's `resolve` applies to a version folder", "with the halt above",
+                  "`version-folder-skipped: {skill_group}/{that version}/ holds no skill; this update writes "
+                  "{new_version}`", "The folder skipped stays as it is",
+                  "A version folder that holds the package, and a forge folder alone, still take the version-exists "
+                  "halt below"):
+        assert token in skip, token
+    assert choose.index("- **Every other mode**") < choose.index(skip)
+    assert "- **Gap-driven mode**" not in skip
+    step = re.search(r"`(uv run \{skillInventoryHelper\} version next-patch \"\{new_version\}\")`", skip).group(1)
+    for path in (REPO_ROOT / "docs" / "workflows.md", REPO_ROOT / "docs" / "troubleshooting.md"):
+        assert "`version-folder-skipped`" in _read(path), path.name
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert "version-folder-skipped" in warnings
+    begin = _fence(_slice(merge, "**Record what this run writes**", "**Create the version folder**"),
+                   "--mode new-version")
+    inventory = _module(INVENTORY_HELPER, "skf_skill_inventory_emptied")
+    state = _module(RUN_STATE, "skf_update_run_state_emptied")
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    group = skills / "lib"
+    (group / "1.0.1" / "lib").mkdir(parents=True)
+    (group / "1.0.1" / "lib" / "SKILL.md").write_bytes(b"---\nname: lib\n---\n")
+    (group / "1.0.2").mkdir()
+    _link_active(group / "active", "1.0.2")
+    (forge / "lib" / "1.0.1").mkdir(parents=True)
+    (skills / ".export-manifest.json").write_bytes(json.dumps({"schema_version": "2", "exports": {"lib": {
+        "active_version": "1.0.1", "versions": {"1.0.1": {"status": "active"}}}}}).encode("utf-8"))
+    resolve = _fence(_version_resolution(), "uv run {skillInventoryHelper} resolve")
+    code, out = _run_script(INVENTORY_HELPER, _argv(resolve, "skillInventoryHelper", {
+        "skills_output_folder": str(skills), "skill_name": "lib", "forge_data_folder": str(forge)}))
+    assert (code, out["resolve"]["reason"], out["resolve"]["chosen_version"]) == (0, "manifest", "1.0.1"), out
+
+    def next_patch(version: str) -> str:
+        assert inventory.main(_argv(step, "skillInventoryHelper", {"new_version": version})) == 0
+        return json.loads(capsys.readouterr().out)["next_patch"]
+
+    # merge's next patch of 1.0.1, then past each version folder that holds no `lib/`, as the skip says
+    new_version, skipped = next_patch("1.0.1"), []
+    while (group / new_version).exists() and not (group / new_version / "lib").is_dir():
+        skipped.append(new_version)
+        new_version = next_patch(new_version)
+    assert (skipped, new_version) == (["1.0.2"], "1.0.3")
+    values = {"forge_data_folder": str(forge), "skill_name": "lib", "skill_group": str(group)}
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert state.main(_cmd_args(begin, "runStateHelper", {**values, "run_dir": str(run_dir),
+                                                          "new_version": new_version})) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "began"
+    assert sorted(p.name for p in group.iterdir()) == ["1.0.1", "1.0.2", "active"]
+    # a 1.0.2 that holds the package is a version, never skipped: `begin` exits 3, the version-exists halt
+    (group / "1.0.2" / "lib").mkdir()
+    other = tmp_path / "run 2"
+    other.mkdir()
+    assert state.main(_cmd_args(begin, "runStateHelper", {**values, "run_dir": str(other),
+                                                          "new_version": "1.0.2"})) == 3
+    assert json.loads(capsys.readouterr().out)["status"] == "exists"
+
+
+def test_brief_decisions_escape_their_values_and_track_only_what_the_brief_recorded():
+    """review 1 (determinism-2): each `amend` payload says how its values are written, as every other JSON payload
+    of update-skill does; [P] tracks a document only when `amend` recorded the promotion, so a failed write is
+    asked again; and a read-only run's `proposed-amendment:` warning follows what `amend` appended, never a
+    duplicate it skipped."""
+    detect, merge = _read(DETECT), _read(MERGE)
+    escaping = ("Write each payload value as a JSON string: escape `\"` and `\\`, write a line break or tab inside a "
+                "value as `\\n` or `\\t`, and write every path with `/`.")
+    one_b = _slice(detect, "### 1b.", "### 1c.")
+    protocol = _slice(one_b, "`{path}` is `candidate.path`.", "\n")
+    assert escaping in protocol
+    in_place = _slice(merge, "**Write the merged files in place**", "**Do NOT write here:**")
+    assert escaping in _slice(in_place, "SKF_BRIEF_DECISION\n   ```", "\n2. ")
+    promote = _slice(one_b, "- **[P] Promote:**", "\n")
+    assert "When that call exited 0 with JSON, append the candidate's" in promote
+    assert "A promotion the brief could not record (its `brief-not-amended` warning) is not tracked either" in promote
+    assert promote.index("When that call exited 0 with JSON") < promote.index("to `promoted_docs_new[]`")
+    brief = _slice(detect, "**The brief this run reads.**", "\n")
+    assert ("for each amendment `amend` appended (its `appended`), never for one it skipped as a duplicate "
+            "(`skipped_duplicates`)") in brief
+    assert "as you write it" not in brief

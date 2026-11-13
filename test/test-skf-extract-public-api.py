@@ -5279,3 +5279,176 @@ class TestBriefCountsAndFileSets:
         assert exc.value.code == 2 and captured.out == ""
         [line] = [line for line in captured.err.splitlines() if "error:" in line]
         assert message in line and "--print" in line, line
+
+
+# --------------------------------------------------------------------------
+# --package-name: the version file picked in the source tree (#1193,
+# skf-update-skill determinism-3), so a sibling package's version never
+# names the skill's version.
+# --------------------------------------------------------------------------
+
+
+class TestPackageName:
+    MONOREPO = {
+        "package.json": '{"name": "acme-monorepo", "version": "0.0.0", "private": true}',
+        "packages/foo/package.json": '{"name": "@acme/foo", "version": "2.1.0"}',
+        "packages/bar/package.json": '{"name": "@acme/bar", "version": "3.0.0"}',
+        "tools/cli/package.json": '{"name": "@acme/cli", "version": "4.0.0", "bin": {"acme": "cli.js"}}',
+        "tools/deep/cli2/package.json": '{"name": "@acme/cli2", "version": "5.0.0", "bin": "cli.js"}',
+        "node_modules/acme-foo/package.json": '{"name": "acme-foo", "version": "9.9.9"}',
+        ".changeset/package.json": '{"name": "@acme/foo", "version": "8.8.8"}',
+    }
+
+    @pytest.fixture
+    def tags(self, monkeypatch):
+        """Each release tag lookup asked for; none gives a version, so a test never reads git or GitHub."""
+        asked: list[str] = []
+
+        def release_tag(args, warnings):
+            asked.append(args.source_root)
+            return None
+
+        monkeypatch.setattr(mod, "_release_tag", release_tag)
+        monkeypatch.setattr(sys, "stdin", SimpleNamespace(read=lambda *a: pytest.fail("stdin was read")))
+        return asked
+
+    def _pick(self, capsys, root: Path, language: str, name: str) -> dict:
+        code, out = _quick(capsys, "--language", language, "--source-root", str(root), "--resolve-version",
+                           "--package-name", name)
+        assert code == 0, out
+        return out
+
+    @pytest.mark.parametrize(("drop", "name", "expected"), [
+        ((), "acme-foo", ("2.1.0", "manifest", "packages/foo/package.json", "name", "@acme/foo")),
+        ((), "@acme/foo", ("2.1.0", "manifest", "packages/foo/package.json", "name", "@acme/foo")),
+        ((), "unknown", ("4.0.0", "manifest", "tools/cli/package.json", "bin", "@acme/cli")),
+        (("tools/cli/package.json",), "unknown", ("5.0.0", "manifest", "tools/deep/cli2/package.json", "bin",
+                                                  "@acme/cli2")),
+        (("tools/cli/package.json", "tools/deep/cli2/package.json"), "unknown",
+         ("0.0.0", "manifest", "package.json", "root", "acme-monorepo")),
+    ], ids=["skill-name", "package-name", "bin", "deeper-bin", "root"])
+    def test_a_monorepo_names_the_package_not_a_sibling(self, tmp_path, capsys, tags, drop, name, expected):
+        root = _stage(tmp_path / "repo", {k: v for k, v in self.MONOREPO.items() if k not in drop})
+        out = self._pick(capsys, root, "typescript", name)
+        assert (out["version"], out["version_source"], out["manifest_file"], out["rule"],
+                out["package_name"]) == expected
+        assert tags == []
+
+    def test_an_unscoped_name_matches_the_scoped_package(self, tmp_path, capsys, tags):
+        """A skill named after its package's unscoped name (`foo` for `@acme/foo`) reads that package, never a
+        sibling CLI's, which the `bin` rule would otherwise pick."""
+        root = _stage(tmp_path / "repo", {
+            "package.json": '{"name": "acme-monorepo", "private": true}',
+            "packages/foo/package.json": '{"name": "@acme/foo", "version": "2.1.0"}',
+            "apps/cli/package.json": '{"name": "@acme/cli", "version": "9.0.0", "bin": {"acme": "cli.js"}}',
+        })
+        out = self._pick(capsys, root, "typescript", "foo")
+        assert (out["version"], out["version_source"], out["manifest_file"], out["rule"]) == (
+            "2.1.0", "manifest", "packages/foo/package.json", "name")
+        # the scope is dropped only from a scoped name: `foo` names no package called `acme-foo`
+        root = _stage(tmp_path / "flat", {
+            "packages/foo/package.json": '{"name": "acme-foo", "version": "2.1.0"}',
+            "apps/cli/package.json": '{"name": "@acme/cli", "version": "9.0.0", "bin": "cli.js"}',
+        })
+        out = self._pick(capsys, root, "typescript", "foo")
+        assert (out["manifest_file"], out["rule"]) == ("apps/cli/package.json", "bin")
+
+    @pytest.mark.parametrize("bom", [False, True], ids=["placeholder-sibling", "bom-package"])
+    def test_a_malformed_sibling_or_a_bom_still_picks_by_name(self, tmp_path, capsys, tags, bom):
+        """A template's placeholder `package.json`, which is not JSON, is read as no name and no `bin`, and the
+        skill's own package saved with a byte order mark is still read by its `name`, version included."""
+        files = {**self.MONOREPO,
+                 "templates/app/package.json": '{\n  "name": "{{name}}",\n  "version": {{version}},\n}\n'}
+        if bom:
+            files["packages/foo/package.json"] = b"\xef\xbb\xbf" + files["packages/foo/package.json"].encode("utf-8")
+        root = _stage(tmp_path / "repo", files)
+        out = self._pick(capsys, root, "typescript", "acme-foo")
+        assert (out["version"], out["version_source"], out["manifest_file"], out["rule"]) == (
+            "2.1.0", "manifest", "packages/foo/package.json", "name")
+
+    def test_a_tie_goes_to_the_shallowest_then_to_path_order(self, tmp_path, capsys, tags):
+        root = _stage(tmp_path / "repo", {
+            "b/package.json": '{"name": "x", "version": "1.0.0"}',
+            "a/package.json": '{"name": "x", "version": "2.0.0"}',
+            "a/inner/package.json": '{"name": "x", "version": "3.0.0"}',
+        })
+        out = self._pick(capsys, root, "js", "x")
+        assert (out["version"], out["manifest_file"], out["rule"]) == ("2.0.0", "a/package.json", "name")
+
+    def test_a_name_matching_placeholder_gives_no_file_version(self, tmp_path, capsys, tags):
+        root = _stage(tmp_path / "repo", {**self.MONOREPO,
+                                          "packages/foo/package.json":
+                                              '{"name": "@acme/foo", "version": "0.0.0-development"}'})
+        out = self._pick(capsys, root, "typescript", "acme-foo")
+        assert (out["manifest_file"], out["rule"], out["version"], out["version_source"]) == (
+            "packages/foo/package.json", "name", None, None)
+        assert tags == [str(root)]
+
+    @pytest.mark.parametrize(("files", "manifest", "version"), [
+        ({"pyproject.toml": '[project]\nname = "pkg"\nversion = "1.2.3"\n',
+          "setup.py": "from setuptools import setup\nsetup(name='pkg', version='9.0.0')\n"}, "pyproject.toml", "1.2.3"),
+        ({"setup.py": "from setuptools import setup\nsetup(name='pkg', version='1.2.4')\n",
+          "setup.cfg": "[metadata]\nname = pkg\nversion = 9.0.0\n"}, "setup.py", "1.2.4"),
+        ({"setup.cfg": "[metadata]\nname = pkg\nversion = 1.2.5\n"}, "setup.cfg", "1.2.5"),
+    ], ids=["pyproject", "setup-py", "setup-cfg"])
+    def test_python_reads_the_root_version_file_in_order(self, tmp_path, capsys, tags, files, manifest, version):
+        root = _stage(tmp_path / "repo", {**files, "sub/pyproject.toml": '[project]\nname = "pkg"\nversion = "7.0.0"\n'})
+        out = self._pick(capsys, root, "python", "pkg")
+        assert (out["manifest_file"], out["rule"], out["version"], out["version_source"]) == (
+            manifest, "root", version, "manifest")
+
+    def test_rust_reads_the_root_cargo_toml(self, tmp_path, capsys, tags):
+        root = _stage(tmp_path / "repo", {
+            "Cargo.toml": '[workspace]\nmembers = ["crates/m"]\n\n[workspace.package]\nversion = "0.9.1"\n',
+            "crates/m/Cargo.toml": '[package]\nname = "m"\nversion = "7.0.0"\n'})
+        out = self._pick(capsys, root, "rust", "m")
+        assert (out["manifest_file"], out["rule"], out["version"], out["version_source"]) == (
+            "Cargo.toml", "root", "0.9.1", "file:Cargo.toml")
+
+    @pytest.mark.parametrize(("language", "files"), [
+        ("go", {"go.mod": "module example.com/x\n"}),
+        ("typescript", {"src/index.ts": "export const a = 1;\n"}),
+        ("python", {"src/pkg/__init__.py": "__version__ = '1.0.0'\n"}),
+    ], ids=["another-language", "no-package-json", "no-python-file"])
+    def test_no_version_file_gives_nulls_and_a_warning(self, tmp_path, capsys, tags, language, files):
+        root = _stage(tmp_path / "repo", files)
+        out = self._pick(capsys, root, language, "x")
+        assert (out["manifest_file"], out["rule"], out["version"], out["version_source"]) == (None, None, None, None)
+        assert any(w.startswith(f"--package-name found no version file for {language} under --source-root")
+                   for w in out["warnings"])
+        assert tags == []
+
+    def test_without_the_flag_the_output_has_no_pick(self, tmp_path, capsys, tags):
+        root = _stage(tmp_path / "repo", self.MONOREPO)
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--manifest-file",
+                           "package.json", "--resolve-version")
+        assert code == 0 and "manifest_file" not in out and "rule" not in out
+
+    @pytest.mark.parametrize(("argv", "message"), [
+        (["--manifest-file", "package.json", "--resolve-version"], "and no --manifest-file"),
+        ([], "pass a name with --resolve-version and --source-root"),
+        (["--resolve-version", "--no-root"], "pass a name with --resolve-version and --source-root"),
+        (["--resolve-version", "--empty"], "pass a name with --resolve-version and --source-root"),
+        (["--resolve-version", "--mode", "full"], "--package-name: quick mode only"),
+        (["--resolve-version", "--mode", "entries"], "--package-name: quick mode only"),
+    ], ids=["with-manifest-file", "no-resolve-version", "no-source-root", "empty-name", "full-mode",
+            "entries-mode"])
+    def test_the_combinations_it_refuses(self, tmp_path, capsys, argv, message):
+        root = _stage(tmp_path / "repo", self.MONOREPO)
+        name = "" if "--empty" in argv else "acme-foo"
+        source = [] if "--no-root" in argv else ["--source-root", str(root)]
+        flags = [a for a in argv if a not in ("--empty", "--no-root")]
+        mode = []
+        if "--mode" in flags:
+            i = flags.index("--mode")
+            mode, flags = flags[i:i + 2], flags[:i] + flags[i + 2:]
+        with pytest.raises(SystemExit) as exc:
+            mod.main([*(mode or ["--mode", "quick"]), "--language", "ts", *source, "--package-name", name, *flags])
+        assert exc.value.code == 2 and message in capsys.readouterr().err
+
+    def test_a_source_root_that_is_no_folder_is_an_input_error(self, tmp_path, capsys):
+        code = mod.main(["--mode", "quick", "--language", "ts", "--source-root", str(tmp_path / "gone"),
+                         "--resolve-version", "--package-name", "x"])
+        captured = capsys.readouterr()
+        assert (code, captured.out) == (2, "")
+        assert "--source-root is not a folder" in captured.err

@@ -64,8 +64,8 @@ Subcommands:
 
   metadata --metadata <metadata.json> --lists <file> --stats <file>
            --version <version> --generation-date <iso>
-           [--source-commit <sha>] [--source-ref <ref>] [--skf-root <dir>]
-           [--extraction <file>] [--qmd-version <version>]
+           [--source-commit <sha>] [--source-ref <ref>] [--source-root <path>]
+           [--skf-root <dir>] [--extraction <file>] [--qmd-version <version>]
       The skill's metadata.json an update leaves (see "Metadata" below),
       written over --metadata through a temporary file and a rename.
       Prints {"status": "written", "metadata": <path>, "version",
@@ -185,7 +185,7 @@ Input JSON shape (object on stdin or in --input file):
       "docs_modified": [...],            "docs_deleted": [...]
     },
     "degraded_mode": false,
-    "update_mode": "normal" | "gap-driven"  // optional; influences deletion-ratio only
+    "update_mode": "normal" | "gap-driven" | "degraded"  // optional; influences deletion-ratio only
   }
 
 Manifest (build's output):
@@ -486,8 +486,10 @@ Metadata (update-skill write.md §3b):
 
   metadata.json as --metadata holds it, with what the update sets: version
   (--version) and generation_date (--generation-date, YYYY-MM-DDTHH:MM:SSZ);
-  source_commit and source_ref when --source-commit or --source-ref is
-  given (an empty one sets null), else as they stand; exports, scripts and
+  source_commit, source_ref and source_root when --source-commit,
+  --source-ref or --source-root is given (an empty one sets null), else as
+  they stand (--source-root: the local folder a run's --source-root
+  override read, init.md §6); exports, scripts and
   assets from --lists (apply's --lists-out), scripts or assets left out
   when its list is empty; confidence_distribution from --stats (the JSON
   skf-render-metadata-stats.py writes with -o), and stats: the stats
@@ -2660,6 +2662,7 @@ def stats_after(old_stats: dict, new_stats: dict, scope_type: object) -> tuple[d
 
 def update_metadata(metadata: object, lists: object, stats: object, *, version: str, generation_date: str,
                     source_commit: str | None = None, source_ref: str | None = None,
+                    source_root: str | None = None,
                     skf_version: str | None = None, skf_root: str | Path | None = None,
                     ast_grep_version: str | None = None, qmd_version: str | None = None) -> tuple[dict, dict]:
     """(the metadata.json an update leaves, {"dropped_stats": [...], "warnings": [...]}) (see "Metadata" in the
@@ -2686,7 +2689,7 @@ def update_metadata(metadata: object, lists: object, stats: object, *, version: 
     out = {k: v for k, v in metadata.items() if k not in ("last_update", "update_type")}
     out["version"] = version
     out["generation_date"] = generation_date
-    for key, value in (("source_commit", source_commit), ("source_ref", source_ref)):
+    for key, value in (("source_commit", source_commit), ("source_ref", source_ref), ("source_root", source_root)):
         if value is not None:
             out[key] = value or None
     out["exports"] = lists["exports"]
@@ -3809,8 +3812,8 @@ def _cmd_metadata(args: argparse.Namespace) -> int:
             _load_json_file(target, "--metadata file"), _load_json_file(Path(args.lists), "--lists file"),
             _load_json_file(Path(args.stats), "--stats file"), version=args.version,
             generation_date=args.generation_date, source_commit=args.source_commit, source_ref=args.source_ref,
-            skf_version=skf_version, skf_root=args.skf_root, ast_grep_version=_runner_ast_grep(args.extraction),
-            qmd_version=args.qmd_version)
+            source_root=args.source_root, skf_version=skf_version, skf_root=args.skf_root,
+            ast_grep_version=_runner_ast_grep(args.extraction), qmd_version=args.qmd_version)
         _write_json_atomic(target, metadata)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -4106,8 +4109,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_meta = sub.add_parser(
         "metadata", help="write the metadata.json an update leaves",
         description="Rewrite the skill's metadata.json in place. It sets version and generation_date, "
-                    "source_commit and source_ref when given, exports, scripts and assets from --lists (a script "
-                    "or asset list left out when empty), confidence_distribution from --stats and the stats "
+                    "source_commit, source_ref and source_root when given, exports, scripts and assets from "
+                    "--lists (a script or asset list left out when empty), confidence_distribution from --stats and the stats "
                     "helper's stats fields, dropping one an earlier run wrote that --stats lacks; tool_versions.skf "
                     "from --skf-root (unknown, with a warning, when it gives no version), and tool_versions.ast_grep "
                     "and tool_versions.qmd from --extraction and --qmd-version when this run used them, else as "
@@ -4126,6 +4129,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_meta.add_argument("--generation-date", required=True, help="the clock's UTC time, YYYY-MM-DDTHH:MM:SSZ")
     p_meta.add_argument("--source-commit", default=None, help="the commit this update read (an empty one: null)")
     p_meta.add_argument("--source-ref", default=None, help="the ref this update read (an empty one: null)")
+    p_meta.add_argument("--source-root", default=None,
+                        help="the local source folder a --source-root override named, which later runs read (an "
+                             "empty one: null)")
     p_meta.add_argument("--skf-root", metavar="DIR",
                         help="the installed SKF ({project-root}/_bmad/skf): tool_versions.skf, from its package.json "
                              "or VERSION file")

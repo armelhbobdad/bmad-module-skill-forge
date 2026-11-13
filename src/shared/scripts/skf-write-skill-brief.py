@@ -28,14 +28,17 @@ Subcommands:
 
   amend   Read answers as JSON on stdin and apply them to the brief
           already at --target: set scope.registry_path and
-          scope.demo_patterns, append literal paths to scope.include,
-          append the entries to scope.amendments, refuse an amendment
-          that adds a skill-brief.v1.json error (skf-validate-brief-schema.py's
+          scope.demo_patterns, append paths or globs to scope.include
+          and scope.exclude, append the entries to scope.amendments
+          (less one the brief already holds), refuse an amendment that
+          adds a skill-brief.v1.json error (skf-validate-brief-schema.py's
           rules), copy the brief to <target>.bak, and write it atomically.
           Every other field keeps its value and its place; comments are
           not kept (the .bak copy holds them). create-skill step 3d
           records its answers so, and step 3's authoritative-files
-          protocol its promote, skip and headless-deferral decisions.
+          protocol its promote, skip and headless-deferral decisions;
+          update-skill records its scope decisions (detect-changes.md
+          §1b and §1c) and a repair's rescopes (merge.md §6b) so.
 
 Context payload shape (consumed by `write`):
 
@@ -178,6 +181,7 @@ Answers payload (consumed by `amend`), each key optional, one at least:
     "registry_path": "registry/index.ts",
     "demo_patterns": ["**/examples/**"],
     "include":       ["docs/llms.txt"],
+    "exclude":       ["src/internal.py"],
     "amendments":    [{"path": "...", "action": "...", "category": "...",
                        "reason": "...", "evidence": "...",
                        "date": "2026-10-01", "workflow": "..."}]
@@ -186,10 +190,25 @@ Answers payload (consumed by `amend`), each key optional, one at least:
   Each amendment needs a non-empty path, action, reason and workflow and
   an ISO date; category, when given, is a non-empty string.
 
-  `include` holds literal paths, each appended to scope.include unless the
-  list already holds it. An empty scope.include already covers every file,
-  so it stays empty: appending one path would narrow the scope to that
-  file. The output's `included` lists the paths appended.
+  `include` holds paths or globs, each appended as given to scope.include
+  unless the list already holds it. An empty scope.include already covers
+  every file, so it stays empty: appending one path would narrow the scope
+  to that file. The output's `included` lists the paths appended.
+
+  `exclude` holds paths or globs, each appended as given to scope.exclude
+  unless the list already holds it, the list made when the brief has none.
+  The output's `excluded` lists the paths appended.
+
+  An amendment is skipped when the latest amendment for its category (an
+  entry without one is `auth-doc`, as skill-brief.v1.json reads it) and
+  path, among the ones the brief holds and the ones this call appended,
+  has the same action: a re-run never records one decision twice, and a
+  changed decision is still recorded. A `skipped` amendment whose reason
+  is `headless: no user to prompt`, the automatic skip a headless run
+  wrote before `deferred-headless` existed, counts as `deferred-headless`,
+  as skf-resolve-authoritative-files.py and skf-provenance-gap-dispatch.py
+  read it: a person's skip after it is written. `appended` counts the
+  entries written and `skipped_duplicates` the others.
 
 Output of `amend` (success):
 
@@ -199,7 +218,9 @@ Output of `amend` (success):
     "backup":     "/abs/path/skill-brief.yaml.bak",
     "set":        ["registry_path", "demo_patterns"],   # the fields given
     "included":   ["docs/llms.txt"],                    # paths appended to scope.include
-    "appended":   <integer>,                            # amendment entries
+    "excluded":   ["src/internal.py"],                  # paths appended to scope.exclude
+    "appended":   <integer>,                            # amendment entries written
+    "skipped_duplicates": <integer>,                    # amendment entries the brief held
     "bytes":      <integer>
   }
 
@@ -935,7 +956,7 @@ def cmd_write(target: Path, from_flat: bool = False, base_brief: Path | None = N
     return 0
 
 
-AMEND_FIELDS = ("registry_path", "demo_patterns", "include", "amendments")
+AMEND_FIELDS = ("registry_path", "demo_patterns", "include", "exclude", "amendments")
 BRIEF_VALIDATOR = Path(__file__).resolve().parent / "skf-validate-brief-schema.py"
 
 
@@ -956,11 +977,45 @@ def _added_errors(before: dict[str, Any], after: dict[str, Any]) -> list[dict[st
     return [e for e in _brief_errors(after) if json.dumps(e, sort_keys=True) not in known]
 
 
-def _check_include(paths: Any) -> list[str]:
-    """The literal paths of an amend payload's `include`."""
+def _check_include(paths: Any, key: str = "include") -> list[str]:
+    """The paths or globs of an amend payload's `include` or `exclude`."""
     if not isinstance(paths, list) or not all(isinstance(p, str) and p.strip() for p in paths):
-        _die("amend: include must be an array of non-empty paths", field="scope.include")
+        _die(f"amend: {key} must be an array of non-empty paths", field=f"scope.{key}")
     return paths
+
+
+def _amendment_key(entry: dict[str, Any]) -> tuple[str, Any]:
+    """(category, path) of an amendment: an entry without a category is an auth-doc decision."""
+    category = entry.get("category")
+    return (category if isinstance(category, str) and category else "auth-doc"), entry.get("path")
+
+
+# The reason a headless run gave its automatic skip before deferred-headless
+# existed. skf-resolve-authoritative-files.py and skf-provenance-gap-dispatch.py
+# read such a skip as deferred-headless, and so does the duplicate check.
+_LEGACY_HEADLESS_REASON = "headless: no user to prompt"
+
+
+def _amendment_action(entry: dict[str, Any]) -> Any:
+    """The action an amendment records, a legacy headless skip read as a deferral."""
+    action, reason = entry.get("action"), entry.get("reason")
+    if action == "skipped" and isinstance(reason, str) and reason.strip() == _LEGACY_HEADLESS_REASON:
+        return "deferred-headless"
+    return action
+
+
+def _new_amendments(existing: list[Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The entries to append: each but one whose category and path's latest
+    amendment, in `existing` or among the entries kept before it, has its action."""
+    latest = {_amendment_key(e): _amendment_action(e) for e in existing if isinstance(e, dict)}
+    kept = []
+    for entry in entries:
+        key, action = _amendment_key(entry), _amendment_action(entry)
+        if key in latest and latest[key] == action:
+            continue
+        latest[key] = action
+        kept.append(entry)
+    return kept
 
 
 def _check_amendments(entries: Any) -> list[dict[str, Any]]:
@@ -989,7 +1044,8 @@ def cmd_amend(target: Path) -> int:
     except json.JSONDecodeError as e:
         _die(f"amend: invalid JSON on stdin: {e}")
     if not isinstance(payload, dict):
-        _die("amend: stdin must be a JSON object holding registry_path, demo_patterns, include or amendments")
+        _die("amend: stdin must be a JSON object holding registry_path, demo_patterns, include, exclude or "
+             "amendments")
     unknown = sorted(set(payload) - set(AMEND_FIELDS))
     if unknown:
         _die(f"amend: unknown field(s) {unknown}; expected some of {list(AMEND_FIELDS)}")
@@ -998,6 +1054,7 @@ def cmd_amend(target: Path) -> int:
         _die("amend: nothing to amend")
     entries = _check_amendments(payload["amendments"]) if "amendments" in given else []
     include = _check_include(payload["include"]) if "include" in given else []
+    exclude = _check_include(payload["exclude"], "exclude") if "exclude" in given else []
 
     try:
         original = target.read_bytes()
@@ -1011,11 +1068,14 @@ def cmd_amend(target: Path) -> int:
         _die(f"amend: {target} holds no scope mapping", field="scope")
     before = yaml.safe_load(render_yaml(brief))
     scope = brief["scope"]
+    kept: list[dict[str, Any]] = []
     if entries:
         existing = scope.get("amendments")
         if existing is not None and not isinstance(existing, list):
             _die("amend: the brief's scope.amendments is not an array", field="scope.amendments")
-        scope["amendments"] = [*(existing or []), *entries]
+        kept = _new_amendments(existing or [], entries)
+        if kept:
+            scope["amendments"] = [*(existing or []), *kept]
     for field in ("registry_path", "demo_patterns"):
         if field in given:
             scope[field] = payload[field]
@@ -1027,6 +1087,16 @@ def cmd_amend(target: Path) -> int:
             if path not in current and path not in included:
                 included.append(path)
         scope["include"] = [*current, *included]
+    excluded: list[str] = []
+    if exclude:
+        current = scope.get("exclude")
+        if current is not None and not isinstance(current, list):
+            _die("amend: the brief's scope.exclude is not an array", field="scope.exclude")
+        for path in exclude:
+            if path not in (current or []) and path not in excluded:
+                excluded.append(path)
+        if excluded:
+            scope["exclude"] = [*(current or []), *excluded]
     errors = _added_errors(before, brief)
     if errors:
         _die(f"amend: the amendment breaks skill-brief.v1.json: {errors[0].get('message')}",
@@ -1044,7 +1114,9 @@ def cmd_amend(target: Path) -> int:
         "backup": str(backup.resolve()),
         "set": [field for field in given if field in ("registry_path", "demo_patterns")],
         "included": included,
-        "appended": len(entries),
+        "excluded": excluded,
+        "appended": len(kept),
+        "skipped_duplicates": len(entries) - len(kept),
         "bytes": bytes_written,
     }))
     return 0

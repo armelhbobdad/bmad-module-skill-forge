@@ -29,6 +29,12 @@ newFileDiffHelper: 'scripts/skf-new-file-diff.py'
 resolveAuthoritativeFilesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-authoritative-files.py'
   - '{project-root}/src/shared/scripts/skf-resolve-authoritative-files.py'
+# `{writeSkillBriefHelper}`: §1b's and §1c's scope decisions, written to the
+# skill brief. If neither exists, each decision is a `brief-not-amended`
+# warning and the next run asks again.
+writeSkillBriefProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
+  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 # `{classifyChangedFilesHelper}`: §2.1 Category A. HALT if neither exists.
 classifyChangedFilesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-classify-changed-files.py'
@@ -112,7 +118,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
 `{source_root}` is the tree init.md §6b prepared at `{target_commit}` when `{source_tree_status}` is `ready` or `offline`, and otherwise the skill's local source. **If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists**, HALT with status `blocked` per SKILL.md's source-tree rule (halt procedure: `phase: "detect-changes:source-tree-missing"`, `path: "{source_root}"`, `reason: "source tree {source_root} disappeared mid-run"`): reading a missing tree would report every file deleted. §2.1's helpers walk `{source_root}` themselves: build no file inventory here.
 
-**The brief this run reads.** Bind `{brief_path}` ← `{forge_data_folder}/{skill_name}/skill-brief.yaml`. When `detect_only_mode` or `dry_run_mode` is true and that file exists, copy it to `{run_dir}/skill-brief.yaml` and bind `{brief_path}` to the copy: §1b and §1c write each decision there, Category A reads the scope from there, and the brief itself stays as it was. Each amendment a read-only run writes to the copy is a proposed one: add `proposed-amendment: {action} {path} ({category}); not written: {--dry-run or --detect-only}` to `warnings[]` as you write it, and step 6 lists them with the change manifest.
+**The brief this run reads.** Bind `{brief_path}` ← `{forge_data_folder}/{skill_name}/skill-brief.yaml`. When `detect_only_mode` or `dry_run_mode` is true and that file exists, copy it to `{run_dir}/skill-brief.yaml` and bind `{brief_path}` to the copy: §1b and §1c write each decision there, Category A reads the scope from there, and the brief itself stays as it was. Each amendment a read-only run writes to the copy is a proposed one: add `proposed-amendment: {action} {path} ({category}); not written: {--dry-run or --detect-only}` to `warnings[]` for each amendment `amend` appended (its `appended`), never for one it skipped as a duplicate (`skipped_duplicates`), and step 6 lists them with the change manifest.
 
 **The scope type this run reads.** Bind `{scope_type}` ← the `scope_type` metadata.json records (init.md §2), else the `scope.type` of `{brief_path}` when that file exists and names one: a skill whose metadata.json records no scope type updates under its brief's. Category B's runner takes it as `--scope-type` and writes it to `{run_dir}/extraction.json` as `scope.type`, where step 3's `records` and step 5's `apply` read it: under `public-api`, a normal-mode update neither documents nor adds to the provenance map a new export off the runner's public surface (re-extract.md §4, write.md §3).
 
@@ -165,9 +171,17 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-   Steps 4 and 5 are the decision protocol for a scope candidate, which §1c follows too, with the differences it names. Every amendment they append goes to `brief.scope.amendments[]` with `path: candidate.path`, `heuristic: {basename}`, `date: {today ISO}` and `workflow: "skf-update-skill"`, and every brief write goes to `{brief_path}` (the run folder's copy in a read-only mode), preserving all other fields.
+   Steps 4 and 5 are the decision protocol for a scope candidate, which §1c follows too, with the differences it names. Each decision goes to `{brief_path}` (the run folder's copy in a read-only mode) at once, in one call: resolve `{writeSkillBriefHelper}` ← first existing path in `{writeSkillBriefProbeOrder}` and, from `{project-root}`, run:
 
-4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true), promote nothing and decide nothing: whether a path belongs in scope needs a person. Leave every candidate out of this run and record it as deferred, so the next interactive run asks: append an amendment `action: "deferred-headless"`, `reason: "headless: no user to prompt; left for the next interactive run"`, except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already recorded: write no second amendment for it. A non-interactive update run must never silently add files to scope, and never records a skip no person chose. **Also record one decision per candidate path**, from `{project-root}`:
+   ```bash
+   uv run {writeSkillBriefHelper} amend --target "{brief_path}" <<'SKF_BRIEF_DECISION'
+   {"include": ["{path}"], "amendments": [{"path": "{path}", "action": "promoted|skipped|deferred-headless", "reason": "{reason}", "heuristic": "{basename}", "date": "{today ISO}", "workflow": "skf-update-skill"}]}
+   SKF_BRIEF_DECISION
+   ```
+
+   `{path}` is `candidate.path`. Pass `include` for [P] only. Write each payload value as a JSON string: escape `"` and `\`, write a line break or tab inside a value as `\n` or `\t`, and write every path with `/`. `amend` appends it to `scope.include` only when that list is not empty (an empty include already covers every file, and one path would narrow it: the `promoted` amendment records the decision either way), skips an amendment whose path and category already have that action as their latest, keeps every other field and the previous brief as `{brief_path}.bak`, and writes the brief atomically. On a non-zero exit, no JSON or no candidate, add `brief-not-amended: {path}: {its stderr, or skf-write-skill-brief.py is missing}` to `warnings[]` and go on: the next run asks again.
+
+4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true), promote nothing and decide nothing: whether a path belongs in scope needs a person. Leave every candidate out of this run and record it as deferred, so the next interactive run asks: write an amendment `action: "deferred-headless"`, `reason: "headless: no user to prompt; left for the next interactive run"`; `amend` skips a deferral the brief already holds. A non-interactive update run must never silently add files to scope, and never records a skip no person chose. **Also record one decision per candidate path**, from `{project-root}`:
 
    ```bash
    uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
@@ -177,8 +191,8 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
 5. **Apply decision:**
 
-   - **[P] Promote:** append `candidate.path` to `brief.scope.include` as a literal glob, append an amendment `action: "promoted"`, `reason: {user-provided or auto: "discovered post-creation: matched heuristic {basename}"}`, and **write the amended brief back to disk immediately**. Then append the candidate's `{path, heuristic, size_bytes, line_count, content_hash}`, as the helper reported them, to `promoted_docs_new[]`, which this section keeps as the JSON array `{run_dir}/promoted-docs.json` (each record as the helper printed it; `[]` when none): step 5's `apply` writes a new `file_entries[]` row for each (merge Priority 7). Promoted docs do NOT go through step 3's code re-extraction, which would produce ghost entries on non-code files. Display: `"Promoted {path}: brief amended, scheduled as new file_entries row for file_type doc."`
-   - **[S] Skip:** leave `scope.include` as it is, append an amendment `action: "skipped"`, `reason: {user-provided or auto: "user declined promotion at update-skill §1b"}`, and write the amended brief back to disk, so neither update-skill nor create-skill re-prompts in a later run. Display: `"Skipped {path}: decision recorded in amendments."`
+   - **[P] Promote:** write the decision with `include: ["{path}"]` and an amendment `action: "promoted"`, `reason: {user-provided or auto: "discovered post-creation: matched heuristic {basename}"}`. When that call exited 0 with JSON, append the candidate's `{path, heuristic, size_bytes, line_count, content_hash}`, as the helper reported them, to `promoted_docs_new[]`, which this section keeps as the JSON array `{run_dir}/promoted-docs.json` (each record as the helper printed it; `[]` when none): step 5's `apply` writes a new `file_entries[]` row for each (merge Priority 7). A promotion the brief could not record (its `brief-not-amended` warning) is not tracked either, and the next run asks again: display `"Not promoted {path}: the skill brief could not record it; the next run asks again."` instead of the line below. Promoted docs do NOT go through step 3's code re-extraction, which would produce ghost entries on non-code files. Display: `"Promoted {path}: brief amended, scheduled as new file_entries row for file_type doc."`
+   - **[S] Skip:** write the decision with no `include` and an amendment `action: "skipped"`, `reason: {user-provided or auto: "user declined promotion at update-skill §1b"}`, so neither update-skill nor create-skill re-prompts in a later run. Display: `"Skipped {path}: decision recorded in amendments."`
    - **[U] Update:** HALT with status `halted-for-brief-refinement` (halt procedure: `phase: "detect-changes:authoritative-files"`, `path: "{brief_path}"`, `reason: "the user chose to refine the brief's scope for {path}"`) and display `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`: no partial writes.
 
 6. **Summary.** After all candidates are resolved (or none were found):
@@ -267,7 +281,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 5. **Apply decision** as §1b step 5 does, with these differences:
 
    - **Amendment fields:** every amendment carries `category: "scope-expansion"` and the candidate's `evidence: {evidence string}` in place of `heuristic`. [P]'s auto reason is "out-of-scope new public API: drift report {report basename}", and [S]'s "user declined promotion at update-skill §1c".
-   - **Promotion target:** [P] appends the path to `scope.include` as the drift report gives it, wildcards kept, and adds no `promoted_docs_new[]` entry and no `--exclude`: §2 Category A lists the files a promoted code glob matches as ADDED, and step 3 extracts them, unlike §1b's documents. Display: `"Promoted {path}: brief amended; §2 Category A will pick up matching files as ADDED."`
+   - **Promotion target:** [P] passes the path in `include` as the drift report gives it, wildcards kept, with the `category` and `evidence` above, and adds no `promoted_docs_new[]` entry and no `--exclude`: §2 Category A lists the files a promoted code glob matches as ADDED, and step 3 extracts them, unlike §1b's documents. Display: `"Promoted {path}: brief amended; §2 Category A will pick up matching files as ADDED."`
    - **[S]** leaves `scope.exclude` as it is too, and **[U]** halts with `phase: "detect-changes:scope-reconciliation"`.
 
 6. **Summary:** After all candidates are resolved (or none were found):
@@ -408,11 +422,11 @@ Pass `--brief` as Category A does, `{brief_path}` as §1c left it (in a read-onl
 
 It writes `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "tracked_code":[...], "out_of_scope":[...], "intent_none":[...], "stats":{...}}`. §3's `build` reads both files, typing each compare row by its `file_entries[]` row's `file_type` and each new file by its `kind`: sort no row by hand. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above; `tracked_code[]` are code files the map's `entries[]` cite, which Categories A and B compare; `out_of_scope[]` are paths the brief's scope leaves out, by Category A's in-scope test; `intent_none[]` are paths of a kind whose `scripts_intent` or `assets_intent` is `none` (an absent or free-text intent detects). A path in these lists is no new file and no `stats` count, so step 6's report counts each of the three lists from this file, where it shows Category D: a brief scoped wrongly shows as many paths out of scope. A new file Category A lists too stays a new file: Category A lists every changed in-scope file, a genuine script included.
 
-**Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: the two flags, `degraded_mode` and `update_mode: "normal"`. Category C stays in the files its steps wrote, which §2.2, §3 and step 5's `apply` take as `--category-c` and `--ccc-pairs`:
+**Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: the two flags, `degraded_mode` and `update_mode` (`normal` or `degraded`, as init.md bound it). Category C stays in the files its steps wrote, which §2.2, §3 and step 5's `apply` take as `--category-c` and `--ccc-pairs`:
 
 ```bash
 cat > "{run_dir}/categories.json" <<'SKF_JSON'
-{"degraded_mode": <bool>, "update_mode": "normal"}
+{"degraded_mode": <bool>, "update_mode": "{update_mode}"}
 SKF_JSON
 ```
 

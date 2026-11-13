@@ -1262,7 +1262,9 @@ class TestAmend:
 
     @pytest.mark.parametrize("payload, message", [
         ({}, "nothing to amend"),
-        ({"registry_path": "r.ts", "ui_variants": []}, "unknown field"),
+        ({"registry_path": "r.ts", "ui_variants": []},
+         "unknown field(s) ['ui_variants']; expected some of ['registry_path', 'demo_patterns', 'include', "
+         "'exclude', 'amendments']"),
         ({"registry_path": ""}, "scope.registry_path must be a non-empty string"),
         ({"demo_patterns": "**/examples/**"}, "scope.demo_patterns must be an array"),
         ({"amendments": [{**_write_back_amendment(), "reason": ""}]}, "amendments[0].reason"),
@@ -1340,6 +1342,128 @@ class TestAmend:
         before = _written_brief(tmp_target)
         proc = _amend(tmp_target, {"include": include})
         assert proc.returncode == 1 and "include must be an array of non-empty paths" in proc.stderr, proc.stderr
+        assert tmp_target.read_bytes() == before
+
+    # update-skill records its scope decisions and a repair's rescopes through amend (#1193).
+
+    def _rescope(self, action: str = "excluded", path: str = "src/internal.py") -> dict:
+        return {"path": path, "action": action, "category": "scope-expansion", "reason": "internal",
+                "date": "2026-11-13", "workflow": "skf-update-skill"}
+
+    def test_an_empty_include_stays_empty_for_a_glob(self, tmp_target):
+        tmp_target.parent.mkdir(parents=True)
+        tmp_target.write_bytes(b"name: demo\nscope:\n  type: full-library\n  include: []\n  exclude: []\n  notes: ''\n")
+        promoted = {**self._rescope("promoted", "packages/new/**"), "evidence": "drift report"}
+        proc = _amend(tmp_target, {"include": ["packages/new/**"], "amendments": [promoted]})
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["included"], out["excluded"], out["appended"], out["skipped_duplicates"]) == ([], [], 1, 0)
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["include"] == [] and scope["amendments"] == [promoted]
+
+    def test_a_glob_is_appended_as_given(self, tmp_target):
+        _written_brief(tmp_target)
+        old = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["include"]
+        proc = _amend(tmp_target, {"include": ["packages/*/src/**"]})
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["included"], out["excluded"], out["skipped_duplicates"]) == (["packages/*/src/**"], [], 0)
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["include"] == [*old, "packages/*/src/**"]
+
+    def test_exclude_is_appended_once(self, tmp_target):
+        _written_brief(tmp_target)
+        old = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["exclude"]
+        proc = _amend(tmp_target, {"exclude": ["src/internal.py", "src/internal.py", *old[:1]]})
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["excluded"] == ["src/internal.py"]
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["exclude"] == [*old, "src/internal.py"]
+        again = _amend(tmp_target, {"exclude": ["src/internal.py"]})
+        assert again.returncode == 0 and json.loads(again.stdout)["excluded"] == []
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["exclude"] == [*old, "src/internal.py"]
+
+    def test_exclude_makes_the_list_when_the_brief_has_none(self, tmp_target):
+        tmp_target.parent.mkdir(parents=True)
+        tmp_target.write_bytes(b"name: demo\nscope:\n  type: full-library\n  include: []\n  notes: ''\n")
+        proc = _amend(tmp_target, {"exclude": ["src/internal.py"]})
+        assert proc.returncode == 0, proc.stderr
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["exclude"] == ["src/internal.py"]
+
+    def test_a_repair_rerun_adds_nothing(self, tmp_target):
+        """merge.md §6b's one call: a rescope the brief already holds is skipped, its exclude path too."""
+        _written_brief(tmp_target)
+        payload = {"exclude": ["src/internal.py"], "amendments": [self._rescope()]}
+        first = _amend(tmp_target, payload)
+        assert first.returncode == 0, first.stderr
+        out = json.loads(first.stdout)
+        assert (out["excluded"], out["appended"], out["skipped_duplicates"]) == (["src/internal.py"], 1, 0)
+        brief = tmp_target.read_text(encoding="utf-8")
+        again = _amend(tmp_target, {**payload, "amendments": [{**self._rescope(), "date": "2026-11-14"}]})
+        assert again.returncode == 0, again.stderr
+        out = json.loads(again.stdout)
+        assert (out["excluded"], out["appended"], out["skipped_duplicates"]) == ([], 0, 1)
+        assert tmp_target.read_text(encoding="utf-8") == brief
+
+    def test_a_duplicate_is_skipped_and_a_changed_action_is_written(self, tmp_target):
+        """The latest amendment of a category and path decides: the same action is skipped, another written."""
+        _written_brief(tmp_target)  # holds llms.txt skipped, category auth-doc
+        auth = {"path": "llms.txt", "reason": "r", "heuristic": "llms.txt", "date": "2026-11-13",
+                "workflow": "skf-update-skill"}
+        proc = _amend(tmp_target, {"amendments": [
+            {**auth, "action": "skipped"},                              # the brief holds it: skipped
+            {**auth, "action": "skipped", "category": "scope-expansion"},  # another category: written
+            {**auth, "action": "promoted"},                             # a changed decision: written
+            {**auth, "action": "promoted"},                             # this call appended it: skipped
+            {**auth, "action": "skipped"},                              # changed back: written
+        ]})
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["appended"], out["skipped_duplicates"]) == (3, 2)
+        amendments = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["amendments"]
+        assert [(a.get("category"), a["action"]) for a in amendments] == [
+            ("auth-doc", "skipped"), ("scope-expansion", "skipped"), (None, "promoted"), (None, "skipped")]
+
+    def test_a_deferral_the_brief_holds_is_not_written_twice(self, tmp_target):
+        _written_brief(tmp_target)
+        deferral = self._auth_amendment("deferred-headless")
+        assert json.loads(_amend(tmp_target, {"amendments": [deferral]}).stdout)["appended"] == 1
+        again = json.loads(_amend(tmp_target, {"amendments": [deferral]}).stdout)
+        assert (again["appended"], again["skipped_duplicates"]) == (0, 1)
+
+    def test_a_skip_after_a_legacy_headless_skip_is_written(self, tmp_path, tmp_target):
+        """The automatic skip a headless run wrote before deferred-headless existed reads as a deferral, as the
+        resolver and the gap dispatch read it: a person's skip after it is written, and both helpers then read
+        the path as skipped, while a new deferral is a duplicate."""
+        _written_brief(tmp_target)
+        legacy = {**self._auth_amendment("skipped"), "reason": "headless: no user to prompt"}
+        expansion = {**legacy, "path": "extras/**", "category": "scope-expansion"}
+        assert json.loads(_amend(tmp_target, {"amendments": [legacy, expansion]}).stdout)["appended"] == 2
+        deferral = json.loads(_amend(tmp_target, {"amendments": [self._auth_amendment("deferred-headless")]}).stdout)
+        assert (deferral["appended"], deferral["skipped_duplicates"]) == (0, 1)
+        person = {**self._auth_amendment("skipped"), "reason": "user declined promotion at update-skill §1b"}
+        out = json.loads(_amend(tmp_target, {"amendments": [person, {**person, "path": "extras/**",
+                                                                      "category": "scope-expansion"}]}).stdout)
+        assert (out["appended"], out["skipped_duplicates"]) == (2, 0)
+
+        def load(name: str):
+            spec = importlib.util.spec_from_file_location(name.replace("-", "_")[:-3], SCRIPT_PATH.parent / name)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "AGENTS.md").write_bytes(b"# agents\n")
+        resolved = load("skf-resolve-authoritative-files.py").resolve(source, tmp_target)
+        assert [(r["path"], r["prior_action"]) for r in resolved["pre_decided"]] == [("AGENTS.md", "skipped")]
+        dispatch = load("skf-provenance-gap-dispatch.py")
+        classified = dispatch.reconcile([{"path": "extras/**", "evidence": "e"}], dispatch.load_brief(tmp_target))
+        assert [(c["status"], c["prior_action"]) for c in classified] == [("pre-decided-skipped", "skipped")]
+
+    @pytest.mark.parametrize("exclude", ["src/x.py", [""], [3]], ids=["string", "blank", "number"])
+    def test_a_bad_exclude_exits_1_and_touches_nothing(self, tmp_target, exclude):
+        before = _written_brief(tmp_target)
+        proc = _amend(tmp_target, {"exclude": exclude})
+        assert proc.returncode == 1 and "exclude must be an array of non-empty paths" in proc.stderr, proc.stderr
         assert tmp_target.read_bytes() == before
 
     def test_an_amendment_that_adds_a_schema_error_is_refused(self, tmp_target):

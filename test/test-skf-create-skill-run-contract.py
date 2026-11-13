@@ -1081,7 +1081,9 @@ def test_version_reconciliation_reads_the_version_through_the_extractor():
     update-skill init §6c reads the source's version through the same call."""
     text = _reconciliation()
     assert _reconcile_call() == ('uv run {extractPublicApiHelper} --mode quick --language "{brief.language}" '
-                                 '--source-root "{source_root}" --manifest-file "<version file>" --resolve-version')
+                                 '--source-root "{source_root}" --resolve-version --package-name "{brief.name}"')
+    # #1193: the helper picks the version file, so a sibling package of a monorepo never names the version
+    assert "The helper picks the version file itself, in this order, and reports it as `manifest_file`" in text
     assert "never from a version file by eye" in text and "Look for the first matching version file" not in text
     assert ("**The source version** is the JSON's `version` when its `version_source` is `manifest` or starts with "
             "`file:`. Keep `brief.version`, with no mismatch warning, when `version` is null or `version_source` "
@@ -1091,7 +1093,8 @@ def test_version_reconciliation_reads_the_version_through_the_extractor():
     [fetch] = re.findall(r"```bash\n(gh api [^\n]*)\n```", text)
     assert fetch.endswith('| uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{source_ref}" --tree-file - '
                           '--dest "{run_dir}/files" "<version file>"')
-    assert 'then run the call above with `--source-root "{run_dir}/files"`' in text
+    assert ('then run the call above with `--source-root "{run_dir}/files"` and `--manifest-file "<version file>"` '
+            'in place of `--package-name`') in text
     assert ("`{githubFetchHelper}` (resolve it ← the first existing path of "
             "`{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py` and "
             "`{project-root}/src/shared/scripts/skf-github-fetch.py`)") in text
@@ -1106,6 +1109,7 @@ def test_version_reconciliation_reads_the_version_through_the_extractor():
     assert ("by the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` "
             "(its `{extractPublicApiHelper}` call, from `{extractPublicApiProbeOrder}`)") in six_c
     assert "`__version__`" not in six_c and "`go.mod`" not in six_c
+    assert "with `{skill_name}` as `{brief.name}`" in six_c
     assert _frontmatter(UPDATE_INIT)["extractPublicApiProbeOrder"] == extract["extractPublicApiProbeOrder"]
 
 
@@ -1131,7 +1135,7 @@ def test_the_documented_reconciliation_keeps_the_brief_version_over_a_placeholde
     for args in (["init", "-q"], ["add", "."], ["commit", "-qm", "release"], ["tag", "v4.2.0"]):
         subprocess.run(["git", *args], cwd=root, env=env, check=True, capture_output=True)
     values = {"{extractPublicApiHelper}": EXTRACTOR.as_posix(), "{brief.language}": language,
-              "{source_root}": root.as_posix(), "<version file>": manifest}
+              "{source_root}": root.as_posix(), "{brief.name}": "semrel"}
     argv = [values.get(arg, arg) for arg in shlex.split(_reconcile_call())[2:]]
     proc = subprocess.run([sys.executable, *argv], capture_output=True, text=True, encoding="utf-8", env=env,
                           timeout=120, check=False)

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  A degraded Update Skill run, the full re-extraction a skill with no provenance map takes, now reports `update_mode` `degraded` in `categories.json`, in the Mode rows of the baseline summary and the report, and in the `SKF_UPDATE_RESULT_JSON` line, where before it reported `normal`.
+issues: [1193]
