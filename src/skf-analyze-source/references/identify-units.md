@@ -12,6 +12,9 @@ skillInventoryProbeOrder:
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
+detectRegistryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
+  - '{project-root}/src/shared/scripts/skf-detect-registry.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -50,7 +53,7 @@ Load {heuristicsFile} for classification rules.
 
 ### 2. Apply Detection Heuristics
 
-**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}` and **`{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:2`): "`{the missing script}` is missing. Re-install SKF."
+**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}`, **`{skillInventoryHelper}`** from `{skillInventoryProbeOrder}` and **`{detectRegistryHelper}`** from `{detectRegistryProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:2`): "`{the missing script}` is missing. Re-install SKF."
 
 For each detected boundary from the scan, apply the classification rules from {heuristicsFile} (loaded in §1):
 
@@ -103,7 +106,14 @@ Show every drop and every restore in §6 with its reason and evidence (the recor
 
 **Step D: Tally detection signals** per the Detection Signals tables in {heuristicsFile}: cite the file each record's `signals` entry names (and `large_directory`), and judge the signals the helper does not report, as that file says.
 
-**Step E: Classify boundary type** per its Boundary Classification section, and **assign the scope type** from that same section for the boundary's type. This pass classifies each boundary on its own: composite merges are proposed in map-and-detect, once the import graph exists.
+**Step E: Classify boundary type** per its Boundary Classification section, and **assign the scope type** from that same section for the boundary's type. This pass classifies each boundary on its own: composite merges are proposed in map-and-detect, once the import graph exists. A component library's demo files and registry are counted and scored, not judged by eye: for each kept unit, run both on its record's `tree_file` (its paths are under the scan root):
+
+```bash
+uv run {detectRegistryHelper} demo --files-from "{the unit's tree_file}"
+uv run {detectRegistryHelper} registry --files-from "{the unit's tree_file}" --source-root "{scan_root}"
+```
+
+Cite in the Signals column `demo {excluded}/{files_listed}` (the demo output's counts) and each `candidates[]` entry whose `qualifies` is true, with its `path` and `score`: {heuristicsFile}'s Component Library Boundary names the test each answers.
 
 ### 3. Build Unit Classification Table
 
@@ -111,7 +121,7 @@ For each candidate that passes disqualification:
 
 | # | Unit Name | Project Path | Path | Boundary Type | Scope Type | Files | Own Manifest | Signals | Confidence | Status |
 |---|-----------|--------------|------|---------------|------------|-------|--------------|---------|------------|--------|
-| 1 | {name} | {its project path} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/briefed/deferred} |
+| 1 | {name} | {its project path} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak; demo {excluded}/{files_listed}; each qualifying registry candidate with its score} | {high/medium/low} | {new/briefed/deferred} |
 
 For disqualified candidates, note reason and evidence:
 
@@ -133,6 +143,14 @@ uv run {detectLanguageHelper} --tree-file "{the unit's tree_file}"
 ```
 
 Pass no `--workspace-signal` here: a workspace root's language would answer for every unit of the workspace (a TypeScript package in a Cargo workspace would read as `rust`). The unit's folder is the tree's root for the helper, so the unit's own manifest decides, and a manifest in its docs, examples, tests or tools folder never does while another one exists. Read `.language` and `.confidence` for the unit. When `detected_languages` has more than one entry, `.language` is the helper's first guess: choose the language the unit documents from its own manifest (the record's `manifest`), or, without one, `.source_language` (the language most of its files are written in), and name the choice and the other languages in §6. When confidence is low (the extension-frequency fallback fired: no manifest matched), surface it in §6 so the user can override the guess.
+
+Then take the unit's scope patterns from the same list, for the language chosen (one outside the helper's choices passes `unknown`):
+
+```bash
+uv run {detectLanguageHelper} scope-patterns --tree-file "{the unit's tree_file}" --language {language}
+```
+
+Its `include` and `exclude` are the unit's brief `scope.include` and `scope.exclude`, rooted at the unit's folder, since the list's paths are under the scan root as a brief's are under its project path.
 
 ### 5. Defer What the Goal Leaves Out
 
@@ -156,7 +174,7 @@ Then display:
 
 - IF C: go to §7
 - IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `identify-units:6`): "Cancelled at unit identification."
-- IF Any other: adjust the classifications as directed (restoring a deferred unit sets its status back to new or briefed), show what changed, then [Redisplay Menu Options](#6-present-the-classifications-and-confirm)
+- IF Any other: adjust the classifications as directed (restoring a deferred unit sets its status back to new or briefed). A unit this adds or restores from the Disqualification table takes its language and scope patterns by §4 and its demo and registry counts by Step E (one added by path first gets its record and `tree_file` from Step A's call), and a unit given another language takes its scope patterns again for that language. Show what changed, then [Redisplay Menu Options](#6-present-the-classifications-and-confirm)
 
 **GATE [default: C]**: present the menu and wait for the user's choice. If `{headless_mode}`: accept every classification and continue with [C], and record that decision the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "identify-units.classifications", "default_action": "C", "taken_action": "C", "reason": "headless: auto-accept unit classifications", "evidence": {"qualifying": <the qualifying unit count>, "dropped": <the dropped boundary count>}}`, then run
 
@@ -173,7 +191,7 @@ Replace the placeholder `[Appended by identify-units]` in {outputFile} with:
 - Mixed cases and restored boundaries, with their evidence
 - Disqualification table
 - Already-skilled units list
-- Language detection results, and each unit's `tree_file`
+- Language detection results, and each unit's `tree_file` and scope patterns (`include` and `exclude`)
 - Any user adjustments noted
 
 Update {outputFile} frontmatter:

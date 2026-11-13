@@ -7,7 +7,7 @@ description: Discover what to skill in a large repo and produce recommended skil
 
 ## Overview
 
-Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Exports come from the ast-grep recipe runner at every forge tier (read by eye where ast-grep is missing or the language has no recipe).
+Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Exports come from the ast-grep recipe runner at every forge tier, and for Java, Kotlin and Swift from the quick-mode parser (read by eye where ast-grep is missing or the language has neither).
 
 ## Conventions
 
@@ -96,7 +96,7 @@ These rules apply to every step in this workflow:
 
    Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
-5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
+5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the unit records, the halt and result payloads) and the sink of its auto-decisions:
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-analyze-source-XXXXXXXX"

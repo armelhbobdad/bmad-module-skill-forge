@@ -55,7 +55,7 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 ### 1. Load Context
 
 Read {outputFile} to obtain:
-- Qualifying units from the Identified Units section: names, project paths, paths, scope types, languages, file counts, statuses and each unit's own manifest (path, name and ecosystem). A unit whose status is `deferred` (outside the goal the user stated) stays in the report and is not analyzed here
+- Qualifying units from the Identified Units section: names, project paths, paths, scope types, languages, file counts, statuses, each unit's own manifest (path, name and ecosystem) and its scope patterns (`include` and `exclude`, with the language results). A unit whose status is `deferred` (outside the goal the user stated) stays in the report and is not analyzed here
 - `forge_tier`, `scan_roots` (each project path's scan root) and `refs` from frontmatter
 
 **A scan root that is gone.** A session that resumed this report without its earlier run folder works in a new one, without the copies that folder held. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
@@ -72,7 +72,7 @@ For each qualifying unit, delegate deep analysis to a subagent so per-unit work 
 
 1. **Build the qualifying-unit list.** Read the unit list produced upstream (names, project paths, paths, scope types, languages, file counts), leaving out the deferred units. Do not re-scan the project here.
 
-2. **Map each unit's exports.** Load, read the entire file, then execute {unitExportsFile} for the qualifying units: it delegates each one to a subagent with `{unit_root}` its path under the scan root of its project path and its file count from Identified Units, has the subagent write the unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records and returns them.
+2. **Map each unit's exports.** Load, read the entire file, then execute {unitExportsFile} for the qualifying units, each with `{unit_root}` its path under the scan root of its project path and its language and its file count from Identified Units: it writes each unit's record to `{run_dir}/unit-records/{unit_name}.json` from the extractor's output, delegates to a subagent only what is left to read, checks the records and returns them.
 
 3. **Aggregate.** Collect the checked `records` into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (composites and stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
 
@@ -143,6 +143,7 @@ Decide both here, in one pass over §3's graph and §4's integration map, so eac
 1. **Composite merge proposals.** Apply the Composite Boundary triggers in {heuristicsFile} (mutual hard dependency, shared integration surface, and the Cohesion Triggers: umbrella facade, shared runtime contract, internal building blocks) to the qualifying units. The evidence comes from the helpers: `cycles[]` for a mutual dependency, `edge_files[]` and §4's shared types for a shared integration surface, and the §3 summary's `umbrella_candidates[]` and each manifest's `internal_deps` and `private` for the cohesion triggers. For each group that meets a trigger, propose one composite:
    - **Constituents:** the unit names and paths merged
    - **Heuristic and evidence:** the trigger and what showed it (the cycle, the umbrella candidate and the members its `internal_deps` cover, the `private` flags, the shared types and their files)
+   - **Scope patterns:** the union of its constituents' `include` patterns and the union of their `exclude` patterns, each pattern once, in constituent order
    - **Name:** name every proposal in one call to the helper that names every unit and brief ({heuristicsFile}'s Unit Names), one entry each: `target` is its constituents' project path, `manifest_name` the facade's manifest name when an umbrella facade triggered the merge (else null), and `members` the constituents' manifest names:
      ```bash
      uv run {skillInventoryHelper} derive-name --from - <<'SKF_COMPOSITE_NAMES'
@@ -170,7 +171,7 @@ Then display:
 
 "Accept or reject each composite merge proposal (every one is accepted unless you reject it), or name an integration pattern to investigate further. **Select:** [C] Continue to Recommendations | [D] Discover Additional Source | [X] Cancel and exit"
 
-An approved composite replaces its constituents as one unit: `Boundary Type: Composite`, its constituents' paths as its Path, the project path they share, the scope type and language of its dominant constituent (the one with the most exports), and confidence from the strength of its trigger. A rejected one leaves its constituents as separate units.
+An approved composite replaces its constituents as one unit: `Boundary Type: Composite`, its constituents' paths as its Path, the project path they share, the scope type and language of its dominant constituent (the one with the most exports), its scope patterns (the union above), and confidence from the strength of its trigger. A rejected one leaves its constituents as separate units.
 
 #### Menu Handling Logic:
 
@@ -199,7 +200,7 @@ Replace `[Appended by map-and-detect]` under Integration Points with:
 - Composite merge proposals and decisions: name, constituents with their paths, heuristic, evidence
 - Stack skill candidate flags
 
-In the Identified Units classification table, replace the constituent rows of each approved composite with the composite's one row (its Path the constituents' paths), so recommend builds one card for it.
+In the Identified Units classification table, replace the constituent rows of each approved composite with the composite's one row (its Path the constituents' paths), and record its scope patterns with the language results, so recommend builds one card for it.
 
 Update {outputFile} frontmatter:
 ```yaml
@@ -209,6 +210,6 @@ confirmed_composites: [{list of approved composites: {name, constituents: [{name
 stack_skill_candidates: [{list flagged candidate groupings}]
 ```
 
-(`confirmed_composites` is an empty array when no composite was proposed or all were rejected. generate-briefs puts every constituent's path in the composite brief's `scope.include`.)
+(`confirmed_composites` is an empty array when no composite was proposed or all were rejected. The composite brief's `scope.include` and `scope.exclude` are its scope patterns, the union of its constituents', which recommend's card carries.)
 
 Then load, read the entire file, then execute {nextStepFile}.

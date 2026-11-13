@@ -55,6 +55,12 @@ fixtures:
   nothing and records `resumed-without-run-folder`. A clone into the folder
   taken over first deletes the copy a session cut short left there.
   continue.md reads two keys and announces its next step in one line.
+- #1125: each unit's record is written by skf-check-unit-records.py
+  from-extract from the extractor's output, a Java, Kotlin or Swift unit's
+  from quick mode's parser over every source file (--all-sources), and the
+  documented parser line and the record check run on a fixture. Step E
+  counts the demo files and scores the registry candidates by
+  skf-detect-registry.py, and the heuristics name those outputs.
 """
 
 from __future__ import annotations
@@ -1308,7 +1314,7 @@ def test_every_warning_a_step_raises_goes_to_the_run_sink(tmp_path):
     for path in [SKILL, *STEP_FILES]:
         assert "workflow_warnings" not in _read(path), path.name
     text = _read(REFS / "map-unit-exports.md")  # map-and-detect and [D] map units through it
-    assert "returns that path" in text and "pass it `{run_dir}`" in text
+    assert "returns only that file's path" in text and "pass it that path and the `to_read` list" in text
     assert "Save each subagent's reply as it came" not in text
     record = next(line.strip("` ") for line in re.findall(r"`uv run \{emitEnvelopeHelper\} record [^`]*`", text))
     assert record == "uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'"
@@ -1322,6 +1328,156 @@ def test_every_warning_a_step_raises_goes_to_the_run_sink(tmp_path):
         {"phase": "map-and-detect:3", "reason": "x", "halt_reason": "resolution-failure"}).encode("utf-8"))
     envelope = _envelope(_run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)}).stderr)
     assert envelope["warnings"] == [warning]
+
+
+UNIT_EXPORTS = REFS / "map-unit-exports.md"
+HEURISTICS = REFS / "unit-detection-heuristics.md"
+
+
+def _record_lines() -> tuple[str, str]:
+    """map-unit-exports.md section 2's two lines: (the parser's, the recipe runner's)."""
+    lines = [line for block in _fenced(_read(UNIT_EXPORTS), "bash") for line in block.split("\n")
+             if "{checkUnitRecordsHelper} from-extract" in line]
+    [parser_line] = [line for line in lines if "--mode quick" in line]
+    [recipe_line] = [line for line in lines if "--mode full" in line]
+    return parser_line, recipe_line
+
+
+def test_each_record_is_written_from_the_extractors_output():
+    """#1125 determinism-2 and -5: the parent runs the extraction and from-extract as one line per unit,
+    a Java, Kotlin or Swift unit through the parser over every source file."""
+    parser_line, recipe_line = _record_lines()
+    # Each line makes the folder its extraction writes to, so the line runs as it stands.
+    assert parser_line.startswith('mkdir -p "{run_dir}/extract" && uv run {extractPublicApiHelper} --mode quick '
+                                  '--language {language} --source-root "{unit_root}" --all-sources '
+                                  '> "{run_dir}/extract/{unit_name}.json"; ')
+    assert recipe_line.startswith('mkdir -p "{run_dir}/extract" && uv run {extractPublicApiHelper} --mode full '
+                                  '--source-root "{unit_root}" --scope-type {unit_scope_type} --tier {forge_tier} '
+                                  '-o "{run_dir}/extract/{unit_name}.json"; ')
+    for line in (parser_line, recipe_line):
+        assert '--exit-code $? --unit-name "{unit_name}" --files-count {files_count} --language {language}' in line
+    text = _read(UNIT_EXPORTS)
+    assert "Java, Kotlin, Swift, C#" not in text
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+def test_the_documented_parser_line_and_check_give_a_java_unit_its_parser_record(tmp_path):
+    """The parser line, run as documented on a Java unit, then the section 4 check: a parser record with
+    the two main classes, nothing left to read and no problem; the test classes stay out."""
+    unit_root = tmp_path / "mono" / "services" / "billing"
+    for rel, data in {"pom.xml": b"<project><groupId>com.acme</groupId></project>\n",
+                      "src/main/java/com/acme/Api.java": b"package com.acme;\npublic class Api {}\n",
+                      "src/main/java/com/acme/Store.java": b"package com.acme;\npublic interface Store {}\n",
+                      "src/test/java/com/acme/ApiTest.java": b"package com.acme;\npublic class ApiTest {}\n"}.items():
+        (unit_root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (unit_root / rel).write_bytes(data)
+    run_dir = _run_dir(tmp_path)
+    parser_line, _ = _record_lines()
+    values = {"extractPublicApiHelper": SCRIPTS / "skf-extract-public-api.py",
+              "checkUnitRecordsHelper": SCRIPTS / "skf-check-unit-records.py",
+              "language": "java", "unit_root": unit_root.as_posix(), "run_dir": run_dir.as_posix(),
+              "unit_name": "billing", "files_count": "4"}
+    script = parser_line.replace("uv run ", f"{shlex.quote(sys.executable)} ")
+    for key, value in values.items():
+        script = script.replace(f"{{{key}}}", str(value))
+    assert not re.findall(r"\{[A-Za-z_]+\}", script), script
+    assert not (run_dir / "extract").exists(), "the line makes the folder itself"
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    line = json.loads(proc.stdout.decode("utf-8"))
+    assert (line["strategy_used"], line["exports_count"], line["to_read"]) == ("parser", 2, [])
+    check = _one_command(_read(UNIT_EXPORTS), "{checkUnitRecordsHelper} --dir")
+    checked = _run(check, {"checkUnitRecordsHelper": str(SCRIPTS / "skf-check-unit-records.py"),
+                           "run_dir": str(run_dir)})
+    assert checked.returncode == 0, checked.stderr
+    out = json.loads(checked.stdout)
+    assert (out["problems"], out["unreadable"], out["warnings"]) == ([], [], [])
+    [record] = out["records"]
+    assert (record["unit_name"], record["files_count"], record["strategy_used"], record["confidence"]) == (
+        "billing", 4, "parser", "T1")
+    assert (record["api_surface"], record["export_pattern"]) == (["Api", "Store"], "parser: class 1, interface 1")
+
+
+# A TypeScript unit whose entry point names two functions, passes on a module as a namespace and declares
+# a name in a form no recipe matches (a destructuring export): an extraction gap.
+TS_UNIT = {
+    "package.json": b'{"name": "@acme/auth", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": b'export { login, logout } from "./session";\nexport * as ns from "./ns";\n'
+                    b'export const { refresh } = make();\n',
+    "src/session.ts": b"export function login(): void {}\nexport function logout(): void {}\n",
+    "src/ns.ts": b"export function a(): void {}\nexport function b(): void {}\n",
+}
+
+
+def _run_recipe_line(tmp_path: Path, env: dict | None = None) -> tuple[dict, dict]:
+    """map-unit-exports.md section 2's recipe line, run as documented on TS_UNIT: (the printed line,
+    the record written)."""
+    unit_root = tmp_path / "mono" / "packages" / "auth"
+    for rel, data in TS_UNIT.items():
+        (unit_root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (unit_root / rel).write_bytes(data)
+    run_dir = _run_dir(tmp_path)
+    _, recipe_line = _record_lines()
+    values = {"extractPublicApiHelper": SCRIPTS / "skf-extract-public-api.py",
+              "checkUnitRecordsHelper": SCRIPTS / "skf-check-unit-records.py",
+              "language": "typescript", "unit_root": unit_root.as_posix(), "run_dir": run_dir.as_posix(),
+              "unit_name": "auth", "files_count": "4", "unit_scope_type": "full-library", "forge_tier": "Forge"}
+    script = recipe_line.replace("uv run ", f"{shlex.quote(sys.executable)} ")
+    for key, value in values.items():
+        script = script.replace(f"{{{key}}}", str(value))
+    assert not re.findall(r"\{[A-Za-z_]+\}", script), script
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=300, env=env)
+    assert proc.returncode == 0, proc.stderr
+    line = json.loads(proc.stdout.decode("utf-8"))
+    return line, json.loads(Path(line["record"]).read_text(encoding="utf-8"))
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_the_documented_recipe_line_gives_a_typescript_unit_its_record(tmp_path):
+    """#1125: the recipe line on a real --mode full run, not a hand-written output: the namespace's members
+    and the gap are in api_surface, and only the gap is left to read."""
+    line, record = _run_recipe_line(tmp_path)
+    assert (line["strategy_used"], line["exports_count"]) == ("ast-grep", 5)
+    assert line["to_read"] == [{"why": "extraction-gap", "name": "refresh", "file": "src/index.ts", "line": 3}]
+    assert (record["strategy_used"], record["confidence"]) == ("ast-grep", "T1")
+    assert record["api_surface"] == ["login", "logout", "a", "b", "refresh"]
+    assert record["export_pattern"].startswith("barrel: function 4")
+    assert record["warnings"] == ["extraction gap: refresh at src/index.ts:3"]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+def test_the_documented_recipe_line_without_ast_grep_leaves_the_entry_point_to_read(tmp_path):
+    """#1125: with no ast-grep on PATH the run exits 3 and still writes its output, so the record is
+    source-read with the run's warning, and the entry point it listed is what is left to read."""
+    path = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if d and not os.access(os.path.join(d, "ast-grep"), os.X_OK))
+    line, record = _run_recipe_line(tmp_path, env={**os.environ, "PATH": path})
+    assert (line["strategy_used"], line["exports_count"]) == ("source-read", 0)
+    assert line["to_read"] == [{"why": "entry-point", "file": "src/index.ts"}]
+    assert (record["confidence"], record["api_surface"]) == ("T1-low", [])
+    assert any("ast-grep is not on PATH" in warning for warning in record["warnings"]), record["warnings"]
+
+
+def test_step_e_counts_the_demo_files_and_scores_the_registry():
+    """#1125 determinism-6: identify-units resolves skf-detect-registry.py and runs both subcommands per kept
+    unit, and the heuristics name their outputs as the component-library tests."""
+    text = _read(IDENTIFY)
+    assert "detectRegistryProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'\n" \
+        "  - '{project-root}/src/shared/scripts/skf-detect-registry.py'" in text.split("\n---\n", 1)[0]
+    step_e = _section(text, "**Step E: Classify boundary type**", "### 3. Build Unit Classification Table")
+    assert _one_command(step_e, "{detectRegistryHelper} demo") == \
+        'uv run {detectRegistryHelper} demo --files-from "{the unit\'s tree_file}"'
+    assert _one_command(step_e, "{detectRegistryHelper} registry") == \
+        'uv run {detectRegistryHelper} registry --files-from "{the unit\'s tree_file}" --source-root "{scan_root}"'
+    heuristics = _section(_read(HEURISTICS), "### Component Library Boundary", "### Composite Boundary")
+    registry = next(line for line in heuristics.splitlines() if "registry or catalog file" in line)
+    for needle in ("`skf-detect-registry.py registry`", "`qualifies`", "Judge only whether it is the registry",
+                   "`selected` when `headless_accept` is true",
+                   "no registry when it is false, as create-skill's registry gate does"):
+        assert needle in registry, needle
+    demo = next(line for line in heuristics.splitlines() if "demo/story/example" in line)
+    assert "`skf-detect-registry.py demo`'s `excluded` over 30% of its `files_listed`" in demo
 
 
 def test_the_language_rules_are_stated_once():

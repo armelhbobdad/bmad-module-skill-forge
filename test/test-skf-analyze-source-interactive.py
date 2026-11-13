@@ -17,6 +17,10 @@ run the commands it documents, filled in as an agent fills them:
 - identify-units lets skf-disqualify-candidates.py list each boundary's
   files under the project path's scan root and hands each unit's list to
   skf-detect-language.py by file: the documented commands run on a fixture.
+- Each unit's scope patterns come from skf-detect-language.py
+  scope-patterns, a composite's from the union of its constituents', and
+  reach the recommendation card and the brief; Step E counts the demo files
+  and scores the registry candidates with skf-detect-registry.py (#1125).
 - Every step-by-step gate keeps one menu and records its headless default
   in the run sink; each documented decision passes the envelope schema's
   gate enum through the emitter and reaches `headless_decisions`.
@@ -54,6 +58,7 @@ EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 WRITER = SCRIPTS / "skf-write-skill-brief.py"
 DISQUALIFY = SCRIPTS / "skf-disqualify-candidates.py"
 LANGUAGE = SCRIPTS / "skf-detect-language.py"
+REGISTRY = SCRIPTS / "skf-detect-registry.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 SCHEMA = json.loads((SCRIPTS / "schemas" / "skf-analyze-result-envelope.v1.json").read_text(encoding="utf-8"))
 GATE_ENUM = SCHEMA["properties"]["headless_decisions"]["items"]["properties"]["gate"]["enum"]
@@ -231,16 +236,114 @@ def test_the_documented_step_a_and_language_calls_run_on_a_scan_root(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=scan_root, check=True, capture_output=True, timeout=60)
     run_dir = _run_dir(tmp_path)
     values = {"disqualifyCandidatesHelper": str(DISQUALIFY), "scan_root": str(scan_root),
-              "run_dir": str(run_dir), "i": "1", "detectLanguageHelper": str(LANGUAGE)}
+              "run_dir": str(run_dir), "i": "1", "detectLanguageHelper": str(LANGUAGE),
+              "detectRegistryHelper": str(REGISTRY)}
     proc = _run(command, values, stdin=json.dumps([{"name": "auth", "path": "packages/auth"}]).encode("utf-8"))
     assert proc.returncode == 0, proc.stderr
     [record] = json.loads(proc.stdout)["kept"]
     assert record["manifest"]["name"] == "@acme/auth" and record["files_count"] == 3
-    [language_call] = [line for line in _bash_lines(text) if "{detectLanguageHelper}" in line]
-    language = _run(language_call.replace("{the unit's tree_file}", record["tree_file"]), values)
+    calls = [line.replace("{the unit's tree_file}", record["tree_file"]) for line in _bash_lines(text)
+             if "{detectLanguageHelper}" in line or "{detectRegistryHelper}" in line]
+    [language_call] = [line for line in calls if "{detectLanguageHelper} --tree-file" in line]
+    language = _run(language_call, values)
     assert language.returncode == 0, language.stderr
     out = json.loads(language.stdout)
     assert (out["language"], out["confidence"]) == ("typescript", "high")
+    # #1125: §4 takes the unit's scope patterns from the same list, rooted at its folder.
+    [patterns_call] = [line for line in calls if "scope-patterns" in line]
+    patterns = _run(patterns_call, {**values, "language": out["language"]})
+    assert patterns.returncode == 0, patterns.stderr
+    scope = json.loads(patterns.stdout)
+    assert scope["include"] == ["packages/auth/src/**/*.ts"]
+    assert "**/*.test.ts" in scope["exclude"]
+    # Step E counts the demo files and scores the registry candidates of the same list.
+    demo_call, registry_call = [line for line in calls if "{detectRegistryHelper}" in line]
+    demo = _run(demo_call, values)
+    assert demo.returncode == 0, demo.stderr
+    assert (json.loads(demo.stdout)["files_listed"], json.loads(demo.stdout)["excluded"]) == (6, 0)
+    registry = _run(registry_call, values)
+    assert registry.returncode == 0, registry.stderr
+    assert (json.loads(registry.stdout)["candidates"], json.loads(registry.stdout)["selected"]) == ([], None)
+
+
+def test_a_composite_card_holds_the_union_of_its_constituents_patterns(tmp_path):
+    """#1125: two crates' scope patterns, from the documented call on each one's file list, and the
+    composite's patterns as map-and-detect section 5 states them: both includes, the shared exclude once."""
+    [call] = [line for line in _bash_lines(_read(IDENTIFY)) if "scope-patterns" in line]
+    scopes = []
+    for crate in ("a", "b"):
+        tree_file = tmp_path / f"boundary-{crate}.txt"
+        tree_file.write_bytes("".join(f"crates/{crate}/{rel}\n" for rel in (
+            "Cargo.toml", "src/lib.rs", "src/parse.rs", "tests/it.rs")).encode("utf-8"))
+        proc = _run(call.replace("{the unit's tree_file}", tree_file.as_posix()),
+                    {"detectLanguageHelper": str(LANGUAGE), "language": "rust"})
+        assert proc.returncode == 0, proc.stderr
+        scopes.append(json.loads(proc.stdout))
+    assert [s["include"] for s in scopes] == [["crates/a/src/**/*.rs"], ["crates/b/src/**/*.rs"]]
+    assert scopes[0]["exclude"] == scopes[1]["exclude"]
+    rule = next(line for line in _read(MAP).splitlines() if line.startswith("   - **Scope patterns:**"))
+    assert "each pattern once, in constituent order" in rule
+    include = list(dict.fromkeys(g for s in scopes for g in s["include"]))
+    exclude = list(dict.fromkeys(g for s in scopes for g in s["exclude"]))
+    assert include == ["crates/a/src/**/*.rs", "crates/b/src/**/*.rs"]
+    assert exclude == scopes[0]["exclude"], "the exclude the constituents share is listed once"
+
+
+def test_each_unit_takes_its_scope_patterns_and_its_component_library_evidence_from_helpers():
+    """#1125 determinism-3 and -6: the card and the brief carry the patterns
+    scope-patterns computed, a composite their union, and Step E cites the
+    demo count and the scored registry candidates, which the heuristics name."""
+    patterns_call = ('uv run {detectLanguageHelper} scope-patterns --tree-file "{the unit\'s tree_file}" '
+                     '--language {language}')
+    for path, section, end in ((IDENTIFY, "### 4. Detect Primary Language Per Unit", "### 5."),
+                               (DISCOVER, "### 3. Classify and Name the New Units", "### 4.")):
+        body = _section(_read(path), section, end)
+        assert patterns_call in _bash_lines(body), path.name
+        assert "passes `unknown`" in body, path.name
+        frontmatter = _frontmatter(_read(path))
+        assert "detectRegistryProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'" \
+            in frontmatter, path.name
+        text = _read(path)
+        for call in ('uv run {detectRegistryHelper} demo --files-from "{the unit\'s tree_file}"',
+                     'uv run {detectRegistryHelper} registry --files-from "{the unit\'s tree_file}" '
+                     '--source-root "{scan_root}"'):
+            assert call in _bash_lines(text), (path.name, call)
+    identify = _read(IDENTIFY)
+    assert "**`{detectRegistryHelper}`** from `{detectRegistryProbeOrder}`" in identify
+    step_e = next(line for line in identify.splitlines() if line.startswith("Cite in the Signals column"))
+    for needle in ("`demo {excluded}/{files_listed}`", "`qualifies` is true", "`score`"):
+        assert needle in step_e, needle
+    assert "each unit's `tree_file` and scope patterns (`include` and `exclude`)" in identify
+    # A unit §6 adds, restores or gives another language takes its patterns too.
+    other = next(line for line in identify.splitlines() if line.startswith("- IF Any other:"))
+    for needle in ("adds or restores from the Disqualification table takes its language and scope patterns by §4",
+                   "its demo and registry counts by Step E",
+                   "a unit given another language takes its scope patterns again for that language"):
+        assert needle in other, needle
+    heuristics = _section(_read(HEURISTICS), "### Component Library Boundary", "### Composite Boundary")
+    assert "a `skf-detect-registry.py registry` candidate that `qualifies`" in heuristics
+    assert "`skf-detect-registry.py demo`'s `excluded` over 30% of its `files_listed`" in heuristics
+    # A composite's patterns are the union of its constituents'.
+    mapping = _read(MAP)
+    assert ("   - **Scope patterns:** the union of its constituents' `include` patterns and the union of their "
+            "`exclude` patterns, each pattern once") in mapping
+    assert "its scope patterns (the union above)" in mapping
+    assert "the union of its constituents' `include` patterns and of their `exclude` patterns" in _read(DISCOVER)
+    # The card shows both, and the brief takes both from it.
+    recommend = _read(RECOMMEND)
+    assert "{suggested glob patterns}" not in recommend
+    for line in ("- scope.include: {the unit's include patterns}", "- scope.exclude: {the unit's exclude patterns}"):
+        assert line in recommend, line
+    assert "- `scope_hint` from frontmatter" in recommend
+    assert "Change them only to apply `scope_hint`" in recommend
+    assert "include or exclude patterns" in recommend
+    generate = _read(GENERATE)
+    assert "Inferred from heuristics" not in generate
+    assert "confirmed_composites" not in generate
+    rows = {line.split("|")[1].strip(): line.split("|")[2].strip() for line in generate.splitlines()
+            if line.startswith("| scope.include |") or line.startswith("| scope.exclude |")}
+    assert rows["scope.include"].startswith("The `scope.include` patterns of the step 05 recommendation card")
+    assert rows["scope.exclude"] == "The `scope.exclude` patterns of the step 05 recommendation card"
 
 
 def test_the_scan_roots_are_recorded_once_and_read_by_every_step():
@@ -521,12 +624,20 @@ def test_one_statement_of_the_per_unit_export_mapping():
     holders = [p.name for p in REFS.glob("*.md") if contract in _read(p)]
     assert holders == [UNIT_EXPORTS.name], holders
     shared = _read(UNIT_EXPORTS)
-    for needle in ("**No recipe for the unit's language:**", "entry_point_diff.extraction_gaps[]", "file_issues[]",
+    for needle in ("**What is left to read** (`to_read`)", "- `entry-point` or `unit-sources`:",
+                   "entry_point_diff.extraction_gaps[]", "file_issues[]",
                    "**Tier-aware extras:**", "**Graceful degradation.**",
+                   "{checkUnitRecordsHelper} from-extract",
                    'uv run {checkUnitRecordsHelper} --dir "{run_dir}/unit-records"',
                    "`files_count` is the unit's file count the loading file gave"):
         assert needle in shared, needle
+    # #1125: the parent writes every record by script and delegates only what is left to read.
+    for needle in ("the parent runs §2's line itself", "only for a unit whose printed `to_read` is not empty, or "
+                   "for every unit when `tools.ccc` is true", "edits the record the line printed (`record`) in place"):
+        assert needle in shared, needle
     assert "the `files_count` of its §3 record" in _read(DISCOVER)
+    assert "its language from §3" in _read(DISCOVER)
+    assert "its language and its file count from Identified Units" in _read(MAP)
 
 
 def test_no_unit_is_surveyed_for_scripts_and_assets():

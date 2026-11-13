@@ -68,10 +68,10 @@ The boundaries scan-project and discover-additional-source propose for a project
 - Scope type: `public-api`
 
 ### Component Library Boundary
-- Contains a component registry or catalog file (array of component definitions with IDs, names, categories)
+- Contains a component registry or catalog file: a `skf-detect-registry.py registry` candidate that `qualifies` (an array of 10 or more component definitions, scored on their IDs, names and categories). Judge only whether it is the registry; a headless run takes `selected` when `headless_accept` is true and no registry when it is false, as create-skill's registry gate does
 - Has `components/`, `packages/components/`, or similar multi-component directory structure
 - Multiple design system variant directories (e.g., `react-shadcn/`, `react-baseui/`, `react-carbon/`)
-- Significant demo/story/example file ratio (>30% of total files)
+- Significant demo/story/example file share: `skf-detect-registry.py demo`'s `excluded` over 30% of its `files_listed`
 - CLI-based installation pattern (e.g., `npx <tool> add <component-id>`)
 - Props interfaces outnumber function signatures as primary API surface
 - Scope type: `component-library`

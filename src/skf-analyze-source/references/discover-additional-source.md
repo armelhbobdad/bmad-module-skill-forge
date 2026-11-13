@@ -15,6 +15,9 @@ skillInventoryProbeOrder:
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
+detectRegistryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
+  - '{project-root}/src/shared/scripts/skf-detect-registry.py'
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
@@ -56,7 +59,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{
 
 and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
-**Resolve every helper first**, each from its probe order in the frontmatter (first existing path wins): `{scanManifestsHelper}`, `{disqualifyCandidatesHelper}`, `{skillInventoryHelper}`, `{detectLanguageHelper}`, `{extractPublicApiHelper}`, `{checkUnitRecordsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `discover-additional-source:0`): "`{the missing script}` is missing. Re-install SKF."
+**Resolve every helper first**, each from its probe order in the frontmatter (first existing path wins): `{scanManifestsHelper}`, `{disqualifyCandidatesHelper}`, `{skillInventoryHelper}`, `{detectLanguageHelper}`, `{detectRegistryHelper}`, `{extractPublicApiHelper}`, `{checkUnitRecordsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `discover-additional-source:0`): "`{the missing script}` is missing. Re-install SKF."
 
 ### 1. Take the New Path
 
@@ -90,17 +93,25 @@ uv run {skillInventoryHelper} derive-name --from - <<'SKF_UNIT_NAMES'
 SKF_UNIT_NAMES
 ```
 
-Give the entries `unnamed` and `duplicates` list a name of your own, from their folder, and never a name a unit of the report already has. A unit whose name is in `existing_skills` is already skilled: drop it (recommend update-skill); one in `existing_briefs` keeps the status `briefed`. Classify each unit's boundary type and scope type by {heuristicsFile}'s Boundary Classification, and detect its language from its file list:
+Give the entries `unnamed` and `duplicates` list a name of your own, from their folder, and never a name a unit of the report already has. A unit whose name is in `existing_skills` is already skilled: drop it (recommend update-skill); one in `existing_briefs` keeps the status `briefed`. Classify each unit's boundary type and scope type by {heuristicsFile}'s Boundary Classification, with its demo files and registry candidates counted and scored as identify-units Step E counts them, and detect its language from its file list:
 
 ```bash
+uv run {detectRegistryHelper} demo --files-from "{the unit's tree_file}"
+uv run {detectRegistryHelper} registry --files-from "{the unit's tree_file}" --source-root "{scan_root}"
 uv run {detectLanguageHelper} --tree-file "{the unit's tree_file}"
 ```
 
-When `detected_languages` has more than one entry, choose the language the unit documents from its own manifest, or `.source_language` without one. When `intent_hint` is not empty, mark a unit the stated goal clearly leaves out `deferred`, as the report's other deferred units are: it is listed and not analyzed, and the user can restore it.
+When `detected_languages` has more than one entry, choose the language the unit documents from its own manifest, or `.source_language` without one. Then take the unit's scope patterns, its brief `include` and `exclude`, for the language chosen (one outside the helper's choices passes `unknown`):
+
+```bash
+uv run {detectLanguageHelper} scope-patterns --tree-file "{the unit's tree_file}" --language {language}
+```
+
+When `intent_hint` is not empty, mark a unit the stated goal clearly leaves out `deferred`, as the report's other deferred units are: it is listed and not analyzed, and the user can restore it.
 
 ### 4. Map the New Units
 
-Load, read the entire file, then execute {unitExportsFile} for the new units that are not deferred, each with `{unit_root}` its path under the new scan root and its file count the `files_count` of its §3 record. It writes each unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records, records their problems and warnings, and returns them.
+Load, read the entire file, then execute {unitExportsFile} for the new units that are not deferred, each with `{unit_root}` its path under the new scan root, its language from §3 and its file count the `files_count` of its §3 record. It writes each unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records, records their problems and warnings, and returns them.
 
 **Import graph.** Write the units JSON for the new units, one entry each: `{"name": "<unit name>", "path": "<its path, relative to the scan root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}` (no `manifest_name` or `ecosystem` without a manifest; `"modules"` only for a folder without a manifest that code imports by name), then:
 
@@ -127,11 +138,11 @@ uv run {skillInventoryHelper} derive-name --from - <<'SKF_COMPOSITE_NAMES'
 SKF_COMPOSITE_NAMES
 ```
 
-Check the four indicators of {heuristicsFile}'s Stack Skill Candidate Detection against the new units no proposal groups (co-import frequency is a `pairs[]` entry with an `intersection_count` of 3 or more).
+A composite's scope patterns are the union of its constituents' `include` patterns and of their `exclude` patterns, each pattern once, as map-and-detect section 5 takes them. Check the four indicators of {heuristicsFile}'s Stack Skill Candidate Detection against the new units no proposal groups (co-import frequency is a `pairs[]` entry with an `intersection_count` of 3 or more).
 
 ### 6. Merge Into the Report and Return
 
-Add to {outputFile}: the new units, with their project path, to the Identified Units classification table (deferred units included), and the dropped candidates to its Disqualification table. Then:
+Add to {outputFile}: the new units, with their project path, to the Identified Units classification table (deferred units included), their language, `tree_file` and scope patterns to its language results, and the dropped candidates to its Disqualification table. Then:
 
 - **Loaded by map-and-detect:** write nothing more. Its Export Map and Integration Points still hold their placeholders, and its §7 writes both sections from the findings these units join.
 - **Loaded by recommend:** both sections are already written: add the new units' export rows to the Export Map, and their imports, composite proposals and stack skill candidates to Integration Points.

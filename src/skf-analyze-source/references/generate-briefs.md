@@ -44,7 +44,6 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 Read {outputFile} completely to obtain:
 - `confirmed_units` from frontmatter (names of units approved in step 05)
-- `confirmed_composites` from frontmatter (composites approved in step 04, each with its constituents' names and paths)
 - `project_paths`, `scan_roots` (each project path's scan root), `refs`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
 - Recommendation cards from "## Recommendations" section (proposed brief fields and the project path of each unit)
 - Export map and integration data from prior sections
@@ -73,8 +72,8 @@ The brief writer renders, checks and writes each brief, and applies the version 
 | target_ref | The unit's ref: its project path's entry in `refs`, else null. Never a version: `target_version` stays null |
 | language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |
 | scope.type | Scope type from step 05 recommendation card |
-| scope.include | Include patterns from step 05 recommendation card, plus, for a composite (`Boundary: Composite` on its card), `<path>/**` for every constituent path of its `confirmed_composites` entry (such as `crates/animato-core/**`), so the brief spans every constituent. Find the entry by those paths, which the card's Path lists, not by name: step 05 may rename the unit |
-| scope.exclude | Inferred from heuristics (test files, generated code) |
+| scope.include | The `scope.include` patterns of the step 05 recommendation card (a composite's, the union of its constituents', so the brief spans every constituent) |
+| scope.exclude | The `scope.exclude` patterns of the step 05 recommendation card |
 | scope.tier_a_include | Optional — narrower tier-A surface for stratified-scope monorepos and `reference-app` pattern surfaces; usually left to skf-brief-skill to refine |
 | scope.notes | Rationale from step 05 recommendation card |
 | description | Description from step 05 recommendation card |

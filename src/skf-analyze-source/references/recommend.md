@@ -33,12 +33,13 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 ### 1. Load Context
 
 Read {outputFile} completely to obtain:
-- Qualifying units from Identified Units, each with its project path (the deferred ones are listed in the summary, not given a card)
+- Qualifying units from Identified Units, each with its project path and its scope patterns (`include` and `exclude`, with the language results; a composite's, the union of its constituents'). The deferred ones are listed in the summary, not given a card
 - Export map data per unit
 - Integration points and coupling analysis
 - Stack skill candidates from frontmatter
 - Existing skills from frontmatter
 - `intent_hint` from frontmatter (the goal the user stated at init; empty when none)
+- `scope_hint` from frontmatter (the folders or packages to focus on or skip; empty when none)
 - `refs` from frontmatter: a unit's ref is its project path's entry there (none without one)
 
 Load {schemaFile} for reference on what skill-brief.yaml requires (so recommendations are actionable).
@@ -68,9 +69,12 @@ For each qualifying unit, prepare a recommendation card:
 **Proposed Brief Fields:**
 - name: {the unit's name, as identify-units or map-and-detect derived it}
 - scope.type: {full-library / specific-modules / public-api / component-library / reference-app / docs-only}
-- scope.include: {suggested glob patterns}
+- scope.include: {the unit's include patterns}
+- scope.exclude: {the unit's exclude patterns}
 - description: {suggested 1-3 sentence description, containing a literal `Use when` clause}
 ```
+
+`scope.include` and `scope.exclude` are the unit's scope patterns as `scope-patterns` computed them. Change them only to apply `scope_hint` when it is not empty (root the include patterns at the folders or packages it focuses on inside the unit, and add `<folder>/**` to the exclude patterns for each folder it skips) and as a §4 [M] edit says.
 
 ### 3. Present Recommendations
 
@@ -106,7 +110,7 @@ Present each recommendation card, then after ALL cards:
 
 ### 4. Process User Decisions
 
-Record a decision for every unit before moving on: Y adds it to `confirmed_units` with its proposed brief fields; N records the user's reason; M asks what to change (name, scope type, include patterns, description), applies it and confirms the result.
+Record a decision for every unit before moving on: Y adds it to `confirmed_units` with its proposed brief fields; N records the user's reason; M asks what to change (name, scope type, include or exclude patterns, description), applies it and confirms the result.
 
 ### 5. Confirm Stack Skill Candidates
 

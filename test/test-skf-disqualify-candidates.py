@@ -1291,16 +1291,24 @@ def test_heuristics_state_the_script_thresholds() -> None:
 
 
 def test_map_and_detect_reads_exports_by_eye_where_no_recipe_runs() -> None:
-    """The runner reads no Java, Kotlin or Swift: exit 0 is no T1 result there.
-    map-and-detect and the [D] file map each unit through map-unit-exports.md."""
+    """The runner reads no Java, Kotlin or Swift: those units run quick mode's
+    parser over every source file (#1125, determinism-5), and only a language
+    with neither a recipe nor the parser is read by eye. map-and-detect and
+    the [D] file map each unit through map-unit-exports.md."""
     assert "execute {unitExportsFile}" in _read(MAP_AND_DETECT)
     text = _read(UNIT_EXPORTS)
-    branch = text.split("**No recipe for the unit's language:**", 1)[1]
+    parser_branch = text.split("A Java, Kotlin or Swift unit runs quick mode's parser", 1)[1]
+    parser_line = parser_branch.split("```bash\n", 1)[1].split("\n", 1)[0]
+    for needle in ("--mode quick --language {language}", "--all-sources", "from-extract"):
+        assert needle in parser_line, needle
+    assert '`strategy_used: "parser"`' in parser_branch.split("```", 1)[0]
+    branch = text.split("- `entry-point` or `unit-sources`:", 1)[1]
     branch = branch.split("\n", 1)[0]
-    for needle in ("`files_in_scope` is 0", "`files_without_recipes`", "Java",
-                   "whatever its exit code", '`strategy_used: "source-read"`',
-                   '`confidence: "T1-low"`'):
+    for needle in ("no script counted the unit's exports", "exit 3", "read no file of the unit",
+                   "C#, PHP, Ruby, C or C++", '`strategy_used: "source-read"`', '`confidence: "T1-low"`'):
         assert needle in branch, needle
+    for gone in ("Java", "Kotlin", "Swift"):
+        assert gone not in branch, gone
     for field in ("entry_point_diff.extraction_gaps[]", "file_issues[]"):
         assert field in text, field
     assert "`files_count` is the unit's file count the loading file gave" in text
@@ -1318,11 +1326,15 @@ def test_composites_are_decided_after_the_import_graph_and_reach_the_brief() -> 
         "### 5. Decide Composites")
     assert "confirmed_composites: [{list of approved composites: {name, " \
            "constituents: [{name, path}], heuristic}}]" in mapping
+    # #1125: the composite's brief takes its scope patterns from the card, the
+    # union of its constituents' that map-and-detect section 5 computes.
+    assert "- **Scope patterns:** the union of its constituents' `include` patterns" in mapping
     briefs = _read(GENERATE_BRIEFS)
     include = next(line for line in briefs.splitlines()
                    if line.startswith("| scope.include |"))
-    assert "`confirmed_composites` entry" in include
-    assert "`<path>/**` for every constituent path" in include
+    assert "The `scope.include` patterns of the step 05 recommendation card" in include
+    assert "the union of its constituents'" in include
+    assert "`<path>/**` for every constituent path" not in include
 
 
 # --------------------------------------------------------------------------

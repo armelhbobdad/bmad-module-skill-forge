@@ -1100,6 +1100,67 @@ class TestQuickFiles:
         assert proc.returncode == 0, proc.stderr
         assert [e["name"] for e in json.loads(proc.stdout)["exports"]] == ["parse", "Token", "Range"]
 
+    # #1125 (analyze-source determinism-5): --all-sources reads every source file of a
+    # Java, Kotlin or Swift unit, its tests left out, so no caller types one --entry-file
+    # per file and analyze-source counts those units by parser, not by eye.
+    @pytest.mark.parametrize(
+        "language,files,entries",
+        [
+            pytest.param("java", {"src/main/java/com/acme/Api.java": "public class Api {}\n",
+                                  "src/main/java/com/acme/Store.java": "public interface Store {}\n",
+                                  "src/test/java/com/acme/ApiTest.java": "public class ApiTest {}\n"},
+                         ["src/main/java/com/acme/Api.java", "src/main/java/com/acme/Store.java"], id="java"),
+            pytest.param("swift", {"Package.swift": "// swift-tools-version:5.9\n",
+                                   "Sources/Acme/Api.swift": "public struct Api {}\n",
+                                   "Sources/Acme/Store.swift": "public protocol Store {}\n",
+                                   "Tests/AcmeTests/ApiTests.swift": "public final class ApiTests {}\n"},
+                         ["Sources/Acme/Api.swift", "Sources/Acme/Store.swift"], id="swift"),
+            pytest.param("Kotlin", {"build.gradle.kts": "plugins {}\n",
+                                    "src/main/kotlin/acme/Api.kt": "class Api\n",
+                                    "src/test/kotlin/acme/ApiTest.kt": "class ApiTest\n",
+                                    "README.md": "# acme\n"},
+                         ["src/main/kotlin/acme/Api.kt"], id="kotlin"),
+        ],
+    )
+    def test_all_sources_reads_every_source_file_but_the_tests(self, tmp_path, capsys, language, files, entries):
+        root = _stage(tmp_path / "unit", files)
+        code, out = _quick(capsys, "--language", language, "--source-root", str(root), "--all-sources")
+        assert code == 0
+        assert sorted({e["source_file"] for e in out["exports"]}) == entries
+        assert "ApiTest" not in [e["name"] for e in out["exports"]]
+        args = argparse.Namespace(source_root=str(root), manifest_file=None, language=[language], entry_file=None,
+                                  all_sources=True)
+        assert [e["path"] for e in mod._quick_files_payload(args)["entries"]] == entries
+
+    def test_all_sources_comes_after_the_entry_files_and_reads_each_once(self, tmp_path):
+        root = _stage(tmp_path / "unit", {"src/main/java/com/acme/Api.java": "public class Api {}\n",
+                                          "src/main/java/com/acme/Store.java": "public interface Store {}\n"})
+        args = argparse.Namespace(source_root=str(root), manifest_file=None, language=["java"],
+                                  entry_file=["src/main/java/com/acme/Store.java"], all_sources=True)
+        assert [e["path"] for e in mod._quick_files_payload(args)["entries"]] == [
+            "src/main/java/com/acme/Store.java", "src/main/java/com/acme/Api.java"]
+
+    def test_all_sources_that_finds_no_file_warns(self, tmp_path, capsys):
+        root = _stage(tmp_path / "unit", {"README.md": "# nothing here\n"})
+        code, out = _quick(capsys, "--language", "swift", "--source-root", str(root), "--all-sources")
+        assert (code, out["exports"]) == (0, [])
+        assert out["warnings"][0].startswith("--all-sources found no swift source file under --source-root")
+
+    @pytest.mark.parametrize(
+        "argv,message",
+        [
+            pytest.param(["--language", "python", "--source-root", "."], "java, kotlin or swift", id="python"),
+            pytest.param(["--language", "java"], "pass it", id="no-source-root"),
+            pytest.param(["--source-root", "."], "java, kotlin or swift", id="no-language"),
+            pytest.param(["--mode", "full", "--source-root", "."], "quick mode only", id="full-mode"),
+        ],
+    )
+    def test_all_sources_outside_its_languages_or_without_a_root_exits_2(self, argv, message, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main([*argv, "--all-sources"])
+        assert exc.value.code == 2
+        assert message in capsys.readouterr().err
+
 
 # #750: each Python, JavaScript and TypeScript name carries the file that
 # defines it, so Test Skill's scope sets place it as the recipe runner does.
