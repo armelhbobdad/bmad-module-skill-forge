@@ -60,9 +60,6 @@ persistent_facts = [
 #     `## Usage Patterns` headings: step 5's output validator requires all
 #     four, and the snippet's `#key-exports` and `#usage-patterns` anchors
 #     point at the last two.
-# metadata.json is read from a copy only when skf-render-quick-metadata.py
-# is missing or fails twice, so leave the copy's `## metadata.json Format`
-# section as bundled.
 
 skill_template_path = "assets/skill-template.md"
 

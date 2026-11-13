@@ -1162,6 +1162,93 @@ class TestQuickFiles:
         assert message in capsys.readouterr().err
 
 
+# #1174: Quick Skill's step 3 has the extractor write the empty envelope, never a heredoc
+# the model types: with no file fetched (--empty-envelope), and when its call fails
+# (--envelope-on-error), so a redirect to extract.json is never left empty.
+WINDOWS_PATH = 'C:\\x\\"y.toml'
+
+
+def _empty(language: str, reason: str) -> dict:
+    return {"language": language, "package_name": None, "version": None, "description": None, "exports": [],
+            "dependencies": [], "modules": [], "module_folders": [], "warnings": [reason], "unlisted": []}
+
+
+class TestQuickEnvelope:
+    def test_the_empty_envelope_carries_the_reason_as_written(self, capsys):
+        reason = 'no "source" file at C:\\repo\\src'
+        code, out = _quick(capsys, "--language", "Markdown", "--empty-envelope", reason)
+        assert (code, out) == (0, _empty("markdown", reason))
+
+    def test_it_has_every_key_a_result_that_read_no_file_has(self, capsys):
+        code, out = _quick(capsys, "--language", "python", "--empty-envelope", "no source file was fetched")
+        assert code == 0
+        assert set(out) == set(mod.extract({"language": "python", "mode": "quick"}))
+
+    def test_the_cli_writes_it_to_a_redirect(self, tmp_path):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--mode", "quick", "--language", "ruby", "--empty-envelope",
+             'it\'s "quoted" \\ here'],
+            capture_output=True, text=True, encoding="utf-8", timeout=60, stdin=subprocess.DEVNULL,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == _empty("ruby", 'it\'s "quoted" \\ here')
+
+    def test_a_file_that_cannot_be_read_still_prints_the_envelope(self, tmp_path, capsys):
+        root = _stage(tmp_path / "staged", {"src/lib.rs": "pub fn f() {}\n"})
+        code = mod.main(["--mode", "quick", "--language", "rust", "--source-root", str(root),
+                         "--manifest-file", WINDOWS_PATH, "--envelope-on-error"])
+        captured = capsys.readouterr()
+        assert code == 2
+        out = json.loads(captured.out)
+        [warning] = out["warnings"]
+        assert WINDOWS_PATH in warning and out == _empty("rust", warning)
+        [line] = [line for line in captured.err.splitlines() if line.startswith("error: ")]
+        assert line == f"error: {warning}"
+
+    def test_an_unknown_language_with_a_file_exits_1_with_the_envelope(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"main.f90": "program x\nend program x\n"})
+        code, out = _quick(capsys, "--language", "Fortran", "--source-root", str(root), "--entry-file", "main.f90",
+                           "--envelope-on-error")
+        assert code == 1
+        [warning] = out["warnings"]
+        assert "unknown language: 'fortran'" in warning and out == _empty("fortran", warning)
+
+    def test_without_the_flag_the_failures_are_unchanged(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"main.f90": "program x\nend program x\n"})
+        code = mod.main(["--mode", "quick", "--language", "rust", "--source-root", str(root),
+                         "--manifest-file", WINDOWS_PATH])
+        assert (code, capsys.readouterr().out) == (2, "")
+        code, out = _quick(capsys, "--language", "fortran", "--source-root", str(root), "--entry-file", "main.f90")
+        assert code == 1 and set(out) == {"_error"}
+
+    @pytest.mark.parametrize(
+        "argv,message",
+        [
+            pytest.param(["--mode", "entries", "--language", "python", "--empty-envelope", "x"],
+                         "--empty-envelope takes quick mode", id="empty-entries"),
+            pytest.param(["--mode", "full", "--language", "python", "--empty-envelope", "x"],
+                         "--empty-envelope takes quick mode", id="empty-full"),
+            pytest.param(["--language", "python", "--entry-file", "a.py", "--empty-envelope", "x"],
+                         "no other flag, not --entry-file", id="empty-with-a-file"),
+            pytest.param(["--language", "python", "--source-root", ".", "--empty-envelope", "x"],
+                         "no other flag, not --source-root", id="empty-with-a-root"),
+            pytest.param(["--empty-envelope", "x"], "--empty-envelope takes one --language", id="empty-no-language"),
+            pytest.param(["--mode", "entries", "--language", "python", "--tree-file", "t.json", "--source-root", ".",
+                          "--envelope-on-error"], "--envelope-on-error: quick mode only", id="on-error-entries"),
+            pytest.param(["--mode", "full", "--source-root", ".", "--envelope-on-error"],
+                         "--envelope-on-error: quick mode only", id="on-error-full"),
+            pytest.param(["--language", "python", "--envelope-on-error"],
+                         "with --manifest-file or --entry-file", id="on-error-no-file"),
+        ],
+    )
+    def test_a_flag_out_of_its_place_is_a_usage_error(self, argv, message, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(argv)
+        captured = capsys.readouterr()
+        assert (exc.value.code, captured.out) == (2, "")
+        assert message in captured.err
+
+
 # #750: each Python, JavaScript and TypeScript name carries the file that
 # defines it, so Test Skill's scope sets place it as the recipe runner does.
 FX_FILES = {

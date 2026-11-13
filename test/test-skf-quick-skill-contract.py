@@ -68,6 +68,15 @@ the caller contract lives in references/invocation-contract.md and the batch
 summary schema, status rule and events in docs/workflows.md; the stages name
 only the helper fields they read; and resolve-target §3 holds the web search
 registry-resolution.md held.
+
+A run takes each value a helper or a staged file holds from there (#1174):
+compile renders metadata.json before the snippet, whose version is that
+file's, and halts with exit 3 when the renderer is missing or fails twice;
+the extractor writes the empty extraction envelope itself; the SKILL.md
+and snippet drafts are staged in the run folder through quoted heredocs
+and installed from there by the atomic writer, run here through bash over
+a body holding `$HOME`, a backtick, `"` and `\\`; and finalize reports the
+version and export count of the installed metadata.json.
 """
 
 from __future__ import annotations
@@ -220,7 +229,7 @@ def test_every_step_3_read_goes_through_the_fetch_helper():
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
 def test_the_skills_module_chain_runs_from_the_listing_to_metadata(tmp_path, raw_github):
-    """quick-extract §1 to §3 and compile §4 run as written: the listing, the sniff, the raw
+    """quick-extract §1 to §3 and compile §3 run as written: the listing, the sniff, the raw
     fetch, the skills-module envelope and the renderer, with a description holding quotes."""
     run_dir = _run_folder(tmp_path, BUILDER_TREE)
     raw_github.update({"README.md": b"# bmad-builder\n", "package.json": b'{"name": "bmad-builder", "main": ""}',
@@ -395,7 +404,7 @@ EXTERNAL_STAR_FILES = {
 def test_a_star_from_another_package_reaches_the_skill_as_a_sentence_not_names(tmp_path, raw_github):
     """#958: §1 to §3 run as written on an entry holding `export type * from '@vitest/spy'`, a named re-export
     from `zod` and a local function. The star is the one `unlisted[]` record, §3's rule keeps it for
-    `external_stars` and leaves no record to read by eye, so no extract-added.json is staged, and compile §4's
+    `external_stars` and leaves no record to read by eye, so no extract-added.json is staged, and compile §3's
     metadata.json lists the names Test Skill's Quick parser gives for the same file (`z`, `spyOn`; the star test
     in test-skf-test-skill-provenance-paths.py): the documented set is the surface, and nothing reads as stale.
     compile §2's sentence names the statement, its file and line and the package, and none of its names."""
@@ -451,11 +460,14 @@ def test_no_entry_file_is_derived_from_the_package_name():
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
 def test_a_language_with_no_entries_rule_takes_no_entry_file(tmp_path):
     """A language outside the extractor's list exits 1 and writes no fetch list: the step skips the
-    fetch, and §3 stages the empty envelope with that call's error line."""
+    fetch, and §3's extractor writes the empty envelope with that call's exit code, no helper text, as its
+    reason (#1174)."""
     fetch = _section(_read(QUICK_EXTRACT), "### 2. Fetch Source Files", "### 3. ")
     for needle in ("For a language outside §3's list, or when the entries call exits non-zero",
+                   "its `_error` in `{run_dir}/entries.json`; 2 for an input error, its error line on stderr",
                    "take no entry file and skip the fetch",
-                   "stages its empty envelope with that error line in place of `no source file was fetched`"):
+                   "writes its empty envelope, with the reason `entries call exited <its exit code>` in place of "
+                   "`no source file was fetched` when the entries call ran."):
         assert needle in fetch, needle
     run_dir = _run_folder(tmp_path, ["Gemfile", "lib/acme.rb"])
     call = _bash_block(fetch, "--mode entries").splitlines()[0].replace("<lang>", "ruby")
@@ -481,31 +493,58 @@ def test_the_summary_names_the_entry_points_not_found():
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
 def test_a_run_that_fetched_no_source_file_still_reaches_the_zero_exports_gate(tmp_path):
     """No manifest and no entry point (no candidate in the listing, a language with no row, a fetch
-    that read none): the extractor is not called with no file, and step 4 still renders metadata.json."""
+    that read none): the extractor is not called with no file, and step 4 still renders metadata.json.
+    #1174: the extractor writes the empty envelope (--empty-envelope), and a §3 call that fails still
+    writes it (--envelope-on-error), so no step types the envelope or escapes an error line into it."""
     parse = _section(_read(QUICK_EXTRACT), "### 3. Parse Manifest and Scan Exports", "### 4. ")
     rule = _section(parse, "**When §2 fetched neither a manifest nor an entry point**", "\n\n")
     for needle in ("the listing holds no candidate", "the language has no row in §2's table",
-                   "do not run the extractor", "§4.5 decides what follows"):
+                   "do not run that call", "Have the extractor write the empty envelope instead",
+                   "§4.5 decides what follows"):
         assert needle in rule, needle
-    assert "Stage it the same way when the extractor exits non-zero" in parse
+    assert ("With `--envelope-on-error`, a call that exits non-zero (1 for a language quick mode does not parse, 2 "
+            "for a file it cannot read) still writes the empty envelope, its one warning the error: go on as with "
+            "an empty extraction.") in parse
+    assert "Stage it the same way" not in parse and "escaped" not in rule
+    for path in sorted(p for p in QS.rglob("*.md")):
+        assert not re.search(r"extract[^\"\n]*\.json\" <<'SKF_JSON'", _read(path)), path.name
     # #599: no envelope is parsed in the prompt when the extractor is missing; the step halts instead.
     assert "in-prompt per-language regex parsing" not in parse
-    # The call with no file exits 2 and leaves its redirect empty, which the renderer refuses.
+    # The call with no file and neither flag exits 2 and leaves its redirect empty, which the renderer refuses.
     called = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "quick", "--language", "python",
                              "--source-root", str(tmp_path)], capture_output=True, text=True, check=False)
     assert called.returncode == 2 and called.stdout == ""
     run_dir = _run_folder(tmp_path, ["README.md", "docs/guide.md"])
     block = _bash_block(parse, "no source file was fetched")
-    assert block.startswith("cat > \"{run_dir}/extract.json\" <<'SKF_JSON'\n")
+    assert block == ('uv run {publicApiExtractor} --mode quick --language "{language}" --empty-envelope '
+                     '"no source file was fetched" > "{run_dir}/extract.json"\n')
     _run(block.replace("{language}", "markdown"), run_dir)
     envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
     assert (envelope["language"], envelope["exports"], envelope["warnings"]) == \
         ("markdown", [], ["no source file was fetched"])
     metadata = _render(run_dir, tmp_path)
     assert (metadata["exports"], metadata["version"], metadata["stats"]["exports_documented"]) == ([], "1.0.0", 0)
-    render = _section(_read(COMPILE), "### 4. Generate Metadata JSON", "### 5. ")
+    # §3's call, a manifest it cannot read: exit 2, and extract.json holds the envelope the renderer reads.
+    call = _bash_block(_section(_read(QUICK_EXTRACT), "### 3. Parse Manifest and Scan Exports",
+                                "**Multi-module loop:**"), "--manifest-file")
+    assert call.rstrip("\n").endswith('--envelope-on-error > "{run_dir}/extract.json"')
+    call = (call.replace("<lang>", "python")
+            .replace("--manifest-file <manifest path>", '--manifest-file \'a "b".toml\'')
+            .replace(" --entry-file <entry path> [--entry-file <entry path>]...", ""))
+    (run_dir / "src").mkdir()
+    assert 'error: cannot read --manifest-file a "b".toml' in _run(call, run_dir, codes=(2,))
+    envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    assert (envelope["exports"], envelope["unlisted"]) == ([], [])
+    [warning] = envelope["warnings"]
+    assert warning.startswith('cannot read --manifest-file a "b".toml')
+    assert _render(run_dir, tmp_path / "again")["stats"]["exports_documented"] == 0
+    render = _section(_read(COMPILE), "### 3. Generate Metadata JSON", "### 4. ")
     failed = _section(render, "If the renderer exits non-zero", "\n\n")
-    assert "fix that file once" in failed and "If it fails a second time, render the envelope in-prompt" in failed
+    assert "fix that file once" in failed and "quick-extract §3's `--empty-envelope` call" in failed
+    assert ("redirected to that file, with the reason `the renderer could not read <that file's name>`"
+            in failed)
+    assert "If it fails a second time, HARD HALT with **exit code 3 (resolution-failure)**" in failed
+    assert "in-prompt" not in _read(COMPILE)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's command through a POSIX shell")
@@ -547,13 +586,18 @@ def test_a_truncated_listing_is_tried_and_reported():
 
 
 def test_the_snippet_version_is_the_one_metadata_json_gets():
-    """The snippet and the headless line name the version the renderer writes, not the manifest's alone."""
+    """The snippet and the headless line name the version the renderer writes, not the manifest's alone.
+    #1174: metadata.json is rendered first and the snippet reads its version there, so the model works
+    out no precedence chain the renderer applies after it."""
     compile_md = _read(COMPILE)
-    snippet = _section(compile_md, "### 3. Generate Context Snippet", "### 4. ")
-    [rule] = [line for line in snippet.splitlines() if line.startswith("Its `{version}` is the version §4 gives")]
-    for needle in ("`{target_version}` when step 1 parsed one from the target",
-                   "else the first `version` set in step 3's extraction files", "else `1.0.0`"):
-        assert needle in rule, needle
+    assert compile_md.index("### 3. Generate Metadata JSON\n") < compile_md.index("### 4. Generate Context Snippet\n")
+    snippet = _section(compile_md, "### 4. Generate Context Snippet", "### 5. ")
+    [rule] = [line for line in snippet.splitlines() if line.startswith("Its `{version}` is")]
+    assert rule == "Its `{version}` is the `version` of `{run_dir}/metadata.json`, which §3 rendered."
+    for stale in ("{target_version}", "extraction files", "`1.0.0`", "manifest"):
+        assert stale not in snippet, stale
+    render = _section(compile_md, "### 3. Generate Metadata JSON", "### 4. ")
+    assert "§4 reads its `version`" in render
     headless = _section(compile_md, "### 5. Present Compiled Output for Review", "### 6. ")
     assert "metadata.json (version {metadata.version}, confidence {confidence})" in headless
 
@@ -619,8 +663,9 @@ def _run_folder(tmp_path: Path, paths: list[str]) -> Path:
     return run_dir
 
 
-def _run(block: str, run_dir: Path) -> None:
-    """A step's bash block, its helpers run with this interpreter (the raw fetch against the local server)."""
+def _run(block: str, run_dir: Path, codes: tuple[int, ...] = (0, 3)) -> str:
+    """A step's bash block, its helpers run with this interpreter (the raw fetch against the local server);
+    returns its stderr."""
     bash = _tool("bash")
     python = f'"{sys.executable}"'
     script = (block.replace("uv run {githubFetch}", f'{python} "{run_dir.parent / "fetch-shim.py"}"')
@@ -633,13 +678,14 @@ def _run(block: str, run_dir: Path) -> None:
     script = re.sub(r' \[--scope "\{scope_hint\}"\]', "", script)
     script = re.sub(r' \[--package "[^"]*"\]', "", script)
     result = subprocess.run([bash, "-c", script], capture_output=True, text=True, check=False)
-    assert result.returncode in (0, 3), result.stderr
+    assert result.returncode in codes, result.stderr
     assert result.returncode == 0 or '"status": "partial"' not in result.stdout, result.stdout
+    return result.stderr
 
 
 def _render(run_dir: Path, tmp_path: Path) -> dict:
-    """compile §4's staging heredoc and renderer call, filled in, with DESCRIPTION as the description."""
-    block = _bash_block(_section(_read(COMPILE), "### 4. Generate Metadata JSON", "### 5. "), "SKF_JSON")
+    """compile §3's staging heredoc and renderer call, filled in, with DESCRIPTION as the description."""
+    block = _bash_block(_section(_read(COMPILE), "### 3. Generate Metadata JSON", "### 4. "), "SKF_JSON")
     skf_root = tmp_path / "project" / "_bmad" / "skf"
     skf_root.mkdir(parents=True)
     (skf_root / "VERSION").write_text("3.0.0\n", encoding="utf-8")
@@ -751,7 +797,7 @@ def test_extractor_warnings_send_section_3_after_the_module_they_name():
                    "`{run_dir}/extract-added.json`"):
         assert needle in act, needle
     assert "resolve the relative specifier the way the language does" not in parse
-    assert "`{run_dir}/extract-added.json` when §3 staged it" in _read(COMPILE)
+    assert "`{run_dir}/extract-added.json` when step 3 §3 staged it" in _read(COMPILE)
 
 
 def test_the_scripts_and_assets_note_reads_the_sniff():
@@ -764,7 +810,7 @@ def test_the_scripts_and_assets_note_reads_the_sniff():
 def test_metadata_is_rendered_from_files_and_installed_by_the_atomic_writer():
     """W1 re-check determinism-4: no re-typed payload, [E] re-renders, step 5 installs the rendered file."""
     compile_md = _read(COMPILE)
-    render = _section(compile_md, "### 4. Generate Metadata JSON", "### 5. ")
+    render = _section(compile_md, "### 3. Generate Metadata JSON", "### 4. ")
     block = _bash_block(render, "SKF_JSON")
     assert block.startswith("cat > \"{run_dir}/metadata-input.json\" <<'SKF_JSON'\n")
     assert block.rstrip("\n").endswith(
@@ -773,7 +819,7 @@ def test_metadata_is_rendered_from_files_and_installed_by_the_atomic_writer():
     assert '"exports": <the --exports names as a JSON list, or null>' in block
     assert '"dependencies"' not in block and "skf_version" not in block
     [edit] = [line for line in compile_md.splitlines() if line.startswith("- **IF E**")]
-    assert "run §4's renderer command again" in edit and "Do not edit `metadata.json` by hand" in edit
+    assert "run §3's renderer command again" in edit and "Do not edit `metadata.json` by hand" in edit
     write = _read(WRITE_AND_VALIDATE)
     assert ("atomicWriteProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'\n"
             "  - '{project-root}/src/shared/scripts/skf-atomic-write.py'\n") in write.split("---\n", 2)[1]
@@ -791,7 +837,9 @@ def test_the_run_folder_removal_takes_the_fetched_files_and_nothing_else(tmp_pat
     removal = _bash_block(_read(FINALIZE), "rmdir")
     run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-quick-skill-ab12cd34"
     (run_dir / "src" / "skills" / "alpha").mkdir(parents=True)
-    for name in ("tree.json", "sniff.json", "warnings.jsonl", "skills-fetch.txt", "src/skills/alpha/SKILL.md"):
+    # #1174: compile stages the SKILL.md and snippet drafts here too.
+    for name in ("tree.json", "sniff.json", "warnings.jsonl", "skills-fetch.txt", "src/skills/alpha/SKILL.md",
+                 "SKILL.md", "context-snippet.md"):
         (run_dir / name).write_text("x", encoding="utf-8")
     result = subprocess.run([bash, "-c", removal.replace("{run_dir}", run_dir.as_posix())], capture_output=True,
                             text=True, check=False)
@@ -1249,8 +1297,8 @@ def _staged(segment: str, name: str) -> str:
     """The JSON a segment stages as {run_dir}/<name>, inline or through a heredoc.
 
     A heredoc counts when it writes that file, or, for halt.json, when it pipes the
-    payload straight to emit-halt: quick-extract §3 stages its empty extract.json
-    envelope through a heredoc too, in the same segment as the extractor's halt.
+    payload straight to emit-halt: compile §3 stages metadata-input.json through a
+    heredoc in the same segment as the halt for a missing renderer.
     """
     inline = re.findall(r"[Ss]tage `(\{.*?\})` as `\{(?:run_dir|batch_dir)\}/" + re.escape(name) + "`", segment)
     heredoc = [payload for opener, payload
@@ -1280,7 +1328,8 @@ def test_the_scan_finds_every_hard_halt():
     # write-and-validate.md the one for a missing validation summarizer (#1120).
     # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
     # ecosystem-check.md lost its two, which no input reached until agentskills.io has a registry API (#1173).
-    assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 1, "finalize.md": 1,
+    # compile.md gained the halts for a metadata renderer that is missing or fails twice (#1174).
+    assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 3, "finalize.md": 1,
                         "quick-extract.md": 5, "resolve-target.md": 12, "write-and-validate.md": 7}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES) - {"ecosystem-check.md"}
 
@@ -1319,13 +1368,13 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(37), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(39), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT runs the emitter, and its payload builds the envelope it names, except the runtime
     halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder). #1173: a site that
     names no command of its own stages `{run_dir}/halt.json` for the standard command its file's Rules state."""
     sites = _halt_sites()
-    assert len(sites) == 37
+    assert len(sites) == 39
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -1369,6 +1418,9 @@ SHIPPED_HELPERS = [
                  "classifies from the README alone", id="skills-module"),
     pytest.param("quick-extract.md", "{publicApiExtractor}", "skf-extract-public-api.py",
                  "public-api-extractor-missing", "in-prompt per-language regex parsing", id="public-api-extractor"),
+    # #1174: without the renderer compile would render metadata.json in the prompt, as it did before.
+    pytest.param("compile.md", "{quickMetadataRenderer}", "skf-render-quick-metadata.py",
+                 "quick-metadata-renderer-missing", "in-prompt", id="quick-metadata-renderer"),
     pytest.param("write-and-validate.md", "{atomicWriteHelper}", "skf-atomic-write.py", "atomic-writer-missing",
                  'cp "{run_dir}/metadata.json"', id="atomic-writer"),
     pytest.param("write-and-validate.md", "{frontmatterValidator}", "skf-validate-frontmatter.py",
@@ -1771,7 +1823,7 @@ def _success_payload(section: str, quality_score: str = "91", issues: str | None
     """finalize §3's staged payload, each bare JSON value filled in as a run fills it."""
     # {validation_issues} takes the shape step 5 defines, its counts filled in.
     issues = issues or VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
-    sample = {"{export count}": "12", "{quality_score}": quality_score, "{repo_shape}": "null",
+    sample = {"{exports_documented}": "12", "{quality_score}": quality_score, "{repo_shape}": "null",
               '"{extraction confidence}"': '"high"', '"{active_pointer}"': '"symlink"',
               "{language_resolution}": '"detected"', "{detected_languages}": '["python"]',
               "{zero_exports_rescue}": "null", "{validation_issues}": issues,
@@ -2119,17 +2171,22 @@ def test_each_path_scalar_names_the_default_skill_md_binds():
 
 
 def test_the_template_comment_names_what_a_copy_must_keep():
-    """The step 5 validator and the snippet anchors read the template's headings; the renderer ignores it."""
+    """The step 5 validator and the snippet anchors read the template's headings; the renderer ignores it.
+    #1174: no step reads the template's metadata.json section, since a missing renderer halts."""
     comment = _comment_before("skill_template_path")
     template = _read(TEMPLATE)
     for heading in ("## SKILL.md Section Structure", "## context-snippet.md Format", "## Overview",
-                    "## Description", "## Key Exports", "## Usage Patterns", "## metadata.json Format"):
+                    "## Description", "## Key Exports", "## Usage Patterns"):
         assert f"`{heading}`" in comment, heading
         assert f"\n{heading}" in template, heading
     for anchor in ("#key-exports", "#usage-patterns"):
         assert f"`{anchor}`" in comment and f"SKILL.md{anchor}" in template, anchor
-    assert "metadata.json is read from a copy only when skf-render-quick-metadata.py is missing or fails twice" \
-        in comment
+    assert "metadata.json" not in comment and "fails twice" not in comment
+    # After the JSON block, which test-skf-validate-output.py reads right below the heading.
+    section = template[template.index("\n## metadata.json Format\n"):]
+    assert ("\n```\n\nDocumentation only: no step reads this section. Step 4 writes `metadata.json` with "
+            "`skf-render-quick-metadata.py`, which sets these fields, and stops when that renderer is missing or "
+            "fails twice.") in section
     # #1108: a bare path resolves from the skill root, which every update overwrites.
     assert ("Default: assets/skill-template.md, a path from the skill root. Keep a house-style copy outside the "
             "skill folder, which every update overwrites, and name it as {project-root}/<path to the copy>."
@@ -2285,8 +2342,12 @@ def test_compile_names_the_skill_after_its_folder():
     [rule] = [line for line in text.splitlines() if line.startswith("- `name` ")]
     assert rule == "- `name` is `{repo_name}`: step 5 writes that folder and validates the name against it."
     assert "gerund" not in text and "that's step 6" not in text
-    assert "do not write files to disk (step 5 writes them)" in text
-    snippet = _section(text, "### 3. Generate Context Snippet", "### 4. ")
+    # #1174: the drafts are staged in the run folder, which step 5 installs from.
+    [focus] = [line for line in _rules("compile.md").splitlines() if line.startswith("- Focus only on")]
+    assert focus == ("- Focus only on assembling the three output documents: write them only into `{run_dir}` "
+                     "(step 5 installs them)")
+    assert "do not write files to disk" not in text
+    snippet = _section(text, "### 4. Generate Context Snippet", "### 5. ")
     assert "If the assembled SKILL.md lacks a heading a snippet line anchors to, omit that line." in snippet
     for stale in ("fewer than 5", "Deep-tier", "Step-05 §2 will skip"):
         assert stale not in snippet, stale
@@ -2665,3 +2726,126 @@ def test_the_stages_name_only_the_helper_fields_they_read():
     assert "folder depth" not in delegate and "detection_source" not in delegate
     assert ("Read its `language` and `detected_languages`: `detected_languages[0]` is the helper's pick, `language`, "
             "and the list holds every other language a manifest or the source files name.") in delegate
+
+
+# --------------------------------------------------------------------------
+# #1174: each value a helper or a staged file holds is taken from there
+# --------------------------------------------------------------------------
+
+
+def test_a_renderer_that_fails_twice_halts_with_its_error_on_screen_only():
+    """determinism-3: a renderer that still fails after one fix halts with exit 3, in interactive mode too,
+    instead of rendering metadata.json in the prompt. Its error line can name an absolute path, so the staged
+    reason is one the step wrote and the line is shown on screen only (headless-gate-convention.md)."""
+    render = _section(_read(COMPILE), "### 3. Generate Metadata JSON", "### 4. ")
+    failed = _section(render, "If the renderer exits non-zero", "\n\n")
+    [site] = [segment for name, code, reason, segment in _halt_sites()
+              if name == "compile.md" and '"cause": "quick-metadata-renderer-error"' in segment]
+    assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too")
+    assert site.strip() in failed and failed.index("fix that file once") < failed.index(site.strip())
+    assert ("**Cannot render `metadata.json` for `{repo_name}`.** SKF's quick metadata renderer "
+            "(`skf-render-quick-metadata.py`) failed twice: {its error line}.\"") in site
+    assert _filled(_staged(site, "halt.json")) == {
+        "phase": "compile", "halt_reason": "resolution-failure",
+        "reason": "Cannot render metadata.json for {repo_name}.", "skill_package": None,
+        "details": {"cause": "quick-metadata-renderer-error"}}
+    assert site.rstrip().endswith("the error line, which can name an absolute path, is shown on screen only.")
+
+
+def test_finalize_reports_the_version_and_export_count_metadata_json_holds():
+    """determinism-2: the summary and the result envelope give the version and the export count of the
+    metadata.json step 5 installed, and no step keeps a count of its own; compile's headless line reads the
+    rendered file too."""
+    finalize = _read(FINALIZE)
+    for stale in ("{export count}", "{count}", "{export_count}"):
+        assert stale not in finalize, stale
+    summary = _section(finalize, "### 2. Display Completion Summary", "### 3. ")
+    assert summary.split("\n\n")[1] == (
+        "Bind `{exports_documented}` ← `stats.exports_documented` of `{skill_package}/metadata.json`, the file "
+        "step 5 installed, whose `version` is `{version}` (§1): the summary and §3 report both from that file, "
+        "never a count of their own.")
+    assert "**Skill:** {repo_name} v{version}\n" in summary
+    assert "**Exports documented:** {exports_documented}\n" in summary
+    assert "`{version}` is the `version` of the `metadata.json` step 5 installed" in finalize
+    envelope = _section(finalize, "### 3. Result Envelope and Result Contract", "### 4. ")
+    payload = _staged(envelope, "result-context.json")
+    assert '"version": "{version}",' in payload and '"exports_documented": {exports_documented},' in payload
+    assert ("`version` (`{skill_package}/metadata.json`'s, §2), `language`, `exports_documented` (that file's "
+            "`stats.exports_documented`, §2)") in envelope
+    headless = _section(_read(COMPILE), "### 5. Present Compiled Output for Review", "### 6. ")
+    assert "SKILL.md ({section_count} sections, {metadata.stats.exports_documented} exports)" in headless
+    for path in sorted(p for p in QS.rglob("*") if p.is_file()):
+        text = _read(path)
+        for stale in ("in-prompt", "do not write files to disk", "{export count}", "{export_count}"):
+            assert stale not in text, (path.name, stale)
+
+
+ATOMIC_WRITE = SCRIPTS / "skf-atomic-write.py"
+# Drafts a double-quoted shell string or an unquoted heredoc would rewrite: `$HOME`, `$(...)`, a backtick,
+# `"`, `\` and a line ending in `\`.
+SKILL_DRAFT = ("---\nname: acme\ndescription: Reads `$HOME` and \"quoted\" paths like C:\\x\\y. It's $(echo no).\n"
+               "---\n\n# acme\n\n```bash\necho \"$HOME\" `pwd` \\\n  done\n```")
+SNIPPET_DRAFT = "[acme v0.4.0]|root: skills/acme/\n|api: run(\"$HOME\"), `tick`, C:\\x\\"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_drafts_are_staged_in_the_run_folder_and_installed_as_written(tmp_path):
+    """enhancement-2: compile §2 and §4 write the SKILL.md and snippet drafts through quoted heredocs, the preview,
+    [E] and a revision work on those files, and step 5 §2 installs all three files with the atomic writer,
+    metadata.json first: the installed bytes are the staged bytes. [S] deletes the drafts and nothing else."""
+    bash = _tool("bash")
+    compile_md = _read(COMPILE)
+    skill_block = _bash_block(_section(compile_md, "### 2. Assemble SKILL.md", "### 3. "), "SKF_SKILL_MD")
+    assert skill_block == "cat > \"{run_dir}/SKILL.md\" <<'SKF_SKILL_MD'\n<the assembled SKILL.md>\nSKF_SKILL_MD\n"
+    snippet = _section(compile_md, "### 4. Generate Context Snippet", "### 5. ")
+    snippet_block = _bash_block(snippet, "SKF_SNIPPET")
+    assert snippet_block == ("cat > \"{run_dir}/context-snippet.md\" <<'SKF_SNIPPET'\n<the context snippet>\n"
+                             "SKF_SNIPPET\n")
+    assert "skip generation, write no `{run_dir}/context-snippet.md`" in snippet
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "metadata.json").write_text('{"name": "acme", "version": "0.4.0"}\n', encoding="utf-8")
+    package = tmp_path / "skills" / "acme" / "0.4.0" / "acme"
+
+    def run(block: str) -> None:
+        script = (block.replace("uv run {atomicWriteHelper}", f'"{sys.executable}" "{ATOMIC_WRITE.as_posix()}"')
+                  .replace("{run_dir}", run_dir.as_posix()).replace("{skill_package}", package.as_posix()))
+        done = subprocess.run([bash, "-c", script], capture_output=True, text=True, check=False)
+        assert done.returncode == 0, done.stderr
+
+    run(skill_block.replace("<the assembled SKILL.md>", SKILL_DRAFT))
+    run(snippet_block.replace("<the context snippet>", SNIPPET_DRAFT))
+    assert (run_dir / "SKILL.md").read_bytes() == (SKILL_DRAFT + "\n").encode("utf-8")
+    assert (run_dir / "context-snippet.md").read_bytes() == (SNIPPET_DRAFT + "\n").encode("utf-8")
+    write = _section(_read(WRITE_AND_VALIDATE), "### 2. Write Deliverables", "### 3. ")
+    installs = _bash_blocks(write)
+    names = ["metadata.json", "SKILL.md", "context-snippet.md"]
+    assert installs == [f'uv run {{atomicWriteHelper}} write --target "{{skill_package}}/{name}" < '
+                        f'"{{run_dir}}/{name}"\n' for name in names]
+    assert "2. `{skill_package}/SKILL.md`: installed from `{run_dir}/SKILL.md`, which step 4 §2 staged" in write
+    assert ("3. `{skill_package}/context-snippet.md`: installed from `{run_dir}/context-snippet.md`, which step 4 §4 "
+            "staged") in write
+    for block in installs:
+        run(block)
+    for name in names:
+        assert (package / name).read_bytes() == (run_dir / name).read_bytes(), name
+    [rule] = [line for line in _rules("write-and-validate.md").splitlines() if line.startswith("- Install exactly")]
+    assert rule == "- Install exactly the files step 4 staged: do not modify content during writing or after validation"
+    # The preview, [E] and a free-form revision read and write the drafts on disk.
+    preview = _section(compile_md, "### 5. Present Compiled Output for Review", "### 6. ")
+    assert "{Display `{run_dir}/SKILL.md` as it is on disk}" in preview
+    assert "{Display `{run_dir}/context-snippet.md`}" in preview
+    menu = compile_md.splitlines()
+    [edit] = [line for line in menu if line.startswith("- **IF E**")]
+    assert ("Write `{run_dir}/SKILL.md` again through §2's quoted heredoc with the new frontmatter "
+            "`description`") in edit
+    assert "re-render the §5 preview from the files" in edit
+    [other] = [line for line in menu if line.startswith("- **IF Any other**")]
+    assert ("write the changed draft, `{run_dir}/SKILL.md` or `{run_dir}/context-snippet.md`, again through its "
+            "quoted heredoc, then re-render the §5 preview from the files") in other
+    # [S] deletes the drafts before the re-extraction, which compiles new ones.
+    [rescope] = [line for line in menu if line.startswith("- **IF S**")]
+    rm = re.search(r"delete the drafts \(`(rm -f [^`]+)`\), then load `references/quick-extract.md`", rescope)
+    assert rm, rescope
+    run(rm.group(1))
+    assert sorted(p.name for p in run_dir.iterdir()) == ["metadata.json"]

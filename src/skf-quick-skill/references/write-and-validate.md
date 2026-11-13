@@ -32,11 +32,11 @@ validationSummaryProbeOrder:
 
 ## STEP GOAL:
 
-To write the compiled SKILL.md, context-snippet.md, and metadata.json to the versioned skill package, then validate them on disk against the agentskills.io specification at community tier. Validation is advisory: issues are reported but do not block the workflow.
+To install the SKILL.md, context-snippet.md and metadata.json step 4 staged in `{run_dir}` into the versioned skill package, then validate them on disk against the agentskills.io specification at community tier. Validation is advisory: issues are reported but do not block the workflow.
 
 ## Rules
 
-- Write exactly what was compiled — do not modify content during writing or after validation
+- Install exactly the files step 4 staged: do not modify content during writing or after validation
 - Community-tier validation (lighter than official requirements)
 - A HARD HALT stages the payload its site gives as `{run_dir}/halt.json` and runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, unless its site names its own command, and a headless gate stages the decision its site gives as `{run_dir}/decision.json` and runs `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 - Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires only when neither the file nor the probe order names a path that exists, as when the helper was removed after activation.
@@ -45,7 +45,7 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 
 ### 1. Check Ownership, Then Create Output Directory
 
-Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`, which step 4 §4 rendered: the version the target pinned, else the manifest's, else `1.0.0`. The version folder and the file's `version` are then one value.
+Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`, which step 4 §3 rendered: the version the target pinned, else the manifest's, else `1.0.0`. The version folder and the file's `version` are then one value.
 
 **Ownership check.** Run it before creating any directory and before the overwrite prompt below. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
@@ -92,17 +92,26 @@ A `{skill_package}` without `metadata.json` holds only what an interrupted run l
 
 ### 2. Write Deliverables
 
-Write the three compiled artifacts to the skill package in this order, `metadata.json` first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts:
+Install the three files step 4 staged into the skill package in this order, `metadata.json` first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts:
 
-1. `{skill_package}/metadata.json`: installed from the file step 4 §4 rendered, never typed again. Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and run:
+1. `{skill_package}/metadata.json`: installed from the file step 4 §3 rendered, never typed again. Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and run:
 
    ```bash
    uv run {atomicWriteHelper} write --target "{skill_package}/metadata.json" < "{run_dir}/metadata.json"
    ```
 
    It writes the file in place atomically, so an interrupted run never leaves half a `metadata.json`. If no candidate exists, write nothing and HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Nothing was written to `{skill_package}`.** SKF's atomic writer (`skf-atomic-write.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "Nothing was written: the atomic writer is missing.", "skill_package": "{skill_package}", "details": {"cause": "atomic-writer-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`, without `--result-dir "{skill_package}"` when no earlier run's `metadata.json` is there (`references/halt-contract.md`).
-2. `{skill_package}/SKILL.md`: the compiled skill document.
-3. `{skill_package}/context-snippet.md`: the compressed context snippet. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
+2. `{skill_package}/SKILL.md`: installed from `{run_dir}/SKILL.md`, which step 4 §2 staged, as `metadata.json` is:
+
+   ```bash
+   uv run {atomicWriteHelper} write --target "{skill_package}/SKILL.md" < "{run_dir}/SKILL.md"
+   ```
+
+3. `{skill_package}/context-snippet.md`: installed from `{run_dir}/context-snippet.md`, which step 4 §4 staged, as `metadata.json` is. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
+
+   ```bash
+   uv run {atomicWriteHelper} write --target "{skill_package}/context-snippet.md" < "{run_dir}/context-snippet.md"
+   ```
 
 Confirm after each write: "Written: metadata.json" / "Written: SKILL.md" / "Written: context-snippet.md". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 

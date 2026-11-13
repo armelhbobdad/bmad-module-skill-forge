@@ -117,7 +117,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs, exit codes an
    | `--scope-hint <path>` | Sets `scope_hint`: the folder step 3 reads the entry points and skill folders from. |
    | `--description "<string>"` | Replaces the extracted description in step 4 §2, which checks its length and voice as it checks an extracted one. |
    | `--exports "<name1,name2,...>"` | Replaces the extracted export list in step 4 §2: comma-separated, each name trimmed, empty items skipped. |
-   | `--skip-snippet` | No context-snippet.md: step 4 §3 and step 5 §2 skip it. |
+   | `--skip-snippet` | No context-snippet.md: step 4 §4 and step 5 §2 skip it. |
    | `--no-active-pointer` | Step 6 §1 leaves `{skill_group}/active` as it is. |
    | `--batch <file>` | Compiles every target the file lists, headless (On Activation step 5); `--skip-snippet` and `--no-active-pointer` apply to every target in the batch. |
    | `--fail-fast` | With `--batch`: the batch stops at the first failed target. |

@@ -44,6 +44,8 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 
 ### 2. Display Completion Summary
 
+Bind `{exports_documented}` ← `stats.exports_documented` of `{skill_package}/metadata.json`, the file step 5 installed, whose `version` is `{version}` (§1): the summary and §3 report both from that file, never a count of their own.
+
 "**Quick Skill summary**
 
 **Skill:** {repo_name} v{version}
@@ -63,7 +65,7 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 
 {If step 5 §1 set `{replaced_build}`, add:} **Replaced:** the `{replaced_build}` build of v{version}. Its forge data, `{forge_data_folder}/{repo_name}/{version}/`, is left in place: remove it yourself once you no longer need it.
 
-**Exports documented:** {count}
+**Exports documented:** {exports_documented}
 **Validation:** {pass / N issues (advisory)}
 
 ---
@@ -89,7 +91,7 @@ cat > "{run_dir}/result-context.json" <<'SKF_JSON'
     "skill_name": "{repo_name}",
     "version": "{version}",
     "language": "{language}",
-    "exports_documented": {export count},
+    "exports_documented": {exports_documented},
     "quality_score": {quality_score},
     "confidence": "{extraction confidence}",
     "repo_shape": {repo_shape},
@@ -113,7 +115,7 @@ SKF_JSON
 uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" < "{run_dir}/result-context.json"
 ```
 
-This list is the summary, once: `skill_name`, `version`, `language`, `exports_documented` (the export count), `quality_score` and `validation_issues` (the two values of `{run_dir}/validation-summary.json`, step 5 §6, copied as they are there: a number or null, and the object `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`), `security_result` (step 5 §4: `pass`, `warn` or `skipped`), `confidence` and `repo_shape` (step 3, the shape null when it recorded none), `language_resolution` and `detected_languages` (step 1), `zero_exports_rescue` (step 3 §4.5, else null) and `active_pointer` (§1). Write each value as JSON: a string in double quotes with any `"` or `\` escaped, every path absolute with `/`, and `null` for a value the run did not record. Leave the snippet out of both `outputs` under `--skip-snippet`, and `outputs.active_pointer` out when §1 flipped no pointer.
+This list is the summary, once: `skill_name`, `version` (`{skill_package}/metadata.json`'s, §2), `language`, `exports_documented` (that file's `stats.exports_documented`, §2), `quality_score` and `validation_issues` (the two values of `{run_dir}/validation-summary.json`, step 5 §6, copied as they are there: a number or null, and the object `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`), `security_result` (step 5 §4: `pass`, `warn` or `skipped`), `confidence` and `repo_shape` (step 3, the shape null when it recorded none), `language_resolution` and `detected_languages` (step 1), `zero_exports_rescue` (step 3 §4.5, else null) and `active_pointer` (§1). Write each value as JSON: a string in double quotes with any `"` or `\` escaped, every path absolute with `/`, and `null` for a value the run did not record. Leave the snippet out of both `outputs` under `--skip-snippet`, and `outputs.active_pointer` out when §1 flipped no pointer.
 
 The emitter writes the result contract from `result_contract`, with the payload's own `status` and `summary`, so neither is typed twice (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_QUICK_SKILL_RESULT_JSON` line) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`. In a headless single-target run, bind `{result_envelope_line}` ← that line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. Otherwise (an interactive run, or a `--batch` target) display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, leave `{result_envelope_line}` empty, say that the result contract was not written and why, and go on.
 
@@ -128,7 +130,7 @@ When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `res
 In a single-target run, then delete the run folder, which a finished run no longer needs: the files step 3 fetched into it, and the files the steps staged (if `rmdir` reports it is not empty, leave it). The `case` guard deletes nothing unless the path is a quick-skill run folder:
 
 ```bash
-case "{run_dir}" in */.skf-run/skf-quick-skill-*) rm -rf "{run_dir}/src" && rm -f "{run_dir}"/*.json "{run_dir}"/*.jsonl "{run_dir}"/*.txt && rmdir "{run_dir}" ;; esac
+case "{run_dir}" in */.skf-run/skf-quick-skill-*) rm -rf "{run_dir}/src" && rm -f "{run_dir}"/*.json "{run_dir}"/*.jsonl "{run_dir}"/*.txt "{run_dir}"/*.md && rmdir "{run_dir}" ;; esac
 ```
 
 Under `--batch`, leave it: batch mode §3 records the target from it, then removes it.

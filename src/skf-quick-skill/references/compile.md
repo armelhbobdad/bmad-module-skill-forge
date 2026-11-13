@@ -16,7 +16,7 @@ To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-alig
 
 ## Rules
 
-- Focus only on assembling the three output documents: do not write files to disk (step 5 writes them)
+- Focus only on assembling the three output documents: write them only into `{run_dir}` (step 5 installs them)
 - Follow template structure exactly from {skillTemplateData}
 - Mark any sections with insufficient data as best-effort
 - A HARD HALT stages the payload its site gives as `{run_dir}/halt.json` and runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, unless its site names its own command, and a headless gate stages the decision its site gives as `{run_dir}/decision.json` and runs `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
@@ -29,7 +29,6 @@ To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-alig
 Load {skillTemplateData} to understand:
 - SKILL.md required and optional sections
 - context-snippet.md Vercel-aligned indexed format
-- metadata.json field requirements
 
 ### 2. Assemble SKILL.md
 
@@ -52,25 +51,19 @@ Populate the SKILL.md section structure from `{skillTemplateData}` § "SKILL.md 
 
 **If confidence is low** — include a note: "This skill was generated with limited source data. Consider running create-skill for a more thorough compilation."
 
-### 3. Generate Context Snippet
+Write the assembled SKILL.md to `{run_dir}/SKILL.md` through a quoted heredoc, so a description or an example holding a quote, a backtick or a `$` reaches the file as written:
 
-**If `{overrides.skip_snippet}` is true**, skip generation and note in the §5 preview: "context-snippet.md skipped per `--skip-snippet` override."
+```bash
+cat > "{run_dir}/SKILL.md" <<'SKF_SKILL_MD'
+<the assembled SKILL.md>
+SKF_SKILL_MD
+```
 
-Otherwise, produce context-snippet.md in the Vercel-aligned indexed format from `{skillTemplateData}` § "context-snippet.md Format" (~80-120 tokens).
-
-Its `{version}` is the version §4 gives `metadata.json`, which names the version folder: `{target_version}` when step 1 parsed one from the target, else the first `version` set in step 3's extraction files (`{run_dir}/extract.json` first), else `1.0.0`.
-
-If the assembled SKILL.md lacks a heading a snippet line anchors to, omit that line.
-
-**If no exports:** Omit the api line.
-**If no gotchas known:** Omit the gotchas line.
-**If `repo_shape` is `skills-module`:** the api line names up to five skills, without `()`, and the key-types summary lists the menu codes when there are any.
-
-### 4. Generate Metadata JSON
+### 3. Generate Metadata JSON
 
 Run the shared renderer. It applies the constants, takes the export list, the dependencies and the manifest's version from step 3's extraction files, probes the installed SKF's version for `tool_versions.skf`, computes export counts and the ISO 8601 UTC timestamp, and writes the canonical envelope (it does not read the template).
 
-**Resolve `{quickMetadataRenderer}`** from `{quickMetadataRendererProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt rendering of the canonical envelope per `{skillTemplateData}` § "metadata.json Format", and write it to `{run_dir}/metadata.json`.
+**Resolve `{quickMetadataRenderer}`** from `{quickMetadataRendererProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot render `metadata.json` for `{repo_name}`.** SKF's quick metadata renderer (`skf-render-quick-metadata.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "compile", "halt_reason": "resolution-failure", "reason": "Cannot render metadata.json for {repo_name}.", "skill_package": null, "details": {"cause": "quick-metadata-renderer-missing"}}` as `{run_dir}/halt.json`.
 
 Stage the fields this step and step 1 decide through a quoted heredoc, so a description holding an apostrophe, a quote or a `$` reaches the file as written, then run the renderer:
 
@@ -81,17 +74,39 @@ SKF_JSON
 uv run {quickMetadataRenderer} --input "{run_dir}/metadata-input.json" --extraction "{run_dir}/extract.json" --skf-root "{project-root}/_bmad/skf" --output "{run_dir}/metadata.json"
 ```
 
-Write each value as JSON: a string in double quotes with any `"` or `\` escaped, and `null` where the line says so. `version` is the version step 1 parsed from the target, else `null`, which takes the manifest's version (else `1.0.0`); `exports` is `{overrides.exports}` when set, else `null`, which takes the extraction's exports; an empty `source_package` takes the manifest's package name. Pass one `--extraction` per file step 3 wrote, the parent first: `{run_dir}/extract.json`, then each `{run_dir}/extract-module-<n>.json` of a multi-module build in `<n>` order and `{run_dir}/extract-added.json` when §3 staged it. Do not type the export list or the dependencies: the renderer reads them from those files.
+Write each value as JSON: a string in double quotes with any `"` or `\` escaped, and `null` where the line says so. `version` is the version step 1 parsed from the target, else `null`, which takes the manifest's version (else `1.0.0`); `exports` is `{overrides.exports}` when set, else `null`, which takes the extraction's exports; an empty `source_package` takes the manifest's package name. Pass one `--extraction` per file step 3 wrote, the parent first: `{run_dir}/extract.json`, then each `{run_dir}/extract-module-<n>.json` of a multi-module build in `<n>` order and `{run_dir}/extract-added.json` when step 3 §3 staged it. Do not type the export list or the dependencies: the renderer reads them from those files.
 
-The renderer writes `{run_dir}/metadata.json` and prints it on stdout. Read it as `metadata` for the §5 preview; step 5 §2 installs that file.
+The renderer writes `{run_dir}/metadata.json` and prints it on stdout. Read it as `metadata` for the §5 preview; §4 reads its `version`, and step 5 §2 installs that file.
 
-If the renderer exits non-zero, its error line names the file or the field at fault: fix that file once (stage `metadata-input.json` again with the missing field, or stage an empty extraction file as quick-extract §3's empty envelope) and run the command again. If it fails a second time, render the envelope in-prompt as the no-candidate fallback above does.
+If the renderer exits non-zero, its error line names the file or the field at fault: fix that file once (stage `metadata-input.json` again with the missing field, or write the extraction file it names again with quick-extract §3's `--empty-envelope` call, redirected to that file, with the reason `the renderer could not read <that file's name>`) and run the command again. If it fails a second time, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot render `metadata.json` for `{repo_name}`.** SKF's quick metadata renderer (`skf-render-quick-metadata.py`) failed twice: {its error line}." Stage `{"phase": "compile", "halt_reason": "resolution-failure", "reason": "Cannot render metadata.json for {repo_name}.", "skill_package": null, "details": {"cause": "quick-metadata-renderer-error"}}` as `{run_dir}/halt.json`; the error line, which can name an absolute path, is shown on screen only.
+
+### 4. Generate Context Snippet
+
+**If `{overrides.skip_snippet}` is true**, skip generation, write no `{run_dir}/context-snippet.md`, and note in the §5 preview: "context-snippet.md skipped per `--skip-snippet` override."
+
+Otherwise, produce context-snippet.md in the Vercel-aligned indexed format from `{skillTemplateData}` § "context-snippet.md Format" (~80-120 tokens).
+
+Its `{version}` is the `version` of `{run_dir}/metadata.json`, which §3 rendered.
+
+If the assembled SKILL.md lacks a heading a snippet line anchors to, omit that line.
+
+**If no exports:** Omit the api line.
+**If no gotchas known:** Omit the gotchas line.
+**If `repo_shape` is `skills-module`:** the api line names up to five skills, without `()`, and the key-types summary lists the menu codes when there are any.
+
+Write it to `{run_dir}/context-snippet.md` through a quoted heredoc:
+
+```bash
+cat > "{run_dir}/context-snippet.md" <<'SKF_SNIPPET'
+<the context snippet>
+SKF_SNIPPET
+```
 
 ### 5. Present Compiled Output for Review
 
 **If `{headless_mode}` is true** — skip the inline preview (no human reviewer reads it) and emit a one-line summary instead:
 
-"Compiled: SKILL.md ({section_count} sections, {export_count} exports), context-snippet.md (~{snippet_token_count} tokens), metadata.json (version {metadata.version}, confidence {confidence}). Auto-approving [C]."
+"Compiled: SKILL.md ({section_count} sections, {metadata.stats.exports_documented} exports), context-snippet.md (~{snippet_token_count} tokens), metadata.json (version {metadata.version}, confidence {confidence}). Auto-approving [C]."
 
 Then proceed directly to §6 — the GATE default action takes over.
 
@@ -103,13 +118,13 @@ Then proceed directly to §6 — the GATE default action takes over.
 
 **SKILL.md Preview:**
 
-{Display the full assembled SKILL.md content}
+{Display `{run_dir}/SKILL.md` as it is on disk}
 
 ---
 
 **context-snippet.md:**
 
-{Display the snippet}
+{Display `{run_dir}/context-snippet.md`}
 
 ---
 
@@ -126,10 +141,10 @@ Display: **Select:** [C] Continue to Validation · [E] Edit description · [S] A
 #### Menu Handling Logic:
 
 - **IF C** — Load, read entire file, then execute {nextStepFile}.
-- **IF E**: Ask the user for a replacement description ("New description (1–1024 chars):"). Update SKILL.md frontmatter `description` in the compiled output, stage `{run_dir}/metadata-input.json` again with the new description and run §4's renderer command again, so `{run_dir}/metadata.json` carries it, then re-render the §5 preview and redisplay this menu. Do not edit `metadata.json` by hand, and do not re-run extraction.
-- **IF S**: Ask the user for an adjusted `scope_hint` ("New scope (e.g. `src/server/`, `packages/core/`):") and optionally a `language_hint`. A non-empty new language hint sets `language` to it, `language_resolution` to `hint` and `detected_languages` to `[]`, as step 1 §4 does for a hint. Update the extraction context with the new hints, then load `references/quick-extract.md` to re-extract. The new extraction returns to §1 of this step on completion. Discards the prior compiled output.
+- **IF E**: Ask the user for a replacement description ("New description (1–1024 chars):"). Write `{run_dir}/SKILL.md` again through §2's quoted heredoc with the new frontmatter `description`, stage `{run_dir}/metadata-input.json` again with the new description and run §3's renderer command again, so `{run_dir}/metadata.json` carries it, then re-render the §5 preview from the files and redisplay this menu. Do not edit `metadata.json` by hand, and do not re-run extraction.
+- **IF S**: Ask the user for an adjusted `scope_hint` ("New scope (e.g. `src/server/`, `packages/core/`):") and optionally a `language_hint`. A non-empty new language hint sets `language` to it, `language_resolution` to `hint` and `detected_languages` to `[]`, as step 1 §4 does for a hint. Update the extraction context with the new hints and delete the drafts (`rm -f "{run_dir}/SKILL.md" "{run_dir}/context-snippet.md"`), then load `references/quick-extract.md` to re-extract. The new extraction returns to §1 of this step on completion. Discards the prior compiled output.
 - **IF Q**: HARD HALT with **exit code 6 (user-cancelled)**: "Compilation cancelled. No files written." Stage `{"phase": "compile", "halt_reason": "user-cancelled", "reason": "Compilation cancelled. No files written.", "skill_package": null}` as `{run_dir}/halt.json` (`references/halt-contract.md`). Do not proceed to validation; do not write any artifacts.
-- **IF Any other** — Help the user adjust the compiled output (treated as a free-form revision request), then redisplay the menu.
+- **IF Any other**: Help the user adjust the compiled output (a free-form revision request): write the changed draft, `{run_dir}/SKILL.md` or `{run_dir}/context-snippet.md`, again through its quoted heredoc, then re-render the §5 preview from the files and redisplay the menu.
 
 #### Gate:
 
