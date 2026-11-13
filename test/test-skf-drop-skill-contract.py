@@ -259,12 +259,12 @@ def test_every_emitting_halt_names_its_phase(rel, start):
 
 
 def test_every_stage_runs_the_same_halt_command():
-    """The contract's Halt Envelope (for the activation HALTs), select.md and execute.md
-    state the halt rule each; the command and the JSON rule never drift."""
+    """The contract's Halt Envelope (for the activation HALTs), and the Halts sections of select.md and
+    execute.md, state the halt rule each; the command and the JSON rule never drift."""
     halt = _section(_read(CONTRACT), "## Halt Envelope", None)
     rules = {CONTRACT: halt,
-             SELECT: _section(_read(SELECT), "### 1. Halt Envelope", "### 2. "),
-             EXECUTE: _section(_read(EXECUTE), "### 1. Halt Envelope", "### 2. ")}
+             SELECT: _section(_read(SELECT), "## Halts", "## MANDATORY SEQUENCE"),
+             EXECUTE: _section(_read(EXECUTE), "## Halts", "## MANDATORY SEQUENCE")}
     commands = {rel: _one_command(rule, "emit-halt --workflow skf-drop-skill --run-dir")
                 for rel, rule in rules.items()}
     assert len(set(commands.values())) == 1, commands
@@ -361,7 +361,7 @@ def test_run_folder_halt_emits_without_a_run_folder():
 
 def test_dry_run_envelope_lists_the_planned_deletions(tmp_path):
     """#593: a headless --dry-run of a purge names the folders it would delete, and writes no result file."""
-    confirm = _section(_read(SELECT), "### 10. Confirmation Gate", "### 11. ")
+    confirm = _section(_read(SELECT), "### 10. Confirmation Gate", "### 12. ")
     [template] = _fenced(confirm, "json")
     run_dir = _run_dir(tmp_path)
     skills = tmp_path / "skills"
@@ -437,7 +437,7 @@ def test_headless_decisions_reach_the_result_record(tmp_path):
     """#593: the mode and the confirmation a headless run decides land in the record's headless_decisions."""
     select = _read(SELECT)
     mode = _section(select, "### 8. Ask Mode", "### 8b. ")
-    confirm = _section(select, "### 10. Confirmation Gate", "### 11. ")
+    confirm = _section(select, "### 10. Confirmation Gate", "### 12. ")
     command = _one_command(mode, "record --run-dir")
     assert "--workflow" not in command, "the drop schema has no headless_decisions to check a decision against"
     assert "run the §8 `record` command" in confirm
@@ -463,7 +463,6 @@ def test_headless_decisions_reach_the_result_record(tmp_path):
     record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
     assert record["headless_decisions"] == decisions
     assert decisions[0]["taken_action"] == "purge" and decisions[1]["gate"] == "select.confirm"
-    assert "`headless_decisions`" in contract
 
 
 # --------------------------------------------------------------------------
@@ -475,7 +474,6 @@ def test_failed_manifest_write_halts_in_every_mode():
     on_error = _section(manifest, "**On error (the helper exits non-zero):**", None)
     assert 'HALT (exit code 4, `halt_reason: "manifest-write-failed"`' in on_error
     assert "in every mode, before section 3" in on_error
-    assert "step 3 never runs, so no success report is shown and no result file is written" in on_error
     for stale in ("jump to section 6", "Store `manifest_updated = false`", "{captured stderr}"):
         assert stale not in manifest, stale
     assert "When the helper exits 0 (`status: \"ok\"`), set context flag `manifest_updated = true`." in manifest
@@ -504,7 +502,8 @@ def test_the_emitter_stamps_the_time_and_writes_the_result_files():
     assert _one_command(contract, "emit --workflow skf-drop-skill") == (
         'uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" '
         '--result-dir "{skills_output_folder}" < "{run_dir}/result-context.json"')
-    assert "Bind `{result_json_path}` ← that line's `result_path`" in contract
+    assert ("Bind `{result_json_path}` ← the `result_path` of the `SKF_DROP_SKILL_RESULT_JSON:` line it prints on "
+            "stdout") in contract
     hook = _section(_read(REPORT), "### Post-drop hook", "### 3. ")
     assert "`{result_json_path}` is not null" in hook
     assert 'rm -rf "{run_dir}"' in hook
@@ -572,9 +571,8 @@ def test_required_helpers_resolve_before_the_first_prompt():
             "skills alone") in roster, "the inventory fallback stays: it changes what is offered"
     for start, end in (("### 2. Update Export Manifest", "### 3. "), ("### 3. Rebuild Context Files", "### 4. ")):
         assert "halts before the first prompt" not in _section(execute, start, end), start
-    rule = next(line for line in _read(SKILL).splitlines()
-                if line.startswith("- If any instruction references a subprocess"))
-    assert "never type an envelope or edit the manifest or a context file yourself" in rule
+    rule = next(line for line in _read(SKILL).splitlines() if line.startswith("- Never do by hand what a helper does"))
+    assert "A missing On-Activation §4 helper halts the run before the first prompt" in rule
 
 
 def test_a_stage_that_lost_a_helper_runs_the_one_its_probe_order_finds(tmp_path):
@@ -654,9 +652,8 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
             < preflight.index("Last, the headless-purge guard."))
     warnings = next(line for line in _read(CONTRACT).splitlines() if line.startswith("- `warnings`:"))
     assert "`customization_resolver_unavailable: <reason>` when On Activation records" in warnings
-    # An interactive HALT in step 1 or 2 deletes the run folder; the activation halts keep it.
-    assert ("(step 3, a `--dry-run` at the confirmation gate, or an interactive HALT in step 1 or 2 deletes it; "
-            "any other HALT keeps it)") in preflight
+    # The activation halts keep the run folder; the stages that delete it say so where they do.
+    assert "bind `{run_dir}` ← the path it prints (an activation HALT keeps it):" in preflight
     toml = _read(CUSTOMIZE)
     # #1107: no Drop Skill stage reads the project context, so the list ships empty and the comment shows the opt-in.
     assert tomllib.loads(toml)["workflow"]["persistent_facts"] == []
@@ -771,7 +768,7 @@ def test_no_drop_file_reads_a_default_mode():
     for source in ('`mode_source = "--mode argument"`', '`mode_source = "interactive-prompt"`',
                    '`mode_source = "draft-skill-forced-purge"`'):
         assert source in mode, source
-    stored = _section(_read(SELECT), "### 11. Store Decisions in Context", "### 12. ")
+    stored = _section(_read(SELECT), "### 12. Load Next Step", None)
     assert "`mode_source`" in stored and "`confirm_source`" in stored
 
 
@@ -945,7 +942,7 @@ def test_the_skill_level_manifest_call_follows_the_drop_mode(tmp_path, drop_mode
 
 
 def test_the_whole_skill_deprecate_is_checked_and_reported_as_kept():
-    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
+    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 7. ")
     # drop-roster.py verify expects every version deprecated for a whole-skill deprecate, and no entry for a purge.
     assert "--mode {drop_mode} [--version {version}]" in _one_command(verify, "{dropRosterHelper} verify")
     assert "Pass `--version` for a version-level drop." in verify
@@ -971,7 +968,7 @@ def test_the_purge_option_names_the_folders_the_purge_check_bound():
 def test_the_confirm_gate_cancel_is_interactive_only():
     """A headless run auto-confirms [Y], so the [N] HALT and the cancel rule print no envelope."""
     select = _read(SELECT)
-    confirm = _section(select, "### 10. Confirmation Gate", "### 11. ")
+    confirm = _section(select, "### 10. Confirmation Gate", "### 12. ")
     cancel = next(line for line in confirm.splitlines() if line.startswith("- **If `N`**"))
     assert 'HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `select:confirm`).' in cancel
     assert "halt envelope" not in cancel
@@ -997,8 +994,8 @@ def test_the_guard_and_the_blast_radius_read_the_roster_counts():
     assert "`{version_counts}` ← its `counts`" in versions
     assert "{skillInventoryHelper} resolve" not in versions, "the roster already holds the rows"
     guard = _section(select, "### 7. Active Version Guard", "### 8. ")
-    assert "Read `{version_counts}.non_deprecated` (§5)" in guard and "above `1`" in guard
-    assert "The guard never counts by hand" in guard
+    assert "`{version_counts}.non_deprecated` (§5) is above `1`" in guard
+    assert "The guard never counts by hand" not in guard, "§5 defines the count"
     assert "Count the number of OTHER versions" not in guard
     assert "without `{version_counts}`" not in guard, "the roster always gives the counts"
     blast = _section(select, "#### 9b.", "### 10. ")
@@ -1351,7 +1348,7 @@ def test_a_named_skill_builds_no_roster_list():
 
 def test_the_skill_name_convention_has_no_second_meaning():
     """leanness-3: SKILL.md's {skill-name} is the skill's own folder name, never a listed skill."""
-    for rel in (SELECT, EXECUTE, REPORT):
+    for rel in (SKILL, SELECT, EXECUTE, REPORT):
         assert "{skill-name}" not in _read(rel), rel
 
 
@@ -1382,13 +1379,13 @@ def test_select_cuts_the_dead_state_and_the_helper_narration():
     assert "The helper writes each path" not in affected
     blast = _section(select, "#### 9b.", "### 10. ")
     assert "execute.md §4 measures" not in blast and "so the user sees the scale" not in blast
-    confirm = _section(select, "### 10. Confirmation Gate", "### 11. ")
+    confirm = _section(select, "### 10. Confirmation Gate", "### 12. ")
     assert confirm.count("so the user sees the scale before scanning paths") == 1
     assert "The wording stays the same" not in confirm
     assert confirm.count("takes precedence over the headless auto-confirm") == 1
     assert "(the envelope has no such field)" not in select
-    stored = _section(select, "### 11. Store Decisions in Context", "### 12. ")
-    assert len([line for line in stored.splitlines() if line.strip()]) == 2, "one sentence naming the handoff"
+    stored = _section(select, "### 12. Load Next Step", None)
+    assert len([line for line in stored.splitlines() if line.strip()]) == 2, "one paragraph naming the handoff"
     roster = _section(select, "### 2. Read the Roster", "### 3. ")
     assert "Read every skill this drop can offer in one call:\n" in roster
     for narration in ("the shared manifest helper", "never joins them by hand"):
@@ -1405,8 +1402,8 @@ def test_execute_cuts_the_helper_narration():
         assert internal not in execute, internal
     delete = _section(execute, "### 4. Delete Files (Purge Mode Only)", "### 5. ")
     assert "**Skill-level purge:**" not in delete
-    stored = _section(execute, "### 6. Store Results in Context", "### 7. ")
-    assert len([line for line in stored.splitlines() if line.strip()]) == 2, "one sentence naming the handoff"
+    stored = _section(execute, "### 7. Load Next Step", None)
+    assert len([line for line in stored.splitlines() if line.strip()]) == 2, "one paragraph naming the handoff"
 
 
 def test_an_interactive_halt_deletes_the_run_folder():
@@ -1414,14 +1411,14 @@ def test_an_interactive_halt_deletes_the_run_folder():
     rule = ('An interactive HALT displays its message, emits nothing and then deletes the run folder '
             '(`rm -rf "{run_dir}"`), which nothing reads after it.')
     for rel in (SELECT, EXECUTE):
-        assert rule in _section(_read(rel), "### 1. Halt Envelope", "### 2. "), rel
+        assert rule in _section(_read(rel), "## Halts", "## MANDATORY SEQUENCE"), rel
     outputs = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Outputs** |"))
     assert "kept only after a HALT, except an interactive HALT in step 1 or 2, which deletes it" in outputs
-    # The contract's Halt Envelope states the rule the step files repeat in their section 1.
+    # The contract's Halt Envelope states the rule the step files repeat in their Halts sections.
     envelope = _section(_read(CONTRACT), "## Halt Envelope", None)
     assert ("An interactive HALT displays its message and emits nothing; in step 1 or 2 it then deletes the run "
             "folder.") in envelope
-    assert "select.md and execute.md state the same rule in their section 1" in envelope
+    assert "in their section 1" not in envelope
 
 
 WARNINGS = {
@@ -1438,7 +1435,7 @@ def test_each_degraded_outcome_is_recorded_as_a_warning():
     execute = _read(EXECUTE)
     rules = _section(execute, "## Rules", "## MANDATORY SEQUENCE")
     assert "`uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'`" in rules
-    sections = ["### 2. ", "### 3. ", "### 4. ", "### 5. ", "### 6. "]
+    sections = ["### 2. ", "### 3. ", "### 4. ", "### 5. ", "### 7. "]
     for name, (start, text) in WARNINGS.items():
         end = sections[sections.index(start[:7]) + 1]
         assert text in _section(execute, start, end), name
@@ -1446,7 +1443,7 @@ def test_each_degraded_outcome_is_recorded_as_a_warning():
     for name in (*WARNINGS, "result_file_write_failed", "customization_resolver_unavailable"):
         assert f"`{name}: " in field, name
     contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
-    assert "The payload carries no `warnings`" in contract and "the run's warnings" in contract
+    assert "The payload carries no `warnings`: the emitter adds the ones step 2 recorded" in contract
     for name in WARNINGS:
         assert name not in contract, f"{name}: invocation-contract.md lists the warnings, the report never again"
 
@@ -1482,8 +1479,8 @@ def test_each_verification_failure_names_its_manual_fix():
     """architecture-3: the report points at the fixes step 2 recorded, not at a missing section."""
     report = _read(REPORT)
     assert "error-handling guidance in step 2" not in report
-    assert "Each item above names its manual fix." in report
-    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
+    assert "and each `verification_errors` entry with its manual fix." in report
+    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 7. ")
     # #1158: the helper names each failure's fix; the prose names only the fix for a call that fails.
     assert "Each `failures` entry is one failed check: its `detail` is what failed and its `manual_fix` the fix." in verify
     assert ("the fix is to check the `{target_skill}` entry of `{skills_output_folder}/.export-manifest.json` by hand "
@@ -1492,13 +1489,13 @@ def test_each_verification_failure_names_its_manual_fix():
     assert ("If any verification fails, record it in `verification_errors` with its manual fix, record the warning "
             "`verification_failed: {what failed}: {its manual fix}`") in verify
     rendered = _section(report, "### 2. Render the Report", "### Result Contract")
-    assert "{if delete_failures is non-empty:}- Not deleted:" in rendered
+    assert "each `delete_failures` path with its error and its fix `rm -rf {path}`" in rendered
 
 
 def test_the_context_check_reads_no_snippet_text():
     """determinism-3: §5 asks the roster helper for the dropped skill's rows, never every row's text. #1158
     determinism-4: the manifest check is the same call, never `get` JSON read by hand."""
-    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
+    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 7. ")
     assert _one_command(verify, "{dropRosterHelper} verify") == (
         'uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill} --mode {drop_mode} '
         "[--version {version}] {each file in context_files_updated, quoted}")
@@ -1521,7 +1518,7 @@ def test_execute_runs_the_final_state_check_it_documents(tmp_path, drop_mode, ve
         _write_manifest(skills, "cognee", "0.6.0", statuses)
     claude = tmp_path / "CLAUDE.md"
     claude.write_bytes(b"# Project\n")
-    command = _one_command(_section(_read(EXECUTE), "### 5. Verify Final State", "### 6. "), "{dropRosterHelper} verify")
+    command = _one_command(_section(_read(EXECUTE), "### 5. Verify Final State", "### 7. "), "{dropRosterHelper} verify")
     command = command.replace("[--version {version}]", "--version {version}" if versions else "")
     command = command.replace("{each file in context_files_updated, quoted}", "{context_file}")
     proc = _run(command, {"dropRosterHelper": str(ROSTER), "skills_output_folder": str(skills),
@@ -1559,3 +1556,152 @@ def test_no_step_decides_what_a_helper_computes():
         '--skill "{target_skill}"')
     assert "whose `in_manifest` is true, in the roster's order" in remaining
     assert "dropRosterHelper: 'scripts/drop-roster.py'" in _read(REPORT).split("\n---\n", 1)[0]
+
+
+# --------------------------------------------------------------------------
+# #1159: no rule, display template or narration that changes no move
+# --------------------------------------------------------------------------
+
+def test_the_workflow_rules_name_no_hand_fallback():
+    """leanness-1: every call site names what happens without its helper, so the Rules never send the work to the
+    main thread; leanness-3: the Rules select.md owns, and the facts only step 2 reads, leave SKILL.md."""
+    rules = _section(_read(SKILL), "## Workflow Rules", "## Stages")
+    assert "achieve the outcome in your main context thread" not in rules
+    assert ("- Never do by hand what a helper does: an envelope, a manifest or context-file write, or whether SKF "
+            "generated a folder. A missing On-Activation §4 helper halts the run before the first prompt, and every "
+            "other call site says what happens without its helper\n") in rules
+    for owned in ("enforce the active version guard", "exit cleanly with exit code 6"):
+        assert owned not in rules, f"select.md states it: {owned}"
+    skill = _read(SKILL)
+    for gone in ("nothing is deleted silently", "Shared context-file rebuild", "the three skills that write the section",
+                 "every row's `root:` takes it", "A draft skill cannot be deprecated"):
+        assert gone not in skill, gone
+    assert "   - `snippet_skill_root_override`\n" in skill, "the key alone: execute.md §3 says how it is passed"
+    assert ("- `skf-export-skill/assets/managed-section-format.md` documents the managed section step 2 rebuilds, "
+            "`snippet_skill_root_override` included.") in _section(skill, "## Conventions", "## Role")
+
+
+def test_skill_md_stays_under_its_token_budget():
+    """architecture-4: SKILL.md loads on every run; #1159 brought it from 2,737 cl100k tokens (11,318 characters)
+    to about 2,390 (9,713). 10,100 characters holds it under the 2,500-token budget without a tokenizer."""
+    assert len(_read(SKILL)) < 10_100, len(_read(SKILL))
+
+
+def test_a_purge_whose_sizing_helper_fails_shows_disk_freed_as_unknown():
+    """leanness-1: §4 item 3 names its own fallback, and the documented call can take it."""
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    item = _section(delete, "3. Format the size of the deleted folders", "**Classify the deletion outcome")
+    assert 'When the helper exits non-zero or prints no JSON, store `disk_freed` as `"unknown"`.' in item
+    proc = _run(_one_command(item, "humanize"), {"dirSizesHelper": str(DROP / "scripts" / "dir-sizes.py"),
+                                                 "bytes_freed": "not-a-number"})
+    assert proc.returncode != 0
+    with pytest.raises(ValueError):
+        json.loads(proc.stdout)
+
+
+@pytest.mark.parametrize("rel", [SELECT, EXECUTE, REPORT])
+def test_the_named_shouted_lines_and_the_report_template_are_gone(rel):
+    """leanness-2 and -6: the report is one sentence naming what it shows, and the shouted lines #1159 names read
+    plain. The select.md §10 confirmation and the execute.md §3 progress line keep their templates: #1159 names
+    neither."""
+    text = _read(rel)
+    for gone in ("ONLY WHEN", "must NOT", "§1 halt envelope", "### 1. Halt Envelope"):
+        assert gone not in text, f"{rel}: {gone}"
+    if rel == REPORT:
+        assert "{if " not in text
+
+
+@pytest.mark.parametrize("rel, kept", [
+    (SELECT, ["2", "3", "4", "5", "6", "7", "8", "8b", "9", "9b", "10", "12"]),
+    (EXECUTE, ["2", "3", "4", "5", "7"]),
+])
+def test_the_halt_rule_is_a_preamble_and_the_sections_keep_their_numbers(rel, kept):
+    """leanness-6: the halt rule is no step, the stored-decision sections fold into Load Next Step, and no kept
+    section is renumbered, so a "§n" elsewhere still names the same section."""
+    text = _read(rel)
+    assert text.index("\n## Rules\n") < text.index("\n## Halts\n") < text.index("\n## MANDATORY SEQUENCE\n")
+    sequence = _section(text, "## MANDATORY SEQUENCE", None)
+    assert re.findall(r"^#{3,4} (\d+b?)\. ", sequence, flags=re.M) == kept
+    load = _section(text, f"### {kept[-1]}. Load Next Step", None)
+    assert "Store" not in "".join(re.findall(r"^#+ .*$", text, flags=re.M)), "no section only stores context"
+    assert "(the sequence above enforces this ordering)" not in load
+
+
+def test_select_numbers_only_true_sequences():
+    """leanness-6: the guard is one condition and 9b three independent values."""
+    select = _read(SELECT)
+    guard = _section(select, "### 7. Active Version Guard", "### 8. ")
+    assert re.search(r"^\s*(\d+|[a-c])\. ", guard, flags=re.M) is None
+    assert ("When `target_in_manifest` is true, one version was selected (`is_skill_level = false`), its "
+            "`{version_rows}` entry's `status` is `\"active\"` and `{version_counts}.non_deprecated` (§5) is above "
+            "`1`, refuse the drop with the message below and HALT (exit code 5, "
+            "`halt_reason: \"active-version-guard-refused\"`, phase `select:active-version-guard`), with "
+            "`skill: \"{target_skill}\"` and `versions_affected: [\"{version}\"]` in the halt envelope. Otherwise "
+            "continue to §8.") in guard
+    blast = _section(select, "#### 9b.", "### 10. ")
+    for value in ("versions_count", "bytes_total", "context_files_count"):
+        assert f"\n- **`{value}`**" in blast, value
+    assert re.search(r"^\d\. ", blast, flags=re.M) is None
+
+
+def test_the_displays_name_what_they_show():
+    """leanness-4 and -2: the §3 list, the §5 version details and the report are each a sentence naming the facts
+    shown, not a fill-in block; the draft note and the remaining-versions example are gone. The variant eval of
+    #1159 checked each display against HEAD's template."""
+    select = _read(SELECT)
+    listing = _section(select, "### 3. List Available Skills", "### 4. ")
+    versions = _section(select, "### 5. Display Version Details", "### 6. ")
+    for display in (listing, versions):
+        assert "```" not in display, "no display template"
+    for fact in ('("on disk only" when its `in_manifest` is false)', "a trailing `*` on the one whose `active` is true",
+                 'a `purge_only` skill shows "(not in manifest: purge only)" in place of its versions',
+                 '"Not offered (not SKF output): {not_offered}"'):
+        assert fact in listing, fact
+    assert "the skills numbered from 1" in listing and "its number from the list above" in select, "§4 takes a number"
+    assert ("**If `target_in_manifest = true`**, display every `{version_rows}` entry with `in_manifest` true: its "
+            "version, its `status` with a trailing `*` on the row whose `active` is true, its `last_exported` and its "
+            "`ides`.") in versions
+    assert ("**If `target_in_manifest = false`**, display each `{version_rows}` entry whose `on_disk` is true, newest "
+            "first, or \"(flat layout)\" when the roster entry's `layout` is \"flat\".") in versions
+    assert "soft-deprecate is not available" not in select, "§8 case 3 says a draft is purged"
+    report = _read(REPORT)
+    remaining = _section(report, "### 1. Determine Remaining Versions", "### 2. ")
+    assert len(_fenced(remaining, "")) == 0 and len(_fenced(remaining, "bash")) == 1
+    assert "with a trailing `*`; that list is `remaining_versions_display`." in remaining
+    rendered = _section(report, "### 2. Render the Report", "### Result Contract")
+    assert "```" not in rendered
+    for fact in ("the operation (Deprecate or Purge)", "whether the manifest was updated (`manifest_updated`)",
+                 'the context files rebuilt (`context_files_updated`, or "(none)")',
+                 "each one in `context_files_failed`", "`disk_freed`",
+                 'the folders deleted (`files_deleted`, or "(none: nothing on disk)")',
+                 "each `delete_failures` path with its error and its fix `rm -rf {path}`",
+                 '`forge_left_in_place` as "Left in place (not SKF output)" when it is set',
+                 "`remaining_versions_display`",
+                 "setting the version's `status` back to `\"active\"` or `\"archived\"` in "
+                 "`{skills_output_folder}/.export-manifest.json`, then running `[EX] Export Skill`, reverses the drop",
+                 "each `verification_errors` entry with its manual fix"):
+        assert fact in rendered, fact
+
+
+def test_the_stages_cut_the_narration_of_helper_internals():
+    """leanness-7: what a helper does inside, and lines that restate their neighbours, leave the stages."""
+    narration = {
+        SELECT: ("The emitter folds each recorded decision", "A headless run reaches this case only with",
+                 "A purge deletes only what SKF generated, and the inventory helper decides what that is"),
+        EXECUTE: ("other entries are untouched", "The run ends here", "removes any trailing",
+                  "output-contract-schema.md"),
+        REPORT: ("The emitter stamps the UTC time", "The health-check step is the true terminal step"),
+        CONTRACT: ("in their section 1",),
+    }
+    for rel, gone in narration.items():
+        text = _read(rel)
+        for line in gone:
+            assert line not in text, f"{rel}: {line}"
+    assert "If the command fails, go on: only that entry is lost." in _section(_read(SELECT), "### 8. Ask Mode",
+                                                                              "### 8b. ")
+    assert "SKF never deletes through a link." in _read(EXECUTE)
+    chain = _section(_read(REPORT), "### 3. Chain to Health Check", None)
+    assert ("Once the report is shown and the record emitted, load, read the full file, and execute "
+            "`{nextStepFile}`: the health check is the terminal step, and in a headless run it prints the envelope as "
+            "the last line, so stopping at the report loses it. Do not re-run an earlier step after it "
+            "completes.") in chain

@@ -360,7 +360,8 @@ def test_export_discovery_keeps_only_skf_skills():
 def test_drop_and_rename_take_the_verdict_from_the_helper_and_never_scan_top_level(rel, flag, key):
     text = _read(rel)
     assert f"{flag} " in text and f"From its `{key}`, bind" in text
-    assert "never decide by hand whether SKF generated a folder" in text
+    assert ("The helper alone decides what a purge may delete" if rel == DROP_SELECT
+            else "never decide by hand whether SKF generated a folder") in text
     assert f"its result has no `{key}`" in text, "an installed helper older than the flag must fail closed"
     for stale in ("`{target_ownership}` ← ", "`{target_foreign_entries}` ← ", "`{target_forge_ownership}` ← "):
         assert stale not in text, "the helper returns the verdict: the prose no longer joins the scan by hand"
@@ -380,8 +381,7 @@ def test_drop_forced_purge_is_guarded():
     text = _read(DROP_SELECT)
     ask_mode = _section(text, "### 8. Ask Mode", "### 8b. Purge Guard")
     draft = _section(ask_mode, "**If `target_in_manifest = false`:**", "**If `target_in_manifest = true`:**")
-    for needle in ('"input-invalid"', '"input-missing"', "{forbidPurgeInHeadless}", "apply §8b",
-                   "On-Activation guard"):
+    for needle in ('"input-invalid"', '"input-missing"', "apply §8b"):
         assert needle in draft, needle
     # A headless purge of a draft is reached only with mode=purge, which the On-Activation guard
     # already checks, so a second forbid HALT here could never run.
@@ -398,7 +398,8 @@ def test_drop_contract_describes_the_draft_purge_guard():
     exit_6 = next(line for line in _read(DROP_CONTRACT).splitlines() if line.startswith("| 6 "))
     assert "§8" not in exit_6, "select.md §8 no longer raises headless-purge-forbidden"
     assert "cannot see the purge" not in text
-    assert "cannot be deprecated" in _section(text, "## On Activation", None)
+    assert ('If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT'
+            in _section(text, "## On Activation", None)), "the guard covers every headless purge, a draft's too"
 
 
 def _inventory_reasons(function: str) -> set[str]:
@@ -438,7 +439,7 @@ def test_drop_purge_guard_reads_the_purge_check():
     assert "bind `{purge_verdict}` and `{purge_reason}` to `\"unknown\"`" in guard
     ask = _section(text, "### 8. Ask Mode", "### 8b. Purge Guard")
     assert "run the §8b purge check at the current scope; when `{purge_verdict}` is not `\"ok\"`" in ask
-    stored = _section(text, "### 11. Store Decisions in Context", "### 12.")
+    stored = _section(text, "### 12. Load Next Step", None)
     for kept in ("`affected_directories`", "`forge_left_in_place`", "`target_context_files`"):
         assert kept in stored, kept
     assert "`target_ownership`" not in stored and "`target_forge_ownership`" not in stored
@@ -450,7 +451,7 @@ def test_drop_purge_deletes_through_the_guarded_delete():
     delete = _section(text, "### 4. Delete Files (Purge Mode Only)", "### 5. Verify Final State")
     assert ('uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" '
             '--root "{forge_data_folder}" {each path in affected_directories, quoted, space-separated}') in delete
-    assert "removes any trailing `/`" in delete
+    assert "removes any trailing `/`" not in delete, "the helper's docstring says how it reads a path"
     assert "SKF never deletes through a link" in delete
     for binding in ("`files_deleted` ← `files_deleted`", "`delete_failures` ← `delete_failures`",
                     "`{bytes_freed}` ← `bytes_freed`", "`{purge_status}` ← `purge_status`"):
@@ -911,9 +912,9 @@ def test_drop_checks_the_forge_folder_before_any_change():
     affected = _section(text, "### 9. Compute Affected Directories", "#### 9b.")
     assert "/{target_skill}/`" not in affected and "/{version}/`" not in affected, "no trailing `/` on a path"
     assert "without a trailing `/`" in affected
-    assert "Left in place (not SKF output)" in _section(text, "### 10. Confirmation Gate", "### 11. ")
+    assert "Left in place (not SKF output)" in _section(text, "### 10. Confirmation Gate", "### 12. ")
     assert "Left in place (not SKF output)" in _read(DROP_REPORT)
-    stored = _section(text, "### 11. Store Decisions in Context", "### 12.")
+    stored = _section(text, "### 12. Load Next Step", None)
     assert "`forge_left_in_place`" in stored
     delete = _section(_read(DROP_EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. Verify Final State")
     assert "run it once over every path in `affected_directories`" in delete
@@ -1322,7 +1323,7 @@ def test_the_retired_settings_are_gone():
 
 @pytest.mark.parametrize("rel, start, end", [
     (EXPORT_LOAD, "**Context File Resolution:**", "### 1b."),
-    (DROP_SELECT, "3. **`context_files_count`**", "### 10."),
+    (DROP_SELECT, "- **`context_files_count`**", "### 10."),
     (RENAME_EXECUTE, "**7a. Resolve the context files.**", "**7b. Per-file loop.**"),
 ])
 def test_context_files_resolve_through_the_shared_mapping(rel, start, end):
@@ -1416,7 +1417,7 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert "{manifestOpsHelper}" not in snippet
     assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
-    verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 6. ")
+    verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 7. ")
     # #1158: drop-roster.py verify reads the manifest through skf-manifest-ops.py.
     assert 'uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill}' in verify
     assert "Re-read `{skills_output_folder}/.export-manifest.json`" not in verify
@@ -1506,7 +1507,7 @@ LIFECYCLE_STEPS = {
                "check": (EXPORT_UPDATE, "### 5. Check Each Target File", "### 6. "),
                "write": (EXPORT_UPDATE, "### 9. Write and Verify", "### 9b. ")},
     # #1158: drop's section 3 runs check, assemble and replace for every target in one `rebuild` call.
-    "drop": {"resolve": (DROP_SELECT, "3. **`context_files_count`**", "### 10."),
+    "drop": {"resolve": (DROP_SELECT, "- **`context_files_count`**", "### 10."),
              "rebuild": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ")},
     "rename": {"resolve": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
                "assemble": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),

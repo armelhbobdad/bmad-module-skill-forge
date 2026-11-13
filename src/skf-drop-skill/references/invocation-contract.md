@@ -61,4 +61,4 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --target stderr 
 SKF_DROP_HALT
 ```
 
-SKILL.md On-Activation §4 binds `{emitEnvelopeHelper}` and `{run_dir}`, and its HALTs follow this section. select.md and execute.md state the same rule in their section 1, so the HALTs of a step never depend on this file.
+SKILL.md On-Activation §4 binds `{emitEnvelopeHelper}` and `{run_dir}`, and its HALTs follow this section.

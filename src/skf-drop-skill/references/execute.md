@@ -16,7 +16,7 @@ dirSizesHelper: 'scripts/dir-sizes.py'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# {emitEnvelopeHelper}: the §1 halt envelope and the warnings the Rules record.
+# {emitEnvelopeHelper}: the §2 and §4 halt envelopes and the warnings the Rules record.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -47,9 +47,7 @@ Execute the drop decisions recorded in step 1: update the export manifest, rebui
 - Record each degraded outcome as a warning the moment it happens, with the text the section names, so the envelope and the result record carry it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'`, a single quote in it written as a backtick. If the command fails, go on: only that entry is lost.
 - When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` in `{manifestOpsProbeOrder}` and `{rebuildManagedSectionsHelper}` in `{rebuildManagedSectionsProbeOrder}`.
 
-## MANDATORY SEQUENCE
-
-### 1. Halt Envelope
+## Halts
 
 Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode it also prints its envelope through the shared emitter before it stops (`{run_dir}` comes from SKILL.md On-Activation §4): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "exit_code": <code>}` plus the envelope fields the site names (and `"path"` when the halt names one), then run
 
@@ -58,6 +56,8 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --run-dir "{run_
 ```
 
 and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. The emitter gives every field the site leaves out its default (`null`, `[]` or `false`) and checks `exit_code` against `halt_reason`. If it exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message, emits nothing and then deletes the run folder (`rm -rf "{run_dir}"`), which nothing reads after it.
+
+## MANDATORY SEQUENCE
 
 ### 2. Update Export Manifest
 
@@ -85,7 +85,7 @@ The helper sets `exports.{target_skill}.versions.{version}.status = "deprecated"
   python3 {manifestOpsHelper} {skills_output_folder} deprecate {target_skill}
   ```
 
-- **Purge:** the helper deletes the `exports.{target_skill}` key entirely; other entries are untouched:
+- **Purge:** the helper deletes the `exports.{target_skill}` key entirely:
 
   ```bash
   python3 {manifestOpsHelper} {skills_output_folder} remove {target_skill}
@@ -93,7 +93,7 @@ The helper sets `exports.{target_skill}.versions.{version}.status = "deprecated"
 
 When the helper exits 0 (`status: "ok"`), set context flag `manifest_updated = true`.
 
-**On error (the helper exits non-zero):** HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `execute:manifest-write`, path `{skills_output_folder}/.export-manifest.json`) in every mode, before section 3: "**Manifest update failed:** {the helper's `error`, `status: not_found` when the entry is no longer there, or its stderr when stdout holds no JSON}. Nothing was changed: no file was deleted, no context file was rebuilt, and the manifest is in its pre-drop state. Re-run the drop once the cause is fixed." The §1 halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, with `manifest_updated: false`. The run ends here: step 3 never runs, so no success report is shown and no result file is written.
+**On error (the helper exits non-zero):** HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `execute:manifest-write`, path `{skills_output_folder}/.export-manifest.json`) in every mode, before section 3: "**Manifest update failed:** {the helper's `error`, `status: not_found` when the entry is no longer there, or its stderr when stdout holds no JSON}. Nothing was changed: no file was deleted, no context file was rebuilt, and the manifest is in its pre-drop state. Re-run the drop once the cause is fixed." The halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, with `manifest_updated: false`.
 
 ### 3. Rebuild Context Files
 
@@ -121,7 +121,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
    uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" --root "{forge_data_folder}" {each path in affected_directories, quoted, space-separated}
    ```
 
-   The helper removes any trailing `/`, and SKF never deletes through a link. Bind `files_deleted` ← `files_deleted`, `delete_failures` ← `delete_failures` (each `{path, error}`), `{bytes_freed}` ← `bytes_freed` and `{purge_status}` ← `purge_status`. An empty `affected_directories` (a manifest entry whose folders are already gone) deletes nothing and returns `success`.
+   SKF never deletes through a link. Bind `files_deleted` ← `files_deleted`, `delete_failures` ← `delete_failures` (each `{path, error}`), `{bytes_freed}` ← `bytes_freed` and `{purge_status}` ← `purge_status`. An empty `affected_directories` (a manifest entry whose folders are already gone) deletes nothing and returns `success`.
 
    When no candidate exists, delete nothing by hand: take the `failed` outcome below, with "the inventory helper that checks each delete is missing; re-install SKF" as the error of every path. On a non-zero exit, or no JSON on stdout, take the `failed` outcome too, with the helper's `error` (its stderr when stdout holds no JSON) as the error of every path.
 
@@ -139,12 +139,12 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
    uv run {dirSizesHelper} humanize {bytes_freed}
    ```
 
-   Store `result.total_human` as `disk_freed` (e.g. `"4.2 MB"`; `"0 B"` when nothing was deleted).
+   Store `result.total_human` as `disk_freed` (e.g. `"4.2 MB"`; `"0 B"` when nothing was deleted). When the helper exits non-zero or prints no JSON, store `disk_freed` as `"unknown"`.
 
 **Classify the deletion outcome from `{purge_status}`:**
 
-- **`failed`**: at least one path was attempted and none was deleted, so the purge accomplished none of its destructive intent and must NOT report success. HALT (exit code 4, `halt_reason: "delete-failed"`, phase `execute:delete`): "**Purge failed:** none of the target folders could be deleted: {list each `delete_failures` path with its error}. The manifest and context files were already updated in sections 2–3; the on-disk files remain and can be removed by hand (`rm -rf {path}`)." The §1 halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, `files_deleted: []`, and `manifest_updated` from section 2. Do not proceed to section 5.
-- **`partial`**: `delete_failures` is non-empty but at least one path was deleted. Keep record-and-continue: `purge_status = "partial"` lets step 3's on-disk result record reflect it (the `output-contract-schema.md` `status` enum supports `"partial"`). Record the warning `delete_failed: {path}: {error}` for each `delete_failures` entry, then proceed to section 5.
+- **`failed`**: at least one path was attempted and none was deleted, so the purge accomplished none of its destructive intent. HALT (exit code 4, `halt_reason: "delete-failed"`, phase `execute:delete`): "**Purge failed:** none of the target folders could be deleted: {list each `delete_failures` path with its error}. The manifest and context files were already updated in sections 2–3; the on-disk files remain and can be removed by hand (`rm -rf {path}`)." The halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, `files_deleted: []`, and `manifest_updated` from section 2. Do not proceed to section 5.
+- **`partial`**: `delete_failures` is non-empty but at least one path was deleted. Keep record-and-continue: `purge_status = "partial"` lets step 3's on-disk result record reflect it. Record the warning `delete_failed: {path}: {error}` for each `delete_failures` entry, then proceed to section 5.
 - **`success`**: nothing failed (a path already gone is not a failure). Proceed to section 5.
 
 ### 5. Verify Final State
@@ -159,11 +159,7 @@ Pass `--version` for a version-level drop. Each `failures` entry is one failed c
 
 If any verification fails, record it in `verification_errors` with its manual fix, record the warning `verification_failed: {what failed}: {its manual fix}`, and do not halt: proceed to step 3 so the report shows what succeeded and what needs manual attention.
 
-### 6. Store Results in Context
-
-Step 3 reads what this step bound where it ran: `files_deleted`, `disk_freed`, `delete_failures`, `purge_status`, `manifest_updated`, `context_files_updated`, `context_files_failed` and `verification_errors`, with `forge_left_in_place` carried from step 1.
-
 ### 7. Load Next Step
 
-The report in `{nextStepFile}` renders from the results stored in §6, so chain to it only after every execution stage above has been attempted and its outcome stored. Load, read the full file, and then execute it.
+Step 3 reads what this step bound where it ran: `files_deleted`, `disk_freed`, `delete_failures`, `purge_status`, `manifest_updated`, `context_files_updated`, `context_files_failed` and `verification_errors`, with `forge_left_in_place` carried from step 1. Once every stage above has been attempted and its outcome bound, load, read the full file, and then execute `{nextStepFile}`.
 

@@ -224,10 +224,18 @@ def test_activation_binds_each_scalar_to_its_variable(skill, key):
             f"{skill}: On Activation reads workflow.{key} but binds no `{{{variable}}}` there")
 
 
+# A setting that acts in On Activation, before any stage loads: its HALT reads the placeholder there.
+ACTS_IN_ACTIVATION = {("skf-drop-skill", "forbid_purge_in_headless")}
+
+
 @pytest.mark.parametrize("skill,key", SCALARS, ids=[f"{s}:{k}" for s, k in SCALARS])
 def test_each_scalar_reaches_a_stage(skill, key):
     variable, kind = ALLOWED[skill][key]
     placeholder = f"{{{variable}}}"
+    if (skill, key) in ACTS_IN_ACTIVATION:
+        halts = [line for line in _activation(skill).splitlines() if placeholder in line and "HALT" in line]
+        assert halts, f"{skill}: workflow.{key} is bound to {placeholder}, which no On Activation HALT reads"
+        return
     readers = [path for path in _stage_files(skill) if placeholder in _read(path)]
     assert readers, f"{skill}: workflow.{key} is bound to {placeholder}, which no stage file reads"
     if kind == "script":

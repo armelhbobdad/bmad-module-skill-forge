@@ -8,10 +8,10 @@ one of two ways:
 - the HALT carries the emit command inline (create-skill, quick-skill,
   rename-skill and brief-skill write it at each HALT); or
 - the step states the emit command once, in a halt rule ("Halt envelope",
-  "Halt procedure", "Halt Envelope", a Rules bullet), and every HALT in it
-  names that rule's inputs: its `halt_reason` and exit code, its status
+  "Halt procedure", "Halt Envelope", "Halts", a Rules bullet), and every HALT
+  in it names that rule's inputs: its `halt_reason` and exit code, its status
   (update-skill) or its phase (setup). Drop's select.md and execute.md
-  state theirs in section 1, its On Activation HALTs follow the Halt
+  state theirs in a Halts section, its On Activation HALTs follow the Halt
   Envelope section of references/invocation-contract.md, and rename's
   select.md and execute.md in their Halt procedure paragraphs. A reference
   file a step loads takes that step's rule, and a step may name the file
@@ -402,16 +402,16 @@ def test_an_emit_nothing_halt_is_one_the_workflow_rule_allows(workflow):
 
 
 @pytest.mark.parametrize("step", ["select.md", "execute.md"])
-def test_drop_steps_state_the_halt_envelope_once_in_section_1(step):
+def test_drop_steps_state_the_halt_envelope_once_in_their_halts_section(step):
     text = _read(SRC / "skf-drop-skill" / "references" / step)
-    section = text.split("### 1. Halt Envelope", 1)[1].split("\n### ", 1)[0]
+    section = text.split("\n## Halts\n", 1)[1].split("\n## MANDATORY SEQUENCE\n", 1)[0]
     [command] = EMIT["skf-drop-skill"]
     assert text.count(command) == 1 and command in section
     sites = [(line, t) for path, line, _, t in _halt_sites("skf-drop-skill")
              if path.name == step and _names_its_halt("skf-drop-skill", t)
              and not INTERACTIVE_RE.search(t) and HALT_CODE_RE.findall(t) != ["0"]]
-    unnamed = [line for line, t in sites if "§1 halt envelope" not in t]
-    assert sites and not unnamed, f"{step}: HALTs that do not say they take the section 1 halt envelope: {unnamed}"
+    unnamed = [line for line, t in sites if "the halt envelope" not in t.lower()]
+    assert sites and not unnamed, f"{step}: HALTs that do not say they take the halt envelope: {unnamed}"
 
 
 def test_drop_activation_halts_follow_the_contract_halt_envelope():
