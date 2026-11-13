@@ -48,7 +48,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 Source code matches provenance map exactly. The skill `{skill_name}` is current — no update was needed.
 
-**Provenance age:** {days} days since last extraction
+**Provenance age:** {provenance_age_days} days since last extraction
 **Forge tier:** {tier}
 **Source commit:** {source_commit_line}
 

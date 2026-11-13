@@ -7064,6 +7064,10 @@ def test_the_baseline_counts_and_ages_the_map_with_the_helper(tmp_path):
     assert "fall back to" not in four and "missing at both paths" not in four
     seven = _slice(init, "### 7. Present Baseline Summary", "### 8.")
     assert "| **Provenance Age** | {provenance_age_days} days since last extraction |" in seven
+    # the no-change report shows the same bound age, never one it works out again
+    no_change = _slice(_read(REPORT), "### 1. Handle No-Change Shortcut", "### 1a.")
+    assert "**Provenance age:** {provenance_age_days} days since last extraction" in no_change
+    assert "{days}" not in no_change
     assert "In degraded mode, the Provenance Age and Exports rows read `no provenance map`." in seven
     now = datetime.now(timezone.utc)
     stamp = "%Y-%m-%dT%H:%M:%SZ"
