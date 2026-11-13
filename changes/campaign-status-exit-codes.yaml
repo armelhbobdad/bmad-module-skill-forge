@@ -1,4 +1,4 @@
-type: fixed
+type: changed
 scope: skf-campaign
 summary: |
   `campaign status` now names the exits it takes. With no `_campaign-state.yaml` it says no campaign has started and stops with exit code `2` (`invalid-input`). A state that fails validation stops it with exit code `3` (`invalid-state`), as every state load does, and when `_campaign-state.yaml.bak` exists it points to `campaign resume`, which can recover the state from that backup. Each of these stops at phase `status`. It used to name only exit code `0`, or `9` for a state it could not recover, against the rule that a state failing validation stops with `3`, and said nothing of a missing state.
