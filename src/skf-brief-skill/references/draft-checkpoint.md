@@ -9,15 +9,15 @@ atomicWriteProbeOrder:
 
 # Draft Checkpoint Lifecycle
 
-The `.brief-draft.json` file at `{forge_data_folder}/{skill-name}/.brief-draft.json` is the in-flight checkpoint of an interactive run. Half 2 writes it twice: when step 1 §8 continues to step 2, with the gathered intent and the accepted description, and again after step 3's scope decisions (scope-definition.md §5c), so it then holds the scope too. Once the final brief writes successfully, step 5 §3 removes it.
+The `.brief-draft.json` file at `{forge_data_folder}/{skill-name}/.brief-draft.json` is the in-flight checkpoint of an interactive run. Half 2 writes it when step 1 §8 continues to step 2, with the gathered intent and the accepted description, again after step 3's scope decisions (scope-definition.md §5c), so it then holds the scope too, and after each adjustment step 4 §4 applies. Once the final brief writes successfully, step 5 §3 removes it.
 
 **Headless mode skips this entire lifecycle** — the run completes in a single invocation, so no resume is meaningful and no checkpoint is written.
 
-The two halves of the lifecycle (resume after the target is confirmed in §3, write at §8 and after step 3) form a pair. This file documents both so a single load covers them.
+The two halves of the lifecycle (resume after the target is confirmed in §3, write at §8, after step 3 and at step 4) form a pair. This file documents both so a single load covers them.
 
 ## Half 1: Resume Check (loaded from §3 after the target is confirmed)
 
-Keyed on the confirmed **target**, not the derived skill name, so the offer can fire right after §3, before the returning user re-answers version (§3b), intent (§4), or scope (§5), which is exactly the state a draft restores. The caller (gather-intent §3) has selected the candidate draft; its directory basename is the candidate skill `name`. Present the resume prompt for that draft.
+Keyed on the confirmed **target**, not the derived skill name, so the offer is the first question after the target is validated, before the returning user re-answers the intent (§4) or anything else a draft restores. The caller (gather-intent §3) passes the result of its `find` call: the draft folder's `name`, which is the candidate skill name, the draft's `path`, its `mtime` (UTC) and `holds_scope`. Present the resume prompt for that draft.
 
 When a live draft is found, present:
 
@@ -29,12 +29,12 @@ When a live draft is found, present:
 
 ### `[Y]` — Resume
 
-Restore the candidate `name` (the matched draft's directory basename), then load the JSON and restore the step 1 fields it holds: `target_repo`, `source_type`, `source_authority`, `target_version`, `target_ref`, `doc_urls`, `intent`, `scope_hint`, `description`, `forge_tier`, `tier_source`.
+Bind the skill name and `{draft_name}`, the name the run's draft is under, to the result's `name`, then read the JSON at its `path` and restore the step 1 fields it holds: `target_repo`, `source_type`, `source_authority`, `target_version`, `target_ref`, `doc_urls`, `intent`, `scope_hint`, `scope_note_candidates`, `description`, `forge_tier`, `tier_source`.
 
-- **A draft written after step 3** (it holds `scope`): restore its step 3 fields too, `language`, `detected_version`, `analysis_ref` and `monorepo_workspace`, `scripts_intent` and `assets_intent`, and `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `draft.scope.*`, each kept verbatim as a ratified brief's are (`references/gather-intent-ratify.md`). Then load, read entire file, and execute `references/confirm-brief.md` (step 4): steps 2 and 3 already ran in the session that wrote the draft. A `[R] Revise Scope` there re-runs step 2 first, because this session has no staged analysis (scope-definition.md Rules).
-- **A draft written by step 1** (no `scope`): jump directly to §8, which shows the §7 summary with the restored description before its menu.
+- **A draft written after step 3** (`holds_scope` is true): restore its step 3 fields too, `language`, `detected_version`, `analysis_ref` and `monorepo_workspace`, `scripts_intent` and `assets_intent`, and `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `draft.scope.*`, each kept verbatim as a ratified brief's are (`references/gather-intent-ratify.md`). Then load, read entire file, and execute `references/confirm-brief.md` (step 4): steps 2 and 3 already ran in the session that wrote the draft. A `[R] Revise Scope` there re-runs step 2 first, because this session has no staged analysis (scope-definition.md Rules).
+- **A draft written by step 1** (`holds_scope` is false): jump directly to §8, which shows the §7 summary with the restored description before its menu.
 
-Either way **§3b, §4, §5, §6, §7, and §7b are skipped**, so the version, intent, scope, and description the draft already holds are never re-gathered.
+Either way **§3b, §4, §6, §7, and §7b are skipped**, so the version, intent, scope hints, and description the draft already holds are never re-gathered.
 
 The skip rule for §7b is load-bearing: re-running §7b would overwrite the user's previously accepted `description` with a fresh candidate synthesized from the seed material. The restored `description` is authoritative. §6 is skipped too, so the restored `name` is used as-is — it already cleared the collision and portfolio-similarity checks in the session that wrote the draft.
 
@@ -42,14 +42,15 @@ The user can still revise any field at step 4 §3 if a refinement is needed afte
 
 ### `[N]` — Start fresh
 
-Leave the draft in place and continue forward to §3b: the normal gather flow (§3b version, §4 intent, §5 scope, §6 name) resumes, and the §6 collision / portfolio-similarity checks run in their usual place. Do not delete the draft here: the skill name has not been chosen yet, so there is nothing to key a deletion on. If the user lands on the same name, the next checkpoint write replaces the stale draft; otherwise it stays a harmless orphan that the resume check offers again on a future run targeting the same repo.
+Leave the draft in place and go on to the check's finished-brief step (gather-intent §3), then to §3b: the normal gather flow (§3b version check, §4 intent, §6 name, §7 summary) resumes, and the §6 collision / portfolio-similarity checks run in their usual place. Do not delete the draft here: the skill name has not been chosen yet, so there is nothing to key a deletion on. If the user lands on the same name, the next checkpoint write replaces the stale draft; otherwise it stays a harmless orphan that the resume check offers again on a future run targeting the same repo.
 
-## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)
+## Half 2: Checkpoint Write (loaded from step 1 §8, step 3 §5c and step 4 §4)
 
 Write one JSON object with every field the run holds so far:
 
-- From step 1 (§8): `target_repo`, `source_type`, `source_authority`, `target_version` (if set), `target_ref` (if set), `doc_urls` (if collected), `intent`, `scope_hint`, `description` (the accepted text), and `forge_tier`, `tier_source` (for diagnostics).
+- From step 1 (§8): `target_repo`, `source_type`, `source_authority`, `target_version` (if set), `target_ref` (if set), `doc_urls` (if collected), `intent`, `scope_hint`, `scope_note_candidates` (if any), `description` (the accepted text), and `forge_tier`, `tier_source` (for diagnostics).
 - After step 3 (§5c), the same fields plus the scope: `language`, `detected_version` (step 2's, or null), `analysis_ref`, `monorepo_workspace` (if set), `scripts_intent`, `assets_intent`, and `scope` with `type`, `include`, `exclude`, `notes` and, when set, `tier_a_include`, `rationale`, `registry_path`, `ui_variants` and `demo_patterns`.
+- At step 4 (§4), the same fields as after step 3, with the adjustment applied.
 
 Stage the object in the run folder, then write it with `{atomicWriteHelper}` (resolved from `{atomicWriteProbeOrder}`), which creates the skill's folder when it does not exist yet and renames a complete file into place, so a partial write never becomes visible as `.brief-draft.json`:
 
@@ -60,6 +61,10 @@ SKF_JSON
 uv run {atomicWriteHelper} write --target "{forge_data_folder}/{skill-name}/.brief-draft.json" < "{run_dir}/draft.json"
 ```
 
-The checkpoint is a convenience: when the helper has no path or the write fails, log `warn: draft checkpoint not written ({reason})` and continue.
+**A new name.** After a write that succeeds, when `{draft_name}` is set and differs from `{skill-name}` (step 1 §8 or step 4 §4 changed the name), the draft now lives under the new name, so remove the old one, then bind `{draft_name}` to `{skill-name}`; a first write only binds it:
 
-The file is removed by step 5 §3 after the final brief writes successfully.
+```bash
+rm -f "{forge_data_folder}/{draft_name}/.brief-draft.json"
+```
+
+The checkpoint is a convenience: when the helper has no path or the write fails, log `warn: draft checkpoint not written ({reason})` and continue. A failed write keeps `{draft_name}` and its draft, which step 5 §3 removes once the brief is written.

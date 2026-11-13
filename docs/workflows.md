@@ -45,7 +45,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 **Key Steps:** Gather intent → Analyze target → Define scope → Confirm brief → Write skill-brief.yaml
 
-**Target:** The interactive target prompt takes a GitHub URL or a local path, and also a package name or its registry page (`zod`, `requests==2.31.0`, or an npmjs.com, pypi.org or crates.io URL). Brief Skill resolves a package to the GitHub repository it is published from, lists every candidate when the name may belong to more than one project, and pre-fills `target_version` from a pinned version such as `==2.31.0`. A partial pin such as `react@18` is not kept: Brief Skill names it and asks for the full version, or a blank answer to auto-detect it. A headless run, such as the one the `forge` pipeline starts, still needs a URL or a path.
+**Target:** The interactive target prompt takes a GitHub URL or a local path, and also a package name or its registry page (`zod`, `requests==2.31.0`, or an npmjs.com, pypi.org or crates.io URL). Brief Skill resolves a package to the GitHub repository it is published from, lists every candidate when the name may belong to more than one project, and pre-fills `target_version` from a pinned version such as `==2.31.0`. A partial pin such as `react@18` is not kept: Brief Skill names it and asks for the full version, or a blank answer to auto-detect it. Name the target when you start the skill, as in `@Ferris BS https://github.com/colinhacks/zod`, and Brief Skill skips the target prompt. A headless run, such as the one the `forge` pipeline starts, still needs a URL or a path.
 
 **The brief file.** Brief Skill writes `forge-data/<name>/skill-brief.yaml`. You can edit it before Create Skill runs. The fields you are most likely to change:
 
@@ -54,7 +54,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 - `target_version` pins a version. `target_ref` names the exact tag or branch when the tags do not match the version.
 - `scope.type` (`full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app` or `docs-only`), with `scope.include` and `scope.exclude` globs.
 - `description`: one to three sentences that must contain the words `Use when`.
-- `source_authority`: `community` by default. Set `official` only if you maintain the library, or `internal` for your team's own code.
+- `source_authority`: when you do not name it, Brief Skill picks `official` if your GitHub login matches the repo owner, and `community` otherwise. Set `official` only if you maintain the library, or `internal` for your team's own code.
 - `scripts_intent` and `assets_intent`: `detect` (the default), `none`, or a short description of what you expect.
 
 **Agent:** Ferris (Architect mode)

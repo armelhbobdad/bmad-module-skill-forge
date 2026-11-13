@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """skf-brief-skill's headless inputs, scope defaults, gates and override surface.
 
-#594 (brief part): step 1 §1b sends a headless run to the input gate in
+#594 (brief part): step 0 §1b sends a headless run to the input gate in
 references/headless-args.md before any section reads an argument, so a
 preset is merged and the validator has run before a name is checked or the
 description is composed from `intent`. Step 3 names one headless boundary
@@ -31,6 +31,16 @@ keeps one, so a partial pin such as `react@18` is named at step 1 instead of
 halting the step 5 writer; and step 2 shows its analysis once, in the §5
 summary, which step 3 does not recap in the same turn.
 
+#1136 (enhancement-2): step 3's §5 summary waits in no mode, so it carries
+no gate, and its §5b scripts and assets question is gone: step 4 shows both
+intents as editable `detect` defaults and is the one scope confirmation.
+
+#1138 (architecture-7): the boundary defaults, their bullets and the halt
+moved to references/headless-boundary-defaults.md, which step 3 §3's GATE
+loads for a headless run with no `include`; the GATE and the component
+library detection stay in §3. The public-api default has the runner print
+its files (`--print public-files`).
+
 No test runs the step prose, so these checks pin it, and they run the
 recommender and the validator the prose relies on.
 """
@@ -54,11 +64,14 @@ SKILL_DIR = REPO / "src" / "skf-brief-skill"
 REFERENCES = SKILL_DIR / "references"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 CUSTOMIZE = SKILL_DIR / "customize.toml"
+PREFLIGHT = REFERENCES / "preflight.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
 SCOPE_DEFINITION = REFERENCES / "scope-definition.md"
+HEADLESS_DEFAULTS = REFERENCES / "headless-boundary-defaults.md"
+TIER_A_SURFACE = REFERENCES / "tier-a-surface.md"
 CONFIRM_BRIEF = REFERENCES / "confirm-brief.md"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 RECOMMENDER = SCRIPTS / "skf-recommend-scope-type.py"
@@ -70,7 +83,10 @@ CONTRACT = REFERENCES / "invocation-contract.md"
 TEMPLATES = SKILL_DIR / "assets" / "scope-templates.md"
 ENVELOPE_SCHEMA = SCRIPTS / "schemas" / "skf-brief-result-envelope.v1.json"
 
-HALT_CALL = "`uv run {emitBriefEnvelopeHelper} emit --target stderr`"
+# #1134: a halt runs the shared emitter's halt-reason form; a warning is recorded in the run sink where it is raised.
+HALT_CALL = '`uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr '
+RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+RECORD_FILE = f'`{RECORD}--warning "$(cat "{{run_dir}}/warning.txt")"`'
 BASH = shutil.which("bash")
 # The documented blocks are POSIX shell; on Windows `bash` may be WSL's launcher.
 POSIX_BASH = BASH is not None and sys.platform != "win32"
@@ -158,17 +174,22 @@ def _recommend(payload: dict) -> dict:
 # --------------------------------------------------------------------------
 
 
-def test_step_one_routes_every_mode_before_the_interactive_flow():
-    text = _read(GATHER_INTENT)
-    routes = _section(text, "### 1b. Route by Mode")
+def test_step_zero_routes_every_mode_before_the_interactive_flow():
+    """#1135 (architecture-3): the routing is stage 0's §1b, so a headless or [auto] run never loads the
+    interactive stage, which starts at §2."""
+    routes = _section(_read(PREFLIGHT), "### 1b. Route by Mode")
     bullets = [line for line in routes.splitlines() if line.startswith("- **")]
     assert [b.split("**")[1] for b in bullets] == ["`{auto_mode}` is true", "`{headless_mode}` is true:",
                                                    "Otherwise"], bullets
     auto = routes[routes.index(bullets[0]):routes.index(bullets[1])]
     assert "`{autoBriefFile}`" in auto and "`{headlessArgsFile}`" in bullets[1] and "§2" in bullets[2]
-    front = _frontmatter(GATHER_INTENT)
+    assert "`{nextStepFile}` (gather-intent.md)" in bullets[2]
+    front = _frontmatter(PREFLIGHT)
     assert "headlessArgsFile: 'references/headless-args.md'" in front
     assert "autoBriefFile: 'references/step-auto-brief.md'" in front
+    assert re.search(r"^nextStepFile: 'gather-intent\.md'$", front, re.M)
+    text = _read(GATHER_INTENT)
+    assert "headlessArgsFile" not in _frontmatter(GATHER_INTENT) and "autoBriefFile" not in _frontmatter(GATHER_INTENT)
     # Past the routing, the file is the interactive flow, so nothing there says "interactive only" or
     # names the headless route.
     interactive = text[text.index("### 2. Welcome and Explain"):]
@@ -198,7 +219,7 @@ def test_the_input_gate_merges_and_validates_before_it_derives():
 def test_every_warning_the_input_gate_logs_reaches_the_envelope():
     for line in _read(HEADLESS_ARGS).splitlines():
         if '"warn: ' in line:
-            assert "workflow_warnings[]" in line, line[:100]
+            assert RECORD in line, line[:100]
 
 
 def test_the_argument_table_lists_what_the_validator_knows():
@@ -213,19 +234,24 @@ def test_the_argument_table_lists_what_the_validator_knows():
 
 
 def test_the_headless_gate_and_the_ratify_branch_load_only_on_their_route():
-    """#600: SKILL.md loads gather-intent.md alone; the carved files load from the one place that routes to
-    them, and gather-intent.md stays under the single-file budget."""
+    """#600: the carved files load from the one place that routes to them, and gather-intent.md stays under the
+    single-file budget. #1135 (architecture-3): SKILL.md loads preflight.md alone, whose §1b routes each mode."""
     activation = _section(_read(SKILL_MD), "## On Activation")
     assert re.findall(r"`references/[a-z-]+\.md`", activation) == ["`references/invocation-contract.md`",
-                                                                    "`references/gather-intent.md`"]
+                                                                    "`references/preflight.md`"]
+    preflight = _read(PREFLIGHT)
+    routes = preflight.index("### 1b. Route by Mode")
+    uses = [m.start() for m in re.finditer(re.escape("`{headlessArgsFile}`"), preflight)]
+    assert uses and all(routes < at for at in uses)
     text = _read(GATHER_INTENT)
     assert len(text) < GATHER_INTENT_MAX_CHARS, len(text)
-    uses = {name: [m.start() for m in re.finditer(re.escape(f"`{{{name}}}`"), text)]
-            for name in ("headlessArgsFile", "ratifyFile")}
-    routes = text.index("### 1b. Route by Mode")
+    assert "`{headlessArgsFile}`" not in text
+    uses = [m.start() for m in re.finditer(re.escape("`{ratifyFile}`"), text)]
     ratify_branch = text.index("#### 3.1a Branch: Ratify an Existing Brief")
-    assert uses["headlessArgsFile"] and all(routes < at < text.index("### 2. ") for at in uses["headlessArgsFile"])
-    assert len(uses["ratifyFile"]) == 1 and ratify_branch < uses["ratifyFile"][0] < text.index("#### 3.1b")
+    # #1137 (enhancement-4): the draft-resume check's `[U] Revise` of a finished brief loads it too.
+    revise = text.index("**A finished brief.**")
+    assert len(uses) == 2 and ratify_branch < uses[0] < text.index("#### 3.1b") < revise < uses[1], uses
+    assert uses[1] < text.index("### 3b. Gather Target Version")
     # The source-authority detection is part of the gate now, not a third hop.
     assert not (REFERENCES / "headless-source-authority-detection.md").exists()
     assert "headless-source-authority-detection" not in "".join(_read(path) for path in SKILL_FILES)
@@ -240,9 +266,14 @@ def _boundary_gate() -> str:
     return _section(_read(SCOPE_DEFINITION), "### 3. Define Boundaries Based on Selection")
 
 
+def _defaults() -> str:
+    """The headless boundary defaults step 3 §3's GATE loads (#1138): the table, the bullets and the halt."""
+    return _read(HEADLESS_DEFAULTS)
+
+
 def test_every_source_scope_type_has_a_headless_boundary_default_or_a_halt():
     gate = _boundary_gate()
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
     assert tuple(rows) == SOURCE_SCOPE_TYPES, rows
     validator = _load(INPUTS_VALIDATOR, "skf_validate_brief_inputs")
     assert set(rows) | {"docs-only"} == validator.VALID_SCOPE_TYPES
@@ -257,23 +288,22 @@ def test_every_source_scope_type_has_a_headless_boundary_default_or_a_halt():
 def test_a_boundary_default_is_a_warning_the_envelope_carries():
     gate = _boundary_gate()
     [rule] = [line for line in gate.splitlines() if line.startswith("**GATE [default: the scope type's boundary")]
-    assert f"`{BOUNDARY_WARNING}`" in rule and "add that line to `workflow_warnings[]`" in rule
-    # SKILL.md's one list of warnings takes every `warn:` line a step logs.
+    assert f"`{BOUNDARY_WARNING}`" in rule and "and record that line" in rule and RECORD_FILE in rule
+    # SKILL.md's rule records every `warn:` line a step logs in the run sink.
     rules = _section(_read(SKILL_MD), "## Workflow Rules")
     assert "each `warn:` line a step logs" in rules
 
 
 def test_a_reference_app_scope_without_include_halts_input_missing():
-    gate = _boundary_gate()
-    [halt] = [line for line in gate.splitlines() if line.startswith("A scope with no default")]
-    assert re.search(re.escape(HALT_CALL) + r'.*`halt_reason: "input-missing"`.*then HALT \(exit code 2\)', halt)
+    [halt] = [line for line in _defaults().splitlines() if line.startswith("A scope with no default")]
+    assert re.search(re.escape(HALT_CALL) + r'--halt-reason input-missing`.*then HALT \(exit code 2\)', halt)
     schema = json.loads(_read(ENVELOPE_SCHEMA))
     assert schema["$defs"]["skf-envelope"]["const"]["exit_codes"]["input-missing"] == 2
     assert "`include`" in halt
 
 
 def test_the_count_heuristic_falls_back_to_full_library_and_says_so():
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _boundary_gate(), re.M))
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
     modules = rows["specific-modules"]
     for needle in ("`named_module_subset`", "`specific-modules-count`", "switch to `full-library`",
                    "`scope.rationale`", "`chosen` `full-library`", "`accepted_recommendation` false",
@@ -291,19 +321,24 @@ def test_the_count_heuristic_falls_back_to_full_library_and_says_so():
 
 def test_scope_type_and_boundaries_are_decided_where_they_are_asked():
     """The old step 3 GATE ran after the sections that used its arguments; each section now carries its own
-    headless line, and no menu closes the step."""
+    headless line, and no menu closes the step. #1136: the §5 summary waits in no mode, so it holds no gate."""
     text = _read(SCOPE_DEFINITION)
     for heading, gate in (("### 2c. Offer Scope Templates", "**GATE [default: the recommendation]**"),
                           ("### 3. Define Boundaries Based on Selection",
-                           "**GATE [default: the scope type's boundary default]**"),
-                          ("### 5. Summarize Scope Decisions", "**GATE [default: C]**")):
+                           "**GATE [default: the scope type's boundary default]**")):
         assert gate in _section(text, heading), heading
+    summary = _section(text, "### 5. Summarize Scope Decisions")
+    assert "GATE [" not in summary and "Wait for" not in summary
     scope_type = _section(text, "### 2c. Offer Scope Templates")
     assert '`heuristic` = `"user-supplied-arg"`' in scope_type and '"mode": "headless"' in scope_type
     rules = _section(text, "## Rules")
     assert "- **Headless (`{headless_mode}` is true):** no section prompts." in rules
     assert "### 6. Continue to Brief Confirmation" in text and "MENU OPTIONS" not in text
-    assert "advancedElicitationSkill" not in text and "partyModeSkill" not in text
+    # #1137 (enhancement-5): step 4's menu drops [A] and [P] too, whose results never reached the brief.
+    for path in (SCOPE_DEFINITION, CONFIRM_BRIEF):
+        other = _read(path)
+        for gone in ("advancedElicitationSkill", "partyModeSkill", "[A] Advanced Elicitation", "[P] Party Mode"):
+            assert gone not in other, (path.name, gone)
 
 
 def test_the_scope_signals_are_classified_whichever_way_the_type_is_set():
@@ -332,11 +367,11 @@ def test_a_module_include_is_the_snapshot_path_of_the_module():
     """A module's `path` in the snapshot is repo-relative and already carries the module root and any
     workspace (`--root`), so the include adds no prefix of its own: `auth/**` would match nothing under a
     src/ layout, and a second workspace prefix would double it."""
-    gate = _boundary_gate()
+    gate = _defaults()
     [module] = [line for line in gate.splitlines() if line.startswith("- **A module include**")]
     for needle in ("`<path>/**`", "`path` in `{run_dir}/snapshot.json`", "`{run_dir}/package-snapshot.json`",
                    "with any workspace prefix already in it", "A `named_module_subset` name maps to the §4.3 module",
-                   "`{monorepo_workspace}/**` when step 2 picked a workspace (§3b), else `**`"):
+                   "`{monorepo_workspace}/**` when step 2 picked a workspace (scope-definition.md §3b), else `**`"):
         assert needle in module, needle
     assert "Globs carry the `monorepo_workspace` prefix" not in gate
     workspaces = _load(SCRIPTS / "skf-detect-workspaces.py", "skf_detect_workspaces")
@@ -346,7 +381,7 @@ def test_a_module_include_is_the_snapshot_path_of_the_module():
 
 
 def test_the_headless_exclusions_are_the_full_library_templates_globs():
-    [bullet] = [line for line in _boundary_gate().splitlines() if line.startswith("- **The default exclusions**")]
+    [bullet] = [line for line in _defaults().splitlines() if line.startswith("- **The default exclusions**")]
     globs = re.findall(r"`(\*\*/[^`]+)`", bullet)
     assert len(globs) == 7, globs
     full_library = _section(_read(TEMPLATES), "### Full Library Boundaries")
@@ -354,52 +389,31 @@ def test_the_headless_exclusions_are_the_full_library_templates_globs():
         assert f"`{glob}`" in full_library, glob
 
 
-def _public_api_files(result: Path) -> list[str]:
-    """Run the documented one-line listing over a runner result and return the lines it prints."""
-    [block] = _blocks(_boundary_gate(), "entry_point_diff")
-    [line] = block.strip().splitlines()
-    argv = shlex.split(line.replace("{run_dir}/public-api.json", result.as_posix()))
-    assert argv[:3] == ["uv", "run", "python"]
-    proc = subprocess.run([sys.executable, *argv[3:]], capture_output=True, text=True, encoding="utf-8",
-                          timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    return proc.stdout.splitlines()
-
-
-def test_the_public_api_default_is_the_files_that_define_the_public_names(tmp_path):
+def test_the_public_api_default_is_the_files_that_define_the_public_names():
     """Step 2's quick mode names the entry file that lists an export as its `source_file`, so a barrel
-    gave an include of the barrel alone. The default takes the runner's trace to the defining files."""
-    gate = _boundary_gate()
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
-    assert "public API file" in rows["public-api"] and "`source_file`" not in gate
-    [bullet] = [line for line in gate.splitlines() if line.startswith("- **The public API files**")]
-    assert "§3c's recipe runner" in bullet and '-o "{run_dir}/public-api.json"' in bullet
-    assert "the `full-library` default as its globs" in bullet
-    assert "`warn: headless boundary default public-api: full-library boundaries ({the reason})`" in gate
-    result = tmp_path / "public-api.json"
-    result.write_bytes(json.dumps({"entry_point_diff": {"public": [
-        {"name": "own", "via": "declaration", "file": "src/index.ts"},
-        {"name": "foo", "via": "re-export", "file": "src/lib/foo.ts"},
-        {"name": "Bar", "via": "re-export", "file": "src/lib/bar.ts"},
-        {"name": "Bar2", "via": "re-export", "file": "src/lib/bar.ts"},
-        {"name": "ns", "via": "namespace", "file": None},
-        # #703: a submodule's members are defined in files of their own, which the scope keeps too
-        {"name": "sub", "via": "namespace", "file": "src/sub/index.ts", "members": [
-            {"name": "deep", "local": None, "file": "src/sub/deep.ts", "line": 1},
-            {"name": "ext", "local": None, "file": None, "line": None}]},
-        {"name": "remote", "via": "namespace", "file": None, "members": None}],
-        # #830: another in-scope file that defines foo, which another entry point passes on
-        "other_definitions": [{"name": "foo", "via": "star", "file": "src/web/foo.ts"}]}}).encode("utf-8"))
-    assert _public_api_files(result) == ["src/index.ts", "src/lib/bar.ts", "src/lib/foo.ts", "src/sub/deep.ts",
-                                         "src/sub/index.ts", "src/web/foo.ts"]
+    gave an include of the barrel alone. The default takes the runner's trace to the defining files, which
+    `--print public-files` prints (#1138; test-skf-extract-public-api.py pins the set's rule)."""
+    defaults = _defaults()
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", defaults, re.M))
+    assert "public API file" in rows["public-api"] and "`source_file`" not in defaults
+    [bullet] = [line for line in defaults.splitlines() if line.startswith("- **The public API files**")]
+    for needle in ("At Forge tier and above, load `{tierASurfaceFile}` for its recipe runner",
+                   "the `full-library` default as its globs", '`-o "{run_dir}/public-api.json"` in place of its `-o`',
+                   "`--print public-files` in place of its `--print`",
+                   "At Quick tier, or when the runner exits 1 to 3, the clone fails or it prints no file",
+                   "`warn: headless boundary default public-api: full-library boundaries ({the reason})`"):
+        assert needle in bullet, needle
+    assert "python -c" not in defaults and "```" not in defaults
+    assert "tierASurfaceFile: 'references/tier-a-surface.md'" in _frontmatter(HEADLESS_DEFAULTS)
 
 
 @pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
 def test_the_documented_runner_call_traces_a_barrel_to_its_definitions(tmp_path):
     """The barrel the review verified: `export { foo } from './foo'; export { Bar } from './bar'`. The include
-    is the two definition files, plus the barrel only for a name it defines itself."""
-    tier_a = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    [block] = _blocks(tier_a, "{extractPublicApiHelper}")
+    is the two definition files, plus the barrel only for a name it defines itself. The call is the tier-A
+    file's, with the swaps the public API bullet names."""
+    [block] = _blocks(_read(TIER_A_SURFACE), "{extractPublicApiHelper}")
+    assert '-o "{run_dir}/tier-a.json" --print tier-a-candidates' in block
     repo = _write_tree(tmp_path / "repo", {
         "package.json": '{"name": "acme", "main": "src/index.ts"}\n',
         "src/index.ts": "export { foo } from './foo';\nexport { Bar } from './bar';\nexport const own = 1;\n",
@@ -409,13 +423,15 @@ def test_the_documented_runner_call_traces_a_barrel_to_its_definitions(tmp_path)
     })
     line = (block.strip().replace("<source folder>", repo.as_posix()).replace("<include glob>", "src/**")
             .replace("<exclude glob>", "**/*.test.*").replace("{language}", "typescript")
-            .replace("{run_dir}/tier-a.json", (tmp_path / "public-api.json").as_posix()))
+            .replace('-o "{run_dir}/tier-a.json"', f'-o "{(tmp_path / "public-api.json").as_posix()}"')
+            .replace("--print tier-a-candidates", "--print public-files"))
     argv = shlex.split(line)
     assert argv[:3] == ["uv", "run", "{extractPublicApiHelper}"]
     proc = subprocess.run([sys.executable, str(EXTRACT_PUBLIC_API), *argv[3:]], capture_output=True, text=True,
                           encoding="utf-8", timeout=300, check=False, cwd=REPO)
     assert proc.returncode == 0, proc.stderr
-    assert _public_api_files(tmp_path / "public-api.json") == ["src/bar.ts", "src/foo.ts", "src/index.ts"]
+    assert proc.stdout.splitlines() == ["src/bar.ts", "src/foo.ts", "src/index.ts"]
+    assert json.loads((tmp_path / "public-api.json").read_text(encoding="utf-8"))["status"] == "ok"
 
 
 def _detection_block() -> str:
@@ -431,13 +447,15 @@ def test_component_library_detection_runs_the_registry_helper():
     assert block.count('--files-from "{run_dir}/tree.json"') == 3
     assert "registry --files-from \"{run_dir}/tree.json\" --candidates-only" in block
     gate = _boundary_gate()
-    bullet = gate[gate.index("- **Component library detection**"):gate.index("A scope with no default")]
+    # #1138: the detection stays in §3 (the interactive [C] flow runs it too) and ends it
+    bullet = gate[gate.index("- **Component library detection**"):]
     assert "`selected` when `headless_accept` is true" in bullet and "every `patterns[]` glob" in bullet
-    assert "warn: component library detection skipped" in gate and "workflow_warnings[]" in gate
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
-    assert "component library detection below" in rows["component-library"]
+    assert "warn: component library detection skipped" in gate and RECORD_FILE in gate
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
+    assert "scope-definition.md §3's component library detection" in rows["component-library"]
     templates = _read(TEMPLATES)
-    component = templates[templates.index("### Component Library Boundaries"):templates.index("## Scripts & Assets")]
+    # #1135 (leanness-7): the file ends with the component library section.
+    component = templates[templates.index("### Component Library Boundaries"):]
     assert component.count("component library detection found") == 2
     for scan in ("Scan source tree", "Directories: `demo/`", "Files named `registry.ts`"):
         assert scan not in component, scan
@@ -483,7 +501,7 @@ def test_the_documented_detection_reads_step_twos_github_listing(tmp_path):
 
 
 def test_the_halt_says_how_a_specific_modules_caller_clears_it():
-    [halt] = [line for line in _boundary_gate().splitlines() if line.startswith("A scope with no default")]
+    [halt] = [line for line in _defaults().splitlines() if line.startswith("A scope with no default")]
     assert "or, for `specific-modules`, name the modules in `intent` or `scope_hint`" in halt
     [gates] = [line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |")]
     assert "a `reference-app` scope, or a `specific-modules` `scope_type` argument naming no module, halts" in gates
@@ -500,7 +518,7 @@ def test_a_reference_app_argument_without_include_halts_at_the_input_gate():
     assert "a `scope_type=reference-app` argument halts here instead (§2)" in row
     [invalid] = [line for line in text.splitlines() if line.startswith("- **`valid: false`**")]
     assert "a `reference-app` `scope_type` without `include`" in invalid
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _boundary_gate(), re.M))
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
     assert "a type the recommender picked" in rows["reference-app"]
     [codes] = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 2    |")]
     assert "a `scope_type=reference-app` argument with no `include` → `input-missing`" in codes
@@ -525,16 +543,24 @@ def test_a_halt_that_names_no_halt_reason_emits_nothing():
 def test_a_derive_run_carries_the_scope_fields_step_three_set():
     """The headless component-library default sets the registry, demo and variant keys on a derive run, so
     the writer payload must not null them. Step 5b gate run 3: the flat payload is the derive run's only (a
-    ratify run writes from the brief file), so it names no source_ref or amendments log, which only a ratified
-    brief holds."""
+    ratify run writes from the brief file), so it names no source_ref, which only a ratified brief holds.
+    #1137 (enhancement-4): it names `scope_amendments` now, because a derive run that overwrites a brief
+    create-skill amended keeps that brief's log, read at §2b, on `[Y]` and on a headless `force` alike."""
     section = _section(_read(REFERENCES / "write-brief.md"), "### 3. Write the Brief")
     start = section.index("```json\n")
     payload = section[start:section.index("```\n", start + len("```json\n"))]
-    for needle in ('"scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3 §3c}"]',
-                   "this key and the next two from step 3's component-library flow or its headless default"):
+    for needle in ('"scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3\'s '
+                   'references/tier-a-surface.md}"]',
+                   "this key and the next two from step 3's component-library flow or its headless default",
+                   '"scope_amendments":     null | [{"...": "each entry of the existing_amendments §2b bound, '
+                   'verbatim"}]'):
         assert needle in payload, needle
-    for gone in ('"source_ref"', '"scope_amendments"', "on a derive run all null", "hydrated on a ratify run"):
+    for gone in ('"source_ref"', "on a derive run all null", "hydrated on a ratify run"):
         assert gone not in section, gone
+    overwrite = _section(_read(REFERENCES / "write-brief.md"), "### 2b. Existing Brief")
+    assert "§3 passes it as `scope_amendments` whenever the run overwrites the file, on `[Y]` below or on a " \
+           "headless `force`, and the writer's `--held-amendments-only` keeps only the entries whose change the " \
+           "new scope still holds" in overwrite
 
 
 # --------------------------------------------------------------------------
@@ -649,11 +675,15 @@ def test_step_two_shows_its_analysis_once_in_the_summary():
                  '"**Target version:**', "Display: \"**Detected version:**", "to the user"):
         assert gone not in before, gone
     summary = _section(text, "### 5. Report Analysis Summary")
-    for needle in ("**Package:** {package_name} ({the number of its `dependencies`} dependencies)",
+    # #1138: both counts as the extractor wrote them in {run_dir}/extract.json
+    for needle in ("**Package:** {package_name} ({dependency_count} dependencies)",
+                   "**Public Exports/Entry Points ({export_count}):**",
+                   "and `dependency_count` and `export_count` as `{run_dir}/extract.json` holds them",
                    "**Detected language:** {the detector's language} ({confidence}, {detection_source})",
                    "**Extraction warnings:**", "- Target version: {target_version} (user-specified)",
                    "- Detected version: {the §4b version", "differs from your target version ({target_version})",
-                   "{bulleted list of the §4.3 exports}", "each with its one-line description"):
+                   ("{bulleted list of the §4.3 exports, each name once (for Java, Kotlin and Swift, once per "
+                    "file that declares it, as `export_count` counts them)}"), "each with its one-line description"):
         assert needle in summary, needle
     # The detected version shows on every run; only the target version line hangs on a pin.
     assert (summary.index("- Detected version:") < summary.index("{If `target_version` was provided in step 01:}")
@@ -701,10 +731,17 @@ def test_step_one_ends_on_one_message_and_one_wait():
 
 
 def test_step_three_ends_on_one_message_and_no_menu():
+    """#1136 (enhancement-2): the §5 summary does not wait, and step 4 holds the scripts and assets intent."""
     text = _read(SCOPE_DEFINITION)
     summary = _section(text, "### 5. Summarize Scope Decisions")
-    assert "when §5b applies, its question in one message, and wait once" in summary
-    assert "Asked in the §5 message." in _section(text, "### 5b. Scripts & Assets Intent (Optional)")
+    assert ("Show this summary with no wait: step 4 shows the whole brief next and is the one scope confirmation"
+            in summary)
+    assert "### 5b." not in text and "Scripts & Assets Intent" not in text
+    review = _section(_read(CONFIRM_BRIEF), "### 2. Present Brief for Review")
+    [scripts] = [line for line in review.splitlines() if line.startswith("Scripts:    ")]
+    [assets] = [line for line in review.splitlines() if line.startswith("Assets:     ")]
+    assert "{scripts_intent, with (default) when unset}" in scripts
+    assert "{assets_intent, with (default) when unset}" in assets
     # The [R] re-probe cache saved one round of five-second HEAD requests.
     assert "byte-identical" not in text and "cache" not in text.lower()
 
@@ -768,11 +805,12 @@ def test_customize_toml_header_and_hook_comments_match_activation():
     assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in _read(SKILL_MD)
 
 
-@pytest.mark.parametrize("path", [pytest.param(path, id=path.name) for path in (GATHER_INTENT, HEADLESS_ARGS, RATIFY)])
+@pytest.mark.parametrize("path", [pytest.param(path, id=path.name)
+                                  for path in (PREFLIGHT, GATHER_INTENT, HEADLESS_ARGS, RATIFY)])
 def test_step_one_files_resolve_each_helper_they_call(path):
     """Moving a section between files moves the probe order its helper call needs."""
     text = _read(path)
     front = _frontmatter(path)
     body = text[text.index("\n---\n", 4):]
-    for stem in set(re.findall(r"\{([a-z][A-Za-z]+)Helper\}", body)) - {"emitBriefEnvelope"}:
+    for stem in set(re.findall(r"\{([a-z][A-Za-z]+)Helper\}", body)) - {"emitEnvelope"}:
         assert f"{stem}ProbeOrder:" in front, (path.name, stem)

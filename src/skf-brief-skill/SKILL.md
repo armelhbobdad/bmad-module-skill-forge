@@ -9,19 +9,18 @@ description: Design a skill scope through guided discovery. Use when the user re
 
 Helps the user define what to skill — target repo, scope, language, inclusion/exclusion patterns — and produces a `skill-brief.yaml` that drives create-skill. This is the first step in the skill creation pipeline; the brief is the input contract for create-skill, which performs the actual compilation.
 
-A good skill brief sets a tight, cohesive boundary: one capability with 3-8 primary functions, an unambiguous public API surface, and a description short enough to fit in a registry row. Briefs that try to cover several unrelated concerns (e.g. authentication *and* data visualization) compile into skills that no agent can route to confidently — a brief covering too much is a worse failure mode than a brief covering too little, and this workflow steers toward the smaller, sharper version when scope is unclear. Scope on cheap signals — manifests, top-level exports, intent — not full AST extraction.
+A good brief is tight: one capability with 3-8 primary functions, a clear public API and a description that fits a registry row. A brief spanning unrelated concerns (authentication *and* data visualization) compiles into a skill agents cannot route to, worse than one too narrow, so lean small when scope is unclear. Scope on cheap signals (manifests, top-level exports, intent), not full AST extraction, with one exception: at Forge tier and above, step 3 runs create-skill's recipe runner only to pin a file list a glob cannot express (`scope.tier_a_include` and the headless `public-api` include).
 
-**Ratify path.** A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) can be *ratified*: reviewed and written to `{forge_data_folder}/{name}/skill-brief.yaml` (in place when it already lives there) instead of derived again. Interactively, pass its path at the first prompt; headlessly, pass `from_brief <path>`. `references/invocation-contract.md` states the full ratify contract.
+A pre-authored brief can be ratified instead: reviewed and written to `{forge_data_folder}/{name}/skill-brief.yaml` (in place when it already lives there).
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `reviseStepFile`, `analyzeStepFile`, `ratifyTargetFile` and `writeBriefFile` name a file beside it.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `reviseStepFile`, `analyzeStepFile` and `ratifyTargetFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `knowledge/tool-resolution.md` and `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `assets/` holds the brief schema, the scope templates and the description voice examples.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
-- `{skill-name}` resolves to the skill directory's basename.
+- `{skill-name}` is the brief's approved `name`, never this skill's folder name.
 
 ## Role
 
@@ -33,22 +32,14 @@ These rules apply to every step in this workflow:
 
 - Only load one step file at a time — never preload future steps
 - Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
-- **Lazy-load references and assets:** `references/*.md` and `assets/*.md` files are loaded inside the section that needs them, not at step entry. If a section is skipped (e.g. `version-resolution.md` when step 2's extractor ran, `scope-templates.md` for the `docs-only` branch that bypasses §2c), do not load that file. Each unnecessary load costs context (~5-10 KB per reference) and biases the LLM toward consulting material the current path does not need.
+- **Lazy-load:** load a `references/*.md` or `assets/*.md` file in the section that needs it, never at step entry, and not at all when that section is skipped.
 - Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the `description`, `notes`, and other free-form fields persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies (see step 5). The two values may be the same.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- Keep one list of the run's warnings, `workflow_warnings[]`, in the order they are raised: each `warn:` line a step logs, each entry of a helper's `warnings[]` that a step surfaces, and each degraded signal the run goes on past (a truncated tree listing, a failed doc detection or QMD step), one line of text each. A helper warning that is an object, such as the `{field, message}` entries skf-validate-brief-inputs.py and skf-validate-brief-schema.py return, goes in as one line, `<field>: <message>`: the emitter takes only strings, and one object in `warnings` makes it exit non-zero and print no line. The run's `SKF_BRIEF_RESULT_JSON` envelope carries the list as `warnings`, at the end of a successful run and at a halt
+- Record each warning the moment it is raised, each `warn:` line a step logs included: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<text>"`, or `--warnings-file` on a helper's saved JSON. Text that quotes a helper or the user goes through a file: write it to `{run_dir}/warning.txt`, then pass `--warning "$(cat "{run_dir}/warning.txt")"`.
 
 ## Halt Contract
 
-Every HALT that names a `halt_reason`, in any step file, emits the `SKF_BRIEF_RESULT_JSON` error envelope before it stops when `{headless_mode}` or `{auto_mode}` is true, through the emitter On Activation step 4 resolves:
-
-```bash
-uv run {emitBriefEnvelopeHelper} emit --target stderr <<'SKF_BRIEF_HALT'
-{"status":"error","skill_name":"<skill name>","halt_reason":"<halt_reason>","mode":<"auto" or null>,"warnings":[<workflow_warnings[] as JSON strings>]}
-SKF_BRIEF_HALT
-```
-
-Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skill_name` is the resolved skill name, or `unknown` while step 1 has not resolved one; `mode` is `"auto"` while `{auto_mode}` is true, else `null`; `warnings` holds `workflow_warnings[]` (`[]` when it is empty). The quoted heredoc hands the payload to the helper as written, so a quote inside a warning needs no shell escaping. Display the line the helper prints verbatim, then HALT. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display the halt message alone: a pipeline that sees no envelope line treats the run as not completed cleanly. An interactive run outside `[auto]` mode displays the halt message and emits nothing. A HALT that names no `halt_reason`, such as a helper with no installed path (an install fault: re-install SKF), emits nothing in any mode.
+Every HALT that names a `halt_reason`, except an interactive `[X]` cancel, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason <halt_reason>` where it stops and displays the line it prints; `references/invocation-contract.md` (Result Contract) says what the emitter fills in and what a halt shows without a line. A HALT that names no `halt_reason`, such as a helper with no installed path (an install fault: re-install SKF), emits nothing in any mode.
 
 ## On Activation
 
@@ -57,7 +48,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
-   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 1 §1b routes to the auto stages), else false.
+   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 0 §1b routes to the auto stages), else false.
 
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
@@ -65,7 +56,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
    uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
-   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-brief-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case add `customization_resolver_unavailable: <reason>` to `workflow_warnings[]` as the run's first warning.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-brief-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` for preflight.md §1 to record once it has created `{run_dir}`.
 
    Bind the values the stage files use, taking the bundled default when the merged value is empty or absent:
 
@@ -75,14 +66,15 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 
    Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file); then, after activation completes and before step 5 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
 
-4. **Resolve the envelope emitter** before any stage can halt: `{emitBriefEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line of the run: a halt's through the Halt Contract above, the success line in write-brief.md §4b or step-auto-validate.md §3. `references/invocation-contract.md` defines the envelope.
+4. **Resolve the envelope emitter** before any stage can halt: `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line, which `references/invocation-contract.md` defines.
 
-5. Load, read the full file, and execute `references/gather-intent.md`.
+5. Load, read the full file, and execute `references/preflight.md`.
 
 ## Stages
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
+| 0 | Preflight (every run) | references/preflight.md | Yes |
 | 1 | Gather Intent | references/gather-intent.md | No (interactive) |
 | 1h | Headless Input Gate (headless only) | references/headless-args.md | Yes |
 | 1r | Ratify an Existing Brief (ratify only) | references/gather-intent-ratify.md | No (interactive menu; headless takes [R]) |
@@ -94,7 +86,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 | 5 | Write Brief | references/write-brief.md | Conditional (the brief exists) |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
-Every run starts in gather-intent.md, whose §1 (run folder, forge tier) serves every mode; its §1b routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 2-5 except stage 5's §3b QMD registration, which step-auto-validate.md runs at Deep tier. It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment (step-auto-brief.md §2-§3), which the ratify and derive routes do not run, and an envelope with `mode: "auto"`. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: the rest of gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
+Every run starts in preflight.md (run folder, forge tier), which routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 1-5; at Deep tier step-auto-validate.md loads stage 5's QMD registration file. It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment (step-auto-brief.md §2-§3), which the ratify and derive routes do not run, and an envelope with `mode: "auto"`. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: gather-intent.md. A brief to ratify (a brief path when invoking the skill or at the first prompt, step 1's `[U] Revise`, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
 
 ## Invocation Contract
 

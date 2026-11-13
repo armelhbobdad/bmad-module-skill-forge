@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'health-check.md'
-writeBriefFile: 'write-brief.md'
+qmdRegistrationFile: 'references/qmd-collection-registration.md'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
@@ -10,18 +10,16 @@ validateBriefSchemaProbeOrder:
 
 # Step 1b: Auto-Brief Validation
 
-## STEP GOAL:
+## Goal
 
 To check the auto-generated brief against the schema and show a concise summary of it, register it in QMD at Deep tier, then build and bind the result envelope (the health check displays it as the run's last line), run the `on_complete` hook and chain to the health check. `[auto]` is a pipeline stage, which the forger always runs headless, so this step asks nothing.
 
 ## Rules
 
-- This step is conditional — only loaded from step-auto-brief.md when `[auto]` mode is active
-- The brief MUST already exist on disk (written by step-auto-brief §4) before this step runs
-- Do NOT render YAML or JSON envelopes in the LLM — delegate to deterministic scripts
-- The 10-line summary is always displayed, even in headless mode, for logging transparency
+- Let the scripts render the YAML and the envelope: one written by hand drifts from the schema.
+- The summary is always displayed, even in headless mode, for logging transparency
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Load Auto-Brief
 
@@ -32,15 +30,15 @@ Read the brief from `{forge_data_folder}/{skill_name}/skill-brief.yaml` (written
 Validate the brief against the schema:
 
 ```bash
-uv run {validateBriefSchemaHelper} {forge_data_folder}/{skill_name}/skill-brief.yaml
+uv run {validateBriefSchemaHelper} {forge_data_folder}/{skill_name}/skill-brief.yaml > "{run_dir}/auto-validation.json"
 ```
 
-The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`.
+The script writes JSON `{valid, errors[], warnings[], halt_reason, brief}` to `{run_dir}/auto-validation.json`.
 
-- **`valid: false`**: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto-brief at `{forge_data_folder}/{skill_name}/skill-brief.yaml` is invalid: {first error message}.**"
-- **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and add each to `workflow_warnings[]` as `<field>: <message>`.
+- **`valid: false`**: emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-invalid`, then HARD HALT (exit code 2): "**Auto-brief at `{forge_data_folder}/{skill_name}/skill-brief.yaml` is invalid: {first error message}.**"
+- **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and record them all with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/auto-validation.json"`.
 
-**IF the file does not exist:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto-brief not found at `{forge_data_folder}/{skill_name}/skill-brief.yaml`: step-auto-brief must write the brief before this step runs.**"
+**IF the file does not exist:** emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-missing`, then HARD HALT (exit code 2): "**Auto-brief not found at `{forge_data_folder}/{skill_name}/skill-brief.yaml`: step-auto-brief must write the brief before this step runs.**"
 
 Extract from the parsed brief:
 - `skill_name` ← `brief.name`
@@ -54,7 +52,7 @@ Extract from the parsed brief:
 - `description` ← `brief.description`
 - `doc_urls` ← `brief.doc_urls`
 
-### 2. Present 10-Line Summary
+### 2. Present the Summary
 
 Render a concise summary from the brief fields for rapid scanning:
 
@@ -67,25 +65,24 @@ Scope:        {scope_type} ({N} include, {M} exclude patterns)
 Docs:         {doc_urls count} sources detected | "None detected"
 Version:      {version}
 Forge Tier:   {forge_tier}
-Pipeline:     forge-auto ({forge_tier} tier)
 Description:  "{description}"
 ```
 
-Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `scope_exclude` patterns. If `doc_urls` is null or empty, display "None detected". The `Pipeline` line names the auto pipeline and the resolved `{forge_tier}` — it carries no numeric quality target, which would be an unverified guarantee an automator might parse as fact.
+Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `scope_exclude` patterns. If `doc_urls` is null or empty, display "None detected".
 
 ### 3. Envelope, Hook and Chain
 
-**QMD registration.** When the run's forge tier (step 1 §1) is Deep, load `{writeBriefFile}` and run its §3b (QMD Collection Registration) alone, with `{skill-name}` ← `{skill_name}`, then come back here: it indexes the brief when QMD is available, and a warning it raises goes on `workflow_warnings[]` before the envelope below is built. Run nothing else of that file. At any other tier, skip this.
+**QMD registration.** When the run's forge tier (step 0 §1) is Deep and QMD is available, load `{qmdRegistrationFile}` and follow it, then come back here: it indexes the brief, and a warning it raises is recorded in the run sink before the envelope below is built. Otherwise skip this.
 
-Build the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitBriefEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field). Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message the pipeline reads:
+Build the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field), which folds in the warnings the run recorded. Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message the pipeline reads:
 
 ```bash
-uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
-{"status":"success","brief_path":"{brief_path}","skill_name":"{skill_name}","version":"{version}","language":"{language}","scope_type":"{scope_type}","halt_reason":null,"mode":"auto","warnings":[<workflow_warnings[] as JSON strings>]}
+uv run {emitEnvelopeHelper} emit --workflow skf-brief-skill --run-dir "{run_dir}" <<'SKF_BRIEF_RESULT'
+{"status":"success","brief_path":"{brief_path}","skill_name":"{skill_name}","version":"{version}","language":"{language}","scope_type":"{scope_type}","halt_reason":null,"mode":"auto"}
 SKF_BRIEF_RESULT
 ```
 
-Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
+Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If `{emitEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
 
 **On-complete hook.** Right after the envelope, if `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), run it from `{project-root}`:
 
@@ -95,7 +92,7 @@ Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If 
 
 A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already bound, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook. If step-auto-brief.md could not write the brief, the run halted there, so the hook never names a missing file.
 
-**Remove the run folder.** The brief is written, so the folder step 1 §1 created has done its job; remove it (the guard keeps the command to that folder):
+**Remove the run folder.** The brief is written, so the folder step 0 §1 created has done its job; remove it (the guard keeps the command to that folder):
 
 ```bash
 case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac

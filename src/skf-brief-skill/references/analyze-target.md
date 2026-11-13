@@ -30,7 +30,7 @@ validatePinsProbeOrder:
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
 - **One display.** The §5 summary is this step's one display of the analysis. Before it, §2 to §4.3 show one progress line each, besides any warning, the truncation choice (§1), the monorepo pick (§1b) and §4.4's semantic signals; the values they compute stay in context for §5.
-- **Staged inputs.** The helpers of this step read the repository from files in the run folder `{run_dir}` that step 1 §1 created, never from a list or a file's text typed into a command: `{run_dir}/tree.json` (the file list, §1), `{run_dir}/files/` (manifests and entry points fetched at `{analysis_ref}`, laid out like the repository), `{run_dir}/snapshot.json` (the tree's counts and module candidates, §2) and `{run_dir}/extract.json` (the exports, §4). Step 3 reads the same files.
+- **Staged inputs.** The helpers of this step read the repository from files in the run folder `{run_dir}` that step 0 §1 created, never from a list or a file's text typed into a command: `{run_dir}/tree.json` (the file list, §1), `{run_dir}/files/` (manifests and entry points fetched at `{analysis_ref}`, laid out like the repository), `{run_dir}/snapshot.json` (the tree's counts and module candidates, §2) and `{run_dir}/extract.json` (the exports, §4). Step 3 reads the same files.
 - **Ratify run (`ratify_mode: true`):** this step runs only from step 4 `[R] Revise Scope`, to give step 3 an analysis of the brief's repository, and never replaces the hydrated `name`, `version` or `language`. §1 treats the hydrated `target_ref` and `target_version` as set in step 01, and a hydrated `version` without either as an implicit `target_version`: §1 resolves it to a tag the same way, and with no match analyzes `HEAD` without the zero-match warning. §1b selects, without asking, the workspace whose path begins the hydrated `scope.include` globs (the repo root when none does). §3 runs only to choose §4's path: the brief keeps the hydrated `language`, which the §5 summary shows with the hydrated `version`. Skip §4b. At §5, set `ratify_analyzed: true` in workflow context, so a later `[R]` goes straight to step 3.
 
 ## Sequence
@@ -66,7 +66,7 @@ Display: "**Resolving target...**"
   - Exit 1 (`status: "invalid"`) with tags in `suggestions`: no tag matches. Warn `"No git tag matches version {target_version}; analyzing the default branch (HEAD) instead: structure and exports may not match the pinned version."`, naming those nearest tags.
   - Exit 1 with an empty `suggestions`: the repository has no tag, or its tags could not be listed. Warn `"Could not find or list the tags of {owner}/{repo}; analyzing the default branch (HEAD) instead: structure and exports may not match the pinned version."`
   - Exit 2 (`gh` missing, or a URL it does not accept), or no candidate path: warn `"Could not check the tags of {owner}/{repo} ({the error it printed}); analyzing the default branch (HEAD) instead: structure and exports may not match the pinned version."`
-  - On any of these warnings, add it to `workflow_warnings[]`, set `{analysis_ref}` = `HEAD`, and record the fallback in the §5 analysis summary.
+  - On any of these warnings, write it to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, set `{analysis_ref}` = `HEAD`, and note the fallback in the §5 analysis summary.
 
 **List the repository.** Resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}`; first existing path wins. Write its listing to the run folder in one call:
 
@@ -74,17 +74,17 @@ Display: "**Resolving target...**"
 uv run {githubProbeHelper} tree --repo "{owner}/{repo}" --ref "{analysis_ref}" --out "{run_dir}/tree.json"
 ```
 
-`--out` writes the listing to `{run_dir}/tree.json`, where the helpers read it, and the call prints the rest as one JSON line: `status`, `cause`, `message`, `gh`, `count` and `truncated`. Branch on that line. Every branch below that halts emits its halt envelope first, per the SKILL.md Halt Contract:
+`--out` writes the listing to `{run_dir}/tree.json`, where the helpers read it, and the call prints the rest as one JSON line: `status`, `cause`, `message`, `gh`, `count` and `truncated`. Branch on that line. Every branch below that halts emits its halt envelope first:
 
 - **`status: "unavailable"`** (exit 3): the repository or the ref cannot be read, and `message` names the cause and the fix.
-  - `cause` `gh-missing` or `gh-unauthenticated`: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** {message}"
-  - `cause` `repo-not-found`, `no-access` or `ref-not-found` (or `unreachable`, `invalid-repo`): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"`, then HALT (exit code 3): "**Error:** {message}"
-- **No candidate path, or no JSON** (the helper exits 1 or 2): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"`, then HALT (exit code 3): "**Error:** Cannot list `{url}`: {the first line of its stderr, or `skf-github-probe.py not found`}."
+  - `cause` `gh-missing` or `gh-unauthenticated`: emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason gh-auth-failed`, then HALT (exit code 3): "**Error:** {message}"
+  - `cause` `repo-not-found`, `no-access` or `ref-not-found` (or `unreachable`, `invalid-repo`): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason target-inaccessible`, then HALT (exit code 3): "**Error:** {message}"
+- **No candidate path, or no JSON** (the helper exits 1 or 2): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason target-inaccessible`, then HALT (exit code 3): "**Error:** Cannot list `{url}`: {the first line of its stderr, or `skf-github-probe.py not found`}."
 
-**Fetching files.** Every file this step and step 3 read from a GitHub source is fetched into `{run_dir}/files` at `{analysis_ref}`, laid out like the repository, by `{githubFetchHelper}` (resolve it from `{githubFetchProbeOrder}`; first existing path wins; HALT if no candidate exists), which §4.1's `--follow` runs too. It reads each file from `raw.githubusercontent.com`, which needs no `gh`, and through `gh` only when that fails (a private repository). A path the listing does not hold costs no request and is reported in `unmatched`, so each call names every candidate. On exit 3, its `failed` names each file it could not read: go on without them, and add `files not fetched: <their paths>` to `workflow_warnings[]`.
+**Fetching files.** Every file this step and step 3 read from a GitHub source is fetched into `{run_dir}/files` at `{analysis_ref}`, laid out like the repository, by `{githubFetchHelper}` (resolve it from `{githubFetchProbeOrder}`; first existing path wins; HALT if no candidate exists), which §4.1's `--follow` runs too. It reads each file from `raw.githubusercontent.com`, which needs no `gh`, and through `gh` only when that fails (a private repository). A path the listing does not hold costs no request and is reported in `unmatched`, so each call names every candidate. On exit 3, its `failed` names each file it could not read: go on without them, and write `files not fetched: <their paths>` to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
 **Truncation.** When `truncated` is true, GitHub cut the listing short:
-- Display: "Note: GitHub returned a truncated tree ({count} files). Full analysis may require a local clone." and add `tree listing truncated by GitHub ({count} files listed)` to `workflow_warnings[]`.
+- Display: "Note: GitHub returned a truncated tree ({count} files). Full analysis may require a local clone." and record the warning: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "tree listing truncated by GitHub ({count} files listed)"`.
 - Interactive: present
   ```
   Tree is truncated. How would you like to proceed?
@@ -97,11 +97,11 @@ uv run {githubProbeHelper} tree --repo "{owner}/{repo}" --ref "{analysis_ref}" -
   git clone --depth 1 --branch "{analysis_ref}" "https://github.com/{owner}/{repo}.git" "{run_dir}/clone"
   ```
 
-  Leave `--branch` out when `{analysis_ref}` is `HEAD`. A commit SHA is no `--branch` value: clone it with `git clone --filter=blob:none --no-checkout "https://github.com/{owner}/{repo}.git" "{run_dir}/clone"`, then `git -C "{run_dir}/clone" checkout --quiet "{analysis_ref}"`. Set `{source_path}` ← `{run_dir}/clone` and restart this section for that local path: its listing replaces `{run_dir}/tree.json`, and every later `{source_path}`, in this step and in step 3, is the clone. Before any later HALT, remove the clone (`rm -rf "{run_dir}/clone"`): a halt keeps the files the run staged, never a copy of the repository. If a clone or checkout command fails, remove what it left (`rm -rf "{run_dir}/clone"`), warn `"Could not clone {owner}/{repo} at {analysis_ref} ({the first line of its stderr}); proceeding with the partial tree."`, add the warning to `workflow_warnings[]` and continue as `[P]`.
+  Leave `--branch` out when `{analysis_ref}` is `HEAD`. A commit SHA is no `--branch` value: clone it with `git clone --filter=blob:none --no-checkout "https://github.com/{owner}/{repo}.git" "{run_dir}/clone"`, then `git -C "{run_dir}/clone" checkout --quiet "{analysis_ref}"`. Set `{source_path}` ← `{run_dir}/clone` and restart this section for that local path: its listing replaces `{run_dir}/tree.json`, and every later `{source_path}`, in this step and in step 3, is the clone. Before any later HALT, remove the clone (`rm -rf "{run_dir}/clone"`): a halt keeps the files the run staged, never a copy of the repository. If a clone or checkout command fails, remove what it left (`rm -rf "{run_dir}/clone"`), warn `"Could not clone {owner}/{repo} at {analysis_ref} ({the first line of its stderr}); proceeding with the partial tree."`, write it to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and continue as `[P]`.
   **GATE [default: P]**: on `[P]`, and under headless: record `tree_truncated: true` in the analysis summary and continue without HALT.
 
 **For local paths:** `{source_path}` is the path.
-- If the directory does not exist (`test -d "{source_path}"` fails): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"` (the failure class of a GitHub target the CLI cannot read), then HALT (exit code 3): "**Error:** Directory not found at {path}. Verify the path is correct."
+- If the directory does not exist (`test -d "{source_path}"` fails): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason target-inaccessible` (the failure class of a GitHub target the CLI cannot read), then HALT (exit code 3): "**Error:** Directory not found at {path}. Verify the path is correct."
 - List its files into the run folder, the files git tracks and the untracked ones it does not ignore:
 
   ```bash
@@ -119,12 +119,12 @@ Delegate workspace detection to `{detectWorkspacesHelper}`: it reads the file li
 ```bash
 uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-files > "{run_dir}/manifests.txt"
 uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" --patterns-file "{run_dir}/manifests.txt"
-uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-dir "{run_dir}/files"
+uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-dir "{run_dir}/files" > "{run_dir}/workspaces.json"
 ```
 
 For a local source (or the `[L]` clone), drop the first two lines and pass the folder itself: `--manifest-dir "{source_path}"`. The manifest folder of this section is the one §2 and §4 pass again.
 
-The script returns a JSON envelope: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically. `shared/scripts/schemas/workspace-detection.v1.json` holds the full contract.
+The script writes a JSON envelope to `{run_dir}/workspaces.json`: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically. `shared/scripts/schemas/workspace-detection.v1.json` holds the full contract.
 
 **If `is_monorepo: false`** — skip this section silently and continue to §2.
 
@@ -140,9 +140,9 @@ Which one should the skill cover? Pick a number, or type 'all' to scope at the r
 
 Interactive: wait for the user choice. On a numbered choice, store `monorepo_workspace: {path}` and rebase §2-§4b against that path. On `'all'`, leave `monorepo_workspace` unset and proceed at the repo root with a note in the analysis summary that scope is unfiltered.
 
-**GATE [default: the workspace an `include` glob names, else the repo root]**: headless, if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected ({manifest_kind}) but no workspace pre-selected; analyzing at repo root"`.
+**GATE [default: the workspace an `include` glob names, else the repo root]**: headless, if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root, log `"warn: monorepo detected ({manifest_kind}) but no workspace pre-selected; analyzing at repo root"` and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "warn: monorepo detected ({manifest_kind}) but no workspace pre-selected; analyzing at repo root"`.
 
-Log each non-empty `warnings[]` entry from the script and add it to `workflow_warnings[]`, so a malformed or unfetched root manifest is debuggable; the workflow does not HALT, because falling back to repo-root analysis is always safe.
+Log each non-empty `warnings[]` entry from the script and record them all with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/workspaces.json"`, so a malformed or unfetched root manifest is debuggable; the workflow does not HALT, because falling back to repo-root analysis is always safe.
 
 **`cross-ecosystem workspace ignored` warning:** when a root workspace manifest from a different language ecosystem co-exists with the surfaced one (e.g. a root `Cargo.toml [workspace]` alongside a pnpm workspace), the script surfaces only the higher-priority kind and emits this warning naming the ignored kind and its member count. The ignored ecosystem's workspaces are **not** in `workspaces[]`, so the numbered menu above will not list them. When this warning is present, tell the operator both ecosystems exist and ask which the skill should cover; if they pick the ignored ecosystem, scope §2-§4b at its root (or the relevant member) rather than the surfaced workspace, and carry the ignored kind into §3 (see the `workspace_signal` note there).
 
@@ -170,7 +170,7 @@ Pass the §1b `manifest_kind` as `--workspace-signal` (leave the flag out when i
 
 **When §1b surfaced a `cross-ecosystem workspace ignored` warning and the operator chose the ignored ecosystem:** pass that ignored kind as `--workspace-signal` (not the surfaced kind), so a co-located `cargo-workspace`/`python-multi-package` root resolves to rust/python instead of being pinned to the surfaced ecosystem's language by the workspace that won detection priority.
 
-The script returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}` after walking the documented rule table: the `workspace_signal` precedence above first, then the manifests nearest the tree's root, by folder depth and then rule order (package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, Package.swift, Gemfile, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln), where a manifest in a docs, examples, tests or other non-core folder, or in a hidden one, decides only when no other exists, then extension-frequency fallback. With no manifest at the root, the nearest one decides at `medium` confidence and `source_language` names the language most source files are in. Use the returned values directly: §5 shows them.
+It returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}`: use them directly, §5 shows them.
 
 **Headless language override.** If `language_hint` was supplied as a headless argument, use it as the confirmed `{language}` (overriding the detected value) and carry it forward to §4 and step 03. The detector still runs so §5's Detected-language line reflects what the source signals, but the explicit hint wins and the step 03 §4 low-confidence override does not fire. When `language_hint` is absent, carry the detected `{language}` forward.
 
@@ -182,13 +182,20 @@ If `confidence` is `low` (or `unknown` is returned for `language`) and no `langu
 
 Identify the public API surface. **Delegate the parsing to `{extractPublicApiHelper}` whenever the detected language is supported:** it finds the entry files, parses the manifest, reads the exports and finds the version, so none of them is derived in prose.
 
-**Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
+**Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`, `swift`.
 
 Display `Listing the exports...`. This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) based on the detected language, then always §4.3 (the modules and exports §5 shows) and conditionally §4.4 (semantic signals).
 
 #### 4.1 Procedure — script-supported languages
 
-`<source root>` is `{run_dir}/files` for a GitHub source. For a local source, or the `[L]` clone, it is `{source_path}`, whose files need no fetch: leave the `{githubFetchHelper}` lines and step 2's `--repo` and `--ref` out. When §1b picked a workspace, prefix each manifest candidate with `{monorepo_workspace}/` and pass `--scope "{monorepo_workspace}"`.
+`<source root>` is `{run_dir}/files` for a GitHub source. For a local source, or the `[L]` clone, it is `{source_path}`, whose files need no fetch: leave the `{githubFetchHelper}` lines and the extractor's `--repo` and `--ref` out. When §1b picked a workspace, prefix each manifest candidate with `{monorepo_workspace}/` and pass `--scope "{monorepo_workspace}"`.
+
+**Java, Kotlin and Swift** declare a type public in whatever file it sits, so their public surface is every source file, as Analyze Source counts it, not the first few files entries mode lists: they run this fetch and parse in place of steps 1 and 2, then steps 3 and 4. The fetch stages the manifests and the language's source files less the tests (`<extension>` is `java`, `kt` or `swift`), and the parse reads each one the language's scope patterns include (`--all-sources`). `<manifest path>` is the language's manifest at the top of `<source root>`: `pom.xml` for Java, `build.gradle.kts` else `build.gradle` for Kotlin, `Package.swift` for Swift (no `--manifest-file` when it is not there). When §1b picked a workspace, prefix each fetch pattern with `{monorepo_workspace}/` and pass `<source root>/{monorepo_workspace}` as `--source-root`.
+
+```bash
+uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" --exclude "**/src/test/**" --exclude "**/Tests/**" "**/pom.xml" "**/build.gradle.kts" "**/build.gradle" "**/Package.swift" "**/*.<extension>"
+uv run {extractPublicApiHelper} --mode quick --language "<language>" --source-root "<source root>" --manifest-file "<manifest path>" --all-sources --resolve-version [--repo "{owner}/{repo}" --ref "{analysis_ref}"] > "{run_dir}/extract.json"
+```
 
 1. **Find the entry files.** Fetch the manifest candidates (the listing decides which exist), let the extractor find the entry files in the listing by full mode's rules, and fetch the files it lists:
 
@@ -198,7 +205,7 @@ Display `Listing the exports...`. This section runs exactly one of §4.1 (script
    uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" --patterns-file "{run_dir}/entries.txt"
    ```
 
-   `{run_dir}/entries.json` names the `manifest` the extractor read and its `entry_files`: never pick an entry file yourself. Its `unresolved` and `warnings` join the extraction warnings §5 shows. When the entries call exits non-zero, or it names neither a manifest nor an entry file, there is nothing to parse: skip the rest of §4.1 and take §4.2.
+   `{run_dir}/entries.json` names the `manifest` the extractor read and its `entry_files`: never pick an entry file yourself. Its `unresolved` and `warnings` join the extraction warnings §5 shows; when the call exits 0, record the `warnings` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/entries.json"`. When the entries call exits non-zero, or it names neither a manifest nor an entry file, there is nothing to parse: skip the rest of §4.1 and take §4.2.
 
 2. **Parse them and follow their re-exports** by path: the `manifest` (no `--manifest-file` when it is null) and one `--entry-file` per entry file (for a GitHub source, each one the fetch `fetched`):
 
@@ -208,15 +215,15 @@ Display `Listing the exports...`. This section runs exactly one of §4.1 (script
 
    `--follow` reads each module an `export *` or a star import passes names on from, round after round, so a chain is read to its end, and lists them in `followed`; for a GitHub source, `--repo` and `--ref` fetch each into `{run_dir}/files` first. A module it could not read stays in `unlisted[]`, and a warning names it. `--resolve-version` looks up a version the manifest does not state.
 
-3. On a non-zero exit of the extractor (codes 1 or 2 per its docstring), log its stderr and fall through to §4.2 (the prose-fallback path), which writes over `{run_dir}/extract.json`: never HALT just because the script choked on an unusual manifest.
+3. On a non-zero exit of the extractor (codes 1 or 2 per its docstring), log its stderr, write `Could not extract the exports ({the first line of its stderr}); falling back to manual inspection.` to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and fall through to §4.2 (the prose-fallback path), which writes over `{run_dir}/extract.json`: never HALT just because the script choked on an unusual manifest.
 
-4. Keep `{run_dir}/extract.json`'s `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies` and `warnings` for §5, which shows the package, its dependency count, the exports and the warnings. Its `version` feeds §4b, and step 3 counts its exports.
+4. Keep `{run_dir}/extract.json`'s `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `export_count`, `dependency_count` and `warnings` for §5, which prints both counts as the file holds them, and record those `warnings` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/extract.json"`. Its `version` feeds §4b; step 3's recommender reads its `export_count`, and its tier-A surface its `reexport_files`.
 
 #### 4.2 Procedure — fallback (not script-supported)
 
-Languages outside the script coverage (Ruby / C# / Swift / etc.) take this path. The §4.1 fall-through on script error also lands here.
+Languages outside the script coverage (Ruby / C# / PHP / etc.) take this path. The §4.1 fall-through on script error also lands here.
 
-Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. Read the files you inspect from `{run_dir}/files` (fetched with §4.1's fetch line, naming them) or the local folder. Note any obvious entry points, and flag the limitation in the analysis summary so the user knows scoping is on coarser signals. Then stage an extraction with no export, so step 3 reads `{run_dir}/extract.json` on either path: `printf '{"exports": []}' > "{run_dir}/extract.json"`.
+Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. Read the files you inspect from `{run_dir}/files` (fetched with §4.1's fetch line, naming them) or the local folder. Note any obvious entry points, and flag the limitation in the analysis summary so the user knows scoping is on coarser signals. Then stage an extraction with no export, so step 3 reads `{run_dir}/extract.json` on either path: `printf '{"exports": [], "export_count": 0}' > "{run_dir}/extract.json"`.
 
 #### 4.3 Output format (both paths)
 
@@ -231,7 +238,7 @@ The number of modules picked is `module_count`, which step 3 §2c passes the sco
 
 **Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC discovery will run automatically during create-skill after the source is cloned."
 
-If `tools.ccc` is true in the `tools` step 1 §1 bound, supplement the module listing with a semantic discovery pass:
+If `tools.ccc` is true in the `tools` step 0 §1 bound, supplement the module listing with a semantic discovery pass:
 
 **CCC Semantic Discovery:**
 - **Claude Code:** Use `/ccc search "{repo_name} public API exports modules"` from `{source_path}` — the query is variadic, so a trailing path is swallowed into the search string rather than selecting a project
@@ -259,7 +266,7 @@ Whichever path produced it, keep the detected version for §5, which shows it be
 
 ### 5. Report Analysis Summary
 
-Present the complete analysis, the counts and notable files read from `{run_dir}/snapshot.json`:
+Present the complete analysis, the counts and notable files read from `{run_dir}/snapshot.json`, and `dependency_count` and `export_count` as `{run_dir}/extract.json` holds them (after §4.2, which stages an `export_count` of 0, the exports heading counts the entry points §4.2 noted):
 
 "**Analysis Complete**
 
@@ -267,7 +274,7 @@ Present the complete analysis, the counts and notable files read from `{run_dir}
 
 **Target:** {repo URL or path}
 {If §4.1 returned a `package_name`:}
-**Package:** {package_name} ({the number of its `dependencies`} dependencies)
+**Package:** {package_name} ({dependency_count} dependencies)
 **Detected language:** {the detector's language} ({confidence}, {detection_source})
 {If a `language_hint` or a ratified brief set the language:}
 **Language:** {language} (kept over the detected one)
@@ -276,8 +283,8 @@ Present the complete analysis, the counts and notable files read from `{run_dir}
 **Key Modules ({module_count}):**
 {bulleted list of the §4.3 modules, each with its one-line description}
 
-**Public Exports/Entry Points ({count}):**
-{bulleted list of the §4.3 exports}
+**Public Exports/Entry Points ({export_count}):**
+{bulleted list of the §4.3 exports, each name once (for Java, Kotlin and Swift, once per file that declares it, as `export_count` counts them)}
 
 **Version:** {on a ratify run, the hydrated `version`; otherwise:}
 - Detected version: {the §4b version, or `not detected: defaulting to 1.0.0, which you can change when you confirm the brief` when detection failed or returned a non-semver value}

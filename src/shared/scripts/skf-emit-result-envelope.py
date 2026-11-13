@@ -15,6 +15,7 @@ prints the line:
   uv run {helper} emit --workflow <name> --run-dir <run_dir> --result-dir <dir> < <run_dir>/result-context.json
   uv run {helper} emit-halt --workflow <name> --run-dir <run_dir> < <run_dir>/halt.json
   uv run {helper} emit-halt --workflow <name> --run-dir <run_dir> --phase '<phase>' --reason - <<'SKF_REASON'
+  uv run {helper} emit-halt --workflow <name> --run-dir <run_dir> --target stderr --halt-reason <halt_reason>
 
 Subcommands:
 
@@ -27,7 +28,10 @@ Subcommands:
              payload must be given. With
              --customization-resolver-unavailable-from FILE the payload's
              `customization_resolver_unavailable` is the reason that file
-             holds (see "skf-setup"). Default subcommand.
+             holds (see "skf-setup"). Default subcommand. A `warnings`
+             entry that is an object whose `field` and `message` are both
+             strings (a validator's warning) is the warning
+             `<field>: <message>`; any other entry must be a string.
 
   emit-halt  Build the envelope of a HARD HALT from the halt payload on
              stdin: {"phase", "reason", "halt_reason"?, "exit_code"?,
@@ -37,8 +41,8 @@ Subcommands:
              so a step types no JSON: {"phase", "reason"} plus
              `halt_reason`, `path`, `skill_name`, `old_name` and
              `new_name` for each of --halt-reason, --path, --skill-name,
-             --old-name and --new-name given non-empty, each where the
-             schema has the field.
+             --old-name and --new-name given non-empty, and `mode` for
+             --mode, each where the schema has the field.
              --reason takes the text, or `-` to read it on
              stdin (UTF-8, a byte-order mark dropped, bytes that are not
              UTF-8 replaced), so a halt passes text that holds quotes,
@@ -46,7 +50,23 @@ Subcommands:
              shell argument. --stderr-from fills `<message>` in it as
              emit-blocked's does, and the reason is folded to one line.
              `-` for both --reason and --stderr-from is refused, and so
-             is any of these options without --phase.
+             is any of these options without --phase, except the
+             halt-reason form: --halt-reason with no --phase builds the
+             payload {"halt_reason"} (plus `mode` from --mode) and reads
+             no stdin, so a halt line is one command. --reason, --path,
+             --stderr-from, --skill-name, --old-name and --new-name still
+             need --phase, and --mode needs --phase or --halt-reason.
+             --customization-resolver-unavailable-from takes the resolver's
+             failure reason as on emit, in every form, and `-` reads it on
+             stdin when nothing else does (with --phase or --halt-reason,
+             and neither --reason - nor --stderr-from -), so a halt
+             before the run folder exists still reports it.
+             The payload must give a non-empty `phase` and `reason` only
+             when the workflow's envelope declares an `error`, `phase` or
+             `reason` property (skf-brief-skill's declares none). With
+             --run-dir the run's halt-state.json fills what the payload
+             leaves out, and the settings' halt_defaults what both leave
+             out (see "Run sink").
 
   emit-blocked
              skf-setup's halt: `emit-halt --workflow skf-setup` under its
@@ -72,7 +92,9 @@ Subcommands:
              and a repeated --warning records each; --warnings-file reads a
              JSON file that holds the warnings, an array of strings or an
              object whose `warnings` is one (a helper's saved stdout, such
-             as skf-parse-gaps.py translate's), and records each, in order.
+             as skf-parse-gaps.py translate's), and records each, in order;
+             an entry that is a {field, message} object, as the brief
+             validators return, is recorded as `<field>: <message>`.
              A blank or non-string warning, an unreadable file or an object
              with no `warnings` list exits 1 and writes nothing; an empty
              list writes nothing and exits 0. With --workflow a decision is
@@ -119,7 +141,8 @@ validator (Ajv's default mode) still compiles the schema:
     "exit_codes":        {"<halt_reason>": <exit code>, ...},
     "success_exit_code": 0,
     "result_file":       "update-skill-result" | null,
-    "result_stamp":      "run_id"
+    "result_stamp":      "run_id",
+    "halt_defaults":     {"<field>": <value>, ...}
   }}}
 
   wrapper names the one property that wraps the envelope (null for a flat
@@ -128,7 +151,10 @@ validator (Ajv's default mode) still compiles the schema:
   success_exit_code is the code a null halt_reason carries (both optional);
   result_file is the stem of the run's result files (null: none);
   result_stamp "run_id" (optional) names the per-run result file after the
-  run's own stamp instead of the clock (see "Result files").
+  run's own stamp instead of the clock (see "Result files"); halt_defaults
+  (optional) gives a halt the value of each envelope field its payload and
+  its halt state leave out, before the placeholders below, and never applies
+  to a finished run (skf-brief-skill's: skill_name `unknown`).
 
 Building an envelope (every workflow but skf-setup). Each payload key is an
 envelope field of the same name, except `result_contract` and
@@ -154,9 +180,9 @@ envelope field of the same name, except `result_contract` and
     sink's, duplicates dropped. A `customization_resolver_unavailable`
     reason becomes the warning `customization_resolver_unavailable:
     <reason>`. An optional list stays out of the envelope while empty.
-  - A required field the payload leaves out gets its schema `default`,
-    else null when the schema allows it; in a halt, else [], {}, false or
-    0 by its type.
+  - A required field the payload leaves out gets, in a halt, its
+    halt_defaults value; then its schema `default`, else null when the
+    schema allows it; in a halt, else [], {}, false or 0 by its type.
 
   The envelope's keys follow the schema's property order, and the line is
   ASCII JSON, non-ASCII text escaped, as skf-brief-skill's helper always
@@ -178,6 +204,20 @@ line that is not JSON (a write cut short) or a decision the schema rejects
 is left out and named in the warnings (`sink_line_unreadable:
 <file>:<line>`, `headless_decision_invalid: <file>:<line>: <error>`), so a
 halt still emits.
+
+A run may also keep its halt state there, a JSON object the step that
+learns a value writes whole:
+
+  {run_dir}/halt-state.json            {"interactive": bool, <field>: <value>, ...}
+
+`emit-halt --run-dir` reads it when it exists (`emit` never does), so a
+halt line names what the run knows without restating it. `"interactive":
+true` prints nothing and exits 0: an interactive run has no envelope. Each
+other key that is an envelope property fills that field when the payload
+lacks it and the value passes the property's schema; a value that fails is
+left out with the warning `halt_state_field_invalid: <key>`, and a file
+that holds no JSON object adds `halt_state_unreadable: halt-state.json`.
+Either way the halt still emits.
 
 Result files. With --result-dir naming a folder that exists (the version
 folder), the call writes `<result_file>-<YYYYMMDD-HHmmss>.json` (UTC; `-2`,
@@ -303,8 +343,8 @@ Context payload shape (consumed by `emit` for skf-setup):
   When the On Activation customization resolver was missing or failed,
   pass its one-line reason as `customization_resolver_unavailable`, or
   name the file that holds it with
-  --customization-resolver-unavailable-from (emit, render-report and
-  emit-blocked): the emitter takes that file's diagnostic as --stderr-from
+  --customization-resolver-unavailable-from (emit, emit-halt, render-report
+  and emit-blocked): the emitter takes that file's diagnostic as --stderr-from
   does, folded to one line (`(no error message)` for a missing or empty
   file), in place of the payload's own, so no step escapes the reason
   into JSON or a shell argument. The run then used only the skill's own
@@ -346,6 +386,7 @@ the first of `uv run`, `python3`, `python` and `py -3` that works.
   echo '{"phase":"...","reason":"...","path":"..."}' | uv run skf-emit-result-envelope.py emit-blocked
   uv run skf-emit-result-envelope.py emit-blocked --phase "step 2:write-tools" --path "<path>" --reason "<message>" --stderr-from "{run_dir}/write-tools.err" --customization-resolver-unavailable-from "{run_dir}/resolver.err"
   uv run skf-emit-result-envelope.py emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" --target stderr --phase 'execute:copy' --halt-reason 'copy-failed' --old-name "{old_name}" --stderr-from "{run_dir}/call.err" --reason - <<'SKF_REASON'
+  uv run skf-emit-result-envelope.py emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason target-inaccessible
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warning "customization_resolver_unavailable: <reason>"
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warnings-file "{run_dir}/translate.json"
@@ -389,9 +430,13 @@ SETUP_WORKFLOW = "skf-setup"
 # The `$defs` entry whose `const` holds a schema's emitter settings.
 META_KEY = "skf-envelope"
 META_FIELDS = ("workflow", "prefix", "wrapper", "halt_status", "exit_codes",
-               "success_exit_code", "result_file", "result_stamp")
+               "success_exit_code", "result_file", "result_stamp", "halt_defaults")
 SINK_DECISIONS = "headless-decisions.jsonl"
 SINK_WARNINGS = "warnings.jsonl"
+# The run's halt state, which emit-halt --run-dir reads (see "Run sink").
+HALT_STATE = "halt-state.json"
+# The envelope properties that make a halt payload give its phase and reason.
+PHASED_FIELDS = ("error", "phase", "reason")
 # The halt payload's own keys; each lands only where the schema has a place for it.
 HALT_KEYS = ("phase", "reason", "halt_reason", "exit_code", "path", "details")
 # Payload keys the emitter reads and never copies into the envelope.
@@ -1378,6 +1423,8 @@ def _meta(schema: dict, path: Path | None = None) -> dict:
     wrapper = meta.get("wrapper")
     if wrapper is not None and not isinstance(schema.get("properties", {}).get(wrapper), dict):
         _die(2, f"{name}: {META_KEY}.wrapper {wrapper!r} is not a property of the schema")
+    if not isinstance(meta.get("halt_defaults", {}), dict):
+        _die(2, f"{name}: {META_KEY}.halt_defaults must be an object")
     return meta
 
 
@@ -1515,6 +1562,61 @@ def _payload_list(payload: dict, key: str, kind: type) -> list:
     return value
 
 
+def warning_text(entry):
+    """A `{field, message}` warning as its one line, `<field>: <message>`; any other entry as it is.
+
+    skf-validate-brief-inputs.py and skf-validate-brief-schema.py return
+    their warnings as such objects. An entry whose `field` or `message` is
+    not a string, or that is no object, is left unchanged, so the string
+    check that follows still refuses it.
+    """
+    if isinstance(entry, dict) and isinstance(entry.get("field"), str) and isinstance(entry.get("message"), str):
+        return f"{entry['field']}: {entry['message']}"
+    return entry
+
+
+def payload_warnings(payload: dict) -> list:
+    """The payload's `warnings`, each `{field, message}` object as its line; exits 1 on any other non-string."""
+    value = payload.get("warnings")
+    if isinstance(value, list):
+        payload = {"warnings": [warning_text(item) for item in value]}
+    return _payload_list(payload, "warnings", str)
+
+
+def read_halt_state(run_dir: Path | None, props: dict) -> tuple[bool, dict, list[str]]:
+    """(interactive, fields, problems) the run's halt-state.json gives a halt (see "Run sink").
+
+    `fields` holds each envelope property the file names whose value passes
+    the property's schema; `problems` names each value left out and a file
+    that holds no JSON object. A missing file gives nothing.
+    """
+    if run_dir is None:
+        return False, {}, []
+    try:
+        raw = (run_dir / HALT_STATE).read_bytes()
+    except FileNotFoundError:
+        return False, {}, []
+    except OSError:
+        raw = None
+    try:
+        state = json.loads(raw.decode("utf-8-sig")) if raw is not None else None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        state = None
+    if not isinstance(state, dict):
+        return False, {}, [f"halt_state_unreadable: {HALT_STATE}"]
+    if state.get("interactive") is True:
+        return True, {}, []
+    fields, problems = {}, []
+    for key, value in state.items():
+        if key == "interactive" or key not in props:
+            continue
+        if _validate_against_schema(value, props[key]):
+            problems.append(f"halt_state_field_invalid: {key}")
+        else:
+            fields[key] = value
+    return False, fields, problems
+
+
 # ─── clock ──────────────────────────────────────────────────────────────────
 
 
@@ -1598,7 +1700,7 @@ def build_envelope(schema: dict, payload: dict, *, halt: bool, stamps: dict | No
     stamps = stamps or {}
     decisions = decisions if decisions is not None else _payload_list(payload, "headless_decisions", dict)
     warnings = warnings if warnings is not None else _merged(
-        _payload_list(payload, "warnings", str), _resolver_warning(payload))
+        payload_warnings(payload), _resolver_warning(payload))
     if meta["workflow"] == SETUP_WORKFLOW:
         return _setup_envelope(payload, halt, warnings)
 
@@ -1621,6 +1723,10 @@ def build_envelope(schema: dict, payload: dict, *, halt: bool, stamps: dict | No
                 body["error"] = error
         if "status" in props and "status" not in body and meta.get("halt_status"):
             body["status"] = meta["halt_status"]
+        # The halt's own value of a field its payload and halt state left out, before any placeholder.
+        for key, value in (meta.get("halt_defaults") or {}).items():
+            if key in props and key not in body:
+                body[key] = json.loads(json.dumps(value))
 
     for key in ("timestamp", "run_id", "result_path"):
         if key not in props:
@@ -1795,7 +1901,10 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     `project_root`, `sidecar_path` and `forge_data_folder` give skf-setup's
     paths (setup_paths()); `orphan_action`, `headless` and `quiet` its
     orphan decision (orphan_decision()). `resolver_from` names the file
-    that holds the resolver's failure reason (resolver_reason_from()).
+    that holds the resolver's failure reason (resolver_reason_from()). A
+    halt reads the run's halt state first (read_halt_state()): an
+    interactive run prints nothing, and the state fills what the payload
+    leaves out.
     """
     schema, schema_path = load_workflow_schema(workflow or SETUP_WORKFLOW)
     meta = _meta_of(schema)
@@ -1808,13 +1917,23 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     if orphan_flags and not finished_setup:
         _die(1, f"{label}: --orphan-action, --headless and --quiet give the orphan decision of a finished "
                 "skf-setup run")
+    run_path = Path(run_dir) if run_dir else None
+    props = _inner_schema(schema).get("properties", {})
+    state_fields: dict = {}
+    state_problems: list[str] = []
+    if halt:
+        interactive, state_fields, state_problems = read_halt_state(run_path, props)
+        if interactive:
+            return
     if payload is None:
         payload = _read_setup_payload(label) if finished_setup else _read_stdin_json(label)
     if not isinstance(payload, dict):
         _die(1, f"{label}: the payload must be a JSON object")
+    if state_fields:
+        payload = {**{k: v for k, v in state_fields.items() if k not in payload}, **payload}
     if resolver_from is not None:
         payload = {**payload, "customization_resolver_unavailable": resolver_reason_from(resolver_from)}
-    if halt:
+    if halt and any(field in props for field in PHASED_FIELDS):
         _check_halt_payload(payload, label)
     contract = payload.get("result_contract")
     if contract is not None and not isinstance(contract, dict):
@@ -1825,7 +1944,6 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
 
     extra: list[str] = []
     stem = meta.get("result_file")
-    run_path = Path(run_dir) if run_dir else None
     if finished_setup:
         payload = setup_payload(payload, read_staged(run_path), (orphan_action, headless, quiet) if orphan_flags
                                 else None, project_root, sidecar_path, forge_data_folder)
@@ -1855,6 +1973,7 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
             problems.append(f"headless_decision_invalid: {where}: {errors[0]}")
         else:
             valid.append(decision)
+    problems += state_problems
     decisions = _merged(_payload_list(payload, "headless_decisions", dict), valid)
 
     per_run = None
@@ -1865,7 +1984,7 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
             extra.append(f"result_file_write_failed: {result_path_dir.as_posix()}: {e.strerror or e}")
 
     def assemble() -> tuple[dict, list]:
-        warnings = _merged(_payload_list(payload, "warnings", str), _resolver_warning(payload),
+        warnings = _merged(payload_warnings(payload), _resolver_warning(payload),
                            sink_warnings, problems, tolerated, extra)
         stamps = {"timestamp": timestamp, "run_id": run_id,
                   "result_path": per_run.as_posix() if per_run else None}
@@ -1905,8 +2024,9 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
 
 def _warnings_to_record(args) -> list[str]:
     """The warnings one `record` call appends: each --warning, or the --warnings-file's list (a JSON array of
-    strings, or an object whose `warnings` is one). A blank or non-string entry, an unreadable file or an
-    object with no `warnings` list exits 1 before anything is written."""
+    strings, or an object whose `warnings` is one), a {field, message} entry as its `<field>: <message>` line
+    (warning_text()). A blank or non-string entry, an unreadable file or an object with no `warnings` list exits
+    1 before anything is written."""
     if args.warnings_file is None:
         entries, label = list(args.warning), "--warning"
     else:
@@ -1925,9 +2045,11 @@ def _warnings_to_record(args) -> list[str]:
             _die(1, f"record: {label} holds neither a JSON array nor an object with `warnings`")
     out = []
     for i, entry in enumerate(entries):
+        entry = warning_text(entry)
         if not isinstance(entry, str) or not entry.strip():
             where = "" if args.warnings_file is None and len(entries) == 1 else f" (entry {i})"
-            _die(1, f"record: {label} must be a non-empty string{where}")
+            kind = "" if args.warnings_file is None else " or a {field, message} object"
+            _die(1, f"record: {label} must be a non-empty string{kind}{where}")
         out.append(entry.strip())
     return out
 
@@ -2119,25 +2241,47 @@ def cmd_emit_blocked(args) -> None:
 
 # emit-halt's options that name a payload key, each set only when given non-empty.
 HALT_OPTION_KEYS = (("--halt-reason", "halt_reason"), ("--path", "path"), ("--skill-name", "skill_name"),
-                    ("--old-name", "old_name"), ("--new-name", "new_name"))
+                    ("--old-name", "old_name"), ("--new-name", "new_name"), ("--mode", "mode"))
+# The options the halt-reason form (--halt-reason with no --phase) takes.
+HALT_REASON_FORM = ("--halt-reason", "--mode")
 
 
 def halt_payload(args) -> dict | None:
-    """emit-halt's halt payload from its options; None without --phase (stdin carries it).
+    """emit-halt's halt payload from its options; None with neither --phase nor --halt-reason (stdin carries it).
 
     `--reason -` reads the reason on stdin, as --stderr-from reads `-`, so
     text that holds quotes, backticks or `$( )` goes in through a quoted
-    heredoc and is never typed into a shell argument.
+    heredoc and is never typed into a shell argument. --halt-reason with no
+    --phase is the halt-reason form: {"halt_reason"} plus `mode`, and no
+    stdin read, for a workflow whose envelope needs no phase or reason.
     """
     given = {"--reason": args.reason, "--stderr-from": args.stderr_from,
              **{flag: getattr(args, key) for flag, key in HALT_OPTION_KEYS}}
+    if getattr(args, "customization_resolver_unavailable_from", None) == "-":
+        if args.phase is None and args.halt_reason is None:
+            _die(1, "emit-halt: --customization-resolver-unavailable-from - needs --phase or --halt-reason "
+                    "(without them the payload is read on stdin)")
+        if "-" in (args.reason, args.stderr_from):
+            _die(1, "emit-halt: --customization-resolver-unavailable-from - and --reason - or --stderr-from - "
+                    "would both read stdin; pass one of them as a file")
     if args.phase is None:
-        named = [flag for flag, value in given.items() if value is not None]
+        form = args.halt_reason is not None
+        named = [flag for flag, value in given.items()
+                 if value is not None and not (form and flag in HALT_REASON_FORM)]
         if named:
             listed = named[0] if len(named) == 1 else f"{', '.join(named[:-1])} and {named[-1]}"
             verb = "needs" if len(named) == 1 else "need"
-            _die(1, f"emit-halt: {listed} {verb} --phase (without it the payload is read on stdin)")
-        return None
+            why = ("the --halt-reason form takes only --mode" if form
+                   else "without it the payload is read on stdin")
+            _die(1, f"emit-halt: {listed} {verb} --phase ({why})")
+        if not form:
+            return None
+        if not args.halt_reason.strip():
+            _die(1, "emit-halt: --halt-reason must be non-empty")
+        payload = {"halt_reason": args.halt_reason}
+        if args.mode:
+            payload["mode"] = args.mode
+        return payload
     if args.reason == "-" and args.stderr_from == "-":
         _die(1, "emit-halt: --reason - and --stderr-from - would both read stdin; pass the stderr as a file")
     reason = _read_stderr("-") if args.reason == "-" else args.reason
@@ -2221,14 +2365,16 @@ def main() -> None:
                        help="skf-setup: the run was headless (its orphan default is headless-default).")
         p.add_argument("--quiet", action="store_true",
                        help="skf-setup: the run was quiet (its orphan default is quiet-default).")
-    for p in (p_emit, p_render, p_blocked):
+    for p in (p_emit, p_halt, p_render, p_blocked):
         p.add_argument("--customization-resolver-unavailable-from", default=None, metavar="FILE",
                        help="The file that holds the On Activation resolver's failure reason: the emitter takes "
                             "its diagnostic, folded to one line, and the envelope warns that the _bmad/custom/ "
                             "overrides were not applied.")
     p_halt.add_argument("--phase", default=None,
                         help="The halt's phase; with it the payload comes from these options, not stdin.")
-    p_halt.add_argument("--halt-reason", default=None, help="The halt's halt_reason (with --phase).")
+    p_halt.add_argument("--halt-reason", default=None,
+                        help="The halt's halt_reason: with --phase, or alone (with --mode), the payload "
+                             "{\"halt_reason\"} and no stdin read.")
     p_halt.add_argument("--reason", default=None, metavar="TEXT|-",
                         help="The halt's reason, or - to read it on stdin (with --phase).")
     p_halt.add_argument("--path", default=None, help="The path the halt names (optional, with --phase).")
@@ -2239,6 +2385,8 @@ def main() -> None:
                         help="The envelope's skill_name (optional, with --phase).")
     p_halt.add_argument("--old-name", default=None, help="The envelope's old_name (optional, with --phase).")
     p_halt.add_argument("--new-name", default=None, help="The envelope's new_name (optional, with --phase).")
+    p_halt.add_argument("--mode", default=None,
+                        help="The envelope's mode (optional, with --phase or --halt-reason).")
     p_blocked.add_argument("--phase", default=None,
                            help="The halt's phase; with it the payload comes from these options, not stdin.")
     p_blocked.add_argument("--reason", default=None, help="The halt's reason (with --phase).")

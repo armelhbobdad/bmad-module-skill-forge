@@ -88,6 +88,7 @@ FLAG_ONLY = frozenset({
     # Quick Skill's validation summary and Test Skill's external score read the saved validator outputs (#1120).
     SRC / "shared" / "scripts" / "skf-summarize-validation.py",
     SRC / "skf-test-skill" / "scripts" / "combine-external-scores.py",
+    SRC / "shared" / "scripts" / "skf-check-urls.py",  # Brief Skill's three doc-URL checks (#1139)
 })
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
@@ -461,8 +462,8 @@ MUST_FIND = [
     ("src/skf-drop-skill/references/execute.md", "skf-update-active-symlink.py", "update"),
     ("src/skf-drop-skill/references/report.md", "skf-manifest-ops.py", "affected-versions"),
     # A helper the SKILL.md resolves at activation, and a stage that calls it.
-    ("src/skf-brief-skill/SKILL.md", "skf-emit-brief-result-envelope.py", "emit"),
-    ("src/skf-brief-skill/references/write-brief.md", "skf-emit-brief-result-envelope.py", "emit"),
+    ("src/skf-brief-skill/SKILL.md", "skf-emit-result-envelope.py", "emit-halt"),
+    ("src/skf-brief-skill/references/write-brief.md", "skf-emit-result-envelope.py", "emit"),
     # audit-skill (#588, #593): the upstream check, dispatched before argparse;
     # the private tree, read by the upstream-moved gate init.md loads; the
     # snapshot; the emitter its SKILL.md resolves; the skill's own renderer of
@@ -510,9 +511,9 @@ def test_the_extractor_finds_known_calls(rel, script, command):
 
 
 def test_a_skill_md_binds_the_helper_it_resolves_for_every_stage():
-    """skf-brief-skill's stages call {emitBriefEnvelopeHelper}, which only its SKILL.md resolves."""
+    """skf-brief-skill's stages call {emitEnvelopeHelper}, which only its SKILL.md resolves."""
     _, body, _ = _split_frontmatter((SRC / "skf-brief-skill" / "SKILL.md").read_text(encoding="utf-8"))
-    assert _activation_bindings(body)["emitBriefEnvelopeHelper"] == _script("skf-emit-brief-result-envelope.py")
+    assert _activation_bindings(body)["emitEnvelopeHelper"] == _script("skf-emit-result-envelope.py")
     # A line that resolves a setting, not a script, binds nothing.
     assert _activation_bindings("`{onCompleteCommand}` ← `workflow.on_complete` if non-empty") == {}
 

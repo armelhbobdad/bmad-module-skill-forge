@@ -726,6 +726,34 @@ def test_extract_file_with_a_large_surface_gives_no_narrow_recommendation(tmp_pa
     assert (out["scope_type"], out["signals"]["export_count"]) == ("full-library", 9)
 
 
+def test_extract_file_export_count_is_the_count(tmp_path):
+    """#1138 (determinism-6): the extractor writes `export_count`, the number step 2's summary prints, and the
+    recommender takes that number rather than counting again; a file with the count and no list is enough."""
+    body = json.dumps({"signals": signals(wants_narrow_api=True), "module_count": 1, "mode": "interactive"})
+    data = {**_exports("a", "b", "c", "d", "e"), "export_count": 3}
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),
+                   "--extract-file", str(_extract_file(tmp_path, data)), stdin=body)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["signals"] == {"wants_narrow_api": True, "export_count": 3}
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),
+                   "--extract-file", str(_extract_file(tmp_path, {"export_count": 0})), stdin=body)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["scope_type"] != "public-api", "no export, so the public-api rule does not fire"
+
+
+@pytest.mark.parametrize("count", [pytest.param(-1, id="negative"), pytest.param("3", id="a-string"),
+                                   pytest.param(True, id="a-boolean"), pytest.param(2.5, id="a-fraction"),
+                                   pytest.param(None, id="null")])
+def test_extract_file_with_an_unusable_export_count_dies(tmp_path, count):
+    data = {**_exports("a", "b"), "export_count": count}
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),
+                   "--extract-file", str(_extract_file(tmp_path, data)), stdin=json.dumps({"signals": NO_SIGNALS}))
+    assert proc.returncode == 2 and proc.stdout == ""
+    (line,) = proc.stderr.splitlines()
+    assert "`export_count`" in line and "whole number >= 0" in line, line
+
+
 def test_export_count_given_twice_dies(tmp_path):
     body = json.dumps({"signals": NO_SIGNALS, "export_count": 3})
     proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),

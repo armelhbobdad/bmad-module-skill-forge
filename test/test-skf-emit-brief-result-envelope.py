@@ -3,6 +3,13 @@
 
 The script has two pure functions (assemble, validate) plus two CLI
 subcommands. Tests exercise both paths.
+
+#1134: the brief stages now call the shared emitter itself, and the alias
+stays. A halt is one `emit-halt --halt-reason` command that reads no stdin
+and takes the mode and the skill name from the run's halt-state.json (the
+name `unknown` from the schema's halt_defaults before then), and a
+{field, message} warning is one `field: message` line wherever a payload's
+warnings are read.
 """
 
 from __future__ import annotations
@@ -441,6 +448,16 @@ class TestWarnings:
         assert env["warnings"] == ["customization_resolver_unavailable: resolver missing"]
         assert "customization_resolver_unavailable" not in env
 
+    def test_a_field_message_warning_is_one_line(self):
+        """#1134 (determinism-2): a validator's {field, message} warning no longer costs the run its line."""
+        env = mod.assemble(self._ctx(warnings=["plain", {"field": "source_authority", "message": "m"}]))
+        assert env["warnings"] == ["plain", "source_authority: m"]
+        mod.validate(env)
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit"], capture_output=True, text=True,
+                              encoding="utf-8", input=json.dumps(self._ctx(warnings=[{"field": "f", "message": "m"}])))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout[len("SKF_BRIEF_RESULT_JSON: "):])["warnings"] == ["f: m"]
+
     def test_warnings_must_be_strings(self):
         with pytest.raises(SystemExit):
             mod.assemble(self._ctx(warnings=[{"not": "a string"}]))
@@ -554,3 +571,130 @@ class TestAlias:
         assert proc.returncode == 0, proc.stderr
         env = json.loads(proc.stderr.strip()[len("SKF_BRIEF_RESULT_JSON: "):])
         assert env["exit_code"] == 6
+
+
+# --------------------------------------------------------------------------
+# #1134: the halt-reason form of the shared emitter, as the brief stages run it
+# --------------------------------------------------------------------------
+
+EXIT_CODES = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))["$defs"]["skf-envelope"]["const"]["exit_codes"]
+
+
+class TestHaltReasonForm:
+    """`emit-halt --workflow skf-brief-skill --run-dir D --target stderr --halt-reason R`, the one command each
+    brief halt site writes: no stdin read, the run's halt state and sink folded in."""
+
+    def _run_dir(self, tmp_path: Path, state=None, warnings=()) -> Path:
+        run_dir = tmp_path / "skf-brief-skill-abc12345"
+        run_dir.mkdir()
+        if isinstance(state, dict):
+            (run_dir / "halt-state.json").write_bytes(json.dumps(state).encode("utf-8"))
+        elif isinstance(state, str):  # "a folder": a halt state that cannot be read as a file
+            (run_dir / "halt-state.json").mkdir()
+        elif state is not None:
+            (run_dir / "halt-state.json").write_bytes(state)
+        for warning in warnings:
+            done = subprocess.run([sys.executable, str(SHARED_EMITTER), "record", "--run-dir", str(run_dir),
+                                   "--warning", warning], capture_output=True, text=True, encoding="utf-8")
+            assert done.returncode == 0, done.stderr
+        return run_dir
+
+    def _halt(self, reason: str, run_dir: Path | None = None, *extra: str) -> subprocess.CompletedProcess:
+        args = [sys.executable, str(SHARED_EMITTER), "emit-halt", "--workflow", "skf-brief-skill"]
+        if run_dir is not None:
+            args += ["--run-dir", str(run_dir)]
+        # stdin holds junk: a read of it would fail the call with "invalid JSON on stdin"
+        return subprocess.run([*args, "--target", "stderr", "--halt-reason", reason, *extra], input="{not json",
+                              capture_output=True, text=True, encoding="utf-8", timeout=30)
+
+    def _line(self, done: subprocess.CompletedProcess) -> dict:
+        assert done.returncode == 0, done.stderr
+        assert done.stdout == ""
+        [line] = done.stderr.splitlines()
+        assert line.startswith("SKF_BRIEF_RESULT_JSON: ")
+        env = json.loads(line[len("SKF_BRIEF_RESULT_JSON: "):])
+        mod.validate(env)
+        return env
+
+    def test_a_headless_halt_after_the_name_carries_the_name_and_the_sink(self, tmp_path):
+        run_dir = self._run_dir(tmp_path, {"interactive": False, "mode": None, "skill_name": "demo"}, ["w1"])
+        env = self._line(self._halt("target-inaccessible", run_dir))
+        assert (env["status"], env["skill_name"], env["mode"], env["exit_code"]) == ("error", "demo", None, 3)
+        assert env["halt_reason"] == "target-inaccessible" and env["warnings"] == ["w1"]
+
+    def test_an_auto_halt_before_the_name_says_unknown(self, tmp_path):
+        env = self._line(self._halt("input-missing", self._run_dir(tmp_path, {"interactive": False, "mode": "auto"})))
+        assert (env["skill_name"], env["mode"], env["exit_code"]) == ("unknown", "auto", 2)
+        assert "warnings" not in env
+
+    def test_an_interactive_halt_prints_nothing(self, tmp_path):
+        done = self._halt("write-failed", self._run_dir(tmp_path, {"interactive": True, "mode": None}, ["w1"]))
+        assert (done.returncode, done.stdout, done.stderr) == (0, "", "")
+
+    @pytest.mark.parametrize("extra,mode", [(("--mode", "auto"), "auto"), ((), None)], ids=["auto", "headless"])
+    def test_the_write_probe_halt_needs_no_run_folder(self, extra, mode):
+        env = self._line(self._halt("write-failed", None, *extra))
+        assert (env["skill_name"], env["mode"], env["exit_code"]) == ("unknown", mode, 4)
+        assert "warnings" not in env
+
+    def test_the_write_probe_halt_carries_a_resolver_failure_read_on_stdin(self):
+        """The write probe halts before the run folder exists, so no sink holds the resolver warning On Activation
+        kept: `--customization-resolver-unavailable-from -` reads the reason on stdin, which the halt-reason form
+        leaves free, and the line still says the `_bmad/custom/` overrides were not applied."""
+        reason = "SKF helper skf-resolve-customization.py not found: it's `$(touch pwned)`"
+        done = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit-halt", "--workflow", "skf-brief-skill",
+                               "--target", "stderr", "--halt-reason", "write-failed", "--mode", "auto",
+                               "--customization-resolver-unavailable-from", "-"], input=reason + "\n",
+                              capture_output=True, text=True, encoding="utf-8", timeout=30)
+        env = self._line(done)
+        assert (env["mode"], env["exit_code"]) == ("auto", 4)
+        assert env["warnings"] == [f"customization_resolver_unavailable: {reason}"]
+
+    @pytest.mark.parametrize("extra", [
+        (),
+        ("--phase", "step 0:write-probe", "--reason", "-"),
+        ("--phase", "step 0:write-probe", "--reason", "cannot write: <message>", "--stderr-from", "-"),
+    ], ids=["payload-on-stdin", "reason-on-stdin", "stderr-on-stdin"])
+    def test_a_resolver_reason_on_stdin_is_refused_where_stdin_holds_something_else(self, extra):
+        done = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit-halt", "--workflow", "skf-brief-skill",
+                               "--target", "stderr", *extra, "--customization-resolver-unavailable-from", "-"],
+                              input='{"halt_reason": "write-failed"}', capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        assert done.returncode == 1 and "--customization-resolver-unavailable-from -" in done.stderr
+        assert "SKF_BRIEF_RESULT_JSON" not in done.stdout + done.stderr
+
+    @pytest.mark.parametrize("state,warning", [
+        (b"{not json", "halt_state_unreadable: halt-state.json"),
+        (b'["interactive"]', "halt_state_unreadable: halt-state.json"),
+        ("{}".encode("utf-16"), "halt_state_unreadable: halt-state.json"),
+        ("a folder", "halt_state_unreadable: halt-state.json"),
+        ({"interactive": False, "mode": None, "skill_name": ""}, "halt_state_field_invalid: skill_name"),
+        ({"interactive": False, "mode": "manual", "skill_name": "demo"}, "halt_state_field_invalid: mode"),
+    ], ids=["not-json", "not-an-object", "utf-16", "a-folder", "empty-name", "mode-off-enum"])
+    def test_a_bad_halt_state_still_emits_and_says_so(self, tmp_path, state, warning):
+        env = self._line(self._halt("write-failed", self._run_dir(tmp_path, state)))
+        assert env["warnings"] == [warning] and env["exit_code"] == 4
+        assert env["skill_name"] == ("demo" if warning.endswith(": mode") else "unknown")
+        assert env["mode"] is None
+
+    def test_a_missing_halt_state_still_emits(self, tmp_path):
+        env = self._line(self._halt("gh-auth-failed", self._run_dir(tmp_path, None, ["w1", "w2"])))
+        assert (env["skill_name"], env["warnings"], env["exit_code"]) == ("unknown", ["w1", "w2"], 3)
+
+    @pytest.mark.parametrize("reason", sorted(EXIT_CODES))
+    def test_every_halt_reason_takes_its_exit_code(self, tmp_path, reason):
+        run_dir = self._run_dir(tmp_path, {"interactive": False, "mode": "auto", "skill_name": "demo"})
+        env = self._line(self._halt(reason, run_dir))
+        assert (env["halt_reason"], env["exit_code"], env["mode"]) == (reason, EXIT_CODES[reason], "auto")
+
+    def test_a_reason_the_schema_does_not_list_is_refused(self, tmp_path):
+        done = self._halt("helper-missing", self._run_dir(tmp_path, {"interactive": False, "mode": None}))
+        assert done.returncode == 1 and "SKF_BRIEF_RESULT_JSON" not in done.stdout + done.stderr
+
+    def test_a_finished_run_still_needs_its_name(self, tmp_path):
+        """halt_defaults apply to a halt alone: a success payload with no skill_name is refused, as before."""
+        run_dir = self._run_dir(tmp_path, {"interactive": False, "mode": None, "skill_name": "demo"})
+        done = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit", "--workflow", "skf-brief-skill",
+                               "--run-dir", str(run_dir)], input=json.dumps({"status": "success", "halt_reason": None}),
+                              capture_output=True, text=True, encoding="utf-8", timeout=30)
+        assert done.returncode == 1 and "skill_name" in done.stderr

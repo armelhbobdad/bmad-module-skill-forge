@@ -4,8 +4,10 @@
 # ///
 """SKF Emit Brief Result Envelope: skf-brief-skill's name for the shared emitter.
 
-An alias of `skf-emit-result-envelope.py ... --workflow skf-brief-skill`,
-kept so the brief step files that call it keep working. The envelope
+An alias of `skf-emit-result-envelope.py ... --workflow skf-brief-skill`.
+The brief stages now call the shared emitter itself (its `emit`,
+`emit-halt --halt-reason` and `record` over the run sink); this name is
+kept for any caller that still runs it. The envelope
 contract (SKF_BRIEF_RESULT_JSON) is documented in the Result Contract
 section of src/skf-brief-skill/references/invocation-contract.md; its
 schema, `schemas/skf-brief-result-envelope.v1.json`, holds the whole contract,
@@ -41,14 +43,18 @@ Context payload shape (consumed by `emit`):
                    "gh-auth-failed" | "write-failed" |
                    "overwrite-cancelled" | "user-cancelled",
     "mode":        null | "auto",
-    "warnings":    ["..."],
+    "warnings":    ["...", {"field": "...", "message": "..."}],
     "customization_resolver_unavailable": "reason" | null
   }
 
 The caller does NOT supply exit_code: the emitter derives it from
 halt_reason with the schema's mapping. `warnings` and a
 `customization_resolver_unavailable` reason land in the envelope's
-optional `warnings` list, which is left out while it is empty.
+optional `warnings` list, which is left out while it is empty. A warning
+that is a {field, message} object, as skf-validate-brief-inputs.py and
+skf-validate-brief-schema.py return them, becomes the one line
+`<field>: <message>`, as the shared emitter reads it; any other entry
+must be a string.
 
 Like the helper it replaced, `emit` refuses no payload for a key the
 envelope has no field for, or for an exit_code it typed: the key is
@@ -97,7 +103,7 @@ def assemble(ctx: dict[str, Any]) -> dict[str, Any]:
     """Build the envelope from a context payload, deriving exit_code. Exits non-zero when invalid."""
     schema, schema_path = core.load_workflow_schema(WORKFLOW)
     ctx, tolerated = core.tolerant_payload(schema, ctx)
-    warnings = core._merged(core._payload_list(ctx, "warnings", str), core._resolver_warning(ctx), tolerated)
+    warnings = core._merged(core.payload_warnings(ctx), core._resolver_warning(ctx), tolerated)
     envelope = core.build_envelope(schema, ctx, halt=False, warnings=warnings)
     errors = core.contract_errors(schema, envelope)
     if errors:

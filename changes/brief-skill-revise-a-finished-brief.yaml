@@ -1,0 +1,6 @@
+type: added
+scope: skf-brief-skill
+summary: |
+  When a finished `skill-brief.yaml` already covers the target, an interactive Brief Skill run now offers, right after the target, `[U] Revise` to review that brief and write it back with every field it holds, or `[N] New brief` to gather a new one. Several such briefs are listed as `[U1]`, `[U2]` and so on, newest first, each with its name and date. The match reads the brief's `source_repo`, or the `doc_urls` of a docs-only brief, however the target is written. Before, a run never offered to revise a finished brief.
+issues: [1137]
+prs: [1213]

@@ -1,43 +1,28 @@
 # Portfolio-Similarity Check
 
-Loaded by step 1 §6 only when **all three** preconditions hold:
-
-1. Forge tier is `Deep`
-2. `tools.qmd` is true in the `tools` step 1 §1 bound
-3. The flow is interactive (the headless path skips this check entirely — it would either need to HALT on duplicates [over-aggressive for an automator] or silently log [no operator to act on it]; either choice has a side effect on the QMD index that is best avoided headlessly)
+Loaded by step 1 §6 at Deep tier when `tools.qmd` is true in the `tools` step 0 §1 bound.
 
 This check catches **semantic near-duplicates** that exact-name collision misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Exact-name collision is handled separately at §6 before this check runs.
 
 ## Procedure
 
-The brief portfolio is already indexed in QMD collections, one `{skill-name}-brief` collection per existing brief, registered by step 5 §3b of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first (capping the sweep), then query the capped set per collection in **bounded parallel batches (≈4 concurrent Bash calls at a time)**, because each `qmd query` cold-starts an embedding model and issuing all of them at once on a large portfolio thrashes memory and stalls:
+The brief portfolio is already indexed in QMD collections, one `<name>-brief` collection per existing brief, registered by step 5 §3b (step-auto-validate.md §3 on an `[auto]` run) of every prior Deep-tier run. Resolve `{qmdPortfolioSimilarityHelper}` from `{qmdPortfolioSimilarityProbeOrder}` (first existing path wins) and compare the proposed name and the §4 intent with them in one call:
 
 ```bash
-# 1. Enumerate brief collections (one per existing brief), capping the sweep.
-#    Match the first whitespace field, not the whole line: `qmd collection list`
-#    rows end in a `(qmd://name/)` URI suffix, so a line-anchored `/-brief$/`
-#    matches nothing and the check silently no-ops. The cap bounds wall-time and
-#    concurrent model loads as the portfolio grows; `qmd collection list` has no
-#    guaranteed recency order, so this caps total count, not "newest N".
-qmd collection list | awk '$1 ~ /-brief$/ {print $1}' | head -n 12
-
-# 2. For each capped collection, query the proposed name + intent text.
-#    `timeout` bounds each cold model start so a slow qmd degrades instead of
-#    hanging; a non-zero exit (124 = timed out) falls through to the
-#    "times out → warn and continue" failure-mode branch below.
-timeout 20 qmd query "{name} {synthesized-or-intent-text}" -c {collection-name} -n 1 --min-score 0.6
+uv run {qmdPortfolioSimilarityHelper} similar --name "{name}" --text-file - --cap 12 --concurrency 4 --timeout 20 --min-score 0.6 --top 3 <<'SKF_QUERY'
+<the §4 intent>
+SKF_QUERY
 ```
 
-Aggregate the top hits across the swept `-brief` collections; keep the 3 highest-scoring across the union. If any results come back, surface them as a heads-up — *not* a HALT:
+It asks the first 12 `-brief` collections QMD lists, never the proposed name's own, at most 4 at a time and each for at most 20 seconds, since each query cold-starts an embedding model. It prints `{hits, skipped}`: `hits` holds the 3 best `{name, collection, score, description}` at or above 0.6, best first, and `skipped` a `{collection, reason}` for each query that timed out or failed. If any hits come back, show them in the step 1 §7 message as a heads-up, *not* a HALT, where the user can give another name; whether to rename stays the user's call at §8:
 
 ```
-**Heads up — these existing briefs look semantically close to `{name}`:**
-  1. {existing-name} (similarity: {score})  — {existing-description}
-  2. {existing-name} (similarity: {score})  — {existing-description}
-
-Continue with `{name}`, or pick a different name?
+**Heads up: these existing briefs look semantically close to `{name}`:**
+- {hit-name} (similarity: {score}): {description}
 ```
+
+Each bullet is one hit: `{hit-name}` is its `name`, `{score}` and `{description}` its own; a hit whose `description` is null ends at its score.
 
 ## Failure modes
 
-On any QMD failure (binary missing, collection list empty, any per-collection query times out — `timeout` returns exit code 124): log `"warn: portfolio-similarity check skipped — qmd query failed: {error}"` and continue silently — never HALT. A timed-out or failed query drops only that collection from the aggregate; the remaining hits still surface. Quick / Forge / Forge+ tiers do not run this check (qmd is Deep-tier-only per the canonical tier definition: `Deep = + ast-grep + gh + QMD` in `skf-forge-tier-rw.py`).
+When the call exits 1 (`qmd` is not on PATH, or its collection list failed) or prints no JSON, when `{qmdPortfolioSimilarityHelper}` has no path, or when `skipped` is not empty, log `"warn: portfolio-similarity check skipped: {reason}"`, with `{reason}` the first line of its stderr, `skf-qmd-portfolio-similarity.py not found`, or each skipped collection with its reason, write it to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and go on: never HALT. The hits still show. No `-brief` collection is no failure: a first Deep-tier brief has no portfolio to compare, the helper prints `{"hits": [], "skipped": []}`, and nothing is recorded. Quick / Forge / Forge+ tiers do not run this check (qmd is Deep-tier-only per the canonical tier definition: `Deep = + ast-grep + gh + QMD` in `skf-forge-tier-rw.py`).

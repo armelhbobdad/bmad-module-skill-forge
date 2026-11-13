@@ -220,8 +220,8 @@ There is no source code to clone, only API documentation. Example: you're integr
 # https://docs.stripe.com/api/payment_intents
 # https://docs.stripe.com/api/errors
 # Ferris sets source_type: "docs-only" and collects doc_urls
-# When asked for target version, specify: 2025-04-30.basil
-# Ferris confirms your doc URLs match that API version
+# The summary shows the version as 1.0.0 (default): change it there if the docs name an X.Y.Z version,
+# and Ferris asks whether your doc URLs match it
 @Ferris CS
 # step 3 finds no source to extract; step 3c (Fetch Docs) downloads the doc pages
 # All content is T3 [EXT:url] confidence. source_authority: community

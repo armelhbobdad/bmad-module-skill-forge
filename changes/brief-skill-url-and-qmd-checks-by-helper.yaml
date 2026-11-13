@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  Brief Skill no longer warns that a documentation URL cannot be reached when its server refuses HEAD requests or redirects it to a working page. The new `skf-check-urls.py` checks the doc URLs of a docs-only target given at the first prompt, the supplemental doc URLs shown at scope definition and a headless run's `doc_urls` argument, with HEAD requests that follow redirects and a GET when the server answers 403, 405 or 501, and prints one `{url, ok, status, error}` entry per URL; `curl` runs only when the helper is missing. An `[auto]` run whose source is a local folder or a repository outside GitHub, as Analyze Source passes for a local project, now skips documentation detection with an info line instead of carrying a "Doc detection failed" warning in its envelope. At Deep tier the check for existing briefs that look like the one being written, and the check that a registered brief's QMD collection holds its file, now each run as one `skf-qmd-portfolio-similarity.py` call (`similar` and `verify-collection`) instead of `qmd` commands the model ran, capped and merged. A query that times out or fails is named in the run's warning while the other close briefs still show, and a first Deep-tier brief, with no other brief to compare, records no warning.
+issues: [1139]
+prs: [1213]

@@ -22,7 +22,8 @@
           "user-cancelled": 6
         },
         "success_exit_code": 0,
-        "result_file": null
+        "result_file": null,
+        "halt_defaults": { "skill_name": "unknown" }
       }
     }
   },

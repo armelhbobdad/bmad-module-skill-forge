@@ -1644,7 +1644,7 @@ def test_output_contract_tells_consumers_to_read_the_runs_own_line():
 
 
 def test_docstring_names_every_envelope_block_field_and_sink_file():
-    for token in (*mod.META_FIELDS, mod.SINK_DECISIONS, mod.SINK_WARNINGS, *mod.PAYLOAD_ONLY_KEYS):
+    for token in (*mod.META_FIELDS, mod.SINK_DECISIONS, mod.SINK_WARNINGS, mod.HALT_STATE, *mod.PAYLOAD_ONLY_KEYS):
         assert token in mod.__doc__, token
 
 
@@ -2987,9 +2987,19 @@ def test_emit_halt_takes_the_skill_name_as_an_option(tmp_path):
      "<message>"),
     (("--phase", "p", "--halt-reason", "write-failed", "--reason", "-", "--stderr-from", "-"), b"x <message>",
      "would both read stdin"),
+    # #1134: --mode needs --phase or --halt-reason, the halt-reason form takes no other option, and a workflow
+    # whose envelope has an `error` still needs its phase and reason.
+    (("--mode", "auto"), b"", "--mode needs --phase"),
+    (("--halt-reason", "copy-failed", "--path", "p"), b"",
+     "--path needs --phase (the --halt-reason form takes only --mode)"),
+    (("--halt-reason", "copy-failed"), b'{"phase": "p", "reason": "r"}', "'phase' must be a non-empty string"),
+    (("--halt-reason", " "), b"", "--halt-reason must be non-empty"),
+    (("--phase", "p", "--halt-reason", "copy-failed", "--mode", "auto", "--reason", "x"), b"",
+     "unexpected property 'mode'"),
 ], ids=["reason-alone", "options-alone", "skill-name-alone", "skill-name-off-schema", "no-reason",
         "blank-stdin-reason", "placeholder-unfilled",
-        "no-placeholder", "both-on-stdin"])
+        "no-placeholder", "both-on-stdin", "mode-alone", "halt-reason-form-extra-option",
+        "halt-reason-form-needs-phase-here", "halt-reason-form-blank", "mode-off-schema"])
 def test_emit_halt_refuses_options_it_cannot_use(tmp_path, args, stdin, needle):
     done = _halt(tmp_path, *args, stdin=stdin)
     assert done.returncode == 1 and done.stdout == b""
@@ -3034,6 +3044,114 @@ def test_emit_halt_options_are_documented():
                   "--reason takes the text, or `-` to read it on",
                   "`-` for both --reason and --stderr-from is refused", "<<'SKF_REASON'"):
         assert token in doc, token
+
+
+def test_the_halt_reason_form_the_halt_state_and_object_warnings_are_documented():
+    """#1134: the docstring states each rule a caller relies on."""
+    doc = _folded_doc()
+    for token in ("and `mode` for --mode", "--halt-reason with no --phase builds the payload {\"halt_reason\"} "
+                  "(plus `mode` from --mode) and reads no stdin",
+                  "only when the workflow's envelope declares an `error`, `phase` or `reason` property",
+                  "`\"interactive\": true` prints nothing and exits 0", "`halt_state_field_invalid: <key>`",
+                  "`halt_state_unreadable: halt-state.json`", "`emit` never does",
+                  "halt_defaults (optional) gives a halt the value of each envelope field",
+                  "is the warning `<field>: <message>`", "is recorded as `<field>: <message>`",
+                  "--workflow skf-brief-skill --run-dir \"{run_dir}\" --target stderr "
+                  "--halt-reason target-inaccessible"):
+        assert token in doc, token
+
+
+# ─── #1134: {field, message} warnings, the halt state, the halt-reason form ──
+
+
+OBJECT_WARNING = {"field": "source_authority", "message": "docs-only briefs are always community"}
+OBJECT_LINE = "source_authority: docs-only briefs are always community"
+
+
+def test_a_field_message_warning_is_one_line_in_every_payload_reader():
+    """determinism-2: emit, a stdin emit-halt payload and a wrapped workflow read a {field, message} warning as
+    its `field: message` line, so a validator's warning never costs a run its line."""
+    ctx = {"status": "success", "skill_name": "demo", "halt_reason": None, "warnings": ["plain", OBJECT_WARNING]}
+    done = _cli("emit", "--workflow", "skf-brief-skill", payload=ctx)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout[len("SKF_BRIEF_RESULT_JSON: "):])["warnings"] == ["plain", OBJECT_LINE]
+    halt = {"status": "error", "skill_name": "demo", "halt_reason": "input-invalid", "warnings": [OBJECT_WARNING]}
+    done = _cli("emit-halt", "--workflow", "skf-brief-skill", "--target", "stderr", payload=halt)
+    assert done.returncode == 0 and done.stdout == "", done.stderr
+    assert json.loads(done.stderr[len("SKF_BRIEF_RESULT_JSON: "):])["warnings"] == [OBJECT_LINE]
+    done = _cli("emit-halt", "--workflow", "skf-update-skill", payload={**UPDATE_HALT, "warnings": [OBJECT_WARNING]})
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout[len("SKF_UPDATE_RESULT_JSON: "):])["skf_update"]["warnings"] == [OBJECT_LINE]
+    assert mod.warning_text(OBJECT_WARNING) == OBJECT_LINE and mod.warning_text("x") == "x"
+
+
+@pytest.mark.parametrize("content", [
+    ["plain", OBJECT_WARNING],
+    {"valid": True, "errors": [], "warnings": ["plain", OBJECT_WARNING], "halt_reason": None, "brief": {}},
+], ids=["array", "validator-stdout"])
+def test_record_reads_a_field_message_warning_as_its_line(tmp_path, content):
+    run_dir = tmp_path / "skf-brief-skill-abc12345"
+    run_dir.mkdir()
+    (run_dir / "saved.json").write_bytes(json.dumps(content).encode("utf-8"))
+    done = _cli("record", "--run-dir", str(run_dir), "--warnings-file", str(run_dir / "saved.json"))
+    assert done.returncode == 0, done.stderr
+    assert mod.read_sink(run_dir)[1:] == (["plain", OBJECT_LINE], [])
+
+
+@pytest.mark.parametrize("entry", [{"field": "f"}, {"field": 1, "message": "m"}, {"not": "a string"},
+                                   {"field": "f", "message": None}],
+                         ids=["no-message", "field-not-a-string", "no-field", "message-null"])
+def test_a_malformed_warning_object_is_still_refused(tmp_path, entry):
+    run_dir = tmp_path / "run"
+    source = tmp_path / "w.json"
+    source.write_bytes(json.dumps(["ok", entry]).encode("utf-8"))
+    done = _cli("record", "--run-dir", str(run_dir), "--warnings-file", str(source))
+    assert done.returncode == 1 and "(entry 1)" in done.stderr
+    assert not run_dir.exists()
+    ctx = {"status": "success", "skill_name": "demo", "halt_reason": None, "warnings": [entry]}
+    done = _cli("emit", "--workflow", "skf-brief-skill", payload=ctx)
+    assert done.returncode == 1 and done.stdout == ""
+    assert "warnings must be a list of strings" in done.stderr
+
+
+def test_the_sink_reader_stays_strict(tmp_path):
+    """A sink line is what `record` wrote, a string: an object there is a hand-written line, left out and named."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / mod.SINK_WARNINGS).write_bytes((json.dumps(OBJECT_WARNING) + "\n").encode("utf-8"))
+    _, warnings, problems = mod.read_sink(run_dir)
+    assert warnings == [] and problems == [f"sink_line_unreadable: {mod.SINK_WARNINGS}:1"]
+
+
+def test_an_interactive_halt_state_silences_any_workflows_halt(tmp_path):
+    run_dir = tmp_path / RENAME_RUN
+    run_dir.mkdir()
+    (run_dir / mod.HALT_STATE).write_bytes(b'{"interactive": true}')
+    done = _halt(tmp_path, "--phase", "execute:copy", "--halt-reason", "copy-failed", "--reason", "x")
+    assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+
+
+def test_emit_never_reads_the_halt_state(tmp_path):
+    run_dir = tmp_path / "skf-brief-skill-abc12345"
+    run_dir.mkdir()
+    (run_dir / mod.HALT_STATE).write_bytes(b'{"interactive": true, "skill_name": "other", "mode": "auto"}')
+    done = _cli("emit", "--workflow", "skf-brief-skill", "--run-dir", str(run_dir),
+                payload={"status": "success", "skill_name": "demo", "halt_reason": None})
+    assert done.returncode == 0, done.stderr
+    env = json.loads(done.stdout[len("SKF_BRIEF_RESULT_JSON: "):])
+    assert (env["skill_name"], env["mode"]) == ("demo", None)
+
+
+def test_halt_defaults_fill_a_halt_and_never_a_finished_run():
+    """skf-brief-skill's halt_defaults name the skill `unknown` on a halt; a finished run must still give it."""
+    schema, _ = mod.load_workflow_schema("skf-brief-skill")
+    assert mod._meta(schema)["halt_defaults"] == {"skill_name": "unknown"}
+    halt = mod.build_envelope(schema, {"halt_reason": "input-missing"}, halt=True)
+    assert (halt["skill_name"], halt["status"], halt["exit_code"]) == ("unknown", "error", 2)
+    named = mod.build_envelope(schema, {"halt_reason": "input-missing", "skill_name": "demo"}, halt=True)
+    assert named["skill_name"] == "demo"
+    finished = mod.build_envelope(schema, {"status": "success", "halt_reason": None}, halt=False)
+    assert "skill_name" not in finished and mod.contract_errors(schema, finished)
 
 
 # ─── the resolver reason from a file: emit, render-report and emit-blocked ───
@@ -3100,7 +3218,7 @@ def test_emit_and_render_report_read_the_resolver_reason_from_its_file(tmp_path)
 
 def test_the_resolver_file_option_is_documented():
     doc = _folded_doc()
-    for token in ("--customization-resolver-unavailable-from FILE", "(emit, render-report and emit-blocked)",
+    for token in ("--customization-resolver-unavailable-from FILE", "(emit, emit-halt, render-report and emit-blocked)",
                   "`(no error message)` for a missing or empty file"):
         assert token in doc, token
 

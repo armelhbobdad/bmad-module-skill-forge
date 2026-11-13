@@ -9,26 +9,34 @@ validateBriefSchemaProbeOrder:
 
 # Step 1: Ratify an Existing Brief
 
-A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) is reviewed and written to `{forge_data_folder}/{brief.name}/skill-brief.yaml` (in place when it already lives there) instead of derived again. Step 1 loads this file with the brief's path in two ways: interactively, when the §3.1 target is a brief or a folder holding one (§3.1a), and headlessly, when the input gate in `references/headless-args.md` finds a `from_brief` argument. Steps 2 and 3 do not run: they would derive again what the brief already holds. The run goes on at step 4, which reviews the brief, and step 5 writes it there. `references/invocation-contract.md` states the ratify contract.
+A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) is reviewed and written to `{forge_data_folder}/{brief.name}/skill-brief.yaml` (in place when it already lives there) instead of derived again. Step 1 loads this file with the brief's path in three ways: interactively, when the §3.1 target is a brief or a folder holding one (§3.1a) or when the user picks `[U] Revise` at the draft-resume check, and headlessly, when the input gate in `references/headless-args.md` finds a `from_brief` argument. Steps 2 and 3 do not run: they would derive again what the brief already holds. The run goes on at step 4, which reviews the brief, and step 5 writes it there. `references/invocation-contract.md` states the ratify contract.
 
 ## 1. Validate the Brief
 
 The brief path is the given path when it ends in `skill-brief.yaml`, else `<path>/skill-brief.yaml`. Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then run:
 
 ```bash
-uv run {validateBriefSchemaHelper} <resolved-brief-path>
+uv run {validateBriefSchemaHelper} <resolved-brief-path> > "{run_dir}/ratify-validation.json"
 ```
 
-It returns `{valid, errors[], warnings[], halt_reason, brief}`:
+It writes `{valid, errors[], warnings[], halt_reason, brief}` to `{run_dir}/ratify-validation.json`:
 
-- **`valid: false`**, interactive: display "**Brief at `{path}` is invalid:** {first error message}. Pick a different brief, or supply a repo / docs URL instead." and re-display the step 1 §3.1 prompt: the user may have pointed at the wrong file.
-- **`valid: false`**, headless, with the script's `halt_reason` `brief-missing` (the path is absent or unreadable): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), surface `errors[]` to the operator log, then HALT (exit code 2).
-- **`valid: false`**, headless, with any other `halt_reason` (`brief-malformed` or `brief-invalid`): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), surface `errors[]` to the operator log, then HALT (exit code 2).
-- **`valid: true`**: log any non-empty `warnings[]`, add each to `workflow_warnings[]` as `<field>: <message>`, and continue with the parsed `brief`.
+- **`valid: false`**, interactive: display "**Brief at `{path}` is invalid:** {first error message}. Pick a different brief, or supply a repo / docs URL instead." and re-display the step 1 §3.1 prompt: the user may have pointed at the wrong file. After a `[U] Revise` pick, end the line with "Continuing with a new brief." in place of its last sentence, and continue at step 1 §3b, as `[N]` does.
+- **`valid: false`**, headless, with the script's `halt_reason` `brief-missing` (the path is absent or unreadable): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-missing`, surface `errors[]` to the operator log, then HALT (exit code 2).
+- **`valid: false`**, headless, with any other `halt_reason` (`brief-malformed` or `brief-invalid`): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-invalid`, surface `errors[]` to the operator log, then HALT (exit code 2).
+- **`valid: true`**: log any non-empty `warnings[]`, record them all with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/ratify-validation.json"`, and continue with the parsed `brief`.
+
+In a headless run, `valid: true` resolves the skill name: rewrite the halt state with the brief's, so a later halt names the skill:
+
+```bash
+cat > "{run_dir}/halt-state.json" <<'SKF_JSON'
+{"interactive": false, "mode": null, "skill_name": "<brief.name>"}
+SKF_JSON
+```
 
 ## 2. Ratify Menu
 
-**GATE [default: R]**: a headless run takes `[R]` without showing the menu: its `from_brief` argument already chose to ratify.
+**GATE [default: R]**: a headless run takes `[R]` without showing the menu: its `from_brief` argument already chose to ratify. A `[U] Revise` pick at step 1's draft-resume check skips the menu too, since the user already chose to revise, and continues at §3.
 
 ```
 **Existing brief detected at `{path}`.**

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """skf-brief-skill hands repositories, files and payloads to its helpers by file.
 
-#592 (brief part): step 1 §1 creates a run folder. Step 2 lists the
+#592 (brief part): step 0 §1 creates a run folder. Step 2 lists the
 repository into it once (skf-github-probe.py tree, or git ls-files for a
 local folder), and the workspace detector, the tree snapshot, the language
 detector, the export parser and step 3's scope-type recommender read that
@@ -40,6 +40,17 @@ detector's JSON in the run folder and hands it, with the upstream brief, to
 one merge call that maps and merges the entries, and a merged entry the
 writer refuses drops the enrichment instead of halting.
 
+#1134: the input validator, the brief writer and the workspace detector
+save their stdout in the run folder, where the step reads the result and
+the shared emitter records the helper's warnings (`--warnings-file`). The
+run's halt-state.json is the one staged file no helper is handed: the
+emitter's `emit-halt --run-dir` reads it.
+
+#1138: step 2 prints the export and dependency counts the extractor
+writes, and step 3's tier-A surface, carved into references/tier-a-surface.md,
+has the runner print its candidates (`--print tier-a-candidates`) and at
+Quick tier takes step 2's `reexport_files` instead of reading the barrel.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the helpers, with the fetch helper reading
 from a local folder where a command reads GitHub.
@@ -63,12 +74,14 @@ SKILL_DIR = REPO / "src" / "skf-brief-skill"
 REFERENCES = SKILL_DIR / "references"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 SKILL_MD = SKILL_DIR / "SKILL.md"
+PREFLIGHT = REFERENCES / "preflight.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
 INVOCATION_CONTRACT = REFERENCES / "invocation-contract.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
 SCOPE_DEFINITION = REFERENCES / "scope-definition.md"
+TIER_A_SURFACE = REFERENCES / "tier-a-surface.md"
 AUTO_BRIEF = REFERENCES / "step-auto-brief.md"
 AUTO_VALIDATE = REFERENCES / "step-auto-validate.md"
 WRITE_BRIEF = REFERENCES / "write-brief.md"
@@ -86,6 +99,10 @@ HEREDOC_RE = re.compile(r"<<'(?P<tag>[A-Z_]+)'\n(?P<body>.*?)\n(?P=tag)\n", re.D
 # A fenced bash block, at any indent (a block inside a list item is indented).
 BASH_BLOCK_RE = re.compile(r"^(?P<indent>[ \t]*)```bash\n(?P<body>.*?)^(?P=indent)```", re.DOTALL | re.M)
 STAGE_RE = re.compile(r'cat > "\{run_dir\}/(?P<file>[a-z-]+\.json)" <<\'SKF_JSON\'')
+# #1134: the run's halt state, which no helper is handed: the emitter reads it from the run folder itself.
+HALT_STATE = "halt-state.json"
+RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+RECORD_FILE = f'`{RECORD}--warning "$(cat "{{run_dir}}/warning.txt")"`'
 
 
 def _read(path: Path) -> str:
@@ -202,8 +219,9 @@ def _json_objects(text: str) -> list:
 
 
 @needs_bash
-def test_step_one_creates_the_run_folder(tmp_path):
-    section = _section(_read(GATHER_INTENT), "### 1. Discover Forge Tier")
+def test_step_zero_creates_the_run_folder(tmp_path):
+    # #1135: the run folder is made in stage 0, which every mode runs.
+    section = _section(_read(PREFLIGHT), "### 1. Discover Forge Tier")
     [block] = _blocks(section, "mktemp -d")
     forge = tmp_path / "forge-data"
     block = block.replace("{forge_data_folder}", forge.as_posix()).replace("{project-root}", tmp_path.as_posix())
@@ -267,15 +285,18 @@ def test_staged_payloads_are_quoted_heredocs_a_helper_reads(path):
     """A payload is written to the run folder through a quoted, unindented heredoc, then a helper reads the file:
     redirected into it (its output may go to another file of the run folder) or named by a --*-file flag."""
     text = _read(path)
-    staged = STAGE_RE.findall(text)
+    staged = [name for name in STAGE_RE.findall(text) if name != HALT_STATE]
     assert staged, path.name
+    if HALT_STATE in STAGE_RE.findall(text):
+        # the emitter reads it from the run folder its halts name
+        assert 'emit-halt --workflow skf-brief-skill --run-dir "{run_dir}"' in text, path.name
     for name in staged:
         assert f'\nSKF_JSON\n' in text
         staged_file = rf'"\{{run_dir\}}/{re.escape(name)}"'
         assert re.search(rf'^uv run \{{[A-Za-z]+\}} [^\n]*(?:< |--[a-z-]+-file ){staged_file}'
                          rf'(?: > "\{{run_dir\}}/[a-z-]+\.json")?$', text, re.M), name
-    # the heredoc's reason is stated once, where step 1 creates the run folder
-    assert "needs no escaping" not in text or path == GATHER_INTENT, path.name
+    # the heredoc's reason is stated once, where step 0 creates the run folder
+    assert "needs no escaping" not in text or path == PREFLIGHT, path.name
 
 
 def test_every_heredoc_delimiter_starts_its_line():
@@ -305,16 +326,16 @@ def test_step_two_lists_the_repository_through_the_probe():
     assert "`truncated`" in section
     # a missing probe halts with an envelope like any listing failure
     [missing] = [line for line in section.splitlines() if line.startswith("- **No candidate path, or no JSON**")]
-    assert '`halt_reason: "target-inaccessible"`' in missing
+    assert "--halt-reason target-inaccessible`" in missing
     # every cause the probe reports is classified
     causes = re.search(r"^CAUSES = \(([^)]*)\)", _read(SCRIPTS / "skf-github-probe.py"), re.M).group(1)
     for cause in re.findall(r'"([a-z-]+)"', causes):
         assert f"`{cause}`" in section, cause
     for line in section.splitlines():
         if "`gh-missing` or `gh-unauthenticated`" in line:
-            assert '`halt_reason: "gh-auth-failed"`' in line
+            assert "--halt-reason gh-auth-failed`" in line
         if "`repo-not-found`, `no-access` or `ref-not-found`" in line:
-            assert '`halt_reason: "target-inaccessible"`' in line
+            assert "--halt-reason target-inaccessible`" in line
 
 
 def test_a_target_version_resolves_to_a_tag_through_validate_pins():
@@ -327,7 +348,6 @@ def test_a_target_version_resolves_to_a_tag_through_validate_pins():
     # the ratify rule resolves its implicit version the same way, not by a prose tag match
     rules = _section(text, "## Rules")
     assert "it matches the tag" not in rules and "resolves it to a tag the same way" in rules
-    assert "skf-validate-pins.py" in _read(VERSION_RESOLUTION)
     # an exit 1 with no suggestions may be a listing that failed, so its warning claims no missing tag
     [empty] = [line for line in text.splitlines() if "Exit 1 with an empty `suggestions`" in line]
     assert "Could not find or list the tags" in empty
@@ -341,7 +361,7 @@ def test_a_version_the_manifest_does_not_state_is_looked_up_by_a_script():
     brief to 1.0.0; the prose fallback reads its release tag from the probe (v4.0.0 quality gate run 1,
     skf-brief-skill determinism-1)."""
     text = _read(ANALYZE_TARGET)
-    [parse] = _blocks(_section(text, "#### 4.1 Procedure"), "--mode quick")
+    [parse] = _blocks(_section(text, "#### 4.1 Procedure"), "--entry-file")
     assert "--resolve-version" in parse
     assert "--resolve-version" in _run("skf-extract-public-api.py", "--help").stdout
     section = _section(text, "### 4b. Detect Source Version")
@@ -414,8 +434,9 @@ def test_the_clone_reaches_a_tag_a_commit_and_a_sparse_subset(tmp_path):
     assert (tag / "packages" / "foo" / "src" / "a.ts").read_bytes() == b"export const a = 1;\n"
     sha = run(f"{sha_clone}\n{sha_checkout}\n", tmp_path / "sha", first)
     assert (sha / "packages" / "foo" / "src" / "a.ts").read_bytes() == b"export const a = 1;\n"
-    # scope-definition §3c: the same clone with --sparse added, then only the folders the globs name
-    tier_a = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
+    # tier-a-surface.md (#1138, scope-definition §3c before): the same clone with --sparse added, then only the
+    # folders the globs name
+    tier_a = _read(TIER_A_SURFACE)
     [sparse_set] = re.findall(r'`(git -C "\{run_dir\}/clone" sparse-checkout set [^`]*)`', tier_a)
     assert "`--sparse` added" in tier_a
     sparse = run(tag_clone.replace("git clone ", "git clone --sparse --filter=blob:none ", 1) + "\n"
@@ -447,7 +468,9 @@ def test_a_rush_tree_reaches_the_workspace_menu(tmp_path):
              .replace("uv run {detectWorkspacesHelper}", _script("skf-detect-workspaces.py")))
     proc = _bash(block)
     assert proc.returncode == 0, proc.stderr
-    fetched, out = _json_objects(proc.stdout)
+    # #1134: the detection's stdout is saved for --warnings-file, and the step reads the result there.
+    [fetched] = _json_objects(proc.stdout)
+    out = json.loads((run_dir / "workspaces.json").read_text(encoding="utf-8"))
     assert fetched["status"] == "ok" and fetched["via"] == "raw" and "rush.json" in fetched["fetched"], fetched
     assert out["is_monorepo"] is True and out["manifest_kind"] == "rush", out
     assert [w["name"] for w in out["workspaces"]] == ["@acme/web", "@acme/core"]
@@ -496,7 +519,7 @@ def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
     fetch cannot read stays a warning: the exports read before it are kept (no round is run by hand)."""
     section = _section(_read(ANALYZE_TARGET), "#### 4.1 Procedure")
     [find] = _blocks(section, "--mode entries")
-    [parse] = _blocks(section, "--mode quick")
+    [parse] = _blocks(section, "--entry-file")
     assert "never pick an entry file yourself" in section
     assert "follow.txt" not in section and "--follow-file" not in section and "rounds" not in section
     files = {
@@ -532,16 +555,89 @@ def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
     assert (out["package_name"], out["version"], out["version_source"]) == ("demo", "2.1.0", "manifest")
     assert sorted(e["name"] for e in out["exports"]) == ["greeting", "hello"]
     assert out["followed"] == ["src/greet.ts"] and (staged / "src" / "greet.ts").is_file()
+    # #1138: §5 prints the counts the file holds, and step 3's Quick-tier tier-A list is its reexport_files,
+    # the module --follow could not read among them (its own file, a first hop)
+    assert (out["export_count"], out["dependency_count"], out["reexport_files"]) == \
+        (2, 1, ["src/greet.ts", "src/private.ts"])
     assert [r["module_file"] for r in out["unlisted"]] == ["src/private.ts"]
     assert any(w.startswith("--follow could not read src/private.ts") and "gh is not installed" in w
                for w in out["warnings"])
+    # #1134: both calls' warnings go to the run sink through the record commands the section writes.
+    records = re.findall(r"`(" + re.escape(RECORD) + r'--warnings-file "\{run_dir\}/(?:entries|extract)\.json")`',
+                         section)
+    assert len(records) == 2, records
+    for record in records:
+        proc = _bash(record.replace("uv run {emitEnvelopeHelper}", _script("skf-emit-result-envelope.py"))
+                     .replace("{run_dir}", run_dir.as_posix()))
+        assert proc.returncode == 0, proc.stderr
+    sink = [json.loads(line) for line in (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert sink == entries["warnings"] + out["warnings"]
     # step 3 takes the count from the file, never from a number typed into its payload
     body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
             "module_count": 1, "mode": "interactive"}
     proc = _run("skf-recommend-scope-type.py", "--tree-file", str(run_dir / "tree.json"),
                 "--extract-file", str(run_dir / "extract.json"), stdin=json.dumps(body))
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["signals"] == {"wants_narrow_api": True, "export_count": 2}
+    assert json.loads(proc.stdout)["signals"] == {"wants_narrow_api": True, "export_count": out["export_count"]}
+
+
+@needs_bash
+@pytest.mark.parametrize("source", ["github", "local"])
+def test_java_kotlin_and_swift_count_every_source_file(tmp_path, source):
+    """Java, Kotlin and Swift declare a type public in whatever file it sits, so §4.1 parses every source file
+    but the tests (--all-sources), as Analyze Source counts them, never the first five files entries mode lists:
+    twelve classes and two packages' `Builder` count fourteen, so the public-api rule does not fire on them, and a
+    Swift package is counted by the script, not staged as no export."""
+    section = _section(_read(ANALYZE_TARGET), "#### 4.1 Procedure")
+    [block] = _blocks(section, "--all-sources")
+    assert "`swift`." in _section(_read(ANALYZE_TARGET), "### 4. List Top-Level Modules and Exports")
+    java = {"pom.xml": ("<project><groupId>com.acme</groupId><artifactId>acme</artifactId>"
+                        "<version>2.0.0</version></project>\n"),
+            **{f"src/main/java/com/acme/C{i:02d}.java": f"package com.acme;\npublic class C{i:02d} {{}}\n"
+               for i in range(12)},
+            "src/main/java/com/acme/a/Builder.java": "package com.acme.a;\npublic class Builder {}\n",
+            "src/main/java/com/acme/b/Builder.java": "package com.acme.b;\npublic class Builder {}\n",
+            "src/test/java/com/acme/C00Test.java": "package com.acme;\npublic class C00Test {}\n",
+            "README.md": "# acme\n"}
+    swift = {"Package.swift": "// swift-tools-version:5.9\n",
+             "Sources/Acme/Api.swift": "public struct Api {}\npublic func make() -> Api { Api() }\n",
+             "Sources/Acme/Store.swift": "public protocol Store {}\n",
+             "Tests/AcmeTests/ApiTests.swift": "public final class ApiTests {}\n"}
+    body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
+            "module_count": 1, "mode": "interactive"}
+    for language, extension, manifest, files, count, scope_type in (
+            ("java", "java", "pom.xml", java, 14, "full-library"),
+            ("swift", "swift", "Package.swift", swift, 3, "public-api")):
+        repo = _write_tree(tmp_path / language / "repo", files)
+        run_dir = tmp_path / language / "run"
+        run_dir.mkdir()
+        (run_dir / "tree.json").write_bytes(_probe_listing(sorted(files)).encode("utf-8"))
+        root = run_dir / "files" if source == "github" else repo
+        filled = (block.replace("<extension>", extension).replace("<language>", language)
+                  .replace("<source root>", root.as_posix()).replace("<manifest path>", manifest))
+        if source == "github":
+            filled = re.sub(r" \[(--repo [^\]]*)\]", r" \1", filled)
+            filled = (_fill_github(filled, run_dir, _fetch_shim(tmp_path / language, repo))
+                      .replace("uv run {extractPublicApiHelper}", _extract_shim(tmp_path / language, repo)))
+        else:  # a local source: no fetch line, no --repo or --ref
+            filled = "\n".join(line for line in filled.splitlines() if "{githubFetchHelper}" not in line)
+            filled = (re.sub(r" \[--repo [^\]]*\]", "", filled).replace("{run_dir}", run_dir.as_posix())
+                      .replace("uv run {extractPublicApiHelper}", _script("skf-extract-public-api.py")))
+        assert not re.findall(r"\{[A-Za-z_]+\}|<[a-z ]+>|\[--", filled), filled
+        proc = _bash(filled)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+        assert "Test" not in " ".join(e["name"] for e in out["exports"])
+        assert out["export_count"] == count == len(out["exports"])
+        if language == "java":
+            assert (out["package_name"], out["version"]) == ("acme", "2.0.0")
+        if source == "github":
+            assert not (run_dir / "files" / "src" / "test").exists() and not (run_dir / "files" / "Tests").exists()
+        proc = _run("skf-recommend-scope-type.py", "--tree-file", str(run_dir / "tree.json"),
+                    "--extract-file", str(run_dir / "extract.json"), stdin=json.dumps(body))
+        assert proc.returncode == 0, proc.stderr
+        assert (json.loads(proc.stdout)["scope_type"], json.loads(proc.stdout)["signals"]["export_count"]) == \
+            (scope_type, count)
 
 
 @needs_bash
@@ -552,6 +648,7 @@ def test_the_fallback_path_stages_an_extraction_with_no_export(tmp_path):
     text = _read(ANALYZE_TARGET)
     fallback = _section(text, "#### 4.2 Procedure")
     [stage] = re.findall(r"`(printf [^`]*extract\.json\")`", fallback)
+    assert """'{"exports": [], "export_count": 0}'""" in stage  # #1138: the count §5 prints and step 3 reads
     assert ("When the entries call exits non-zero, or it names neither a manifest nor an entry file, there is "
             "nothing to parse: skip the rest of §4.1 and take §4.2.") in _section(text, "#### 4.1 Procedure")
     run_dir = tmp_path / "run"
@@ -559,6 +656,7 @@ def test_the_fallback_path_stages_an_extraction_with_no_export(tmp_path):
     (run_dir / "extract.json").write_bytes(b"")
     proc = _bash(stage.replace("{run_dir}", run_dir.as_posix()))
     assert proc.returncode == 0, proc.stderr
+    assert json.loads((run_dir / "extract.json").read_text(encoding="utf-8")) == {"exports": [], "export_count": 0}
     (run_dir / "tree.json").write_bytes(_probe_listing(["Gemfile", "lib/demo.rb"]).encode("utf-8"))
     body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
             "module_count": 1, "mode": "interactive"}
@@ -582,7 +680,7 @@ def test_a_public_repository_is_read_without_gh():
         assert "githubFetchProbeOrder:" in text.split("\n---\n", 1)[0], path.name
         calls += [line.strip() for block in _blocks(text, "{githubFetchHelper}") for line in block.splitlines()
                   if "{githubFetchHelper}" in line]
-    assert len(calls) == 5 and all(call.startswith(prefix) for call in calls), calls
+    assert len(calls) == 6 and all(call.startswith(prefix) for call in calls), calls
     assert f'`{prefix}"{{file}}"`' in _read(VERSION_RESOLUTION)
     listing = _section(_read(ANALYZE_TARGET), "### 1. Resolve Target Location")
     assert '`status: "ok"` with `gh`' not in listing and "**Fetching files.**" in listing
@@ -662,7 +760,9 @@ def test_headless_arguments_reach_the_validator_from_a_staged_file(tmp_path):
              .replace("uv run {validateBriefInputsHelper}", _script("skf-validate-brief-inputs.py")))
     proc = _bash(block)
     assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
+    # #1134: the result is saved for --warnings-file, and the gate reads it there.
+    assert proc.stdout == ""
+    out = json.loads((tmp_path / "inputs-validation.json").read_text(encoding="utf-8"))
     assert out["valid"] is True and out["normalized"]["intent"] == args["intent"]
 
 
@@ -687,8 +787,10 @@ def test_the_step_five_payload_reaches_the_writer_with_its_apostrophes(tmp_path)
         "scope_rationale": None, "scope_tier_a_include": None,
         "scope_registry_path": None, "scope_ui_variants": None, "scope_demo_patterns": None, "doc_urls": None,
         "scripts_intent": None, "assets_intent": None, "source_authority": None, "target_ref": None,
+        "scope_amendments": None,
     }
-    # The context holds every key the template names; a derive run sets no source_ref and no amendments log.
+    # The context holds every key the template names; a derive run sets no source_ref, and an amendments log
+    # only when it overwrites a brief that holds one (#1137).
     assert set(context) == _flat_payload_keys(section)
     target = tmp_path / "forge" / "demo" / "skill-brief.yaml"
     block = (block.replace("<the brief context above, as one JSON object>", json.dumps(context))
@@ -774,6 +876,9 @@ def _upstream_brief(tmp_path: Path) -> dict:
     return result["brief"]
 
 
+SAVED_WRITE = ' > "{run_dir}/brief-write.json"'
+
+
 def _helper_call(block: str, helper: str, script: str, values: dict[str, str]) -> list[str]:
     """The argv of the documented `uv run {helper} ...` line of `block`, its placeholders filled from `values`."""
     [line] = [line for line in block.splitlines() if line.startswith(f"uv run {{{helper}}} ")]
@@ -794,6 +899,8 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     assert '"scope_rationale":  null' not in text and "auto-brief.json" not in text
     [write] = _blocks(_section(text, "### 4. Write Enriched Brief"), "{writeSkillBriefHelper}")
     assert '--base-brief "{brief_path}"' in write and "--from-flat" not in write
+    assert write.rstrip().endswith(SAVED_WRITE)
+    write = write.replace(SAVED_WRITE, "")
 
     upstream = _upstream_brief(tmp_path)
     brief_path = tmp_path / "upstream" / "skill-brief.yaml"
@@ -807,8 +914,10 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     [merge] = _blocks(three, "{mergeDocUrlsHelper}")
     redirect = ' > "{run_dir}/doc-urls-merged.json"'
     assert merge.rstrip().endswith(redirect) and "<<" not in merge
-    for gone in ("README Link", "`readme_link`", "`homepageUrl`", "detected_via", "SKF_JSON"):
+    for gone in ("README Link", "`readme_link`", "`homepageUrl`", "detected_via"):
         assert gone not in text, gone
+    # No doc entry is typed: the only payload the step stages is the halt state its section 1 writes (#1134).
+    assert "SKF_JSON" not in text.split("### 2. Run Doc Detection", 1)[1]
     (run_dir / "detected.json").write_bytes(json.dumps([
         {"url": "https://demo.dev/docs/index.html", "detected_via": "readme_link", "content_hash": "sha256:0",
          "content_type": "reference"},
@@ -842,9 +951,10 @@ def test_a_refused_doc_url_drops_the_enrichment_and_keeps_the_upstream_brief(tmp
     before writing (exit 1, field doc_urls), and §4 warns and runs the call again without --doc-urls-file."""
     four = _section(_read(AUTO_BRIEF), "### 4. Write Enriched Brief")
     [write] = _blocks(four, "{writeSkillBriefHelper}")
+    write = write.replace(SAVED_WRITE, "")
     [fallback] = [line for line in four.splitlines() if "whose stderr `field` is `doc_urls`" in line]
     assert fallback.startswith("- Exit 1 of a call with `--doc-urls-file` whose stderr `field` is `doc_urls`")
-    assert "to `workflow_warnings[]`, run the call once more without `--doc-urls-file`" in fallback
+    assert f"{RECORD_FILE}, run the call once more without `--doc-urls-file`" in fallback
     assert "HALT" not in fallback
     assert "- Any other exit 1 (validation/invariant): emit the halt envelope first" in four
     upstream = _upstream_brief(tmp_path)
@@ -937,7 +1047,8 @@ def test_a_ratify_run_writes_from_the_brief_it_ratified(tmp_path, change):
               .replace("uv run {writeSkillBriefHelper}", _script("skf-write-skill-brief.py")))
     proc = _bash(script)
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["version"] == context["version"]
+    # #1134: the writer's result is saved for --warnings-file, and step 5 reads the path and version there.
+    assert json.loads((run_dir / "brief-write.json").read_text(encoding="utf-8"))["version"] == context["version"]
     assert "version_resolved" not in target.read_text(encoding="utf-8")
     written = json.loads(_run("skf-validate-brief-schema.py", str(target)).stdout)["brief"]
     assert written == context
@@ -1054,11 +1165,13 @@ def test_the_checkpoint_is_written_after_the_description_and_after_the_scope():
     assert re.search(r"^draftCheckpointFile: 'references/draft-checkpoint\.md'$", scope, re.M)
     draft = _read(DRAFT_CHECKPOINT)
     assert "step 5 §4" not in draft and "step 5 §3 removes it" in draft
-    assert "## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)" in draft
+    # #1137 (enhancement-8): step 4 §4 writes it again after each adjustment.
+    half_2 = "## Half 2: Checkpoint Write (loaded from step 1 §8, step 3 §5c and step 4 §4)"
+    assert half_2 in draft
     for field in ("`language`", "`detected_version`", "`analysis_ref`", "`monorepo_workspace`", "`scripts_intent`",
-                  "`assets_intent`", "`tier_a_include`", "`rationale`", "`registry_path`"):
-        assert field in _section(draft, "## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)")
-    assert "the checkpoint step 1 §8 and step 3 §5c wrote" in _read(WRITE_BRIEF)
+                  "`assets_intent`", "`tier_a_include`", "`rationale`", "`registry_path`", "`scope_note_candidates`"):
+        assert field in _section(draft, half_2)
+    assert "the checkpoint step 1 §8, step 3 §5c and step 4 §4 wrote" in _read(WRITE_BRIEF)
 
 
 def test_a_draft_that_holds_the_scope_resumes_at_step_four():
@@ -1110,97 +1223,59 @@ def _pinned_ast_grep() -> bool:
 
 
 def test_the_tier_a_list_is_the_runners_reexport_targets():
-    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
+    """#1138: the runner prints the candidates itself (`--print tier-a-candidates`, whose rule
+    test-skf-extract-public-api.py pins), so no one-liner filters its JSON, and Quick tier takes step 2's
+    `reexport_files` instead of reading the barrel by eye."""
+    section = _read(TIER_A_SURFACE)
     [block] = _blocks(section, "{extractPublicApiHelper}")
-    assert "--mode full" in block and '-o "{run_dir}/tier-a.json"' in block
+    assert "--mode full" in block and '-o "{run_dir}/tier-a.json" --print tier-a-candidates' in block
     assert "`reexport_targets`" in section and "`entry_points.files[].file`" in section
-    assert "by eye" in section and "`workflow_warnings[]`" in section  # Quick tier and a failed run
-    assert "extractPublicApiProbeOrder:" in _read(SCOPE_DEFINITION)
-    # a clone this section makes holds only the scope's folders, and goes once the runner has run
+    assert "python -c" not in section and "by eye" not in section
+    [quick] = [line for line in section.splitlines() if line.startswith("- **Quick tier, or a runner that cannot")]
+    for needle in ("(it exits 3 when no ast-grep is installed, 1 or 2 when the scan fails), or a clone that fails",
+                   "the candidates are the `reexport_files` step 2 wrote in `{run_dir}/extract.json`",
+                   "`warn: tier-A surface from step 2's reexport_files ({the reason})`", RECORD_FILE,
+                   "leave `scope.tier_a_include` unset and say so in the reason",
+                   "any language but Python, JavaScript and TypeScript, the ones whose re-exports step 2 traces"):
+        assert needle in quick, needle
+    assert "extractPublicApiProbeOrder:" in section and "extractPublicApiProbeOrder" not in _read(SCOPE_DEFINITION)
+    # a clone this file makes holds only the scope's folders, and goes once the runner has run
     assert "sparse-checkout set" in section
-    assert 'remove a clone this section made (`rm -rf "{run_dir}/clone"`)' in section
+    assert 'remove a clone made for it (`rm -rf "{run_dir}/clone"`)' in section
 
 
-def _tier_a_candidates(section: str, result: Path) -> list[str]:
-    """Run the documented one-line filter over a runner result and return the lines it prints."""
-    [block] = _blocks(section, "reexport_targets")
-    [line] = block.strip().splitlines()
-    argv = shlex.split(line.replace("{run_dir}/tier-a.json", result.as_posix()))
-    assert argv[:3] == ["uv", "run", "python"]
-    proc = subprocess.run([sys.executable, *argv[3:]], capture_output=True, text=True, encoding="utf-8",
-                          timeout=60, check=False)
+@needs_bash
+def test_the_quick_tier_candidates_are_step_twos_reexport_files(tmp_path):
+    """#1138 (determinism-7): step 2's documented quick call on a GitHub barrel resolves the files its re-exports
+    lead to, the one its named re-export reaches from the listing alone, so Quick tier reads no barrel."""
+    [parse] = _blocks(_section(_read(ANALYZE_TARGET), "#### 4.1 Procedure"), "--entry-file")
+    files = {
+        # a version the manifest states: --resolve-version looks up no tag
+        "package.json": '{"name": "@acme/foo", "version": "1.0.0", "main": "src/index.ts"}\n',
+        "src/index.ts": "export { b } from './b';\nexport * from './a';\nexport const own = 1;\n",
+        "src/a.ts": "export function a() {}\n",
+        "src/b.ts": "export const b = 2;\n",
+    }
+    repo = _write_tree(tmp_path / "repo", files)
+    run_dir = tmp_path / "run"
+    staged = _write_tree(run_dir / "files", {path: files[path] for path in ("package.json", "src/index.ts")})
+    (run_dir / "tree.json").write_bytes(_probe_listing(sorted(files)).encode("utf-8"))
+    block = (_fill_github(re.sub(r' \[--scope "\{monorepo_workspace\}"\]', "", parse), run_dir,
+                          _fetch_shim(tmp_path, repo))
+             .replace("uv run {extractPublicApiHelper}", _extract_shim(tmp_path, repo))
+             .replace("<language>", "typescript").replace("<source root>", staged.as_posix())
+             .replace("<manifest path>", "package.json").replace("<entry path>", "src/index.ts"))
+    block = re.sub(r" \[(--repo [^\]]*)\]", r" \1", block)
+    proc = _bash(block)
     assert proc.returncode == 0, proc.stderr
-    return proc.stdout.splitlines()
-
-
-def test_the_tier_a_candidates_are_printed_by_one_command(tmp_path):
-    """The candidates are the defining files, less a name another package defines and less the entry points."""
-    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    result = tmp_path / "tier-a.json"
-    result.write_bytes(json.dumps({
-        "entry_points": {"files": [{"file": "packages/foo/src/index.ts"}]},
-        "reexport_targets": [{"name": "a", "file": "packages/foo/src/a.ts"},
-                             {"name": "quote", "file": "packages/foo/src/a.ts"},
-                             {"name": "z", "file": "packages/foo/src/z-it's.ts"},
-                             {"name": "local", "file": "packages/foo/src/index.ts"},
-                             {"name": "other", "file": None}],
-    }).encode("utf-8"))
-    assert _tier_a_candidates(section, result) == ["packages/foo/src/a.ts", "packages/foo/src/z-it's.ts"]
-
-
-def test_the_tier_a_candidates_take_a_namespaces_member_files(tmp_path):
-    """#703: a submodule the entry point exports passes its members on from files reexport_targets never names
-    (it gives the module's own file); those files are candidates too."""
-    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    result = tmp_path / "tier-a.json"
-    result.write_bytes(json.dumps({
-        "entry_points": {"files": [{"file": "pkg/__init__.py"}]},
-        "reexport_targets": [{"name": "sub", "file": "pkg/sub/__init__.py"}, {"name": "foo", "file": "pkg/a.py"}],
-        "entry_point_diff": {"public": [
-            {"name": "foo", "via": "re-export", "file": "pkg/a.py"},
-            {"name": "sub", "via": "namespace", "file": "pkg/sub/__init__.py", "members": [
-                {"name": "baz", "local": None, "file": "pkg/sub/impl.py", "line": 1},
-                {"name": "ext", "local": None, "file": None, "line": None}]},
-            {"name": "old", "via": "namespace", "file": "pkg/old.py"}]},
-    }).encode("utf-8"))
-    assert _tier_a_candidates(section, result) == ["pkg/a.py", "pkg/sub/__init__.py", "pkg/sub/impl.py"]
-
-
-def test_the_tier_a_candidates_take_each_other_definitions_file(tmp_path):
-    """#830: a name two packages each define has one `reexport_targets` row, at the file the runner keeps for it;
-    the other package's file is in `entry_point_diff.other_definitions`, and is a candidate too."""
-    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    result = tmp_path / "tier-a.json"
-    result.write_bytes(json.dumps({
-        "entry_points": {"files": [{"file": "code/core/src/index.ts"}, {"file": "code/react/src/index.ts"}]},
-        "reexport_targets": [{"name": "compose", "file": "code/core/src/portable.ts"}],
-        "entry_point_diff": {"public": [{"name": "compose", "via": "re-export", "file": "code/core/src/portable.ts"}],
-                             "other_definitions": [{"name": "compose", "via": "star",
-                                                    "file": "code/react/src/portable.ts"},
-                                                   {"name": "own", "via": "declaration",
-                                                    "file": "code/react/src/index.ts"}]},
-    }).encode("utf-8"))
-    assert _tier_a_candidates(section, result) == ["code/core/src/portable.ts", "code/react/src/portable.ts"]
-
-
-def test_the_tier_a_candidates_leave_out_the_files_scope_include_leaves_out(tmp_path):
-    """#725: a tier A name counts only in a file scope.include matches, so the file of a name an entry point
-    passes on from outside the scope (`entry_point_diff.outside_scope`) is no candidate."""
-    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    result = tmp_path / "tier-a.json"
-    result.write_bytes(json.dumps({
-        "entry_points": {"files": [{"file": "packages/foo/src/index.ts"}]},
-        "reexport_targets": [{"name": "a", "file": "packages/foo/src/a.ts"},
-                             {"name": "gen", "file": "packages/foo/generated/gen.ts"}],
-        "entry_point_diff": {"public": [], "outside_scope": [{"name": "gen", "file": "packages/foo/generated/gen.ts"}]},
-    }).encode("utf-8"))
-    assert _tier_a_candidates(section, result) == ["packages/foo/src/a.ts"]
+    out = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    assert not (staged / "src" / "b.ts").exists() and out["followed"] == ["src/a.ts"]
+    assert out["reexport_files"] == ["src/a.ts", "src/b.ts"]
 
 
 @pytest.mark.skipif(not POSIX_BASH or not _pinned_ast_grep(), reason="needs bash and the pinned ast-grep")
 def test_the_documented_runner_call_lists_the_files_the_barrel_re_exports(tmp_path):
-    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    [block] = _blocks(section, "{extractPublicApiHelper}")
+    [block] = _blocks(_read(TIER_A_SURFACE), "{extractPublicApiHelper}")
     repo = _write_tree(tmp_path / "repo", {
         "package.json": '{"name": "root", "private": true, "workspaces": ["packages/*"]}\n',
         "packages/foo/package.json": '{"name": "@acme/foo", "main": "src/index.ts"}\n',
@@ -1219,7 +1294,9 @@ def test_the_documented_runner_call_lists_the_files_the_barrel_re_exports(tmp_pa
              .replace("{run_dir}", run_dir.as_posix()))
     proc = _bash(block, cwd=REPO)
     assert proc.returncode == 0, proc.stderr
-    assert _tier_a_candidates(section, run_dir / "tier-a.json") == ["packages/foo/src/a.ts", "packages/foo/src/b.ts"]
+    # --print tier-a-candidates prints them once the JSON is written
+    assert proc.stdout.splitlines() == ["packages/foo/src/a.ts", "packages/foo/src/b.ts"]
+    assert json.loads((run_dir / "tier-a.json").read_text(encoding="utf-8"))["status"] == "ok"
 
 
 # --------------------------------------------------------------------------
