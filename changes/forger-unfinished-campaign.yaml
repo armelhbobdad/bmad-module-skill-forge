@@ -3,3 +3,4 @@ scope: skf-forger
 summary: |
   Ferris now names an unfinished campaign when you open him and in WS, with its stage and how many of its skills are done, and its skills take `CA` as their next code until it finishes. `forge-status.py` prints it as `campaign`, reads it from `--campaign-workspace` (`forge-data/_campaign/` by default), and gains `--campaign-only`, the greeting's check, which reads the campaign alone. A campaign state it cannot tally is a `campaign_unavailable` warning.
 issues: [1169]
+prs: [1212]

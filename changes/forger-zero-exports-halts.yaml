@@ -5,3 +5,4 @@ summary: |
 migration: |
   When a chain stops with `zero-exports`, fix the brief's `scope.include` or `target_version` (or run Brief Skill again), then take Ferris's offer to resume the chain at Create Skill, or forge the package with `forge-quick <package>` instead.
 issues: [1168]
+prs: [1212]

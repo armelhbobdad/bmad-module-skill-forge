@@ -3,3 +3,4 @@ scope: skf-forger
 summary: |
   A pipeline chain now takes each workflow's inputs from its journal instead of working them out from the contract tables. `pipeline-journal.py start`, `step` and `reopen` print a `next` entry, the workflow to run next with its `skill`, `description` and resolved `inputs`: its bracket target, the value an earlier step handed on, or the alias arguments for the first workflow, with `pin`, `threshold`, `auto` and `flags`. Several briefs that Analyze Source hands straight to Create Skill reach it as one `--batch` run, and Refine Architecture takes the document Verify Stack was given. Each `parse-pipeline.py` plan entry also names its `skill` and `description`, and Ferris no longer loads `pipeline-contracts.md` for every chain and resume. The journal file and the pipeline result keep their shape.
 issues: [1167]
+prs: [1212]

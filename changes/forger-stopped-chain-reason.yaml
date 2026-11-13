@@ -3,3 +3,4 @@ scope: skf-forger
 summary: |
   Ferris now says why a stopped chain stopped. After an error halt the greeting names the step's code and halt reason beside the recommended route, and a chain cut off mid-step comes as a question instead of a recommendation, with the time its journal was last written, since it may still be running in another session. `pipeline-journal.py resume` prints that journal's `started_at` and `updated_at`, and dropping the offer of a chain cut off mid-step asks once first.
 issues: [1169]
+prs: [1212]

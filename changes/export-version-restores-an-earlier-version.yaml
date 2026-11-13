@@ -3,3 +3,4 @@ scope: skf-export-skill, skf-drop-skill
 summary: |
   Export Skill takes `--version <v>` to make an earlier version of one skill active again, as a rollback: `@Ferris EX cocoindex --version 0.5.0` points the skill's `active` link at 0.5.0, exports it and records it as the manifest's `active_version`, which archives the version it replaces. It takes one skill, never `--all`, and only a version whose package is still on disk and that the export manifest does not mark deprecated: anything else stops the run with exit `3` (`resolution-failure`) before it writes, naming the versions it can restore. A link that cannot be moved stops it with exit `4` (`write-failed`) before the manifest changes. Drop Skill's refusal to drop the active version now names this command (`[EX] Export Skill <skill> --version <version to keep>`) in place of a `flip-link` run by hand, and Ferris's menu names the flag on its EX row.
 issues: [1172]
+prs: [1212]

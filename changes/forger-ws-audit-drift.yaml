@@ -3,3 +3,4 @@ scope: skf-forger
 summary: |
   WS now reads each skill's latest audit. Drift an audit found after the skill's test (`MINOR`, `SIGNIFICANT` or `CRITICAL`) shows as the entry's `drift` and makes `US <name>` its next code, or `US <name> --target-ref <ref>` when the audit found that upstream moved to a newer ref. A `CLEAN` audit, one older than the test, or one that does not parse (an `audit_result_unreadable` warning) leaves the code the test verdict gives.
 issues: [1169]
+prs: [1212]
