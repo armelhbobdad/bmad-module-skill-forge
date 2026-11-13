@@ -9,7 +9,7 @@ description: Design a skill scope through guided discovery. Use when the user re
 
 Helps the user define what to skill — target repo, scope, language, inclusion/exclusion patterns — and produces a `skill-brief.yaml` that drives create-skill. This is the first step in the skill creation pipeline; the brief is the input contract for create-skill, which performs the actual compilation.
 
-A good skill brief sets a tight, cohesive boundary: one capability with 3-8 primary functions, an unambiguous public API surface, and a description short enough to fit in a registry row. Briefs that try to cover several unrelated concerns (e.g. authentication *and* data visualization) compile into skills that no agent can route to confidently — a brief covering too much is a worse failure mode than a brief covering too little, and this workflow steers toward the smaller, sharper version when scope is unclear. Scope on cheap signals — manifests, top-level exports, intent — not full AST extraction.
+A good brief is tight: one capability with 3-8 primary functions, a clear public API and a description that fits a registry row. A brief spanning unrelated concerns (authentication *and* data visualization) compiles into a skill agents cannot route to, worse than one too narrow, so lean small when scope is unclear. Scope on cheap signals (manifests, top-level exports, intent), not full AST extraction, with one exception: at Forge tier and above, step 3 runs create-skill's recipe runner only to pin a file list a glob cannot express (`scope.tier_a_include` and the headless `public-api` include).
 
 A pre-authored brief can be ratified instead: reviewed and written to `{forge_data_folder}/{name}/skill-brief.yaml` (in place when it already lives there).
 

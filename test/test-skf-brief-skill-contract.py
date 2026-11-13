@@ -91,6 +91,14 @@ noted at step 1 are `scope_note_candidates`, which §7 shows, the draft
 holds and step 3 §5 seeds into `scope.notes`. Step 4's menu has no `[A]` or
 `[P]`, whose results never reached the brief.
 
+#1138: step 2 §5 prints the `export_count` and `dependency_count`
+skf-extract-public-api.py writes, the count step 3's recommender reads, and
+step 3 takes its tier-A and headless public-API file sets from the
+extractor's `--print` and quick mode's `reexport_files`. The tier-A surface
+and the headless boundary defaults are files of their own, loaded only for a
+monorepo subpackage with coarse globs and a headless run with no `include`,
+and SKILL.md names the one recipe-runner exception to its cheap signals.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -124,6 +132,8 @@ GATHER_INTENT = REFERENCES / "gather-intent.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
 SCOPE_DEFINITION = REFERENCES / "scope-definition.md"
+TIER_A_SURFACE = REFERENCES / "tier-a-surface.md"
+HEADLESS_DEFAULTS = REFERENCES / "headless-boundary-defaults.md"
 HEALTH_CHECK = REFERENCES / "health-check.md"
 QMD_REGISTRATION = REFERENCES / "qmd-collection-registration.md"
 PORTFOLIO_CHECK = REFERENCES / "portfolio-similarity-check.md"
@@ -146,8 +156,8 @@ HALT_CALL_RE = re.compile(r'`uv run \{emitEnvelopeHelper\} emit-halt --workflow 
                           r'(?P<run_dir>--run-dir "\{run_dir\}" )?--target stderr '
                           r'--halt-reason (?P<reason><halt_reason>|[a-z]+(?:-[a-z]+)*)`')
 # The step files whose halts call the emitter where they stop.
-HALT_SITE_FILES = (PREFLIGHT, GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_DEFINITION, AUTO_BRIEF,
-                   AUTO_VALIDATE, WRITE_BRIEF)
+HALT_SITE_FILES = (PREFLIGHT, GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_DEFINITION, HEADLESS_DEFAULTS,
+                   AUTO_BRIEF, AUTO_VALIDATE, WRITE_BRIEF)
 # The [auto] success path: the envelope, the hook, the run folder's removal, the chain.
 AUTO_SUCCESS = "### 3. Envelope, Hook and Chain"
 HALT_LINE_RE = re.compile(HALT_CALL_RE.pattern + r".*?\bthen (?:HARD )?HALT\b \(exit code (?P<code>\d+)\)")
@@ -427,8 +437,8 @@ def test_every_halt_site_emits_its_envelope_before_it_stops():
             # Only step 0 §1's write probe runs before the run folder exists.
             probe = "**On any non-zero exit:**" in line and path == PREFLIGHT
             assert (match.group("run_dir") is None) is probe, where
-    # preflight 3, headless-args 1, gather-intent-ratify 2, analyze-target 4, scope-definition 1,
-    # step-auto-brief 4, step-auto-validate 2, write-brief 3
+    # preflight 3, headless-args 1, gather-intent-ratify 2, analyze-target 4, headless-boundary-defaults 1 (#1138:
+    # scope-definition.md's, moved with the defaults), step-auto-brief 4, step-auto-validate 2, write-brief 3
     assert sites == 20, sites
 
 
@@ -609,7 +619,8 @@ def test_every_warning_is_recorded_where_it_is_raised():
         for line in _read(path).splitlines():
             where = f"{path.name}: {line[:90]}"
             if re.search(r"[`\"]warn: ", line) and path.name not in UNRECORDED_WARN:
-                assert RECORD in line or "the GATE above records" in line, where
+                # #1138: the public-api default's warn line is the one scope-definition.md §3's GATE records
+                assert RECORD in line or "§3's GATE records" in line, where
             if RECORD_FILE in line:
                 file_route += line.count(RECORD_FILE)
                 assert "`{run_dir}/warning.txt` with a file write, never `echo`" in line, where
@@ -1444,3 +1455,111 @@ def test_noted_asides_reach_the_summary_the_draft_and_scope_notes():
     assert "then clear the list, so a step 4 `[R]` pass does not add back a line the user dropped there" in scope
     assert ("{If this section added lines from scope_note_candidates:}\n**Noted in step 1:** {those lines} (drop any "
             "at step 4)") in scope
+
+
+# --------------------------------------------------------------------------
+# #1138: counts and file sets read from skf-extract-public-api.py, and the tier-A and headless boundary rules
+# loaded only where they apply
+# --------------------------------------------------------------------------
+
+EXTRACTOR = REPO / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
+RECOMMENDER = REPO / "src" / "shared" / "scripts" / "skf-recommend-scope-type.py"
+CARVED = (SCOPE_DEFINITION, TIER_A_SURFACE, HEADLESS_DEFAULTS)
+
+
+def test_step_two_and_the_recommender_show_the_same_export_count(tmp_path):
+    """determinism-6: on a barrel that exports one name from two files, step 2 §4.1's documented call writes the
+    `export_count` §5 prints, and step 3 §2c's recommender, reading that file, recommends on the same number."""
+    analyze = _read(ANALYZE_TARGET)
+    procedure = _section(analyze, "#### 4.1 Procedure \u2014 script-supported languages")
+    [call] = re.findall(r"^ *(uv run \{extractPublicApiHelper\} --mode quick [^\n]*)$", procedure, re.M)
+    assert '> "{run_dir}/extract.json"' in call
+    source = tmp_path / "source"
+    for rel, text in {"package.json": '{"name": "demo", "version": "1.0.0", "dependencies": {"zod": "3"}}\n',
+                      "src/a.ts": "export const foo = 1;\nexport const bar = 2;\n",
+                      "src/b.ts": "export const foo = 3;\n"}.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes(text.encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "tree.json").write_bytes(json.dumps(["package.json", "src/a.ts", "src/b.ts"]).encode("utf-8"))
+    # a local source: no --repo or --ref, and one --entry-file per entry file
+    line = (re.sub(r" \[--repo [^\]]*\]", "", call.split(" > ", 1)[0])
+            .replace("<language>", "typescript").replace("<source root>", source.as_posix())
+            .replace("{run_dir}", run_dir.as_posix()).replace("<manifest path>", "package.json")
+            .replace('--entry-file "<entry path>"', '--entry-file "src/a.ts" --entry-file "src/b.ts"'))
+    proc = _run([sys.executable, str(EXTRACTOR), *shlex.split(line)[3:]])
+    assert proc.returncode == 0, proc.stderr
+    (run_dir / "extract.json").write_bytes(proc.stdout.encode("utf-8"))
+    extract = json.loads(proc.stdout)
+    assert [e["name"] for e in extract["exports"]] == ["foo", "bar", "foo"]
+    assert (extract["export_count"], extract["dependency_count"]) == (2, 1)
+    summary = _section(analyze, "### 5. Report Analysis Summary")
+    assert "**Public Exports/Entry Points ({export_count}):**" in summary
+    assert "**Package:** {package_name} ({dependency_count} dependencies)" in summary
+    payload = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
+               "module_count": 1, "source_type": "source", "mode": "interactive"}
+    proc = _run([sys.executable, str(RECOMMENDER), "--tree-file", str(run_dir / "tree.json"), "--extract-file",
+                 str(run_dir / "extract.json")], stdin=json.dumps(payload))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["signals"]["export_count"] == extract["export_count"]
+    assert ("The script reads the `export_count` step 2 §4 wrote there (0 after §4.2, where the public-api rule does "
+            "not fire)") in _section(_read(SCOPE_DEFINITION), "### 2c. Offer Scope Templates")
+
+
+def test_no_file_set_is_built_by_hand():
+    """determinism-7, architecture-7: no one-liner, no read by eye and no §3c is left, scope-definition.md calls no
+    recipe runner, and it fits its 6,000-token budget (chars/4, the fallback SKILL.md's budget uses)."""
+    for path in CARVED:
+        text = _read(path)
+        for gone in ("python -c", "by eye", "\u00a73c"):
+            assert gone not in text, (path.name, gone)
+        assert "\u2014" not in text or path == SCOPE_DEFINITION, path.name
+    scope = _read(SCOPE_DEFINITION)
+    assert "{extractPublicApiHelper}" not in scope and "extractPublicApiProbeOrder" not in scope
+    assert len(scope) // 4 < 6000, len(scope)
+    assert "\u00a73c" not in _read(WRITE_BRIEF) and "\u00a73c" not in _read(REFERENCES / "confirm-brief.md")
+    assert "from step 3's references/tier-a-surface.md" in _read(WRITE_BRIEF)
+
+
+def test_the_carved_files_load_only_where_they_apply():
+    """architecture-7: an interactive run on a repository that is not a monorepo loads neither file: the tier-A
+    surface loads from §3b for a workspace with coarse globs, the defaults from §3's GATE for a headless run with
+    no `include`, and the defaults load the tier-A file's runner alone at Forge tier and above."""
+    scope = _read(SCOPE_DEFINITION)
+    frontmatter = scope[4:scope.index("\n---\n", 4)]
+    assert "tierASurfaceFile: 'references/tier-a-surface.md'" in frontmatter
+    assert "headlessBoundaryDefaultsFile: 'references/headless-boundary-defaults.md'" in frontmatter
+    [tier_a] = [line for line in scope.splitlines() if "load `{tierASurfaceFile}`" in line]
+    assert tier_a in _section(scope, "### 3b. Monorepo Subpackage Convention")
+    assert tier_a.startswith("**Tier-A surface.** When `monorepo_workspace` is set and `scope.include` uses coarse "
+                             "directory globs")
+    assert tier_a.endswith("Otherwise leave `scope.tier_a_include` unset.")
+    [defaults] = [line for line in scope.splitlines() if "load `{headlessBoundaryDefaultsFile}`" in line]
+    assert defaults.startswith("**GATE [default: the scope type's boundary default]**: **Headless:**")
+    assert ("Otherwise (`{headless_mode}` true and no `include` argument), load `{headlessBoundaryDefaultsFile}` and "
+            "take the resolved scope type's default it gives") in defaults
+    [runner] = [line for line in _read(HEADLESS_DEFAULTS).splitlines() if "load `{tierASurfaceFile}`" in line]
+    assert "At Forge tier and above, load `{tierASurfaceFile}` for its recipe runner" in runner
+    # no other file loads them, and neither is a stage
+    for path in sorted(SKILL_DIR.rglob("*.md")):
+        if path in (SCOPE_DEFINITION, HEADLESS_DEFAULTS):
+            continue
+        text = _read(path)
+        for name in ("{tierASurfaceFile}", "{headlessBoundaryDefaultsFile}", "references/headless-boundary-defaults",
+                     "load `references/tier-a-surface"):
+            assert name not in text, (path.name, name)
+    for path in (TIER_A_SURFACE, HEADLESS_DEFAULTS):
+        assert "nextStepFile" not in _read(path), path.name
+    assert "extractPublicApiProbeOrder:" in _read(TIER_A_SURFACE)
+    assert "tierASurfaceFile: 'references/tier-a-surface.md'" in _read(HEADLESS_DEFAULTS)
+
+
+def test_skill_md_names_the_one_recipe_runner_exception():
+    """architecture-4: the Overview's cheap signals name the one place step 3 runs create-skill's recipe runner."""
+    [line] = [line for line in _read(SKILL_MD).splitlines() if "not full AST extraction" in line]
+    assert ("Scope on cheap signals (manifests, top-level exports, intent), not full AST extraction, with one "
+            "exception: at Forge tier and above, step 3 runs create-skill's recipe runner only to pin a file list a "
+            "glob cannot express (`scope.tier_a_include` and the headless `public-api` include).") in line
+    assert "\u2014" not in line
+    assert len(_read(SKILL_MD)) // 4 < 2500

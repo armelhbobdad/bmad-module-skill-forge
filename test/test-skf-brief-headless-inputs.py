@@ -35,6 +35,12 @@ summary, which step 3 does not recap in the same turn.
 no gate, and its §5b scripts and assets question is gone: step 4 shows both
 intents as editable `detect` defaults and is the one scope confirmation.
 
+#1138 (architecture-7): the boundary defaults, their bullets and the halt
+moved to references/headless-boundary-defaults.md, which step 3 §3's GATE
+loads for a headless run with no `include`; the GATE and the component
+library detection stay in §3. The public-api default has the runner print
+its files (`--print public-files`).
+
 No test runs the step prose, so these checks pin it, and they run the
 recommender and the validator the prose relies on.
 """
@@ -64,6 +70,8 @@ HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
 SCOPE_DEFINITION = REFERENCES / "scope-definition.md"
+HEADLESS_DEFAULTS = REFERENCES / "headless-boundary-defaults.md"
+TIER_A_SURFACE = REFERENCES / "tier-a-surface.md"
 CONFIRM_BRIEF = REFERENCES / "confirm-brief.md"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 RECOMMENDER = SCRIPTS / "skf-recommend-scope-type.py"
@@ -258,9 +266,14 @@ def _boundary_gate() -> str:
     return _section(_read(SCOPE_DEFINITION), "### 3. Define Boundaries Based on Selection")
 
 
+def _defaults() -> str:
+    """The headless boundary defaults step 3 §3's GATE loads (#1138): the table, the bullets and the halt."""
+    return _read(HEADLESS_DEFAULTS)
+
+
 def test_every_source_scope_type_has_a_headless_boundary_default_or_a_halt():
     gate = _boundary_gate()
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
     assert tuple(rows) == SOURCE_SCOPE_TYPES, rows
     validator = _load(INPUTS_VALIDATOR, "skf_validate_brief_inputs")
     assert set(rows) | {"docs-only"} == validator.VALID_SCOPE_TYPES
@@ -282,8 +295,7 @@ def test_a_boundary_default_is_a_warning_the_envelope_carries():
 
 
 def test_a_reference_app_scope_without_include_halts_input_missing():
-    gate = _boundary_gate()
-    [halt] = [line for line in gate.splitlines() if line.startswith("A scope with no default")]
+    [halt] = [line for line in _defaults().splitlines() if line.startswith("A scope with no default")]
     assert re.search(re.escape(HALT_CALL) + r'--halt-reason input-missing`.*then HALT \(exit code 2\)', halt)
     schema = json.loads(_read(ENVELOPE_SCHEMA))
     assert schema["$defs"]["skf-envelope"]["const"]["exit_codes"]["input-missing"] == 2
@@ -291,7 +303,7 @@ def test_a_reference_app_scope_without_include_halts_input_missing():
 
 
 def test_the_count_heuristic_falls_back_to_full_library_and_says_so():
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _boundary_gate(), re.M))
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
     modules = rows["specific-modules"]
     for needle in ("`named_module_subset`", "`specific-modules-count`", "switch to `full-library`",
                    "`scope.rationale`", "`chosen` `full-library`", "`accepted_recommendation` false",
@@ -355,11 +367,11 @@ def test_a_module_include_is_the_snapshot_path_of_the_module():
     """A module's `path` in the snapshot is repo-relative and already carries the module root and any
     workspace (`--root`), so the include adds no prefix of its own: `auth/**` would match nothing under a
     src/ layout, and a second workspace prefix would double it."""
-    gate = _boundary_gate()
+    gate = _defaults()
     [module] = [line for line in gate.splitlines() if line.startswith("- **A module include**")]
     for needle in ("`<path>/**`", "`path` in `{run_dir}/snapshot.json`", "`{run_dir}/package-snapshot.json`",
                    "with any workspace prefix already in it", "A `named_module_subset` name maps to the §4.3 module",
-                   "`{monorepo_workspace}/**` when step 2 picked a workspace (§3b), else `**`"):
+                   "`{monorepo_workspace}/**` when step 2 picked a workspace (scope-definition.md §3b), else `**`"):
         assert needle in module, needle
     assert "Globs carry the `monorepo_workspace` prefix" not in gate
     workspaces = _load(SCRIPTS / "skf-detect-workspaces.py", "skf_detect_workspaces")
@@ -369,7 +381,7 @@ def test_a_module_include_is_the_snapshot_path_of_the_module():
 
 
 def test_the_headless_exclusions_are_the_full_library_templates_globs():
-    [bullet] = [line for line in _boundary_gate().splitlines() if line.startswith("- **The default exclusions**")]
+    [bullet] = [line for line in _defaults().splitlines() if line.startswith("- **The default exclusions**")]
     globs = re.findall(r"`(\*\*/[^`]+)`", bullet)
     assert len(globs) == 7, globs
     full_library = _section(_read(TEMPLATES), "### Full Library Boundaries")
@@ -377,52 +389,31 @@ def test_the_headless_exclusions_are_the_full_library_templates_globs():
         assert f"`{glob}`" in full_library, glob
 
 
-def _public_api_files(result: Path) -> list[str]:
-    """Run the documented one-line listing over a runner result and return the lines it prints."""
-    [block] = _blocks(_boundary_gate(), "entry_point_diff")
-    [line] = block.strip().splitlines()
-    argv = shlex.split(line.replace("{run_dir}/public-api.json", result.as_posix()))
-    assert argv[:3] == ["uv", "run", "python"]
-    proc = subprocess.run([sys.executable, *argv[3:]], capture_output=True, text=True, encoding="utf-8",
-                          timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    return proc.stdout.splitlines()
-
-
-def test_the_public_api_default_is_the_files_that_define_the_public_names(tmp_path):
+def test_the_public_api_default_is_the_files_that_define_the_public_names():
     """Step 2's quick mode names the entry file that lists an export as its `source_file`, so a barrel
-    gave an include of the barrel alone. The default takes the runner's trace to the defining files."""
-    gate = _boundary_gate()
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
-    assert "public API file" in rows["public-api"] and "`source_file`" not in gate
-    [bullet] = [line for line in gate.splitlines() if line.startswith("- **The public API files**")]
-    assert "§3c's recipe runner" in bullet and '-o "{run_dir}/public-api.json"' in bullet
-    assert "the `full-library` default as its globs" in bullet
-    assert "`warn: headless boundary default public-api: full-library boundaries ({the reason})`" in gate
-    result = tmp_path / "public-api.json"
-    result.write_bytes(json.dumps({"entry_point_diff": {"public": [
-        {"name": "own", "via": "declaration", "file": "src/index.ts"},
-        {"name": "foo", "via": "re-export", "file": "src/lib/foo.ts"},
-        {"name": "Bar", "via": "re-export", "file": "src/lib/bar.ts"},
-        {"name": "Bar2", "via": "re-export", "file": "src/lib/bar.ts"},
-        {"name": "ns", "via": "namespace", "file": None},
-        # #703: a submodule's members are defined in files of their own, which the scope keeps too
-        {"name": "sub", "via": "namespace", "file": "src/sub/index.ts", "members": [
-            {"name": "deep", "local": None, "file": "src/sub/deep.ts", "line": 1},
-            {"name": "ext", "local": None, "file": None, "line": None}]},
-        {"name": "remote", "via": "namespace", "file": None, "members": None}],
-        # #830: another in-scope file that defines foo, which another entry point passes on
-        "other_definitions": [{"name": "foo", "via": "star", "file": "src/web/foo.ts"}]}}).encode("utf-8"))
-    assert _public_api_files(result) == ["src/index.ts", "src/lib/bar.ts", "src/lib/foo.ts", "src/sub/deep.ts",
-                                         "src/sub/index.ts", "src/web/foo.ts"]
+    gave an include of the barrel alone. The default takes the runner's trace to the defining files, which
+    `--print public-files` prints (#1138; test-skf-extract-public-api.py pins the set's rule)."""
+    defaults = _defaults()
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", defaults, re.M))
+    assert "public API file" in rows["public-api"] and "`source_file`" not in defaults
+    [bullet] = [line for line in defaults.splitlines() if line.startswith("- **The public API files**")]
+    for needle in ("At Forge tier and above, load `{tierASurfaceFile}` for its recipe runner",
+                   "the `full-library` default as its globs", '`-o "{run_dir}/public-api.json"` in place of its `-o`',
+                   "`--print public-files` in place of its `--print`",
+                   "At Quick tier, or when the runner exits 1 to 3, the clone fails or it prints no file",
+                   "`warn: headless boundary default public-api: full-library boundaries ({the reason})`"):
+        assert needle in bullet, needle
+    assert "python -c" not in defaults and "```" not in defaults
+    assert "tierASurfaceFile: 'references/tier-a-surface.md'" in _frontmatter(HEADLESS_DEFAULTS)
 
 
 @pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
 def test_the_documented_runner_call_traces_a_barrel_to_its_definitions(tmp_path):
     """The barrel the review verified: `export { foo } from './foo'; export { Bar } from './bar'`. The include
-    is the two definition files, plus the barrel only for a name it defines itself."""
-    tier_a = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
-    [block] = _blocks(tier_a, "{extractPublicApiHelper}")
+    is the two definition files, plus the barrel only for a name it defines itself. The call is the tier-A
+    file's, with the swaps the public API bullet names."""
+    [block] = _blocks(_read(TIER_A_SURFACE), "{extractPublicApiHelper}")
+    assert '-o "{run_dir}/tier-a.json" --print tier-a-candidates' in block
     repo = _write_tree(tmp_path / "repo", {
         "package.json": '{"name": "acme", "main": "src/index.ts"}\n',
         "src/index.ts": "export { foo } from './foo';\nexport { Bar } from './bar';\nexport const own = 1;\n",
@@ -432,13 +423,15 @@ def test_the_documented_runner_call_traces_a_barrel_to_its_definitions(tmp_path)
     })
     line = (block.strip().replace("<source folder>", repo.as_posix()).replace("<include glob>", "src/**")
             .replace("<exclude glob>", "**/*.test.*").replace("{language}", "typescript")
-            .replace("{run_dir}/tier-a.json", (tmp_path / "public-api.json").as_posix()))
+            .replace('-o "{run_dir}/tier-a.json"', f'-o "{(tmp_path / "public-api.json").as_posix()}"')
+            .replace("--print tier-a-candidates", "--print public-files"))
     argv = shlex.split(line)
     assert argv[:3] == ["uv", "run", "{extractPublicApiHelper}"]
     proc = subprocess.run([sys.executable, str(EXTRACT_PUBLIC_API), *argv[3:]], capture_output=True, text=True,
                           encoding="utf-8", timeout=300, check=False, cwd=REPO)
     assert proc.returncode == 0, proc.stderr
-    assert _public_api_files(tmp_path / "public-api.json") == ["src/bar.ts", "src/foo.ts", "src/index.ts"]
+    assert proc.stdout.splitlines() == ["src/bar.ts", "src/foo.ts", "src/index.ts"]
+    assert json.loads((tmp_path / "public-api.json").read_text(encoding="utf-8"))["status"] == "ok"
 
 
 def _detection_block() -> str:
@@ -454,11 +447,12 @@ def test_component_library_detection_runs_the_registry_helper():
     assert block.count('--files-from "{run_dir}/tree.json"') == 3
     assert "registry --files-from \"{run_dir}/tree.json\" --candidates-only" in block
     gate = _boundary_gate()
-    bullet = gate[gate.index("- **Component library detection**"):gate.index("A scope with no default")]
+    # #1138: the detection stays in §3 (the interactive [C] flow runs it too) and ends it
+    bullet = gate[gate.index("- **Component library detection**"):]
     assert "`selected` when `headless_accept` is true" in bullet and "every `patterns[]` glob" in bullet
     assert "warn: component library detection skipped" in gate and RECORD_FILE in gate
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
-    assert "component library detection below" in rows["component-library"]
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
+    assert "scope-definition.md §3's component library detection" in rows["component-library"]
     templates = _read(TEMPLATES)
     # #1135 (leanness-7): the file ends with the component library section.
     component = templates[templates.index("### Component Library Boundaries"):]
@@ -507,7 +501,7 @@ def test_the_documented_detection_reads_step_twos_github_listing(tmp_path):
 
 
 def test_the_halt_says_how_a_specific_modules_caller_clears_it():
-    [halt] = [line for line in _boundary_gate().splitlines() if line.startswith("A scope with no default")]
+    [halt] = [line for line in _defaults().splitlines() if line.startswith("A scope with no default")]
     assert "or, for `specific-modules`, name the modules in `intent` or `scope_hint`" in halt
     [gates] = [line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |")]
     assert "a `reference-app` scope, or a `specific-modules` `scope_type` argument naming no module, halts" in gates
@@ -524,7 +518,7 @@ def test_a_reference_app_argument_without_include_halts_at_the_input_gate():
     assert "a `scope_type=reference-app` argument halts here instead (§2)" in row
     [invalid] = [line for line in text.splitlines() if line.startswith("- **`valid: false`**")]
     assert "a `reference-app` `scope_type` without `include`" in invalid
-    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _boundary_gate(), re.M))
+    rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", _defaults(), re.M))
     assert "a type the recommender picked" in rows["reference-app"]
     [codes] = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 2    |")]
     assert "a `scope_type=reference-app` argument with no `include` → `input-missing`" in codes
@@ -555,7 +549,8 @@ def test_a_derive_run_carries_the_scope_fields_step_three_set():
     section = _section(_read(REFERENCES / "write-brief.md"), "### 3. Write the Brief")
     start = section.index("```json\n")
     payload = section[start:section.index("```\n", start + len("```json\n"))]
-    for needle in ('"scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3 §3c}"]',
+    for needle in ('"scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3\'s '
+                   'references/tier-a-surface.md}"]',
                    "this key and the next two from step 3's component-library flow or its headless default",
                    '"scope_amendments":     null | [{"...": "each entry of the existing_amendments §2b bound, '
                    'verbatim"}]'):
@@ -679,11 +674,14 @@ def test_step_two_shows_its_analysis_once_in_the_summary():
                  '"**Target version:**', "Display: \"**Detected version:**", "to the user"):
         assert gone not in before, gone
     summary = _section(text, "### 5. Report Analysis Summary")
-    for needle in ("**Package:** {package_name} ({the number of its `dependencies`} dependencies)",
+    # #1138: both counts as the extractor wrote them in {run_dir}/extract.json
+    for needle in ("**Package:** {package_name} ({dependency_count} dependencies)",
+                   "**Public Exports/Entry Points ({export_count}):**",
+                   "and `dependency_count` and `export_count` as `{run_dir}/extract.json` holds them",
                    "**Detected language:** {the detector's language} ({confidence}, {detection_source})",
                    "**Extraction warnings:**", "- Target version: {target_version} (user-specified)",
                    "- Detected version: {the §4b version", "differs from your target version ({target_version})",
-                   "{bulleted list of the §4.3 exports}", "each with its one-line description"):
+                   "{bulleted list of the §4.3 exports, each name once}", "each with its one-line description"):
         assert needle in summary, needle
     # The detected version shows on every run; only the target version line hangs on a pin.
     assert (summary.index("- Detected version:") < summary.index("{If `target_version` was provided in step 01:}")

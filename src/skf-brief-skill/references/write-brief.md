@@ -101,7 +101,7 @@ If the file does not exist, proceed normally.
   "scope_exclude":    ["{approved exclude patterns}"],
   "scope_notes":      "{approved scope notes or empty string}",
   "scope_rationale":  null | {"recommended":"...","chosen":"...","accepted_recommendation":true|false,"heuristic":"...","reason":"...","recorded":"YYYY-MM-DD"},
-  "scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3 §3c}"],
+  "scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3's references/tier-a-surface.md}"],
   "scope_registry_path":  null | "{a component library's registry file; this key and the next two from step 3's component-library flow or its headless default}",
   "scope_ui_variants":    null | [{"name": "...", "package": "..."}],
   "scope_demo_patterns":  null | ["{demo globs}"],

@@ -210,13 +210,13 @@ Display `Listing the exports...`. This section runs exactly one of §4.1 (script
 
 3. On a non-zero exit of the extractor (codes 1 or 2 per its docstring), log its stderr, write `Could not extract the exports ({the first line of its stderr}); falling back to manual inspection.` to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and fall through to §4.2 (the prose-fallback path), which writes over `{run_dir}/extract.json`: never HALT just because the script choked on an unusual manifest.
 
-4. Keep `{run_dir}/extract.json`'s `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies` and `warnings` for §5, which shows the package, its dependency count, the exports and the warnings, and record those `warnings` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/extract.json"`. Its `version` feeds §4b, and step 3 counts its exports.
+4. Keep `{run_dir}/extract.json`'s `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `export_count`, `dependency_count` and `warnings` for §5, which prints both counts as the file holds them, and record those `warnings` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/extract.json"`. Its `version` feeds §4b; step 3's recommender reads its `export_count`, and its tier-A surface its `reexport_files`.
 
 #### 4.2 Procedure — fallback (not script-supported)
 
 Languages outside the script coverage (Ruby / C# / Swift / etc.) take this path. The §4.1 fall-through on script error also lands here.
 
-Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. Read the files you inspect from `{run_dir}/files` (fetched with §4.1's fetch line, naming them) or the local folder. Note any obvious entry points, and flag the limitation in the analysis summary so the user knows scoping is on coarser signals. Then stage an extraction with no export, so step 3 reads `{run_dir}/extract.json` on either path: `printf '{"exports": []}' > "{run_dir}/extract.json"`.
+Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. Read the files you inspect from `{run_dir}/files` (fetched with §4.1's fetch line, naming them) or the local folder. Note any obvious entry points, and flag the limitation in the analysis summary so the user knows scoping is on coarser signals. Then stage an extraction with no export, so step 3 reads `{run_dir}/extract.json` on either path: `printf '{"exports": [], "export_count": 0}' > "{run_dir}/extract.json"`.
 
 #### 4.3 Output format (both paths)
 
@@ -259,7 +259,7 @@ Whichever path produced it, keep the detected version for §5, which shows it be
 
 ### 5. Report Analysis Summary
 
-Present the complete analysis, the counts and notable files read from `{run_dir}/snapshot.json`:
+Present the complete analysis, the counts and notable files read from `{run_dir}/snapshot.json`, and `dependency_count` and `export_count` as `{run_dir}/extract.json` holds them (after §4.2, which stages an `export_count` of 0, the exports heading counts the entry points §4.2 noted):
 
 "**Analysis Complete**
 
@@ -267,7 +267,7 @@ Present the complete analysis, the counts and notable files read from `{run_dir}
 
 **Target:** {repo URL or path}
 {If §4.1 returned a `package_name`:}
-**Package:** {package_name} ({the number of its `dependencies`} dependencies)
+**Package:** {package_name} ({dependency_count} dependencies)
 **Detected language:** {the detector's language} ({confidence}, {detection_source})
 {If a `language_hint` or a ratified brief set the language:}
 **Language:** {language} (kept over the detected one)
@@ -276,8 +276,8 @@ Present the complete analysis, the counts and notable files read from `{run_dir}
 **Key Modules ({module_count}):**
 {bulleted list of the §4.3 modules, each with its one-line description}
 
-**Public Exports/Entry Points ({count}):**
-{bulleted list of the §4.3 exports}
+**Public Exports/Entry Points ({export_count}):**
+{bulleted list of the §4.3 exports, each name once}
 
 **Version:** {on a ratify run, the hydrated `version`; otherwise:}
 - Detected version: {the §4b version, or `not detected: defaulting to 1.0.0, which you can change when you confirm the brief` when detection failed or returned a non-semver value}

@@ -219,7 +219,12 @@ Output JSON shape (stdout):
                       "defined_in": "..."}, ...],      (defined_in: Python,
                                                    JS and TS, with
                                                    --source-root)
+    "export_count": 12,                           (the distinct names of
+                                                   `exports`: a name two
+                                                   files export counts once)
     "dependencies": ["requests", "pydantic", ...],
+    "dependency_count": 2,                        (the length of
+                                                   `dependencies`)
     "modules":      ["server", "client"],         (Maven/Gradle only)
     "module_folders": ["server", "client"],       (each module's folder in
                                                    the repository)
@@ -227,7 +232,24 @@ Output JSON shape (stdout):
     "warnings":     ["..."],                       (parse failures, fallbacks)
     "unlisted":     [{"file", "line", "statement", "specifier",
                       "module_file"}, ...],
-    "followed":     ["src/core.ts", ...]               (--follow only)
+    "followed":     ["src/core.ts", ...],              (--follow only)
+    "reexport_files": ["src/core.ts", ...]        (the files the entry
+                                                   files pass names on
+                                                   from: each export's
+                                                   defined_in, else, for a
+                                                   name passed on, the
+                                                   file the same trace
+                                                   reaches over --source-root
+                                                   and the --tree-file
+                                                   listing, each
+                                                   `followed` module and
+                                                   each `unlisted`
+                                                   module_file, less
+                                                   the --entry-file files,
+                                                   sorted; [] without
+                                                   --source-root and for
+                                                   a language with no
+                                                   defined_in)
   }
 
 `unlisted` holds one record per statement whose names come from a module
@@ -324,7 +346,12 @@ Full mode
       [--tier-a-include GLOB]... [--scope-type TYPE] [--language LANG]...
       [--files-from <file>] [--recipe-set standard|component-library]
       [--tier Quick|Forge|Forge+|Deep] [--head-cap N] [--recipes <file>]
-      [--timeout <seconds>] [-o <out.json>]
+      [--timeout <seconds>] [-o <out.json>
+      [--print tier-a-candidates|public-files]]
+
+--print, with -o, prints one file set on stdout once the JSON is written,
+one path per line (its --help gives each set's rule), so no caller filters
+the JSON by hand.
 
 Which files. The files under --source-root are those git lists there
 (tracked, and untracked but not ignored), or every file when it is not in
@@ -653,8 +680,9 @@ Exit codes (full):
        `unread` the files it may have left unread
   2    input error (no source root, an unreadable brief, file list or
        recipe file, a recipe without its metadata, no PyYAML, an -o file
-       that cannot be written, a --timeout not above 0), or a failure the
-       runner did not foresee: one line on stderr and no JSON
+       that cannot be written, a --timeout not above 0, --print without
+       -o), or a failure the runner did not foresee: one line on stderr
+       and no JSON
   3    no ast-grep the runner can run ("no-ast-grep"): none on PATH, or
        only an npm .cmd/.bat shim (Windows) with no native ast-grep.exe
        beside it (cmd.exe would read a repository path's `&` as syntax);
@@ -1665,17 +1693,22 @@ def extract(payload: dict) -> dict:
         except Exception as e:  # noqa: BLE001 — best-effort: scanner errors are warnings, not fatal
             warnings.append(f"export scan failed for {path}: {e}")
 
+    dependencies = parsed.get("dependencies", [])
     result = {
         "language": language,
         "package_name": parsed.get("name"),
         "version": parsed.get("version"),
         "description": parsed.get("description"),
         "exports": exports,
-        "dependencies": parsed.get("dependencies", []),
+        # the number skf-recommend-scope-type.py counts: a name two files export counts once
+        "export_count": len({e["name"] for e in exports if isinstance(e.get("name"), str) and e["name"]}),
+        "dependencies": dependencies,
+        "dependency_count": len(dependencies),
         "modules": parsed.get("modules", []),
         "module_folders": [_module_folder(manifest_path, module) for module in parsed.get("modules", [])],
         "warnings": warnings,
         "unlisted": _resolve_unlisted(unlisted, payload.get("tree"), entry_paths, warnings),
+        "reexport_files": [],  # set from the files with --source-root (_reexport_files)
     }
     if "_extra" in parsed:
         result["extra"] = parsed["_extra"]
@@ -4999,9 +5032,41 @@ def _full_exit_2(message: str) -> int:
     return 2
 
 
+def tier_a_candidates(result: dict) -> list[str]:
+    """--print tier-a-candidates: the files that define a name an entry
+    point passes on (`reexport_targets`, each `entry_point_diff.public`
+    row's `members`, `entry_point_diff.other_definitions`), less the entry
+    points (`entry_points.files`) and the files of `outside_scope` names,
+    each once, sorted. No diff (no ast-grep) gives none of its rows."""
+    diff = result.get("entry_point_diff") or {}
+    files = {row.get("file") for row in result.get("reexport_targets") or []}
+    files |= {member.get("file") for row in diff.get("public") or [] for member in row.get("members") or []}
+    files |= {row.get("file") for row in diff.get("other_definitions") or []}
+    entries = {entry.get("file") for entry in (result.get("entry_points") or {}).get("files") or []}
+    outside = {row.get("file") for row in diff.get("outside_scope") or []}
+    return sorted(f for f in files - entries - outside if f)
+
+
+def public_files(result: dict) -> list[str]:
+    """--print public-files: the file of each `entry_point_diff.public` and
+    `other_definitions` row and of each of its `members`, each once,
+    sorted. No diff (no ast-grep) gives none."""
+    diff = result.get("entry_point_diff") or {}
+    files: set[str | None] = set()
+    for row in [*(diff.get("public") or []), *(diff.get("other_definitions") or [])]:
+        files.add(row.get("file"))
+        files.update(member.get("file") for member in row.get("members") or [])
+    return sorted(f for f in files if f)
+
+
+PRINT_SETS = {"tier-a-candidates": tier_a_candidates, "public-files": public_files}
+
+
 def _main_full(args: argparse.Namespace) -> int:
     if not args.source_root:
         return _full_exit_2("--mode full needs --source-root")
+    if args.print is not None and not args.output:
+        return _full_exit_2("--print prints its file set once the JSON is written to -o: pass -o")
     if args.head_cap is not None and args.head_cap < 0:
         return _full_exit_2("--head-cap must be 0 (no cap) or more")
     if args.timeout is not None and not args.timeout > 0:
@@ -5020,6 +5085,10 @@ def _main_full(args: argparse.Namespace) -> int:
             return _full_exit_2(f"cannot write {args.output}: {exc}")
     else:
         sys.stdout.write(text)
+    if args.print is not None:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(newline="\n")  # a shell reads the lines: no CR on Windows
+        sys.stdout.write("".join(f"{file}\n" for file in PRINT_SETS[args.print](result)))
     return code
 
 
@@ -5522,6 +5591,14 @@ def _build_parser() -> argparse.ArgumentParser:
                       help=f"stop the ast-grep runs after this many seconds and still write the JSON, "
                            f"status incomplete (default {DEFAULT_TIMEOUT_SEC})")
     full.add_argument("-o", "--output", metavar="FILE", help="write the JSON here instead of stdout")
+    full.add_argument("--print", choices=tuple(PRINT_SETS),
+                      help="needs -o: once the JSON is written (exit 0, 1 or 3), print one file set on stdout, one "
+                           "path per line, sorted, each once (LF on every platform): tier-a-candidates, the files "
+                           "that define a name an entry point passes on (reexport_targets, the members of each "
+                           "entry_point_diff.public row and entry_point_diff.other_definitions), less the entry "
+                           "points (entry_points.files) and the files of entry_point_diff.outside_scope; "
+                           "public-files, the file of each entry_point_diff.public and other_definitions row and "
+                           "of each of its members")
     denominator = parser.add_argument_group("denominator mode (with --source-root, --brief, the scope flags, "
                                             "--language and -o)")
     denominator.add_argument("--quick", action="append", metavar="FILE",
@@ -5534,7 +5611,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 FULL_MODE_FLAGS = ("source_root", "brief", "include", "exclude", "tier_a_include", "scope_type", "language",
-                   "files_from", "recipe_set", "recipes", "tier", "head_cap", "timeout", "output")
+                   "files_from", "recipe_set", "recipes", "tier", "head_cap", "timeout", "output", "print")
 # The full mode flags quick mode takes with its file inputs, and entries mode always.
 QUICK_FILE_FLAGS = ("source_root", "language")
 # The full mode flags denominator mode takes, and its own.
@@ -6016,6 +6093,30 @@ def _defined_in(root: Path, result: dict) -> None:
         export["defined_in"] = resolve(export["source_file"], export["name"])
 
 
+def _reexport_files(root: Path, result: dict, listing: list[str], entries: list[str]) -> None:
+    """Set `reexport_files` of a Python, JavaScript or TypeScript quick
+    result (see "Quick mode" above): each export's `defined_in`, else, for a
+    name passed on whose `defined_in` is null, the file the same trace gives
+    over the files under `root` and the --tree-file `listing` (a module that
+    was never fetched ends its trace at its own file), each `followed`
+    module and each `unlisted` module_file (a module --follow did not read,
+    so its own file), less the `entries` files, each once, sorted."""
+    family = DEFINED_IN_FAMILIES.get(result.get("language") or "")
+    if family is None:
+        return
+    files = set(result.get("followed") or []) | {item.get("module_file") for item in result.get("unlisted") or []}
+    resolve: Callable[[str, str], str | None] | None = None
+    for export in result["exports"]:
+        file = export.get("defined_in")
+        if file is None and export["type"] in ("re-export", "namespace", "module"):
+            if resolve is None:
+                tree = set(list_tree(root)) | set(listing)
+                resolve = (_py_defined_in if family == "python" else _js_defined_in)(root, tree)
+            file = resolve(export["source_file"], export["name"])
+        files.add(file)
+    result["reexport_files"] = sorted(f for f in files - set(entries) if f)
+
+
 def _main_entries(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     """`--mode entries`: the entry files of one package, as JSON on stdout."""
     if args.manifest_file is not None or args.entry_file or args.follow_file:
@@ -6119,6 +6220,8 @@ def main(argv: list[str]) -> int:
                 resolve_version(args, result, payload.get("tree"))
             if args.source_root is not None and "_error" not in result:
                 _defined_in(Path(args.source_root), result)
+                _reexport_files(Path(args.source_root), result, payload.get("tree") or [],
+                                [Path(value).as_posix() for value in args.entry_file or []])
             if args.fetch_list is not None and "_error" not in result:
                 follow = [item["module_file"] for item in result["unlisted"] if item["module_file"]]
                 _write_fetch_list(args.fetch_list, list(dict.fromkeys(follow)))

@@ -4972,3 +4972,290 @@ class TestResolveVersion:
                       "--resolve-version"])
         assert exc.value.code == 2 and "--resolve-version reads the version files under --source-root" in \
             capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# #1138: the counts and the file sets Brief Skill reads instead of working
+# them out (determinism-6, determinism-7): quick mode's export_count,
+# dependency_count and reexport_files, and full mode's --print
+# --------------------------------------------------------------------------
+
+RECOMMENDER = SCRIPTS / "skf-recommend-scope-type.py"
+# A GitHub barrel: a named re-export of a module step 2 never fetches, an `export *` --follow fetches, a name of
+# its own and a name another package defines.
+GITHUB_BARREL = {
+    "package.json": '{"name": "demo", "main": "src/index.ts", "dependencies": {"zod": "3"}}\n',
+    "src/index.ts": ("export { b } from './b';\nexport * from './a';\nexport const own = 1;\n"
+                     "export { ext } from 'other-pkg';\n"),
+    "src/a.ts": "export function fromA() {}\n",
+    "src/b.ts": "export const b = 2;\n",
+}
+
+
+def _recommender_count(path: Path) -> int:
+    """The export_count skf-recommend-scope-type.py --extract-file reads from `path`."""
+    spec = importlib.util.spec_from_file_location("skf_recommend_scope_type", RECOMMENDER)
+    recommender = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(recommender)
+    return recommender._read_export_count(str(path))
+
+
+class TestBriefCountsAndFileSets:
+    def test_a_name_two_files_export_counts_once(self, tmp_path, capsys):
+        """determinism-6: export_count is the recommender's own count, the distinct names, so step 2's summary
+        and step 3's recommendation agree on a name two entry files export; dependency_count is the list's
+        length."""
+        root = _stage(tmp_path / "staged", {
+            "package.json": '{"name": "demo", "dependencies": {"zod": "3", "left-pad": "1"}}\n',
+            "a.ts": "export const foo = 1;\nexport const bar = 2;\n",
+            "b.ts": "export const foo = 3;\n"})
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--manifest-file", "package.json",
+                           "--entry-file", "a.ts", "--entry-file", "b.ts")
+        assert code == 0 and [e["name"] for e in out["exports"]] == ["foo", "bar", "foo"]
+        assert (out["export_count"], out["dependency_count"]) == (2, 2)
+        extract = tmp_path / "extract.json"
+        extract.write_bytes(json.dumps(out).encode("utf-8"))
+        assert _recommender_count(extract) == 2
+        # an older file, with no count: the recommender's own count is the same number
+        older = tmp_path / "older.json"
+        older.write_bytes(json.dumps({k: v for k, v in out.items() if k != "export_count"}).encode("utf-8"))
+        assert _recommender_count(older) == 2
+
+    def test_a_payload_carries_the_counts_too(self):
+        out = mod.extract({"language": "rust", "manifest": {"path": "Cargo.toml", "content": CARGO},
+                           "entries": [{"path": "src/lib.rs", "content": RUST_LIB}], "mode": "quick"})
+        assert (out["export_count"], out["dependency_count"], out["reexport_files"]) == (3, 1, [])
+        empty = mod.extract({"language": "python", "entries": [], "mode": "quick"})
+        assert (empty["export_count"], empty["dependency_count"], empty["reexport_files"]) == (0, 0, [])
+
+    def test_reexport_files_resolve_a_github_barrel(self, tmp_path, capsys, monkeypatch):
+        """determinism-7: Quick tier's tier-A list. --follow fetches the module `export *` names; the module of
+        a named re-export is never fetched, so its file comes from the listing; a name another package defines
+        has no file, and the entry file itself is left out."""
+        served = {path: text.encode("utf-8") for path, text in GITHUB_BARREL.items()}
+        asked: list[str] = []
+
+        def raw(owner, repo, ref, path):
+            asked.append(path)
+            return (served[path], "") if path in served else (None, "HTTP 404")
+
+        fetch = mod._sibling("skf-github-fetch.py")
+        monkeypatch.setattr(fetch, "_raw", raw)
+        monkeypatch.setattr(fetch, "_gh_raw", lambda *a: (None, "gh is not installed"))
+        root = _stage(tmp_path / "files", {path: GITHUB_BARREL[path] for path in ("package.json", "src/index.ts")})
+        listing = _listing(tmp_path, sorted(GITHUB_BARREL))
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                           "--manifest-file", "package.json", "--entry-file", "src/index.ts", "--follow",
+                           "--repo", "acme/lib")
+        assert code == 0 and asked == ["src/a.ts"] and out["followed"] == ["src/a.ts"]
+        assert not (root / "src" / "b.ts").exists(), "only the listing holds it"
+        assert [(e["name"], e["defined_in"]) for e in out["exports"]] == [
+            ("b", None), ("own", "src/index.ts"), ("ext", None), ("fromA", "src/a.ts")]
+        assert out["reexport_files"] == ["src/a.ts", "src/b.ts"]
+
+    def test_reexport_files_of_a_python_package(self, tmp_path, capsys):
+        root = _stage(tmp_path / "files", {
+            "pkg/__init__.py": "from .api import run\nfrom .gone import lost\nfrom pydantic import BaseModel\n"
+                               "__all__ = ['run', 'lost', 'BaseModel', 'local']\ndef local():\n    pass\n",
+            "pkg/api.py": "def run():\n    pass\n"})
+        listing = _listing(tmp_path, ["pkg/__init__.py", "pkg/api.py", "pkg/gone.py"])
+        code, out = _quick(capsys, "--language", "python", "--source-root", str(root), "--tree-file", str(listing),
+                           "--entry-file", "pkg/__init__.py")
+        assert code == 0 and out["reexport_files"] == ["pkg/api.py", "pkg/gone.py"]
+
+    def test_reexport_files_of_an_export_star_chain(self, tmp_path, capsys):
+        """Each module --follow read is in the list, one that only passes names on too (src/sub/index.ts), and
+        so is a module it could not read (src/gone.ts, only in the listing): its own file, as for a named
+        re-export whose module was never fetched."""
+        root = _stage(tmp_path / "files", {
+            "package.json": '{"name": "demo"}\n',
+            "src/index.ts": "export * from './sub';\nexport * from './gone';\n",
+            "src/sub/index.ts": "export * from './impl';\n",
+            "src/sub/impl.ts": "export const x = 1;\nexport const y = 2;\n"})
+        listing = _listing(tmp_path, ["package.json", "src/gone.ts", "src/index.ts", "src/sub/impl.ts",
+                                      "src/sub/index.ts"])
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                           "--manifest-file", "package.json", "--entry-file", "src/index.ts", "--follow")
+        assert code == 0 and out["followed"] == ["src/sub/index.ts", "src/sub/impl.ts"]
+        assert [item["module_file"] for item in out["unlisted"]] == ["src/gone.ts"]
+        assert out["reexport_files"] == ["src/gone.ts", "src/sub/impl.ts", "src/sub/index.ts"]
+
+    def test_reexport_files_need_a_source_root_and_a_trace(self, tmp_path, capsys, monkeypatch):
+        """None without --source-root (nothing to trace in), and none for a language defined_in does not trace."""
+        root = _stage(tmp_path / "staged", {"Cargo.toml": CARGO, "src/lib.rs": "pub use crate::inner::Thing;\n"})
+        code, out = _quick(capsys, "--language", "rust", "--source-root", str(root), "--manifest-file", "Cargo.toml",
+                           "--entry-file", "src/lib.rs")
+        assert (code, out["reexport_files"]) == (0, [])
+        _stage(tmp_path, GITHUB_BARREL)
+        monkeypatch.chdir(tmp_path)
+        code, out = _quick(capsys, "--language", "ts", "--manifest-file", "package.json", "--entry-file",
+                           "src/index.ts")
+        assert (code, out["reexport_files"]) == (0, [])
+
+    # The tier-A candidates (the one-liner scope-definition.md §3c ran, #584, #703, #725, #830)
+
+    def test_the_tier_a_candidates_are_the_defining_files(self):
+        """The defining files, less a name another package defines and less the entry points."""
+        assert mod.tier_a_candidates({
+            "entry_points": {"files": [{"file": "packages/foo/src/index.ts"}]},
+            "reexport_targets": [{"name": "a", "file": "packages/foo/src/a.ts"},
+                                 {"name": "quote", "file": "packages/foo/src/a.ts"},
+                                 {"name": "z", "file": "packages/foo/src/z-it's.ts"},
+                                 {"name": "local", "file": "packages/foo/src/index.ts"},
+                                 {"name": "other", "file": None}],
+        }) == ["packages/foo/src/a.ts", "packages/foo/src/z-it's.ts"]
+
+    def test_the_tier_a_candidates_take_a_namespaces_member_files(self):
+        """#703: a submodule the entry point exports passes its members on from files reexport_targets never
+        names (it gives the module's own file); those files are candidates too."""
+        assert mod.tier_a_candidates({
+            "entry_points": {"files": [{"file": "pkg/__init__.py"}]},
+            "reexport_targets": [{"name": "sub", "file": "pkg/sub/__init__.py"}, {"name": "foo", "file": "pkg/a.py"}],
+            "entry_point_diff": {"public": [
+                {"name": "foo", "via": "re-export", "file": "pkg/a.py"},
+                {"name": "sub", "via": "namespace", "file": "pkg/sub/__init__.py", "members": [
+                    {"name": "baz", "local": None, "file": "pkg/sub/impl.py", "line": 1},
+                    {"name": "ext", "local": None, "file": None, "line": None}]},
+                {"name": "old", "via": "namespace", "file": "pkg/old.py"}]},
+        }) == ["pkg/a.py", "pkg/sub/__init__.py", "pkg/sub/impl.py"]
+
+    def test_the_tier_a_candidates_take_each_other_definitions_file(self):
+        """#830: a name two packages each define has one `reexport_targets` row, at the file the runner keeps
+        for it; the other package's file is in `entry_point_diff.other_definitions`, and is a candidate too."""
+        assert mod.tier_a_candidates({
+            "entry_points": {"files": [{"file": "code/core/src/index.ts"}, {"file": "code/react/src/index.ts"}]},
+            "reexport_targets": [{"name": "compose", "file": "code/core/src/portable.ts"}],
+            "entry_point_diff": {"public": [{"name": "compose", "via": "re-export",
+                                             "file": "code/core/src/portable.ts"}],
+                                 "other_definitions": [{"name": "compose", "via": "star",
+                                                        "file": "code/react/src/portable.ts"},
+                                                       {"name": "own", "via": "declaration",
+                                                        "file": "code/react/src/index.ts"}]},
+        }) == ["code/core/src/portable.ts", "code/react/src/portable.ts"]
+
+    def test_the_tier_a_candidates_leave_out_the_files_scope_include_leaves_out(self):
+        """#725: a tier A name counts only in a file scope.include matches, so the file of a name an entry
+        point passes on from outside the scope (`entry_point_diff.outside_scope`) is no candidate."""
+        assert mod.tier_a_candidates({
+            "entry_points": {"files": [{"file": "packages/foo/src/index.ts"}]},
+            "reexport_targets": [{"name": "a", "file": "packages/foo/src/a.ts"},
+                                 {"name": "gen", "file": "packages/foo/generated/gen.ts"}],
+            "entry_point_diff": {"public": [], "outside_scope": [{"name": "gen",
+                                                                  "file": "packages/foo/generated/gen.ts"}]},
+        }) == ["packages/foo/src/a.ts"]
+
+    def test_the_public_files_are_the_files_that_define_the_public_names(self):
+        """The headless public-api default (the one-liner scope-definition.md §3 ran): each public row's file,
+        its namespace members' files (#703) and each other in-scope definition (#830)."""
+        assert mod.public_files({"entry_point_diff": {"public": [
+            {"name": "own", "via": "declaration", "file": "src/index.ts"},
+            {"name": "foo", "via": "re-export", "file": "src/lib/foo.ts"},
+            {"name": "Bar", "via": "re-export", "file": "src/lib/bar.ts"},
+            {"name": "Bar2", "via": "re-export", "file": "src/lib/bar.ts"},
+            {"name": "ns", "via": "namespace", "file": None},
+            {"name": "sub", "via": "namespace", "file": "src/sub/index.ts", "members": [
+                {"name": "deep", "local": None, "file": "src/sub/deep.ts", "line": 1},
+                {"name": "ext", "local": None, "file": None, "line": None}]},
+            {"name": "remote", "via": "namespace", "file": None, "members": None}],
+            "other_definitions": [{"name": "foo", "via": "star", "file": "src/web/foo.ts"}]}}) == [
+            "src/index.ts", "src/lib/bar.ts", "src/lib/foo.ts", "src/sub/deep.ts", "src/sub/index.ts",
+            "src/web/foo.ts"]
+
+    def test_a_run_with_no_diff_gives_no_file(self):
+        """Without ast-grep the runner writes no diff and no re-export target: both sets are empty."""
+        result = {"entry_points": {"files": [{"file": "src/index.ts"}]}, "entry_point_diff": None,
+                  "reexport_targets": []}
+        assert (mod.tier_a_candidates(result), mod.public_files(result)) == ([], [])
+
+    # --print
+
+    CANNED = {"mode": "full", "status": "ok", "entry_points": {"files": [{"file": "src/index.ts"}]},
+              "reexport_targets": [{"name": "b", "file": "src/b.ts"}, {"name": "a", "file": "src/a.ts"}],
+              "entry_point_diff": {"public": [{"name": "own", "file": "src/index.ts"},
+                                              {"name": "a", "file": "src/a.ts"}]}}
+
+    @pytest.mark.parametrize(("printed", "code", "lines"), [
+        pytest.param("tier-a-candidates", 0, ["src/a.ts", "src/b.ts"], id="tier-a-candidates"),
+        pytest.param("public-files", 0, ["src/a.ts", "src/index.ts"], id="public-files"),
+        pytest.param("tier-a-candidates", 1, ["src/a.ts", "src/b.ts"], id="incomplete"),
+    ])
+    def test_print_writes_the_json_then_prints_the_set(self, tmp_path, capsys, monkeypatch, printed, code, lines):
+        monkeypatch.setattr(mod, "run_full", lambda args: (self.CANNED, code))
+        target = tmp_path / "tier-a.json"
+        assert mod.main(["--mode", "full", "--source-root", str(tmp_path), "-o", str(target),
+                         "--print", printed]) == code
+        captured = capsys.readouterr()
+        assert captured.out.splitlines() == lines and captured.err == ""
+        assert json.loads(target.read_text(encoding="utf-8")) == self.CANNED
+
+    def test_print_after_a_run_with_no_ast_grep_prints_nothing(self, tmp_path, capsys, no_ast_grep):
+        root = _tree(tmp_path / "root", {"src/index.ts": "export const a = 1;\n"})
+        target = tmp_path / "public-api.json"
+        assert mod.main(["--mode", "full", "--source-root", str(root), "-o", str(target),
+                         "--print", "public-files"]) == 3
+        assert capsys.readouterr().out == ""
+        assert json.loads(target.read_text(encoding="utf-8"))["status"] == "no-ast-grep"
+
+    def test_print_prints_nothing_on_exit_2(self, tmp_path, capsys, monkeypatch):
+        def fail(args):
+            raise mod.RunnerError("recipe file not found")
+
+        monkeypatch.setattr(mod, "run_full", fail)
+        assert mod.main(["--mode", "full", "--source-root", str(tmp_path), "-o", str(tmp_path / "out.json"),
+                         "--print", "tier-a-candidates"]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and captured.err.splitlines() == ["error: recipe file not found"]
+
+    def test_print_prints_nothing_when_o_cannot_be_written(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr(mod, "run_full", lambda args: (self.CANNED, 0))
+        target = tmp_path / "missing" / "tier-a.json"
+        assert mod.main(["--mode", "full", "--source-root", str(tmp_path), "-o", str(target),
+                         "--print", "tier-a-candidates"]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and not target.exists()
+        (line,) = captured.err.splitlines()
+        assert line.startswith(f"error: cannot write {target}")
+
+    def test_print_writes_lf_lines_on_every_platform(self, tmp_path):
+        """A shell reads the lines, so no CR on Windows: bytes, not text."""
+        shim = tmp_path / "shim.py"
+        shim.write_bytes((
+            "import importlib.util, sys\n"
+            f"spec = importlib.util.spec_from_file_location('extract', {str(SCRIPT)!r})\n"
+            "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+            f"mod.run_full = lambda args: ({self.CANNED!r}, 0)\n"
+            "raise SystemExit(mod.main(sys.argv[1:]))\n").encode("utf-8"))
+        proc = subprocess.run([sys.executable, str(shim), "--mode", "full", "--source-root", str(tmp_path),
+                               "-o", str(tmp_path / "tier-a.json"), "--print", "tier-a-candidates"],
+                              capture_output=True, timeout=60, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == b"src/a.ts\nsrc/b.ts\n"
+
+    def test_print_needs_o(self, tmp_path, capsys, monkeypatch):
+        """Exit 2 before any run, with one stderr line and nothing on stdout."""
+        monkeypatch.setattr(mod, "run_full", lambda args: pytest.fail("no run without -o"))
+        assert mod.main(["--mode", "full", "--source-root", str(tmp_path), "--print", "public-files"]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        (line,) = captured.err.splitlines()
+        assert line.startswith("error: ") and "--print" in line and "-o" in line
+
+    @pytest.mark.parametrize(("argv", "message"), [
+        pytest.param(["--mode", "quick", "--print", "public-files"], "--print: full mode only", id="quick"),
+        pytest.param(["--mode", "quick", "--language", "ts", "--entry-file", "a.ts", "--print", "public-files"],
+                     "--print: full mode only", id="quick-files"),
+        pytest.param(["--mode", "entries", "--language", "ts", "--tree-file", "t.json", "--source-root", ".",
+                      "--print", "tier-a-candidates"], "--print: full mode only", id="entries"),
+        pytest.param(["--mode", "denominator", "--source-root", ".", "-o", "out.json", "--print", "public-files"],
+                     "--print: not denominator mode's", id="denominator"),
+        pytest.param(["--mode", "full", "--source-root", ".", "-o", "out.json", "--print", "everything"],
+                     "invalid choice", id="unknown-set"),
+    ])
+    def test_print_is_full_mode_only(self, capsys, argv, message):
+        """A flag error is argparse's: its usage, then one `error:` line that names --print; nothing on stdout."""
+        with pytest.raises(SystemExit) as exc:
+            mod.main(argv)
+        captured = capsys.readouterr()
+        assert exc.value.code == 2 and captured.out == ""
+        [line] = [line for line in captured.err.splitlines() if "error:" in line]
+        assert message in line and "--print" in line, line

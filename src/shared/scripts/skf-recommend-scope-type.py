@@ -59,9 +59,11 @@ fetched the --registry-files paths into. A registry file missing there is
 one whose contents were not given. Passing `entry_files` too is an error.
 
 --extract-file reads the extractor's output (skf-extract-public-api.py
---mode quick, or any JSON object with an `exports` list) and sets
-`export_count` to the number of distinct export names it lists, so no
-caller counts the exports by hand. Passing `export_count` too is an error.
+--mode quick, or any JSON object with an `export_count` or an `exports`
+list) and sets `export_count` to the file's `export_count`, else to the
+number of distinct export names its `exports` lists (the extractor's own
+count), so no caller counts the exports by hand. Passing `export_count`
+too is an error.
 
 Input (JSON object on stdin or via --json):
   signals       object, required unless source_type is docs-only. Exactly
@@ -100,7 +102,8 @@ Exit codes:
   2  bad input: invalid JSON, an unknown or mistyped key, no signals object,
      the tree, the registry contents or the export count passed twice, a
      tree listing that cannot be read, is empty or reports a failure, or an
-     --extract-file that cannot be read or holds no `exports` list
+     --extract-file that cannot be read, holds an `export_count` that is
+     not a whole number >= 0, or holds neither one nor an `exports` list
 """
 
 from __future__ import annotations
@@ -438,7 +441,9 @@ def _read_entry_dir(folder: str, tree: object) -> list[dict]:
 
 
 def _read_export_count(value: str) -> int:
-    """The number of distinct export names an extractor result lists."""
+    """An extractor result's `export_count` when it has one, else the
+    number of distinct export names its `exports` list holds (the
+    extractor's own definition of the count)."""
     try:
         with open(value, encoding="utf-8-sig") as fh:
             data = json.load(fh)
@@ -446,6 +451,11 @@ def _read_export_count(value: str) -> int:
         _die(f"cannot read --extract-file {value}: {getattr(e, 'strerror', None) or e}")
     except json.JSONDecodeError as e:
         _die(f"--extract-file {value} is not valid JSON: {e}")
+    if isinstance(data, dict) and "export_count" in data:
+        count = data["export_count"]
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            _die(f"--extract-file {value} holds an `export_count` that is not a whole number >= 0: {count!r}")
+        return count
     exports = data.get("exports") if isinstance(data, dict) else None
     if not isinstance(exports, list):
         _die(f"--extract-file {value} holds no `exports` list (skf-extract-public-api.py output)")
@@ -470,7 +480,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--extract-file",
-        help="the extractor's output (skf-extract-public-api.py): its distinct export names are counted as export_count",
+        help="the extractor's output (skf-extract-public-api.py): its export_count, else its distinct export names "
+             "counted, is export_count",
     )
     parser.add_argument(
         "--registry-files",

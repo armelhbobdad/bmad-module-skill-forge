@@ -3,9 +3,6 @@ nextStepFile: 'confirm-brief.md'
 recommendScopeTypeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-recommend-scope-type.py'
   - '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
-extractPublicApiProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
-  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 detectRegistryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
   - '{project-root}/src/shared/scripts/skf-detect-registry.py'
@@ -14,6 +11,8 @@ githubFetchProbeOrder:
   - '{project-root}/src/shared/scripts/skf-github-fetch.py'
 analyzeStepFile: 'analyze-target.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
+tierASurfaceFile: 'references/tier-a-surface.md'
+headlessBoundaryDefaultsFile: 'references/headless-boundary-defaults.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -26,7 +25,7 @@ draftCheckpointFile: 'references/draft-checkpoint.md'
 - Produce: scope type, include patterns, exclude patterns
 - **Headless (`{headless_mode}` is true):** no section prompts. Each section's **Headless** line says what it takes instead, from the arguments step 1's input gate validated, so a headless run never waits here.
 - **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`, supplemental `doc_urls`) are preserved as the current state; the three component-library fields are dropped only when this pass changes `scope.type` away from `component-library`. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules: revise in place, do not append.
-- **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json`, the files it fetched under `{run_dir}/files/` and its exports in `{run_dir}/extract.json`. §2c and §3c read them there, and a GitHub file not fetched yet is fetched beside them with `{githubFetchHelper}`, resolved from `{githubFetchProbeOrder}` (first existing path wins; HALT if no candidate exists), as step 2 §1 describes.
+- **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json`, the files it fetched under `{run_dir}/files/` and its exports in `{run_dir}/extract.json`. §2c and `{tierASurfaceFile}` read them there, and a GitHub file not fetched yet is fetched beside them with `{githubFetchHelper}`, resolved from `{githubFetchProbeOrder}` (first existing path wins; HALT if no candidate exists), as step 2 §1 describes.
 - **Resumed draft:** a run that resumed a draft at step 4 (draft-checkpoint.md Half 1) and came here through step 4's `[R]` has not run step 2 in this session. When `source_type` is `source` and `{run_dir}/tree.json` does not exist, load, read entire file, then execute {analyzeStepFile} first: it stages the analysis again at `{analysis_ref}` and chains back here.
 - **Ratify run (`ratify_mode: true`):** the hydrated brief's selections are the prior selections of the re-entry rule above, and the intent that §1 shows and §2c classifies is the change the user asked for when choosing [R], read with the hydrated `description`. For a source brief, step 2 has analyzed the brief's repository and §2c runs the recommender on that analysis: its `scope_type` and `matched_heuristic` replace the hydrated `recommended` and `heuristic`, and the §2c capture rules set the rest of `scope.rationale` from this pass (a brief without one gets one).
 
@@ -130,7 +129,7 @@ SKF_SCOPE_PAYLOAD
 ```
 
 - **A local source, or step 2's clone.** For a local path, or `{run_dir}/clone` when step 2 cloned the repository on `[L]`, drop the first two lines and pass the folder itself, `--entry-dir "{source_path}"`: its registry files are read in place.
-- **`--extract-file`.** The script counts the distinct export names step 2 §4 wrote there: none after §4.2, where the public-api rule does not fire.
+- **`--extract-file`.** The script reads the `export_count` step 2 §4 wrote there (0 after §4.2, where the public-api rule does not fire).
 - **`mode`.** `"interactive"` lets a registry file's contents decide the component-registry rule (10+ entries or a `Component[]` annotation), so a file whose contents could not be read does not count; a headless run passes `"headless"` (the §2c GATE), which counts such a file by its presence.
 - **A failed call.** The call prints one JSON object, or exits 2 and names the problem on stderr. For a payload key or signal the script does not accept, fix the payload and run the call again. For a file list it cannot read (the stderr line names the listing's problem), run the call again with `--tree-file "{run_dir}/tree-empty.json"` after `printf '[]' > "{run_dir}/tree-empty.json"`, and log `"warn: scope-type recommendation ran without the file list ({message}); the component-registry check did not run"`: write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. Interactively, show that warning with the recommendation, so the user can still pick [C].
 
@@ -158,25 +157,8 @@ Wait for user selection. Empty input or just Enter accepts the recommendation; a
 
 Show the selected type's flow from `{scopeTemplatesPath}` in one message: its defaults, what detection found and each phase's question, and take the user's picks and adjustments from one answer. [F] asks nothing, so its defaults stand until step 4. For [C], run the component library detection below first: the flow's phases 1 and 2 present what it found.
 
-**GATE [default: the scope type's boundary default]**: **Headless:** no boundary prompt runs. When an `include` argument was supplied, use `include` and `exclude` as given, split on commas (`exclude` empty when absent). Otherwise take the resolved scope type's default below, with the globs of an `exclude` argument, when one was supplied, added to its exclusions. Log what was chosen as `warn: headless boundary default <type>: <what was chosen>`, naming any `exclude` globs added, and record that line, so the envelope's `warnings` names the boundary nobody confirmed: write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**GATE [default: the scope type's boundary default]**: **Headless:** no boundary prompt runs. When an `include` argument was supplied, use `include` and `exclude` as given, split on commas (`exclude` empty when absent). Otherwise (`{headless_mode}` true and no `include` argument), load `{headlessBoundaryDefaultsFile}` and take the resolved scope type's default it gives, with the globs of an `exclude` argument, when one was supplied, added to its exclusions. Log what was chosen as `warn: headless boundary default <type>: <what was chosen>`, naming any `exclude` globs added, and record that line, so the envelope's `warnings` names the boundary nobody confirmed: write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
-| Scope type | Headless default when `include` is absent |
-|---|---|
-| `full-library` | One module include per module step 2 §4.3 picked, and the default exclusions |
-| `public-api` | One include per public API file (below), and the default exclusions |
-| `component-library` | The `full-library` default; `scope.registry_path` and `scope.demo_patterns` from the component library detection below, each demo pattern also added to the exclusions; every design system variant kept in `scope.ui_variants` |
-| `specific-modules` | One module include per module `named_module_subset` names, and the default exclusions. When it names none and the recommender matched `specific-modules-count` (the module count alone), switch to `full-library` and its default, and record the switch in `scope.rationale`: `chosen` `full-library`, `accepted_recommendation` false, `reason` `"headless: specific-modules came from the module count alone and no module was named; full-library boundaries used"`. When it names none and the type came from a `scope_type` argument, halt as below |
-| `reference-app` | None: only the caller knows the pattern surface. Halt as below (step 1's input gate already halted a `scope_type=reference-app` argument with no `include`, so this is a type the recommender picked) |
-
-- **A module include** is `<path>/**`, where `<path>` is the module's `path` in `{run_dir}/snapshot.json` (its `workspaces` or `module_candidates` entry, or the entry of `{run_dir}/package-snapshot.json` when §4.3 picked from it): repo-relative, with any workspace prefix already in it. For Maven and Gradle it is the §4.1 `modules` entry, prefixed with `{monorepo_workspace}/` when step 2 picked a workspace. A `named_module_subset` name maps to the §4.3 module it names. With no module picked, the include is `{monorepo_workspace}/**` when step 2 picked a workspace (§3b), else `**`.
-- **The default exclusions** are the Full Library template's test globs (`**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`) and build globs (`**/dist/**`, `**/build/**`, `**/target/**`). The template's configuration and documentation exclusions name no glob, and the module includes already leave the root configuration files and the docs folders out.
-- **The public API files** are the files that define the names the package's entry points export. Run §3c's recipe runner (its helper, source folder, clone and clone removal) with the `full-library` default as its globs and `-o "{run_dir}/public-api.json"`, then print the file of each public name, an entry point's own definitions, the files its re-exports lead to, the files that define a namespace's `members` (the names a submodule the package exports passes on) and each other in-scope file that defines a public name (`entry_point_diff.other_definitions`, such as a name two packages of a monorepo each define):
-
-  ```bash
-  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); print("\n".join(sorted({f for p in d["entry_point_diff"]["public"] + (d["entry_point_diff"].get("other_definitions") or []) for f in [p.get("file")] + [m.get("file") for m in p.get("members") or []] if f})))' "{run_dir}/public-api.json"
-  ```
-
-  At Quick tier, when the runner exits 1 to 3 or the clone fails, or when it prints no file, take the `full-library` default instead and give the reason in the warn line the GATE above records through `{run_dir}/warning.txt`: `warn: headless boundary default public-api: full-library boundaries ({the reason})`.
 - **Component library detection** (scope type `component-library`, interactive or headless). Resolve `{detectRegistryHelper}` from `{detectRegistryProbeOrder}` (first existing path wins) and, from `{project-root}`, list the demo files and score the registry candidates of step 2's file list. For a GitHub source, the second and third lines fetch the candidates into `{run_dir}/files` and `<source folder>` is `{run_dir}/files`; for a local source or step 2's clone, drop those two lines and pass `{source_path}`:
 
   ```bash
@@ -188,8 +170,6 @@ Show the selected type's flow from `{scopeTemplatesPath}` in one message: its de
 
   `demo` prints `patterns[]` (each glob with its `files` count and a `sample`), `excluded` and `directories`; `registry` prints `selected`, `headless_accept` and `candidates[]`, each with its `score` out of 9 and its `entry_count` (`uv run {detectRegistryHelper} --help` gives the rules). **Headless:** `scope.registry_path` is the recommender's `signals.registry_path` when §2c's call returned one, else `selected` when `headless_accept` is true (create-skill asks about a lower score), else unset; `scope.demo_patterns` is every `patterns[]` glob. When a command exits non-zero, or no candidate path resolves, log `warn: component library detection skipped ({its stderr, or skf-detect-registry.py is missing})`, write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and go on without it: the [C] flow asks the user, and the headless default sets neither field.
 
-A scope with no default emits the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-missing`, then HALT (exit code 2): "**A headless `{scope_type}` scope needs an `include` argument:** pass the files or folders the skill covers as comma-separated globs, or, for `specific-modules`, name the modules in `intent` or `scope_hint`."
-
 ### 3b. Monorepo Subpackage Convention
 
 **Applies only when step 02 §1b selected a workspace (`monorepo_workspace` is set).** A subpackage skill documents one package inside a larger repository, so the source and scope fields follow a fixed convention. Express them wrong and `skf-create-skill` cannot resolve the scope globs against the cloned source:
@@ -200,30 +180,7 @@ A scope with no default emits the halt envelope first, `uv run {emitEnvelopeHelp
 
 Carry the `monorepo_workspace` path forward from step 02 §1b into the `scope.notes` you draft here rather than recomputing it.
 
-### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)
-
-**Applies when a monorepo subpackage's `scope.include` uses coarse directory globs (`packages/foo/src/**`, `bin/**`) rather than an explicit file list.** Coarse globs also sweep in internal-only files (build scripts, state-store impls, generated config) that the package's public entry barrel never re-exports. `skf-create-skill` scores coverage against the *authoring* surface, and `skf-test-skill` re-derives that surface from the brief to guard against a deflated coverage denominator — so when the coarse-glob union is much larger than the documented export count and the brief names no narrower surface, the test gate inflates the denominator and an otherwise-complete skill scores as if it had large coverage gaps.
-
-Head this off by capturing the authoring surface as **`scope.tier_a_include`**: the concrete source files whose named exports the package's public entry barrel (`index.ts`, `lib.rs`, `__init__.py`) actually re-exports. List the definition files, not the umbrella barrel itself: a barrel re-exports the whole package, so including it widens the surface instead of narrowing it.
-
-- **Forge tier and above: the recipe runner traces the barrel.** It follows every re-export, `export *` and star import from the package's entry points to the file that defines each name. Resolve `{extractPublicApiHelper}` from `{extractPublicApiProbeOrder}` (first existing path wins). It reads the source on disk, at `{source_path}`: a local source, or step 2's `[L]` clone. For a GitHub source step 2 did not clone, the source folder is `{run_dir}/clone`, a clone of only the folders the globs name: step 2 §1's `[L]` clone command with `--sparse` added (and `--filter=blob:none`, which its commit-SHA form already carries), then, right after it (for a commit SHA, before its checkout), `git -C "{run_dir}/clone" sparse-checkout set "<folder>"`, one folder per `scope.include` glob (the part before its first wildcard). From `{project-root}`, run the runner over the confirmed globs, one `--include` per `scope.include` glob and one `--exclude` per `scope.exclude` glob:
-
-  ```bash
-  uv run {extractPublicApiHelper} --mode full --source-root "<source folder>" --include "<include glob>" --exclude "<exclude glob>" --language "{language}" -o "{run_dir}/tier-a.json"
-  ```
-
-  The candidates are the files that define a name an entry point passes on (`reexport_targets`, the `members` of a namespace in `entry_point_diff.public`, and `entry_point_diff.other_definitions`, each other in-scope file that defines a public name), less the entry points themselves (`entry_points.files[].file`) and the files of the names the runner lists outside the scope (`entry_point_diff.outside_scope`), since a tier A name counts only in a file `scope.include` matches. A file outside `scope.include` that a named re-export (`export { x } from`) or a barrel reaches has no `outside_scope` row and stays a candidate, which Create Skill's runner then warns about. Print them, one per line:
-
-  ```bash
-  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); entries = {f["file"] for f in d["entry_points"]["files"]}; diff = d.get("entry_point_diff") or {}; members = {m.get("file") for p in diff.get("public") or [] for m in p.get("members") or []}; others = {o.get("file") for o in diff.get("other_definitions") or []}; outside = {o.get("file") for o in diff.get("outside_scope") or []}; print("\n".join(sorted(({t["file"] for t in d["reexport_targets"]} | members | others) - {None} - entries - outside)))' "{run_dir}/tier-a.json"
-  ```
-
-  Once the runner has run, whatever its exit, remove a clone this section made (`rm -rf "{run_dir}/clone"`).
-- **Quick tier, or a runner that cannot trace** (it exits 3 when no ast-grep is installed, 1 or 2 when the scan fails), or a clone that fails (remove what it left, `rm -rf "{run_dir}/clone"`): read the entry barrel step 2 fetched and list its re-export targets by eye, and log `warn: tier-A surface listed by hand ({the reason})`: write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
-
-Present the candidate list for the user to confirm or adjust (headless: keep it as it is), and store the confirmed list as `scope.tier_a_include`.
-
-`scope.tier_a_include` does not change what gets extracted (that still follows `scope.include` / `scope.exclude`); it only pins the coverage denominator so the create-side and test-side counts agree without a mid-test hand-edit. Leave it unset when `scope.include` is already an explicit file list, or when the target is not a monorepo subset — there the coarse-glob union and the authoring surface coincide and no narrowing is needed.
+**Tier-A surface.** When `monorepo_workspace` is set and `scope.include` uses coarse directory globs (`packages/foo/src/**`, `bin/**`) rather than an explicit file list, load `{tierASurfaceFile}` and follow it: it sets `scope.tier_a_include`. Otherwise leave `scope.tier_a_include` unset.
 
 ### 4. Handle Language Override
 
