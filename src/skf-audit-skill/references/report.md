@@ -1,21 +1,12 @@
 ---
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 nextStepFile: 'health-check.md'
-# This run's stage data folder, where step 5 saved the findings and their
-# classification.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
-# Resolve `{sourceTreeHelper}` to the first existing path. The Result
-# Contract removes the private tree the [C] of upstream-checkout.md read
-# the source in.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
-# §2 and §3: this skill's renderer of the Out-of-Scope New Public API and the
-# Provenance tables, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
-# §1b: this skill's builder of the result payload and its route, from the skill root.
 resultContextScript: 'scripts/build-result-context.py'
-# The customization helper the Result Contract's post-audit hook runs.
 resolveCustomizationProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
   - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
@@ -118,16 +109,16 @@ Append to {outputFile}:
 **Upstream moved.** The skill is built from `{baseline_ref}` and upstream is now at `{upstream_ref}`{; this audit read `{upstream_ref}`, when `audit_ref_source` is `checkout-latest`; this audit read the baseline, otherwise}. Run `[US] Update Skill` with `--target-ref {upstream_ref}`, so the update compares the ref upstream moved to rather than the one the skill is pinned to.
 
 {IF the frontmatter's `audit_ref_source` is `checkout-latest` (the [C] of `upstream-checkout.md` audited a newer upstream ref than the baseline) or its `upstream_moved` is true:}
-**Version preservation (non-destructive).** `update-skill` keeps the audited version (`{audited_version}`) unchanged, writes the new version in a folder of its own beside it (see `skf-update-skill/references/merge.md` §6b, which leaves the previous version on disk) and repoints the skill's `active` link at it (see `skf-update-skill/references/write.md` §5b). On the next export, the prior version's export-manifest entry transitions to `status: archived`, its files kept for rollback (see `skf-export-skill/references/update-context.md`). Do **not** recommend `skf-drop-skill` + `skf-create-skill` for a version bump: that destroys the prior version's artifacts.
+**Version preservation (non-destructive).** `update-skill` keeps the audited version (`{audited_version}`) unchanged, writes the new version in a folder of its own beside it, leaving the previous version on disk, and repoints the skill's `active` link at it. On the next export, the prior version's export-manifest entry becomes `status: archived`, its files kept for rollback. Do **not** recommend `skf-drop-skill` + `skf-create-skill` for a version bump: that destroys the prior version's artifacts.
 
 {IF the Out-of-Scope New Public API table above has rows:}
-**New public API outside the scope.** update-skill's scope reconciliation (detect-changes §1c) offers each path to bring into the brief's scope; review them there, or refine the scope with `skf-brief-skill` before running update-skill.
+**New public API outside the scope.** update-skill's scope reconciliation offers each path to bring into the brief's scope; review them there, or refine the scope with `skf-brief-skill` before running update-skill.
 
 {IF only MEDIUM or LOW findings:}
 **Optional:** Minor drift detected. Manual updates sufficient, or run `[US] Update Skill` for automated remediation.
 
 {IF CLEAN:}
-**No drift against `{audit_ref}`.** The skill matches the source at `{audit_ref}` (`{audit_commit_short}`){; upstream has not moved past `{baseline_ref}`, when `upstream_moved` is false; upstream was not checked ({upstream_fetch}), when it is null; and when it is true, the Upstream moved recommendation above applies}.
+**No drift against `{audit_ref}`.** The skill matches the source at `{audit_ref}` (`{audit_commit_short}`){; upstream has not moved past `{baseline_ref}`, when `upstream_moved` is false; upstream was not checked ({upstream_fetch}), when it is null; and when it is true, the Upstream moved recommendation above applies}.{ The skill is ready for `[EX] Export Skill`, when `upstream_moved` is not true.}
 ```
 
 ### 3. Add Provenance Section
@@ -166,12 +157,7 @@ If finalizing the report fails (read-only mount, disk full, permissions denied) 
 
 ### 5. Present Final Report Summary
 
-Present a concise completion summary to the user conveying: the skill name, the **overall drift score** (CLEAN / MINOR / SIGNIFICANT / CRITICAL), the severity-count table (CRITICAL / HIGH / MEDIUM / LOW / Total), and the saved report path (`{outputFile}`). Close with the next-action recommendation matching the drift level:
-
-- **CRITICAL or HIGH findings** → action required: recommend running the `[US] Update Skill` workflow to apply the priority remediations; manual review at `{outputFile}` is the alternative.
-- **The frontmatter's `upstream_moved` is true**, whatever the drift score → recommend `[US] Update Skill` with `--target-ref {upstream_ref}`, naming `{baseline_ref}` and `{upstream_ref}`: update-skill otherwise compares the ref the skill is pinned to, not the one upstream moved to. `{upstream_ref}` is the newer tag when upstream released one (`--target-ref {latest_tag}`), and for a skill built from the default branch it is `HEAD` (`--target-ref HEAD`).
-- **MEDIUM or LOW only** → minor drift: manual updates suffice, or run `[US] Update Skill` for automated remediation.
-- **CLEAN, and `upstream_moved` is not true** → no action needed: the skill matches `{audit_ref}` and is ready for `[EX] Export Skill`.
+Present a concise completion summary to the user conveying: the skill name, the **overall drift score** (CLEAN / MINOR / SIGNIFICANT / CRITICAL), the severity-count table (CRITICAL / HIGH / MEDIUM / LOW / Total), and the saved report path (`{outputFile}`). Close with the recommendation §2's Workflow Recommendation chose: each block it wrote, read from `{outputFile}`.
 
 This summary reads as final but is **not** the terminal step — proceed to §6.
 
@@ -186,8 +172,6 @@ uv run {emitEnvelopeHelper} emit --workflow skf-audit-skill --run-dir "{run_dir}
 ```
 
 It writes `{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name) and its `audit-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_AUDIT_RESULT_JSON` line), stamps the timestamp, `run_id`, `headless_decisions` and `warnings` into both, and prints the `SKF_AUDIT_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads `drift_score`, `report_path`, `next_workflow`, `upstream_moved` and `upstream_ref` from the final message. A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, fix the value the message on its stderr names (in {outputFile}'s frontmatter, or the saved classification), run §1b again, then run the emitter once more; if it fails again, HALT with **exit 4**, `halt_reason: "write-failed"`, phase `report:result-contract`: the run's result contract could not be written.
-
-**Hard-halt envelope (headless only).** Every hard halt prints its envelope through the emitter on **stderr** with `status: "error"` and the `exit_code` / `halt_reason` for its failure class, as each step's **Halt envelope** paragraph shows: it is the only failure signal a wrapping pipeline receives. `drift_score` carries its last known value (`null` if classification never ran); `report_path` is `null` when the report write failed.
 
 **Post-audit hook (optional).** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 

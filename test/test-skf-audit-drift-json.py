@@ -81,12 +81,20 @@ classifies, with no New Patterns table; steps 1c and 5a and report §3 print
 their sections from the saved files; and build-result-context.py states the
 route rule once, so every route check here runs its next_workflow().
 
+#1133: the stage files keep the instructions they act on. Step 3 has no
+section restating the saved diff's sets (the helpers' docstrings and step 5
+hold them), report.md's version note states its guarantee with no other
+skill's section, §5 closes with the recommendation §2 chose, no halt logs
+a line of its own, and only health-check.md keeps a frontmatter
+comment.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -388,7 +396,7 @@ def test_a_diff_that_saved_nothing_halts_inside_the_contract():
     assert ('Otherwise it names `{provenanceMap}`, which step 1 §4 read: HALT with **exit 3**, '
             '`halt_reason: "provenance-invalid"`') in flow
     assert "Exit `2` is an error that saved nothing" not in flow
-    rerun = _flow(_slice(_read(STRUCTURAL), "### 1b.", "### 2."))
+    rerun = _flow(_slice(_read(STRUCTURAL), "### 1b.", "### 4b."))
     assert "acting on its exit code as §1 does" in rerun
     severity = _flow(_slice(_read(SEVERITY), "### 2. Classify, Score, and Count", "The saved result"))
     assert ('An `error` that starts `Cannot write output` (here or in §1) is a failed write: HALT with '
@@ -429,34 +437,31 @@ def test_step_3_names_only_the_diff_fields_it_reads_itself(tmp_path):
         assert gone not in structural, gone
 
 
-def test_the_diff_section_keeps_what_steers_judgment():
-    """§2 keeps the facts later steps judge by: a move is no removal, an
-    ambiguous name goes to step 5, and two fields are not drift."""
-    section = _flow(_slice(_read(STRUCTURAL), "### 2. What the Diff Decides", "### 4b."))
-    assert "never from set arithmetic of your own. Four of its facts steer what later steps judge:" in section
-    assert "A move is **not** a removal." in section
-    # #702: an unpaired export off a public-api skill's surface is listed apart and is no drift
-    for token in ("**Off the public surface** (`not_public[]`): for a public-api skill, step 2 marked each export "
-                  "by the public surface create-skill and update-skill keep its map to, and an export marked "
-                  "`public: false` that pairs with no map entry is listed here, not in `added[]`",
-                  "it is not counted in Total Drift Items or the exit code, and step 5 never classifies it "
-                  "(`--from-diff` reads only `added[]`, `removed[]`, `changed[]` and `moved[]`)",
-                  "A name in `ambiguous_names[]` stays in `added[]` for step 5 to pair, and a map entry is matched "
-                  "whatever its mark, so none reads as removed."):
-        assert token in section, token
-    assert ("**Not drift:** `summary.signature_unverified` counts matched exports whose signature sits in "
-            "different fields on the two sides") in section
-    assert "`label_changes[]` lists matched exports whose `confidence` or `extraction_method` differs" in section
-    assert "Neither is counted in Total Drift Items, and step 5 classifies neither." in section
+def _docstring(path: Path) -> str:
+    """A script's module docstring, each run of whitespace folded to one space."""
+    return _flow(ast.get_docstring(ast.parse(_read(path))))
 
 
-def test_ambiguous_names_are_shown_and_judged():
+def test_what_the_diff_decides_lives_where_it_acts():
+    """#1133 (leanness-1): step 3 keeps no section restating the saved diff's
+    sets. skf-structural-diff.py's docstring says what each set holds, step
+    5 judges the ambiguous names and grades only the sets --from-diff
+    projects, and the renderer leaves the rest out of Total Drift Items, so
+    a move is no removal, an ambiguous name is judged and four sets are not
+    drift, each stated once where it acts."""
     structural = _read(STRUCTURAL)
-    section = _flow(_slice(structural, "### 2. What the Diff Decides", "### 4b."))
-    assert "**Ambiguous names** (`ambiguous_names[]`)" in section
-    assert ("step 5 judges whether a removed and an added entry of one name are one export that "
-            "moved") in section
+    assert "### 2. What the Diff Decides" not in structural
+    assert re.findall(r"^### (\w+)\.", structural, re.M) == ["1", "1b", "4b", "5", "6"]
+    diff_doc = _docstring(DIFF)
+    # a move: an entry left on one side paired with one on the other side, never a removal
+    assert ("An entry left on one side only is paired with one left on the other side as a move when its name "
+            "occurs exactly once in each inventory.") in diff_doc
+    # an ambiguous name stays removed and added, for a reviewer: step 5 §1 item 2
+    assert ("they stay in removed[] and added[], and the name is listed in ambiguous_names[] with the files on each "
+            "side, for a reviewer to judge") in diff_doc
     judged = _flow(_slice(_read(SEVERITY), "2. **Ambiguous names.**", "Keep one finding per item"))
+    assert ("A finding with `ambiguous_name: true` (step 3's Ambiguous Names table) stays `removed` or `added`, unless "
+            "you judge a removed and an added finding of one name to be one export that moved.") in judged
     # #1131: a flag records the move the way skf-severity-classify.py --pair-move describes it.
     assert "Then add `--pair-move {removed index} {added index}`, which records the move as the helper records one" \
         in judged
@@ -464,6 +469,30 @@ def test_ambiguous_names_are_shown_and_judged():
     assert "without `ambiguous_name`, and the removed finding is deleted" in judged
     assert "ambiguous_name" in classify_mod.__doc__ and "moved from" in classify_mod.__doc__
     assert "--pair-move REMOVED_INDEX ADDED_INDEX" in classify_mod.__doc__
+    # #702: an unpaired export off a public-api skill's surface is listed apart and is no drift
+    for token in ("a current entry marked false that pairs with none (no baseline entry of its name and file, and no "
+                  "move) goes to not_public[], not added[]: create-skill and update-skill never document an export "
+                  "off the surface, so it is no drift",
+                  "One whose name is in ambiguous_names[] stays in added[], where a reviewer pairs it.",
+                  "A matched or moved entry is compared whatever its mark, so a baseline entry off the surface is "
+                  "never reported removed.",
+                  "not_public[] never counts toward the exit code"):
+        assert token in diff_doc, token
+    # two fields that name the tool or the field layout, not the source
+    assert "Label changes never enter changed[], never make an export count as changed" in diff_doc
+    assert "Informational: never a change, never in the exit code" in diff_doc
+    # step 5 grades only the sets --from-diff projects: not_public[], label_changes[] and signature_unverified[] never
+    projected = _slice(classify_mod.__doc__, "--from-diff DIFF:", "Changed exports.")
+    buckets = re.findall(r"^ +([a-z_]+)\[\] {2,}\S", projected, re.M)
+    assert sorted(buckets) == ["added", "changed", "moved", "removed"], buckets
+    assert "not_public" not in projected
+    assert "label_changes[] and signature_unverified[] are never findings." in _flow(projected)
+    rules = _flow(_slice(_read(SEVERITY), "## Rules", "## MANDATORY SEQUENCE"))
+    assert ("A provenance label difference (step 3's **Provenance label differences (not drift)** table) is never a "
+            "finding: do not classify it, count it or let it move the drift score") in rules
+    render_doc = _docstring(RENDER)
+    assert "### Summary Added, Removed, Moved, Changed and **Total Drift Items**, their sum" in render_doc
+    assert "the exports of a public-api skill the diff left out of Added Exports, which are not drift" in render_doc
 
 
 def test_no_step_echoes_findings():
@@ -630,16 +659,25 @@ def test_script_asset_drift_keeps_to_the_brief(tmp_path):
     block = re.search(r"^```bash\n(.*?)^```", section, re.M | re.S).group(1)
     assert re.sub(r"\s+", " ", block.replace("\\\n", " ")).strip() == FILE_DRIFT_CMD
     flow = _flow(section)
-    assert ("the other way round, walks the source tree for the files the map does not track, with the script "
-            "and asset detector create-skill and update-skill use, plus the documents under `docs/authoritative/`, "
-            "keeping only those the skill brief's scope takes") in flow
-    assert ("a file under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, and a script or an asset whose "
-            "`scripts_intent` or `assets_intent` is `none` are never new files") in flow
-    assert "standard script, asset and doc folders" not in flow
+    assert ("Run one comparison of the tracked `file_entries[]` and the untracked scripts, assets and "
+            "`docs/authoritative/` files the brief's scope takes; pass `--brief` only when "
+            "`{forge_data_folder}/{skill_name}/skill-brief.yaml` exists:") in flow
+    # #1133: the walk's rules are the helper's, stated once in its docstring
+    walk = _docstring(COMPARE_FILE_HASHES)
+    for token in ("The walk finds scripts and assets with the detector create-skill and update-skill use",
+                  "leaving out a module of a Python package named like a script folder, which is code unless it "
+                  "runs on its own",
+                  "It also takes each docs/authoritative/ file, a document.",
+                  "A file under `scripts/[MANUAL]/` or `assets/[MANUAL]/` is user-authored, never added",
+                  "--brief <skill-brief.yaml> keeps a walked file as added only when the brief's scope takes it",
+                  "A file the map's `entries[]` cite is code, never an added file",
+                  "a script or an asset whose `scripts_intent` or `assets_intent` is `none` is no added file"):
+        assert token in walk, token
+    for gone in ("standard script, asset and doc folders", "with the script and asset detector",
+                 "a quick skill, has none"):
+        assert gone not in flow, gone
     assert ('"added":   ["<rel-path>", ...],   // a script or an asset to the detector, or a docs/authoritative/ '
             "file, on disk, in the brief's scope, NOT in file_entries") in section
-    assert ("Pass `--brief` only when that brief, `{forge_data_folder}/{skill_name}/skill-brief.yaml`, exists (a "
-            "skill built without one, such as a quick skill, has none)") in flow
     assert '"added_not_checked": null,' in section
     assert ("**When `added_not_checked` is not null** (`no skill brief` without `--brief`, the error of a brief the "
             "helper could not read, or `cannot load ... re-install SKF` when a helper beside it could not be "
@@ -799,7 +837,7 @@ def test_a_relocated_export_becomes_a_move(tmp_path):
     (scan,) = [line.strip() for line in _read(RE_INDEX).splitlines()
                if line.strip().startswith("uv run {extractionSnapshotHelper} scan-list ")]
     assert _run_prose(scan, audit.values).returncode == 0
-    section = _slice(_read(STRUCTURAL), "### 1b.", "### 2.")
+    section = _slice(_read(STRUCTURAL), "### 1b.", "### 4b.")
     found = audit.run(STRUCTURAL, "relocation-candidates --diff")
     assert found.returncode == 0, found.stdout + found.stderr
     assert json.loads(found.stdout)["candidates"] == 1
@@ -1243,13 +1281,23 @@ def test_init_offers_the_skills_when_none_was_named():
             "asked.") in section
     assert ('run `uv run {skillInventoryHelper} "{skills_output_folder}"` and, above the question, list, numbered, '
             'the `name` and `active_version` of each `skills[]` entry whose `skf_skill` is true') in section
-    assert ('**No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, '
-            '`halt_reason: "input-missing"`') in section
+    # #1133 (leanness-5): the headless rules add only what the halts above do not say.
+    assert ('**Headless default** (when `{headless_mode}`): nothing is asked again, and every §1 halt uses phase '
+            '`init:skill-path`. With neither `skill_name` nor `skill_path`, HALT with **exit 2**, '
+            '`halt_reason: "input-missing"`, with no `skill_name` in the payload. The "Skill not found" case halts '
+            'with **exit 3**, `halt_reason: "skill-not-found"`, in place of asking again.') in section
+    # the "Skill not found" case: no version on disk (items 4 and 5), a package path with no version, no SKILL.md
+    for route in ('no version of the skill is on disk. Take the "Skill not found" halt below',
+                  'Take the "Skill not found" halt below with the helper\'s `detail`',
+                  'A `metadata.json` that is missing or names no `version` leaves no version to audit: take the '
+                  '"Skill not found" halt below.',
+                  '"Skill not found at `{resolved_skill_package}`. Check the path and try again."'):
+        assert route in section, route
     # A crashed or missing inventory helper is helper-missing, not a missing skill.
     assert ('A command that prints no JSON crashed (On Activation already checked `uv`): HALT with **exit 3**, '
             '`halt_reason: "helper-missing"`') in section
-    assert ('**`skf-skill-inventory.py` missing or crashed** (item 6\'s command with no JSON, or no candidate and '
-            'no flat `SKILL.md`): HALT with **exit 3**, `halt_reason: "helper-missing"`') in section
+    assert ('else HALT with **exit 3**, `halt_reason: "helper-missing"`, and the message "Cannot locate '
+            '`skf-skill-inventory.py`') in section
 
 
 def test_init_loads_the_bound_provenance_map():
@@ -1576,6 +1624,77 @@ def test_the_version_note_names_only_bound_values():
     note = _slice(report, "**Version preservation (non-destructive).**", "\n")
     assert "keeps the audited version (`{audited_version}`) unchanged" in note
     assert "{IF the frontmatter's `audit_ref_source` is `checkout-latest`" in report
+    # #1133 (architecture-4): the note states the guarantee and cites no other skill's section.
+    assert "§" not in note
+    assert not re.findall(r"skf-[a-z-]+/(?:references|assets|scripts)/", note), note
+    for words in ("writes the new version in a folder of its own beside it, leaving the previous version on disk",
+                  "repoints the skill's `active` link at it",
+                  "the prior version's export-manifest entry becomes `status: archived`, its files kept for rollback",
+                  "Do **not** recommend `skf-drop-skill` + `skf-create-skill` for a version bump"):
+        assert words in note, words
+    # the drift report's text names no section of another skill, so it depends on no other skill's numbering
+    report_text = "".join(re.findall(r"^```markdown\n(.*?)^```", report, re.M | re.S))
+    assert "## Remediation Suggestions" in report_text and "§" not in report_text
+
+
+def test_the_report_states_each_rule_once():
+    """#1133 (leanness-7): the Result Contract no longer repeats the halt
+    envelope each stage's paragraph gives, §5 closes with the recommendation
+    §2 chose instead of choosing one again (each block it wrote, read back
+    from the report, so an Upstream moved line beside an Optional one keeps
+    its `--target-ref`), and the CLEAN line itself says the skill is ready
+    for Export Skill."""
+    report = _read(REPORT)
+    assert "Hard-halt envelope" not in report
+    summary = _flow(_slice(report, "### 5. Present Final Report Summary", "### Result Contract"))
+    assert ("and the saved report path (`{outputFile}`). Close with the recommendation §2's Workflow Recommendation "
+            "chose: each block it wrote, read from `{outputFile}`.") in summary
+    for gone in ("→", "CRITICAL or HIGH findings", "MEDIUM or LOW only", "--target-ref", "Export Skill"):
+        assert gone not in summary, gone
+    clean = _slice(report, "{IF CLEAN:}", "```")
+    assert clean.rstrip().endswith(
+        "applies}.{ The skill is ready for `[EX] Export Skill`, when `upstream_moved` is not true.}"), clean
+    # when upstream moved, the recommendation §5 closes with is §2's Upstream moved line, whatever the score
+    recommendation = _slice(report, "### Workflow Recommendation", "### 3.")
+    assert ("{IF the frontmatter's `upstream_moved` is true:}\n**Upstream moved.** The skill is built from "
+            "`{baseline_ref}`") in recommendation
+    assert "Run `[US] Update Skill` with `--target-ref {upstream_ref}`" in recommendation
+
+
+def test_no_halt_logs_a_line_of_its_own():
+    """#1133 (leanness-5): a halt's envelope is its headless record, so no
+    halt in a stage file adds a `headless:` log line, on its own line or
+    beside it; only the gates that go on log one."""
+    init = _read(INIT)
+    assert len([line for line in init.splitlines() if "HALT" in line]) > 10
+    gates = []
+    for path in sorted(REFS.glob("*.md")):
+        for line in _read(path).splitlines():
+            if "headless:" in line:
+                assert "**GATE [default:" in line, (path.name, line)
+                gates.append(path.name)
+    # the manifest-lag and baseline-confirm gates of step 1, and the upstream-drift gate
+    assert {"init.md", "upstream-checkout.md"} <= set(gates), gates
+    assert "(the headless envelope is in the block below)" not in init
+    assert init.count("**Headless default**") == 1
+
+
+def test_only_health_check_keeps_a_frontmatter_comment():
+    """#1133 (leanness-8): each frontmatter comment of the stage files said
+    what the body says where it acts (a probe order's Resolve line, a
+    loading route, a save to the stage data folder). health-check.md keeps
+    its one, since its body never says where `shared/health-check.md`
+    resolves."""
+    stages = [path for path in sorted(REFS.glob("*.md")) if _read(path).startswith("---\n")]
+    assert {path.name for path in stages} >= {"init.md", "re-index.md", "report.md", "health-check.md"}
+    for path in stages:
+        text = _read(path)
+        # a line that starts with `#`, or a value followed by an inline `# comment`
+        comments = [line for line in text[4:text.index("\n---\n", 4)].splitlines() if re.search(r"(?:^|\s)#", line)]
+        if path.name == "health-check.md":
+            assert "resolves relative to the SKF module root" in " ".join(comments), comments
+        else:
+            assert comments == [], (path.name, comments)
 
 
 def test_init_records_the_fetch_outcome():

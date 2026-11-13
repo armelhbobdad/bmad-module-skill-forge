@@ -1,9 +1,7 @@
 ---
 nextStepFile: 'severity-classify.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-# This run's stage data folder: §4 saves the findings step 5 classifies.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
-# §4: this skill's renderer of the Semantic Drift tables, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 
@@ -58,7 +56,7 @@ Run items 1 to 4 in the main thread (Pattern 3, data operations): only the main 
      - Bind `{collection_label}` ← `{collection_name} (registered but empty)` and fall through to the **direct-content fallback** below instead of skipping outright.
    - **Registry entry present and populated.** Use the `name` field from the registry entry as the collection to query, bind `{collection_label}` ← `{collection_name}`, `{claims_source}` ← `from QMD` and `{confidence}` ← `T2`, and proceed to bullet 2.
 
-   **Direct-content fallback** (used when no extraction collection is registered for the skill, or the one registered is empty): read what the skill documents about each export from `SKILL.md` and `references/*.md` of the audited skill in place of item 2's query, then run items 3 and 4 on those claims, checking the current source under `{source_root}` with the Deep-tier AST tooling this step already requires (ast_bridge; see step 2 §1 "Deep tier"). This fallback is reachable only from Deep tier: §1 short-circuits Quick/Forge/Forge+ before §2 runs, so AST tooling is guaranteed available here. Record findings with confidence label `T1-low-fallback` rather than T2: the claims come from reading the skill's files, not from its QMD collection. Bind `{claims_source}` ← `read from its SKILL.md and references/*.md in direct-content fallback mode` and `{confidence}` ← `T1-low-fallback`: §4's header then says the claims came from the skill's files and, in `{collection_label}`, why. The step's output schema is otherwise unchanged.
+   **Direct-content fallback** (used when no extraction collection is registered for the skill, or the one registered is empty): read what the skill documents about each export from `SKILL.md` and `references/*.md` of the audited skill in place of item 2's query, then run items 3 and 4 on those claims, checking the current source under `{source_root}` with the Deep-tier AST tooling this step already requires (ast_bridge, as `knowledge/tool-resolution.md` resolves it). Record findings with confidence label `T1-low-fallback` rather than T2: the claims come from reading the skill's files, not from its QMD collection. Bind `{claims_source}` ← `read from its SKILL.md and references/*.md in direct-content fallback mode` and `{confidence}` ← `T1-low-fallback`: §4's header then says the claims came from the skill's files and, in `{collection_label}`, why.
 
 2. Query the collection for what the skill documents about each export (usage, conventions, dependencies, architecture): the original side
 3. For each claim, read the export's current definition and call sites under `{source_root}` at the file and line `{forge_version}/extraction-snapshot.json` records for it: the current side (an export the snapshot no longer holds is a removed export step 3 already reports: skip it)

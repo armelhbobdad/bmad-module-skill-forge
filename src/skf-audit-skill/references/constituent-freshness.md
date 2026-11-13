@@ -1,12 +1,10 @@
 ---
 nextStepFile: 'severity-classify.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-# This run's stage data folder: step 5 classifies the JSON saved here.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 compareConstituentHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
-# §2: this skill's renderer of the Constituent Freshness table, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 

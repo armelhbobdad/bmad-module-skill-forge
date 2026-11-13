@@ -49,6 +49,10 @@ fallback. These tests keep audit and the knowledge base on it:
   snapshot marks each export by the public-surface rule and keeps them all,
   and a surface the rule cannot read is warned and recorded once as
   `public_surface_not_applied` (#702).
+#1133: a run the runner serves reads extraction-patterns.md only from the
+protocol heading up to the by-hand part, where create-skill's read stops too; the no-runner
+branch alone reads the rest, the tier degradation rules and each recipe's
+`kind`.
 With the pinned ast-grep on PATH, the protocol's CLI streaming template run
 over a batch of listed files prints only their exports, at `$NAME`'s line.
 
@@ -167,14 +171,15 @@ def test_no_temporal_pass_is_left() -> None:
 
 
 def test_deep_tier_extracts_as_forge_and_semantic_diff_queries_qmd() -> None:
-    deep = _slice(_read(RE_INDEX), "**Deep tier (ast-grep + QMD available):**", "**Tool resolution:**")
-    assert "Identical extraction to Forge tier, labeled by tool as at Forge tier" in deep
-    assert "No QMD query at this step: step 4 (semantic diff) queries QMD itself" in deep
+    deep = _slice(_read(RE_INDEX), "- **Deep:**", "\n")
+    assert "as Forge; step 4 (semantic diff) queries QMD, not this step." in deep
     # semantic-diff.md reads the QMD registry itself, and its direct-content
-    # fallback still points at this block for the Deep-tier AST tooling.
+    # fallback names the Deep-tier AST tooling by the table that resolves it,
+    # since the Deep line here no longer describes it (#1133).
     semantic = _read(SEMANTIC_DIFF)
     assert "`qmd_collections` registry" in semantic
-    assert 'see step 2 §1 "Deep tier"' in semantic
+    assert "(ast_bridge, as `knowledge/tool-resolution.md` resolves it)" in semantic
+    assert "step 2 §1" not in semantic
 
 
 def test_semantic_diff_compares_the_skill_with_the_current_source() -> None:
@@ -234,11 +239,11 @@ def test_sections_run_one_to_five_and_the_ccc_pointer_resolves() -> None:
     headings = re.findall(r"^### (\w+)\. (.+)$", text, re.M)
     assert [number for number, _ in headings] == ["1", "2", "3", "4", "5"]
     assert "ccc search" not in text and "CCC Rename Detection" not in text
-    forge_plus = _slice(text, "**Forge+ tier (ast-grep + ccc available):**", "**Deep tier")
-    assert "CCC rename detection runs in step 3 (`structural-diff.md` §1b)" in forge_plus
+    forge_plus = _slice(text, "- **Forge+:**", "\n")
+    assert "as Forge; ccc rename detection runs in step 3 (`structural-diff.md` §1b)." in forge_plus
     assert "4b" not in text
     # The pass it points at exists, and starts from the saved diff's removed[].
-    ccc = _slice(_read(STRUCTURAL_DIFF), "### 1b. Find Relocated Exports (Forge+ and Deep with ccc)", "### 2.")
+    ccc = _slice(_read(STRUCTURAL_DIFF), "### 1b. Find Relocated Exports (Forge+ and Deep with ccc)", "### 4b.")
     assert "each `removed[]` entry of `{auditDataFolder}/structural-diff.json`" in ccc
 
 
@@ -260,24 +265,62 @@ def test_frontmatter_names_the_protocol_and_every_data_path_resolves() -> None:
 
 def test_forge_tier_follows_the_protocol() -> None:
     text = _read(RE_INDEX)
-    forge = _slice(text, "**Forge tier (ast-grep available):**", "**Tier degradation handling")
+    forge = _slice(text, "- **Forge:**", "\n")
     for phrase in (
-        "The recipe runner extracts, as the **AST Extraction Protocol** in `{extractionPatternsData}` says",
-        "one `skf-extract-public-api.py --mode full` call over the bounded scan list from §2",
-        "keeps every match (`--head-cap 0`: a match past a cap would read as a removed export in step 3)",
-        "never run the recipes one at a time, batch them, or merge and dedupe their matches by hand",
-        "line (`$NAME`'s line, as create-skill records it",
-        "the declaration on one line even when a formatter split its parameters over several",
-        "Read by eye only what the runner leaves (§3): the forms the recipes leave out (Known Limitation #11 in "
-        "`{extractionPatternsData}`)",
+        "one recipe-runner call (§3) over the bounded scan list (§2) extracts, as the **AST Extraction Protocol** in "
+        "`{extractionPatternsData}` says",
+        "While it can run, never run the recipes one at a time, batch them, or merge and dedupe their matches by "
+        "hand.",
     ):
         assert phrase in forge, phrase
     assert "per source file" not in text
-    forge_plus = _slice(text, "**Forge+ tier (ast-grep + ccc available):**", "**Deep tier")
-    assert "Identical extraction to Forge tier (the AST Extraction Protocol, above)" in forge_plus
+    forge_plus = _slice(text, "- **Forge+:**", "\n")
+    assert forge_plus.startswith("- **Forge+:** as Forge;")
+    # §3 holds what the call and a by-eye record take: no head cap, `$NAME`'s line, the declaration on one line.
+    (lines,) = _blocks(_slice(text, "### 3. Extract Current Exports", "**2. Build the snapshot.**"))
+    assert "--head-cap 0" in _flow(lines[1])
+    leaves = _flow(_slice(text, "**3. What the runner leaves.**", SNAPSHOT_WRITE))
+    assert "`signature` (the declaration on one line)" in leaves and "`line` (`$NAME`'s line)" in leaves
+    assert ("Read by eye (T1-low, `extraction_method: source-read`, `ast_node_type: null`) only:") in leaves
+    assert "the forms the recipes leave out (Known Limitation #11 in `{extractionPatternsData}`)" in leaves
     rules = _flow(_slice(text, "## Rules", "## MANDATORY SEQUENCE"))
     assert "At Forge, Forge+ and Deep the recipe runner extracts; read by eye only what it leaves (§3)" in rules
     assert "never judge completeness by eye" in rules
+
+
+PROTOCOL_HEADING = "## AST Extraction Protocol"
+BY_HAND_HEADING = "## Running the Recipes Without the Runner"
+
+
+def test_a_runner_run_reads_only_the_protocol_part_of_the_patterns() -> None:
+    """#1133 (architecture-5): a run the recipe runner serves reads create-skill's extraction-patterns.md from
+    its protocol heading up to the by-hand part, the heading create-skill's extract.md stops at too (create-skill
+    starts at the top, for its tiers' strategies; audit's §3 says what it reads by eye). Only the no-runner
+    branch reads the rest, the tier degradation rules and the `kind` each recipe declares."""
+    text = _read(RE_INDEX)
+    forge = _slice(text, "- **Forge:**", "\n")
+    assert f"read that file from its `{PROTOCOL_HEADING}` heading up to its `{BY_HAND_HEADING}` heading" in forge
+    headings = re.findall(r"^## .+$", _read(PATTERNS), re.M)
+    assert headings.count(PROTOCOL_HEADING) == 1 and headings.count(BY_HAND_HEADING) == 1, headings
+    assert headings.index(PROTOCOL_HEADING) < headings.index(BY_HAND_HEADING)
+    extract = _read(SRC / "skf-create-skill" / "references" / "extract.md")
+    assert f"load it up to its `{BY_HAND_HEADING}` heading" in extract
+    build = _slice(text, "**2. Build the snapshot.**", "**3. What the runner leaves.**")
+    no_runner = _slice(build, "- **`runner_status` is `no-ast-grep`", "\n")
+    assert f"the runner cannot run. Read the rest of `{{extractionPatternsData}}`, from its `{BY_HAND_HEADING}` " \
+           "heading." in no_runner
+    assert ("When no ast-grep can run the recipes either, follow `{tierDegradationRulesData}` (AST Tool "
+            "Unavailable, Per-File AST Failure) for the fallback and the user notification.") in no_runner
+    assert ("as its `ast_node_type`, the `kind` its recipe declares in `{extractionPatternsData}` (ast-grep's "
+            "output does not report it)") in no_runner
+    body = _body(text)
+    for only in ("{tierDegradationRulesData}", "`kind`"):
+        assert body.count(only) == no_runner.count(only) == 1, only
+    # the by-hand heading is named twice: as the Forge line's bound and where the no-runner branch reads on
+    assert body.count(BY_HAND_HEADING) == 2
+    degradation = _read(SRC / DEGRADATION_PATH)
+    for heading in ("## AST Tool Unavailable", "## Per-File AST Failure"):
+        assert heading in degradation, heading
 
 
 def test_tool_resolution_line_names_the_recipes() -> None:
@@ -479,7 +522,9 @@ def test_the_fallback_keeps_every_match() -> None:
                   "Limitation #4 `find_code` retry the same",
                   "drop the `| head -{HEAD_CAP}` from the CLI streaming template, in each batch,",
                   "a match past a cap reads as a removed export in step 3",
-                  "Record each export as item 3 does, T1 with `ast-grep` for one the recipes match."):
+                  "Record each export as item 3 does, T1 with `ast-grep` for one the recipes match and, as its "
+                  "`ast_node_type`, the `kind` its recipe declares in `{extractionPatternsData}` (ast-grep's output "
+                  "does not report it)."):
         assert token in fallback, token
     # the parameters it overrides are the ones the protocol sets
     patterns = _read(PATTERNS)
@@ -577,16 +622,21 @@ def test_a_public_api_build_marks_the_surface_and_warns_once_without_one() -> No
             '**exit 3**, `halt_reason: "helper-missing"`, phase `re-index:snapshot`, showing the `error`.') in error
     assert "for a public-api skill, each with its `public` mark when the surface marks it" in _flow(text)
     surface = _flow(_slice(text, "**The public surface.**", SNAPSHOT_WRITE))
-    for token in ("With `--scope-type public-api` the helper marks each export of a language family whose entry "
-                  "points are a barrel `public: true` or `public: false`, by the rule create-skill and update-skill "
-                  "keep a public-api skill's provenance map to (`public_surface` in `skf-extraction-inventory.py`)",
-                  "the line's `public_surface` gives the rule's `problem` (null when it applied) and "
-                  "`marked_not_public`",
-                  "Every export stays in the snapshot, whatever its mark",
-                  "Step 3's diff lists an export marked `public: false` that pairs with no map entry under "
-                  "`not_public[]`, never under `added[]`",
-                  "Without the flag, or with any other scope type, nothing is marked and `public_surface` is null"):
-        assert token in surface, token
+    assert ("**The public surface.** Every export stays in the snapshot, whatever its `public` mark: dropping one "
+            "would read as removed.") in surface
+    # #1133: the helper's docstring states the rule it applies, so the step does not restate it.
+    doc = _flow(SNAPSHOT_MOD.__doc__)
+    for token in ("Each export of a language family whose entry points are a barrel is marked `public`, true or "
+                  "false, by skf-extraction-inventory.py's public-surface rule",
+                  "the rule create-skill keeps a public-api skill's provenance map to, and update-skill's change "
+                  "manifest too",
+                  "Every export stays in the snapshot, so a map entry off the surface is never reported removed",
+                  "step 3's diff lists an export marked false that pairs with no map entry under `not_public[]`, "
+                  "not `added[]`",
+                  "nothing is marked, and `public_surface.problem` says why",
+                  "Any other scope type, and no flag, mark nothing and give `public_surface` null",
+                  '"marked_not_public": N}'):
+        assert token in doc, token
     schema = json.loads((SRC / "shared" / "scripts" / "schemas" / "skf-audit-result-envelope.v1.json")
                         .read_text(encoding="utf-8"))
     assert "public_surface_not_applied (with the rule's problem)" in schema["properties"]["warnings"]["description"]
@@ -601,9 +651,6 @@ def test_a_baseline_gap_is_read_with_the_kind_its_declaration_has() -> None:
     records it itself (#1131), so the worker has no module rule. One by-eye
     pass: a gap the reader cannot place is a warning, never a second loop."""
     text = _read(RE_INDEX)
-    forge = _flow(_slice(text, "**Forge tier (ast-grep available):**", "**Tier degradation handling"))
-    assert ("the provenance map's entries the runner leaves out (a Python or Rust underscore name such as "
-            "`__version__`) that the source still declares") in forge
     build = _flow(_slice(text, "**2. Build the snapshot.**", "**3. What the runner leaves.**"))
     assert ("Item 3 reads the gaps once: when `complete` is true and `extraction_gaps` still lists a name after "
             "that read (one the reader could not place), warn \"**Extraction gap:** {name} ({file}:{line}) was not "
@@ -630,8 +677,8 @@ def test_re_index_always_scans_the_bounded_list() -> None:
     text = _read(RE_INDEX)
     assert "degraded" not in text.lower()
     scan = _flow(_slice(text, "### 2. Build Bounded Scan List", "### 3. Extract Current Exports"))
-    assert ("Every skill that reaches this step has a provenance map: step 1 stops a skill without one, and "
-            "sends a compose-mode stack and a docs-only skill around this step") in scan
+    assert ("Scan only the files the provenance map lists, never new ones: a file the brief excluded (fixtures, "
+            "vendored or generated code) would read as added drift, and new files are update-skill's to find.") in scan
     for gone in ("--language", "--exclude", "**/node_modules/**", "Scan mode"):
         assert gone not in text, gone
 

@@ -1,12 +1,5 @@
 ---
-# Step 1 §5b loads this file only when upstream moved past the skill's
-# baseline (the helper's `moved` status). Once the choice has bound the
-# audit-ref values, the run goes back to step 1 at its §6: this file has no
-# nextStepFile, since a step loaded from it would start init.md again at §1.
 resumeStepFile: 'init.md'
-# Resolve `{sourceTreeHelper}` to the first existing path: [C] reads the
-# upstream ref into a private tree with `resolve`, and every later HALT and
-# step 6 remove that tree with `close`.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -63,7 +56,7 @@ The remote's default branch is at `{remote_head_short}`. Auditing the baseline t
   uv run {sourceTreeHelper} resolve --source-repo "{source_repo}" --source-root "{source_root}" --target-ref "{upstream_ref}" --timeout "{tree_timeout}"
   ```
 
-  It reads `{upstream_ref}` into a private tree, from SKF's clone when the clone holds the commit and from the remote otherwise, and never writes to the clone (the call passes no `--update-clone`), so this run holds no lock and leaves the clone's checkout as it found it. Display each entry of its `warnings`, then:
+  Display each entry of its `warnings`, then:
   - **`status` is `ready` and `tag_resolution.status` is `target-ref`:** bind `{source_tree}` ← `tree` and `{source_root}` ← `{source_tree}`: every later step reads the source in this tree. Set `audit_ref = {upstream_ref}`, `audit_ref_source = "checkout-latest"` and `audit_commit` ← `source_commit`.
   - **Anything else** (`skipped`, because `{source_repo}` is no remote repository; `unavailable`, with its `reason` and `message`; a `ready` tree read at another ref, whose `tree` you first remove with `uv run {sourceTreeHelper} close --tree "<tree>"`; no candidate; a command that fails or prints no JSON): this run cannot read `{upstream_ref}` without changing a folder it does not own. Display "Could not read `{upstream_ref}` into a private tree ({the message or reason}); auditing the baseline instead. Run `[US] Update Skill` with `--target-ref {upstream_ref}` to update the skill to it.", record the warning by its code alone, which holds no quote: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "upstream_tree_unavailable: <code>"`, the code being `skipped`, the `reason` of an `unavailable` result, `other-ref` or `helper-unavailable`. Then continue as **[S]**.
 - **[S]:** Keep the baseline: set `audit_ref`, `audit_ref_source` and `audit_commit` to the values of those names in the JSON of step 1 §5b's upstream check.

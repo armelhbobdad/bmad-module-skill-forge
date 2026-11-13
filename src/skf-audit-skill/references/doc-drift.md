@@ -1,17 +1,11 @@
 ---
 nextStepFile: 'report.md'
-# A docs-only skill (step 1 §3) goes on to step 5 instead, which grades each
-# changed document: this comparison is the only drift such a skill has.
 classifyStepFile: 'severity-classify.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-# This run's stage data folder: §2 saves the comparison here.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
-# §2's comparison helper: the installed SKF module path first, then the src/
-# dev-checkout path.
 compareDocHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
-# §3: this skill's renderer of the Documentation Drift section, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 

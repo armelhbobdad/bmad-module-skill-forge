@@ -165,7 +165,10 @@ def test_c_reads_the_upstream_ref_into_a_private_tree():
                        '"{source_root}" --target-ref "{upstream_ref}" --timeout "{tree_timeout}"')
     assert "--update-clone" not in resolve
     flow = _flow(section)
-    assert "never writes to the clone (the call passes no `--update-clone`)" in flow
+    # #1133: the Rules hold what the call leaves alone; the call itself passes no --update-clone (above)
+    rules = _flow(_slice(_read(CHECKOUT), "## Rules", "## MANDATORY SEQUENCE"))
+    assert ("Read the upstream ref into a private tree only: SKF's clone at `{source_root}` keeps the commit it "
+            "holds, and this step takes no lock") in rules
     assert "bind `{source_tree}` ← `tree` and `{source_root}` ← `{source_tree}`" in flow
     # report.md, its version note and its test key on this value (#597's W3 pins).
     assert 'Set `audit_ref = {upstream_ref}`, `audit_ref_source = "checkout-latest"`' in flow
@@ -266,7 +269,7 @@ def test_each_halt_names_the_file_that_reads_the_tree():
 def test_a_private_tree_has_no_ccc_index_so_relocations_use_git_grep():
     """#1131: the candidates helper searches with ccc only when §1b passes
     --ccc, which it leaves out for the private tree, so `git grep` runs there."""
-    section = _slice(_read(STRUCTURAL), "### 1b.", "### 2.")
+    section = _slice(_read(STRUCTURAL), "### 1b.", "### 4b.")
     relocate = _flow(section)
     assert 'When `{source_tree}` is set' in relocate
     assert "Add `--ccc` unless `{source_tree}` is set" in relocate
@@ -845,7 +848,7 @@ def test_the_result_contract_emits_the_payload_step_1b_built():
     JSON and states no value rule: it emits that file, and after a refusal it
     fixes the value the emitter names and builds the payload again."""
     report = _read(REPORT)
-    contract = _slice(report, "### Result Contract", "**Hard-halt envelope")
+    contract = _slice(report, "### Result Contract", "**Post-audit hook")
     assert "```json" not in contract
     for gone in ("Write `{run_dir}/result-context.json`", "<next_workflow>", "<upstream_moved>", "<drift_score>",
                  "<total_findings>"):

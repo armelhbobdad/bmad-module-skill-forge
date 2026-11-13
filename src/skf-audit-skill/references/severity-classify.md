@@ -1,20 +1,14 @@
 ---
 nextStepFile: 'doc-drift.md'
-# A docs-only skill reaches this step after step 5a, so it goes on to the
-# report.
 reportStepFile: 'report.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-# This run's stage data folder, where the earlier steps saved the helpers'
-# JSON; this step writes the findings and their classification beside it.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 severityClassifyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-severity-classify.py'
   - '{project-root}/src/shared/scripts/skf-severity-classify.py'
-# Every HALT after the [C] of upstream-checkout.md closes the private tree with it.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
-# §3: this skill's renderer of the severity tables, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 
@@ -30,8 +24,7 @@ Grade every drift finding from Steps 03 and 04 (step 1c for a compose-mode stack
 
 - Only classify existing findings — do not discover new drift items or suggest remediation
 - Build the findings from the JSON the earlier steps saved, never from the report's tables: the helper projects each saved source into one finding per item, with its type, file, line, confidence and detail, and fixes every category the source decides. Judgment is left for the categories a finding leaves open (`category_choices`) and the ambiguous names
-- Mapping each type and category to a severity, reducing the set to the drift score and counting per level have one answer each: the helper does them with its rule table, which states the rules of the bundled `references/severity-rules.md` (`--rules` prints it), so the grades cannot change between runs
-- The confidence tier (T1 / T1-low / T2) travels with each finding from Steps 03/04 unchanged: the helper never touches it
+- Never grade, score or count by hand: the helper's rule table does, so grades are stable across runs.
 - A provenance label difference (step 3's **Provenance label differences (not drift)** table) is never a finding: do not classify it, count it or let it move the drift score
 - `{docs_only_skill}` is the `docs_only_skill` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still takes the docs-only route
 - `{compose_mode_stack}` is the `compose_mode_stack` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still projects a compose-mode stack's constituent freshness

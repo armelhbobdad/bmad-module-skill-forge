@@ -1,40 +1,22 @@
 ---
 nextStepFile: 're-index.md'
-# A compose-mode stack (§4) has no source tree: §7 loads this step in place
-# of steps 2 to 4.
 composeStepFile: 'constituent-freshness.md'
-# A docs-only skill (§3) has no source tree either: §7 loads step 5a, which
-# compares its documents' hashes, in place of steps 2 to 4.
 docsOnlyStepFile: 'doc-drift.md'
-# §5b loads the upstream-moved gate only when upstream moved; the gate binds
-# the audit-ref values and brings the run back to §6.
 upstreamCheckoutFile: 'upstream-checkout.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 templateFile: '{driftReportTemplatePath}'
 loadProvenanceProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
   - '{project-root}/src/shared/scripts/skf-load-provenance.py'
-# Resolve `{forgeTierRwHelper}` to the first existing path: §2 runs its
-# `effective` command for the run's tier and tool flags.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
-# Resolve `{skillInventoryHelper}` to the first existing path. §1 runs its
-# `resolve` command to choose the audited version and bind its paths, and
-# runs it with `--skill` before a flat skill moves: only a flat skill whose
-# metadata.json carries an SKF marker (`flat_skf`) is migrated.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Resolve `{checkWorkspaceDriftHelper}` to the first existing path: §5b asks
-# its `upstream` command, in one call, whether the remote moved past the
-# skill's commit.
 checkWorkspaceDriftProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
-# Resolve `{sourceTreeHelper}` to the first existing path: once the [C] of
-# upstream-checkout.md has read the upstream ref into a private tree, every
-# HALT of this step removes that tree with `close`.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -63,7 +45,7 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
 ```
 
-The emitter sets `status: "error"`, derives `exit_code` from `halt_reason`, stamps `run_id` and folds in the decisions the gates recorded. Display the line it prints, then stop with the halt's exit code. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+Display the line it prints, then stop with the halt's exit code. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
 ### 1. Get Skill Path
 
@@ -107,7 +89,7 @@ Log each entry of `resolve.errors` (a broken `active` link, for example), and `r
 3. `flat-layout`: fall back to the flat path `{skills_output_folder}/{skill_name}/` (`SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
    - Run `uv run {skillInventoryHelper} "{skills_output_folder}" --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
    - **`{group_flat_skf}` is true:** run `uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill_name} --forge-data-folder "{forge_data_folder}"` and show its `message` as an Info note, then run the `resolve` command above again and bind its values anew: they now name the version folder. When `migrate` exits 1, HALT as item 6 says, with its `error`.
-   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill_name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or audit it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. HALT with **exit 3** (the headless envelope is in the block below).
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill_name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or audit it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. HALT with **exit 3**.
 4. `missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version of the skill is on disk. Take the "Skill not found" halt below, naming the skill and adding the helper's `detail` or `error`.
 5. `newest-on-disk`: version folders exist, but neither the export manifest nor a working `active` link names one, and the Reading Workflows rules audit only a version one of them names. Take the "Skill not found" halt below with the helper's `detail`, and add: "Point `{skills_output_folder}/{skill_name}/active` at the version to audit, then re-run."
 6. Any other error: HALT with **exit 3**, `halt_reason: "skill-not-found"`, showing the helper's message. A command that prints no JSON crashed (On Activation already checked `uv`): HALT with **exit 3**, `halt_reason: "helper-missing"`, showing its first stderr line. Nothing is written.
@@ -131,11 +113,7 @@ If no helper candidate resolves, SKF can neither choose the version nor check a 
 - If missing → "Skill not found at `{resolved_skill_package}`. Check the path and try again."
 - If found → Continue
 
-**Headless default** (when `{headless_mode}`): the interactive prompt and its "check the path and try again" re-prompt cannot be answered under automation, so §1 halts deterministically instead of looping. This is the origin site for the exit-2 / exit-3 rows the Exit Codes table attributes to step 1 §1: each halt below prints its envelope through the halt envelope above, at phase `init:skill-path`:
-- **No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, `halt_reason: "input-missing"`, no `skill_name` in the payload. Log: `"headless: no skill_name supplied; cannot resolve interactively. Re-run with skill_name set."`
-- **No version to audit, or `SKILL.md` missing at `{resolved_skill_package}`** (items 4 and 5 above, item 6's other errors, or a full path with no usable `metadata.json`): HALT with **exit 3**, `halt_reason: "skill-not-found"`, `skill_name: {skill_name}`. Log: `"headless: skill not found at {resolved_skill_package}; no interactive retry. Check the exported skill name/path."`
-- **`skf-skill-inventory.py` missing or crashed** (item 6's command with no JSON, or no candidate and no flat `SKILL.md`): HALT with **exit 3**, `halt_reason: "helper-missing"`, `skill_name: {skill_name}`. Log: `"headless: skf-skill-inventory.py is missing or failed; re-install SKF."`
-- **Flat `SKILL.md` that SKF did not generate** (item 3's ownership gate): HALT with **exit 3**, `halt_reason: "not-skf-output"`, `skill_name: {skill_name}`. Log: `"headless: {skill_name} is not SKF output; nothing was moved. SKF leaves the skills it did not generate alone, so manage it yourself; relocate skills_output_folder only if it holds a module's own source."`
+**Headless default** (when `{headless_mode}`): nothing is asked again, and every §1 halt uses phase `init:skill-path`. With neither `skill_name` nor `skill_path`, HALT with **exit 2**, `halt_reason: "input-missing"`, with no `skill_name` in the payload. The "Skill not found" case halts with **exit 3**, `halt_reason: "skill-not-found"`, in place of asking again.
 
 ### 2. Load Forge Tier
 
@@ -151,7 +129,7 @@ uv run {forgeTierRwHelper} effective --target "{sidecar_path}/forge-tier.yaml" -
 
 **If file missing** (exit 0 with `exists` false):
 - "Setup-forge has not been run. Cannot determine tool availability. Run `[SF] Setup Forge` first."
-- HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`. When `{headless_mode}`, log: `"headless: forge-tier.yaml missing at {sidecar_path}; run setup-forge. Aborting."`
+- HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`.
 
 **If it cannot be read** (exit 2: it does not parse, is cut short, or names no valid tier): HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`: "`{sidecar_path}/forge-tier.yaml` cannot be read: {its `message`}. Run `[SF] Setup Forge` to write it again."
 
@@ -221,11 +199,9 @@ If `{legacy_stack_provenance}` is true: log a note that this stack uses the v1 p
 
 **Every other skill** uses `{source_root}`, which §4's normalize call extracted. `{baseline_commit}` and `{baseline_ref}` are already populated by §4. If `{baseline_commit}` is null in the projection, fall back to `metadata.source_commit`. `{baseline_ref}` may be a tag, branch, `HEAD`, or `"local"`.
 
-**Validate:** Confirm the source directory exists and is accessible. If it is missing or unreadable → HALT with **exit 3**, `halt_reason: "source-dir-missing"`, phase `init:source-dir`, `"path": "{source_root}"`. When `{headless_mode}`, log: `"headless: source directory {source_root} no longer exists; aborting."`
+**Validate:** Confirm the source directory exists and is accessible. If it is missing or unreadable → HALT with **exit 3**, `halt_reason: "source-dir-missing"`, phase `init:source-dir`, `"path": "{source_root}"`.
 
 ### 5b. Detect Upstream Drift
-
-Upstream drift detection is the primary use case of this workflow. If the local clone is still pinned to the baseline commit while upstream has shipped newer tags, auditing against the unchanged tree will misleadingly report CLEAN even after a major release.
 
 **A compose-mode stack** (`{compose_mode_stack}`) has no source tree: skip this section with `upstream_fetch = "skipped: compose-mode stack"`, `audit_ref` and `audit_commit` `"(unknown)"`, `audit_ref_source = "unavailable"` and the upstream values null, and continue to §6. A docs-only skill (§3) skips it the same way, with `upstream_fetch = "skipped: docs-only skill"`.
 
@@ -235,7 +211,7 @@ Upstream drift detection is the primary use case of this workflow. If the local 
 uv run {checkWorkspaceDriftHelper} upstream --source-root "{source_root}" --baseline-commit "{baseline_commit}" --baseline-ref "{baseline_ref}"
 ```
 
-It reads the remote's default branch and tags with one `git ls-remote`, fetches nothing and changes nothing in the clone, and compares commits, not tag names: a `--depth 1 --branch <tag>` clone, which has no `origin/HEAD`, reads like any other. The script's docstring (its `upstream` section) gives the rules for each kind of baseline ref (a tag of a version family, another tag, a branch, `HEAD` or a commit). Never compare refs by hand. Bind from its JSON `latest_tag` ← `latest_tag`, `remote_head` ← `remote_head`, `{baseline_commit_short}` ← `baseline_commit_short`, `{remote_head_short}` ← `remote_head_short`, `{upstream_commit}` ← `upstream_commit` and `{upstream_commit_short}` ← `upstream_commit_short`, then act on its `status`:
+Never compare refs by hand. Bind from its JSON `latest_tag` ← `latest_tag`, `remote_head` ← `remote_head`, `{baseline_commit_short}` ← `baseline_commit_short`, `{remote_head_short}` ← `remote_head_short`, `{upstream_commit}` ← `upstream_commit` and `{upstream_commit_short}` ← `upstream_commit_short`, then act on its `status`:
 
 - **`unchanged`**: set `upstream_fetch = "ok"`, `upstream_moved = false`, `upstream_ref = null`, and `audit_ref`, `audit_ref_source` and `audit_commit` to the JSON's values of those names (the baseline). Continue to §6.
 - **`skipped`** (`skip_reason` says why: no baseline ref or commit, not a git tree, git unavailable, a baseline ref the remote no longer has, and the like): set `upstream_fetch = "skipped: {skip_reason}"`, `upstream_moved = null`, `upstream_ref = null`, and the audit-ref values from the JSON. Continue to §6.

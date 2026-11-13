@@ -3827,7 +3827,7 @@ def test_docs_and_knowledge():
     assert "never from the workspace clone as it stands" in tier
     assert "`init:source-tree`" in _slice(tier, "- **update-skill:**", "\n")
     audit = _read(SRC / "skf-audit-skill" / "references" / "report.md")
-    assert "`--target-ref {latest_tag}`" in audit and "`--target-ref HEAD`" in audit
+    assert "`--target-ref {upstream_ref}`" in audit
 
 
 def test_docs_name_the_headless_halt_the_deferred_files_and_the_write_step():
