@@ -844,7 +844,6 @@ def test_campaign_setup_asks_one_question_and_drafts_the_table():
         assert gone not in doc, gone
     brief = _paragraph(doc, "A machine-readable summary of the campaign")
     assert "any language or scope hint its source gave" in brief
-    assert "plus every other field its source gave it (a language or scope hint, for example)" in setup
 
 
 def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):

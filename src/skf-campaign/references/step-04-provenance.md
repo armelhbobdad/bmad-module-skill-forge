@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-05-skill-loop.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 provenanceResultsFile: '{campaignWorkspacePath}/_provenance-results.json'

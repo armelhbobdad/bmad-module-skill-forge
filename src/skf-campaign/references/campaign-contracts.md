@@ -6,23 +6,23 @@ The self-contained contracts consulted at a specific moment: when a step HALTs, 
 
 ## Exit Codes
 
-Every HARD HALT exits with a stable, documented code so headless automators can branch on the failure class without grepping message text:
+Every HARD HALT exits with one of these codes:
 
-| Code | Meaning              | Raised by                                                   |
-| ---- | -------------------- | ----------------------------------------------------------- |
-| 0    | success              | step-11 (terminal: the success line, which the health check displays last); step-resume §3 (campaign already complete: nothing to resume, and in headless mode the success line again). Never an error halt: no `emit-halt` |
-| 2    | invalid-input        | SKILL.md On Activation step 3 (a template path that names no readable file); step-01 §1 (no targets, or a target the parse script rejects: a malformed manifest line or brief target, a `repo_url` that is no GitHub repository, a name that is no skill name, a Tier A pin that is no X.Y.Z version, a duplicate name) and §2 (a quality gate the gate script rejects, a brief it cannot read, or a state file or backup that already exists); steps 02/03/04 §3 and step-06 §3 (a helper reports unreadable input or a required tool such as `gh` unavailable); step-05 §4 and §5, step-07 §2 and step-10 §3 (a directive override that breaks the quality gate, or a directive the gate script cannot read); step-05 §5 (the kickoff script cannot read its template, state, directive or a facts file, or a `file:` fact path names no file); step-resume §1/§3 (resume targets a missing campaign or unknown skill) |
-| 3    | invalid-state        | any step §1 (`campaign-validate-state.py` non-zero on load), and any `campaign-state.py` write that exits 3 (the state, or the change, fails validation) |
-| 4    | circular-deps        | step-02 §4 (a dependency cycle, a dangling `depends_on` reference, or a Tier A skill that depends on a Tier B skill: either way the plan cannot be followed) and §7 (`apply-plan` refuses the plan) |
-| 5    | invalid-pin          | step-03 §4 and §5 (`apply-pins` refuses an invalid pin)      |
-| 6    | inaccessible-repo    | step-04 §4 and §5 (`apply-provenance` refuses an inaccessible repo) |
-| 7    | dependency-deadlock  | step-05 §4 (no skill ready and no recovery chosen; defensive, since Strategy rejects every order the loop cannot follow) |
-| 8    | missing-brief        | step-03/04/05 §2, step-05 §4 and §5, step-06 §3 (brief missing/unreadable, or a skill has no matching brief target), and step-resume §3 (Setup stopped before it wrote the brief) |
-| 9    | corrupt-state        | step-resume §1 (primary unrecoverable, `.bak` also invalid) |
-| 10   | report-failure       | step-11 §2 — **degraded only**: the report could not be generated; the campaign still completes and state stays intact (never a hard halt that discards a finished campaign) |
-| 11   | export-cancelled     | step-10 §4 (operator chose `[C]ancel` — graceful, resumable) |
-| 12   | user-cancelled       | any interactive gate (operator typed `cancel` / `exit` / `:q` at a prompt between Setup and the Export gate — graceful, resumable) |
-| 13   | dependency-blocked   | step-05 §4 (`[H]alt` at a skill whose dependency has not completed: the operator's choice, or the headless default while a dependency is still pending or active; graceful, resumable) |
+| Code | Meaning             | Note                                                                   |
+| ---- | ------------------- | ---------------------------------------------------------------------- |
+| 0    | success             | Never an error halt: no `emit-halt`                                    |
+| 2    | invalid-input       |                                                                        |
+| 3    | invalid-state       |                                                                        |
+| 4    | circular-deps       |                                                                        |
+| 5    | invalid-pin         |                                                                        |
+| 6    | inaccessible-repo   |                                                                        |
+| 7    | dependency-deadlock | defensive: only a hand-edited state reaches it                         |
+| 8    | missing-brief       |                                                                        |
+| 9    | corrupt-state       |                                                                        |
+| 10   | report-failure      | **degraded only**: the campaign still completes and state stays intact |
+| 11   | export-cancelled    | graceful, resumable                                                    |
+| 12   | user-cancelled      | graceful, resumable                                                    |
+| 13   | dependency-blocked  | graceful, resumable                                                    |
 
 ## Result Contract on HARD HALT
 

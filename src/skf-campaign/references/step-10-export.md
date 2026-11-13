@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-11-maintenance.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 gateScript: 'scripts/campaign-quality-gate.py'

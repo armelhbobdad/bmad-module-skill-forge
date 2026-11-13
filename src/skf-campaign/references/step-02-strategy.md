@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-03-pins.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 depsScript: 'scripts/campaign-deps.py'
@@ -40,7 +39,7 @@ Run the deterministic topological sort; do not hand-compute it:
 uv run {depsScript} --compute --state-file {stateFile}
 ```
 
-Parse the JSON output: `execution_order` (the ordered skill names: Kahn's sort with Tier A placed before Tier B within a dependency level), `circular_deps_detected` (bool), `cycle_participants` (the unplaced skills when a cycle exists, else null), `tier_counts` (`{"A": n, "B": m}`, for the §5 strategy view) and `tier_inversions` (each Tier A `skill` that `depends_on` a Tier B skill). Script exit 1 signals a plan the stages cannot follow (a cycle, a dangling `depends_on` reference or a tier inversion), handled at §4 before the §5 view shows any order. Script exit 2 signals the helper could not read/parse the state file; HALT (exit code 2, `invalid-input`) surfacing its error.
+Parse the JSON output: `execution_order` (the ordered skill names), `circular_deps_detected` (bool), `cycle_participants` (the unplaced skills when a cycle exists, else null), `tier_counts` (`{"A": n, "B": m}`, for the §5 strategy view) and `tier_inversions` (each Tier A `skill` that `depends_on` a Tier B skill). Script exit 1 signals a plan the stages cannot follow (a cycle, a dangling `depends_on` reference or a tier inversion), handled at §4 before the §5 view shows any order. Script exit 2 signals the helper could not read/parse the state file; HALT (exit code 2, `invalid-input`) surfacing its error.
 
 ### §4: Handle Unorderable Graph
 

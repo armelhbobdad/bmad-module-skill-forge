@@ -582,7 +582,6 @@ def test_setup_settles_the_gate_with_the_script(tmp_path, capsys):
     assert ("init --state-file {stateFile} --targets-file - --name \"<campaign_name>\" --hard \"{qualityGateHard}\" "
             "--soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>]"
             ) in text
-    assert "settles and checks the gate with `campaign-quality-gate.py check`" in text
     assert "field by field" not in text
     spec = importlib.util.spec_from_file_location("campaign_state_gate_test", SCRIPT.parent / "campaign-state.py")
     helper = importlib.util.module_from_spec(spec)

@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-07-capstone.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 batchFile: '{campaignWorkspacePath}/_batch-input.txt'
@@ -58,7 +57,7 @@ Record the batch's start from the map, so no skill is marked by hand:
 uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --start
 ```
 
-It marks each `skipped_by_directive` skill `skipped` and each batched skill `active`, stamping `started_at` from the clock unless an interrupted batch already set it. If the §3 `count` is 0, add `--stage 5` to this call and chain to `{nextStepFile}`: the batch stage completes at once when every Tier B skill is already handled.
+If the §3 `count` is 0, add `--stage 5` to this call and chain to `{nextStepFile}`: the batch stage completes at once when every Tier B skill is already handled.
 
 Invoke QS in `--batch` mode with the generated batch file:
 
@@ -82,7 +81,7 @@ When that call exits 0, record the results and the stage in one write:
 uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --results-file {batchResultsFile} --stage 5
 ```
 
-A `completed` result sets the skill `completed`, with `completed_at` from the clock, its `quality_score` (the skill-check score QS records, not a test-skill score) and its `skill_path`; a `failed` one sets it `failed`. Log each entry of the helper's `failed[]` with its `error_code` (`no-batch-result` when the summary holds no result for its line), type `event`.
+Log each entry of the helper's `failed[]` with its `error_code` (`no-batch-result` when the summary holds no result for its line), type `event`.
 
 When QS printed no `batch_summary` event (run no record call), or the record call exits 2 (a missing or unreadable summary, batch file or map, or results that belong to another batch file), fail every skill the map lists instead, and log why: never guess which target built which skill.
 

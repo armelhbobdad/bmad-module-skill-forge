@@ -16,6 +16,12 @@ bug is caught by `npm test`, not only by adversarial review.
 Mode Routing and unless the invocation is `campaign status`, and halts with
 exit code 2 (`invalid-input`) on one that names no readable file, so a bad
 report template no longer surfaces only at stage 10.
+
+#1140: the step files keep each command, its exit branches and the model's
+own flags and log lines, not what a helper writes. The Exit Codes table keeps
+the code, its meaning and a note; RAISED_BY below indexes where each code is
+raised, and the directive spec recognizes only the sections the gate script
+parses.
 """
 
 from __future__ import annotations
@@ -225,12 +231,6 @@ def test_brief_keeps_every_field_of_a_target() -> None:
     setup = _step("step-01-setup.md")
     state = _section(setup, 2)
     assert "--brief-out {briefFile} --brief-template {templateFile}" in state
-    assert (
-        "the same `targets[]`, one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, "
-        "plus every other field its source gave it"
-    ) in state
-    body = _section(setup, 3)
-    assert "write nothing by hand" in body
     assert "Populate `{templateFile}`" not in setup
 
 
@@ -277,13 +277,6 @@ def test_refine_reads_the_report_path_from_state() -> None:
     assert "--vs-report-path <report_path|none>" in invoke
     assert "or `none` when state holds no report path" in invoke
     assert "feasibility-report-" not in text
-
-
-def test_verify_saves_the_timestamped_report() -> None:
-    # report_latest_path is the -latest copy every Verify Stack run rewrites.
-    outcome = _section(_step("step-08-verify.md"), 5)
-    assert "- `campaign.verification.report_path`: `report_path` from the envelope," in outcome
-    assert "`report_latest_path` from the envelope" not in outcome
 
 
 @pytest.mark.parametrize(
@@ -359,18 +352,6 @@ def test_a_sub_skill_with_an_unparseable_line_is_recorded_result_unreadable(
     assert "\u2014" not in text and "\u2013" not in text
 
 
-def test_verify_records_verify_stacks_verdicts() -> None:
-    text = _step("step-08-verify.md")
-    outcome = _section(text, 5)
-    schema = json.loads((CAMPAIGN_DIR / "assets" / "campaign-state-schema.json").read_text(encoding="utf-8"))
-    enum = schema["properties"]["campaign"]["properties"]["verification"]["properties"]["overall_verdict"]["enum"]
-    listed = re.search(r"`overall_verdict` from the envelope, one of (.*)$", outcome, re.M).group(1)
-    assert re.findall(r"`([A-Z_]+)`", listed) == [v for v in enum if v is not None]
-    assert "`campaign.capstone.verified` to `true` when `overall_verdict` is `FEASIBLE`" in outcome
-    for token in ("Verified", "Plausible", "Risky", "Blocked"):
-        assert f"`{token}`" not in text
-
-
 # ---------------------------------------------------------------------------
 # Run state: every write goes through campaign-state.py
 # ---------------------------------------------------------------------------
@@ -436,10 +417,7 @@ def test_resume_takes_its_point_from_the_helper() -> None:
     text = _step("step-resume.md")
     point = _section(text, 3)
     assert "uv run {stateScript} resume --state-file {stateFile} [--from <skill>]" in point
-    assert (
-        "whose batch script, `campaign-render-batch.py`, selects the interrupted active Tier B skills together "
-        "with the pending ones, so resume resets no status"
-    ) in point
+    assert "It returns the stage to resume, its `step_file` and a `reason`. Then:" in point
     assert "The batch step processes Tier B skills." not in text
     assert "BYPASSES" not in text and "Do not apply the `+1` again" not in text
     assert "uv run {stateScript} recover --state-file {stateFile}" in _section(text, 1)
@@ -465,14 +443,6 @@ def test_sub_skill_envelopes_point_at_their_schema(name: str, schema: str) -> No
     assert f"`shared/scripts/schemas/{schema}`" in _section(text, 4)
     assert '{"status":"' not in text
     assert (CAMPAIGN_DIR.parent / "shared" / "scripts" / "schemas" / schema).is_file()
-
-
-def test_refine_keeps_its_reads() -> None:
-    invoke = _section(_step("step-09-refine.md"), 4)
-    assert "reads `status`, `refined_path`, `gap_count`, `issue_count` and `improvement_count`" in invoke
-    outcome = _section(_step("step-09-refine.md"), 5)
-    for field in ("refined_path", "gap_count", "issue_count", "improvement_count"):
-        assert f"- `campaign.refinement.{field}`: from the envelope" in outcome
 
 
 def test_maintenance_terminal_sequence() -> None:
@@ -527,35 +497,88 @@ def test_decision_log_entries_are_typed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The Exit Codes table cites sections that exist; the helper's codes are the campaign's
+# Each exit code is raised where this index says; the helper's codes are the campaign's
 # ---------------------------------------------------------------------------
 
 EXIT_ROW_RE = re.compile(r"^\| (\d+)\s+\| ([a-z-]+)\s+\| (.*) \|$", re.M)
-SECTION_REF_RE = re.compile(r"(?P<resume>step-resume)|steps?[- ](?P<nums>\d\d(?:/\d\d)*)|(?P<any>any step)|§(?P<sec>\d+)")
+
+# Where each code is raised, as (meaning, step file, section). The Exit Codes table the model reads on every
+# HALT keeps only the code, its meaning and a note that changes a move (#1140), so the per-step index lives here,
+# where test_exit_codes_cite_sections_that_exist keeps it true. Codes 3 (any step's §1 and any refused state
+# write) and 12 (any interactive gate) have no one section to cite. Two sites fall outside this (meaning, step
+# file, section) shape: SKILL.md On Activation step 3 (exit 2, pinned by
+# test_activation_checks_the_templates_before_mode_routing) and step-11's terminal success (exit 0).
+RAISED_BY: list[tuple[str, str, int]] = [
+    ("success", "step-resume.md", 3),
+    ("invalid-input", "step-01-setup.md", 1),
+    ("invalid-input", "step-01-setup.md", 2),
+    ("invalid-input", "step-02-strategy.md", 3),
+    ("invalid-input", "step-03-pins.md", 3),
+    ("invalid-input", "step-04-provenance.md", 3),
+    ("invalid-input", "step-06-batch.md", 3),
+    ("invalid-input", "step-05-skill-loop.md", 4),
+    ("invalid-input", "step-05-skill-loop.md", 5),
+    ("invalid-input", "step-07-capstone.md", 2),
+    ("invalid-input", "step-10-export.md", 3),
+    ("invalid-input", "step-resume.md", 1),
+    ("invalid-input", "step-resume.md", 3),
+    ("circular-deps", "step-02-strategy.md", 4),
+    ("circular-deps", "step-02-strategy.md", 7),
+    ("invalid-pin", "step-03-pins.md", 4),
+    ("invalid-pin", "step-03-pins.md", 5),
+    ("inaccessible-repo", "step-04-provenance.md", 4),
+    ("inaccessible-repo", "step-04-provenance.md", 5),
+    ("dependency-deadlock", "step-05-skill-loop.md", 4),
+    ("missing-brief", "step-03-pins.md", 2),
+    ("missing-brief", "step-04-provenance.md", 2),
+    ("missing-brief", "step-05-skill-loop.md", 2),
+    ("missing-brief", "step-05-skill-loop.md", 4),
+    ("missing-brief", "step-05-skill-loop.md", 5),
+    ("missing-brief", "step-06-batch.md", 3),
+    ("missing-brief", "step-resume.md", 3),
+    ("corrupt-state", "step-resume.md", 1),
+    ("report-failure", "step-11-maintenance.md", 2),
+    ("export-cancelled", "step-10-export.md", 4),
+    ("dependency-blocked", "step-05-skill-loop.md", 4),
+]
+
+# The rows whose Note changes what a caller does next; every other row leaves it empty.
+NOTED_EXITS = {"success", "dependency-deadlock", "report-failure", "export-cancelled", "user-cancelled",
+               "dependency-blocked"}
 
 
 def _cited_sections() -> list[tuple[str, str, int]]:
-    """(row meaning, step file, section) for each `step-NN §M` the Raised-by column cites."""
-    cited = []
-    for match in EXIT_ROW_RE.finditer(_step("campaign-contracts.md")):
-        files: list[str] = []
-        for token in SECTION_REF_RE.finditer(match.group(3)):
-            if token.group("resume"):
-                files = ["step-resume.md"]
-            elif token.group("nums"):
-                files = [next(REFERENCES_DIR.glob(f"step-{num}-*.md")).name for num in token.group("nums").split("/")]
-            elif token.group("any"):
-                files = []
-            else:
-                cited.extend((match.group(2), name, int(token.group("sec"))) for name in files)
-    return cited
+    """(meaning, step file, section) for each section that raises an exit code."""
+    return RAISED_BY
+
+
+def _exit_table() -> dict[str, tuple[int, str]]:
+    """Each Exit Codes row's meaning, with its code and its Note."""
+    rows = EXIT_ROW_RE.finditer(_step("campaign-contracts.md"))
+    return {m.group(2): (int(m.group(1)), m.group(3).strip()) for m in rows}
+
+
+def _section_with_subsections(text: str, number: int) -> str | None:
+    """The body of `### §<number>` up to the next `##` or `###` heading, its `####` subsections included."""
+    match = re.search(rf"^### §{number}: [^\n]*\n(.*?)(?=^#{{2,3}} |\Z)", text, re.M | re.S)
+    return match.group(1) if match else None
 
 
 def test_exit_codes_cite_sections_that_exist() -> None:
+    table = _exit_table()
     cited = _cited_sections()
-    assert ("circular-deps", "step-02-strategy.md", 7) in cited
+    assert len(set(cited)) == len(cited)
+    assert {meaning for meaning, _, _ in cited} == set(table) - {"invalid-state", "user-cancelled"}
     for meaning, name, number in cited:
-        assert re.search(rf"^### §{number}: ", _step(name), re.M), f"{meaning}: {name} has no §{number}"
+        body = _section_with_subsections(_step(name), number)
+        assert body is not None, f"{meaning}: {name} has no §{number}"
+        code = table[meaning][0]
+        assert re.search(rf"\bexit (?:code )?{code}\b", body), f"{meaning}: {name} §{number} names no exit {code}"
+    # The table carries no per-step index: a Note only qualifies how the caller treats the code.
+    for meaning, (code, note) in table.items():
+        assert not re.search(r"step|§|SKILL\.md", note, re.I), f"{code} {meaning}: {note}"
+    assert {meaning for meaning, (_, note) in table.items() if note} == NOTED_EXITS
+    assert "Every HARD HALT exits with one of these codes:" in _step("campaign-contracts.md")
 
 
 @pytest.mark.parametrize(
@@ -570,7 +593,6 @@ def test_a_refused_write_halts_with_its_stages_code(meaning: str, name: str, num
     body = _section(_step(name), number)
     assert f"uv run {{stateScript}} {operation} " in body
     assert f"exit {code}" in body and "exit 2" not in body
-    assert (meaning, name, number) in _cited_sections()
     contract = _step("campaign-contracts.md")
     assert f"{code} for a" in contract and f"`{operation}` refuses" in contract
 
@@ -666,7 +688,6 @@ def test_resume_halts_a_setup_that_wrote_no_brief() -> None:
     point = _section(_step("step-resume.md"), 3)
     assert "- **`stage` 1 with no `{briefFile}`:**" in point
     assert "HALT (exit code 8, `missing-brief`)" in point
-    assert ("missing-brief", "step-resume.md", 3) in _cited_sections()
 
 
 def test_resume_offers_no_recovery_from_a_newer_backup() -> None:
@@ -676,6 +697,12 @@ def test_resume_offers_no_recovery_from_a_newer_backup() -> None:
         assert gone not in text, gone
     assert "When `uv run {validateScript} --state-file {backupFile}` fails, warn" in _section(text, 2)
     assert "the cause is a hand edit, disk damage, or a state written before v3.0.0" in _section(text, 1)
+    # #1140: no `.bak` is the normal state after Setup, so only a backup that fails validation is warned about.
+    assert re.search(r"^### §2: Backup Check$", text, re.M)
+    assert ("Skip this check when §1 recovered from the backup or `{backupFile}` does not exist. When "
+            "`uv run {validateScript} --state-file {backupFile}` fails, warn \"Backup file fails validation: cannot "
+            "use for recovery.\" and continue with the primary.") in _section(text, 2)
+    assert "No backup file found" not in text
 
 
 def test_batch_records_results_only_after_the_record_call() -> None:
@@ -747,8 +774,6 @@ def test_activation_checks_the_templates_before_mode_routing() -> None:
             "On Activation (slug `activation`), emit `\"stage\":null` with the slug.") in events
     assert ("`activation_steps_append` runs at step 5, after step 3's template check has passed and step 4 has "
             "parsed the CLI overrides.") in flat
-    row = next(m.group(3) for m in EXIT_ROW_RE.finditer(_step("campaign-contracts.md")) if m.group(1) == "2")
-    assert row.startswith("SKILL.md On Activation step 3 (a template path that names no readable file); ")
 
 
 def test_each_bundled_template_passes_the_activation_check() -> None:
@@ -785,3 +810,94 @@ def test_the_activation_halt_prints_an_exit_2_line_and_writes_nothing(tmp_path: 
     assert (envelope["exit_code"], envelope["halt_reason"], envelope["phase"]) == (2, "invalid-input", "activation")
     assert envelope["error"]["message"] == message
     assert not (tmp_path / "forge-data").exists()
+
+
+# ---------------------------------------------------------------------------
+# #1140: step text holds the command, its exit branches and the model's own flags and log lines
+# ---------------------------------------------------------------------------
+
+
+def test_no_reference_declares_the_unused_schema_path() -> None:
+    for path in sorted(REFERENCES_DIR.glob("*.md")):
+        assert "stateSchemaFile" not in path.read_text(encoding="utf-8"), path.name
+
+
+@pytest.mark.parametrize(
+    "name, gone",
+    [("step-01-setup.md", ["### §3", "a duplicate name, a brief `pin`", "so the state takes its targets",
+                           "The helper settles and checks the gate", "`repo_url` lives only in the brief"]),
+     ("step-02-strategy.md", ["Kahn"]),
+     ("step-03-pins.md", ["`resolved_ref` wherever the two differ"]),
+     ("step-05-skill-loop.md", ["[F]orce one", "[S]kip one", "Deadlock detection",
+                                "In execution order every dependency comes first", "X.Y.Z", "exclusion windows"]),
+     ("step-06-batch.md", ["stamping `started_at` from the clock", "A `completed` result sets the skill"]),
+     ("step-07-capstone.md", ["derived artifact", "From a `success` envelope it sets"]),
+     ("step-08-verify.md", ["§5 reads", "**On success**", "It also sets `campaign.capstone.verified`"]),
+     ("step-09-refine.md", ["§5 reads", "**On success**"]),
+     ("step-11-maintenance.md", ["`export_verdicts`", "`stage_outcomes` (whether"]),
+     ("step-resume.md", ["campaign-render-batch.py", "`terminal-cap`", "No backup file found"])],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_step_text_lists_no_helper_internals(name: str, gone: list[str]) -> None:
+    text = _step(name)
+    for phrase in gone:
+        assert phrase not in text, phrase
+    if name in ("step-07-capstone.md", "step-08-verify.md", "step-09-refine.md"):
+        # The helper reads the envelope: no step lists the fields it writes.
+        assert not re.search(r"^- `campaign\.", text, re.M)
+
+
+def test_steps_keep_the_rules_they_act_on() -> None:
+    setup = _step("step-01-setup.md")
+    assert "A target the script rejects (`errors[]` non-empty, exit 1, including a brief `pin` that is not a string)" \
+        in _section(setup, 1)
+    assert setup.count("a Tier A pin that is no X.Y.Z version") == 1
+    assert setup.count("never from the raw source") == 1
+    assert "The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here." \
+        in _section(setup, 2)
+    assert "`execution_order` (the ordered skill names)" in _section(_step("step-02-strategy.md"), 3)
+    loop = _step("step-05-skill-loop.md")
+    gate = _section(loop, 4)
+    assert ("7. If the pass ends with a Tier A skill still `pending` (only a hand-edited state can do this), "
+            "HALT (exit code 7, `dependency-deadlock`) and log it (type `event`).") in gate.splitlines()
+    assert "runs `[H]alt`.\n" in gate
+    assert ("**Do not hand-grep the feeders or re-run the scan:** step 5c has already written its `## CORRECTION` "
+            "blocks into the compiled SKILL.md, so a second pass re-matches them as fresh findings and can disagree "
+            "with what CS wrote.") in _section(loop, 5)
+    assert ("Its JSON result on stdout carries `skills_completed`, `skills_failed` and `duration`, which §6 displays; "
+            "§5 builds the envelope from `{resultContextFile}`") in _section(_step("step-11-maintenance.md"), 2)
+
+
+def test_directive_recognizes_what_the_gate_script_reads() -> None:
+    """The directive spec recognizes exactly the sections campaign-quality-gate.py parses (#1140)."""
+    spec = _step("campaign-directive-spec.md")
+    recognized = spec[spec.index("## Recognized Sections"):spec.index("## Absence Behavior")]
+    listed = {title.lower() for title in re.findall(r"^- \*\*`## ([^`]+)`\*\*", recognized, re.M)}
+    gate_script = CAMPAIGN_DIR / "scripts" / "campaign-quality-gate.py"
+    parsed = set(re.findall(r'sections\.get\("([^"]+)"', gate_script.read_text(encoding="utf-8")))
+    assert parsed == {"skip list", "quality overrides"}
+    assert listed == parsed
+    assert "Pipeline Flags" not in spec
+    # No script parses any other heading: a flag or gate value written under it changes nothing.
+    import importlib.util
+
+    spec_obj = importlib.util.spec_from_file_location("campaign_quality_gate_stepfiles", gate_script)
+    gate = importlib.util.module_from_spec(spec_obj)
+    spec_obj.loader.exec_module(gate)
+    other = "## Pipeline Flags\n\n- core: --skip-tests\n- soft_target: 50\n\n## Notes\n\n- skip: core\n"
+    assert gate.parse_directive(other) == {"skip": {}, "campaign": {}, "skills": {}, "unparsed": []}
+    flat = " ".join(spec.split())
+    assert ("Such guidance never changes a sub-skill's flags or inputs: the stages pass fixed flags and the inputs "
+            "their scripts resolve.") in flat
+    assert ("Only the two sections above are parsed by a script; the kickoff script copies the whole directive "
+            "into each Tier A kickoff as context.") in flat
+    assert "reach a script" not in flat
+    absence = spec.split("## Absence Behavior\n", 1)[1].strip()
+    assert absence == ("An unset `campaign.directive_path` or a missing file is no error: the campaign proceeds "
+                       "with defaults.")
+    doc = (REPO_ROOT / "docs" / "campaign.md").read_text(encoding="utf-8")
+    [paragraph] = [p for p in doc.split("\n\n") if p.startswith("An optional Markdown file of standing instructions")]
+    assert "It can hold `## Quality Overrides` and `## Skip List` sections" in paragraph
+    assert "which changes no sub-skill's flags or inputs" in paragraph
+    for gone in ("Pipeline Flags", "## Notes"):
+        assert gone not in paragraph, gone

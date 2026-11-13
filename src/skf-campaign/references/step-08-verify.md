@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-09-refine.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 stateScript: 'scripts/campaign-state.py'
@@ -46,7 +45,7 @@ Once resolved (steps 2 and 3), persist the path at once, so the refine stage and
 
 Invoke `skf-verify-stack` with `--headless --architecture-doc <path>`, where `<path>` is the architecture doc §3 resolved.
 
-VS discovers skills from its own configured `{skills_output_folder}`; the campaign does NOT pass individual skill paths. Keep the `SKF_VERIFY_STACK_RESULT_JSON` line it prints for §5: on stdout, or on stderr when VS halts. Its fields are defined once, by `shared/scripts/schemas/skf-verify-stack-result-envelope.v1.json` (in the SKF module: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development); §5 reads `report_path`, `overall_verdict`, `coverage_percentage` and `recommendation_count` from it.
+VS discovers skills from its own configured `{skills_output_folder}`; the campaign does NOT pass individual skill paths. Keep the `SKF_VERIFY_STACK_RESULT_JSON` line it prints for §5: on stdout, or on stderr when VS halts. Its fields are defined once, by `shared/scripts/schemas/skf-verify-stack-result-envelope.v1.json` (in the SKF module: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development).
 
 ### §5: Record the VS Outcome and Complete the Stage
 
@@ -57,15 +56,6 @@ uv run {stateScript} set-campaign --state-file {stateFile} --verification - --st
 <the SKF_VERIFY_STACK_RESULT_JSON line VS printed>
 SKF_RESULT
 ```
-
-**On success** (`status` `success`, exit code 0), the helper persists the summary to `campaign.verification` (detailed findings stay in the external report):
-
-- `campaign.verification.report_path`: `report_path` from the envelope, the timestamped report no later Verify Stack run rewrites (step-09 hands it to RA)
-- `campaign.verification.overall_verdict`: `overall_verdict` from the envelope, one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE` or `NOT_FEASIBLE`
-- `campaign.verification.coverage_percentage`: from the envelope
-- `campaign.verification.recommendation_count`: from the envelope
-
-It also sets `campaign.capstone.verified` to `true` when `overall_verdict` is `FEASIBLE`, otherwise `false` (only if a `campaign.capstone` entry exists from step-07).
 
 **On VS failure** (a line whose `status` is `error` or whose `exit_code` is non-zero): the helper sets `campaign.verification` to `null` and names it in `not_recorded`; log that line's `exit_code` and `halt_reason` (type `event`). Verification failure does NOT block the campaign: it produces diagnostic information for operator review. When §3 skipped VS, record no verification instead: `uv run {stateScript} set-campaign --state-file {stateFile} --no-verification --stage 7`. When VS printed no `SKF_VERIFY_STACK_RESULT_JSON` line on stdout or stderr, there is no result to read, whatever its exit code: record it with `uv run {stateScript} set-campaign --state-file {stateFile} --no-result verification --stage 7`, log "no SKF_VERIFY_STACK_RESULT_JSON line (exit <code>)" with VS's exit code (type `event`), and go on. When the helper's `not_recorded` row gives the halt reason `result-unreadable` (VS printed a line that does not parse, or one with no `status` or `exit_code`), log "unparseable SKF_VERIFY_STACK_RESULT_JSON line" (type `event`) and go on.
 

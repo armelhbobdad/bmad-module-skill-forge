@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-02-strategy.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
@@ -53,25 +52,21 @@ Every target goes through `{manifestScript}`, whatever its source, so no target 
 
 Turn the answer into targets: a manifest path goes through `uv run {manifestScript} <manifest-file>`, and a brief path through `uv run {manifestScript} --brief <brief-file>`. A pasted list or bare repository URLs are first rewritten as manifest lines in the manifest format above (leave the name empty when none is given: the script takes it from the repository), then piped to `uv run {manifestScript} -`. Show the drafted campaign once for correction: the campaign name, the directive and architecture paths (or none), and one table of the targets with `name`, `repo_url`, `tier`, `pin` and `depends_on`. After the operator's corrections, ask only about what is still missing or ambiguous, all in one question, read from the script's output rather than by matching names yourself: each `dangling_depends_on` entry (a `depends_on` name that is no target), each `tier_inversions` entry (make the dependency Tier A, or drop it) and each `filled_names` entry (confirm the name). Run a corrected set through the script again before §2.
 
-A target the script rejects (`errors[]` non-empty, exit 1: a malformed manifest line or brief target, a `repo_url` that is no GitHub repository, a name that is no skill name, a Tier A pin that is no X.Y.Z version, a duplicate name, a brief `pin` that is not a string) never yields a partial target set: in headless, HALT (exit code 2, `invalid-input`) listing each error's line or target number and message; interactively, show them and ask for those targets corrected. An exit 2 (a file that is missing, unreadable or not a YAML mapping) HALTs (exit code 2, `invalid-input`) with its `error`.
+A target the script rejects (`errors[]` non-empty, exit 1, including a brief `pin` that is not a string) never yields a partial target set: in headless, HALT (exit code 2, `invalid-input`) listing each error's line or target number and message; interactively, show them and ask for those targets corrected. An exit 2 (a file that is missing, unreadable or not a YAML mapping) HALTs (exit code 2, `invalid-input`) with its `error`.
 
 If no targets can be collected (an empty answer, or an empty `--brief` or `--manifest`), HALT (exit code 2, `invalid-input`) with guidance: a campaign needs at least one target.
 
 ### §2: Create State
 
-Settle the campaign name (the brief's `campaign_name`, else the operator's, else `{project_name}`), then create the state in one call. Pipe in the parse of the settled targets: the last §1 parse run again (the manifest file, `--brief <brief-file>`, or the corrected manifest lines on stdin), so the state takes its targets from the script's `targets[]`, never from the raw source:
+Settle the campaign name (the brief's `campaign_name`, else the operator's, else `{project_name}`), then create the state in one call. Pipe in the parse of the settled targets: the last §1 parse run again (the manifest file, `--brief <brief-file>`, or the corrected manifest lines on stdin):
 
 ```
 uv run {manifestScript} <the settled source> | uv run {stateScript} init --state-file {stateFile} --targets-file - --name "<campaign_name>" --hard "{qualityGateHard}" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>] [--directive-path <directive_path>] [--architecture-doc-path <architecture_doc_path>] --brief-out {briefFile} --brief-template {templateFile} [--notes '<operator notes>']
 ```
 
-Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. The helper settles and checks the gate with `campaign-quality-gate.py check`, creates `{campaignWorkspacePath}/`, writes every target as a `pending` skill, stamps `started_at` and `last_updated` from the clock, and validates the state before it writes it. There is no earlier state, so no `.bak` is written. It then writes `{briefFile}` from `{templateFile}`: the campaign name, `created_at` (the state's `started_at`), the same `targets[]`, one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, plus every other field its source gave it (a language or scope hint, for example), the settled `quality_gate`, `architecture_doc_path` and `notes`. `repo_url` lives only in the brief: the state schema has no place for it. Pass `--notes` only with notes the operator gave, single-quoted as a decision-log entry is (`references/campaign-contracts.md`); without it a brief's own `notes` carry over.
+Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. Pass `--notes` only with notes the operator gave, single-quoted as a decision-log entry is (`references/campaign-contracts.md`); without it a brief's own `notes` carry over.
 
 On exit 2, HALT (exit code 2, `invalid-input`) with its `error` and `errors[]`; nothing is written: a gate the gate script rejects (a hard gate other than `zero-critical-high`, a soft value outside 0 to 100, a fallback above the target, or a brief it cannot read), targets that hold errors, a brief template that is no YAML mapping, or a state file or backup that already exists. On exit 3, HALT (exit code 3, `invalid-state`) with its `errors[]`.
-
-### §3: The Brief
-
-`init` (§2) wrote `{briefFile}` from the same `targets[]`, so write nothing by hand: it is the machine-readable snapshot a fresh session resumes from.
 
 ## OUTPUT
 

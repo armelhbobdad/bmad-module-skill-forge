@@ -103,7 +103,7 @@ The single source of truth for campaign progress. Every write goes through one h
 
 ### _campaign-directive.md
 
-An optional Markdown file of standing instructions for the whole campaign. You give its path at Setup. Each stage that uses it re-reads it when the stage starts, so edits you make between stages take effect. It can hold `## Quality Overrides`, `## Skip List`, `## Pipeline Flags` and `## Notes` sections, and any other heading is read as general guidance. See the [campaign directive spec](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-campaign/references/campaign-directive-spec.md) for the full format.
+An optional Markdown file of standing instructions for the whole campaign. You give its path at Setup. Each stage that uses it re-reads it when the stage starts, so edits you make between stages take effect. It can hold `## Quality Overrides` and `## Skip List` sections, and any other heading is read as general guidance, which changes no sub-skill's flags or inputs. See the [campaign directive spec](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-campaign/references/campaign-directive-spec.md) for the full format.
 
 ### Where Campaign Files Live
 

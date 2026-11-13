@@ -330,7 +330,10 @@ class TestAdditionalPropertiesRejected:
 
 
 def _frontmatter(path: pathlib.Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    """The file's YAML frontmatter, or {} for a file that does not open with one (a BOM is read past)."""
+    text = path.read_text(encoding="utf-8-sig")
+    if not text.startswith("---"):
+        return {}
     return yaml.safe_load(text.split("---", 2)[1]) or {}
 
 
@@ -347,11 +350,14 @@ class TestWorkspaceContract:
                 assert fm["stateFile"] == "{campaignWorkspacePath}/_campaign-state.yaml", path.name
             if "backupFile" in fm:
                 assert fm["backupFile"] == "{campaignWorkspacePath}/_campaign-state.yaml.bak", path.name
-        assert declared >= 11
+        assert declared == 12  # step-01 to step-11 and step-resume
 
     def test_directive_name(self) -> None:
-        fm = _frontmatter(CAMPAIGN_DIR / "references" / "campaign-directive-spec.md")
-        assert fm["directiveFile"] == "_campaign-directive.md"
+        # The spec declares no unused frontmatter (#1140): its body names the default file.
+        path = CAMPAIGN_DIR / "references" / "campaign-directive-spec.md"
+        assert _frontmatter(path) == {}
+        assert not path.read_text(encoding="utf-8").startswith("---")
+        assert "default filename `_campaign-directive.md`" in " ".join(path.read_text(encoding="utf-8").split())
 
     def test_capability_row_in_module_help(self) -> None:
         rows = [line.split(",") for line in MODULE_HELP_PATH.read_text(encoding="utf-8").splitlines()]

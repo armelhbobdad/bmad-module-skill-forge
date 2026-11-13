@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'step-04-provenance.md'
-stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 pinResultsFile: '{campaignWorkspacePath}/_pin-results.json'
@@ -57,7 +56,7 @@ Write every resolved pin and the stage in one write:
 uv run {stateScript} apply-pins --state-file {stateFile} --results-file {pinResultsFile} --stage 2
 ```
 
-It sets each skill's `pin` to the script's `resolved_ref` wherever the two differ: a null pin that resolved to the latest release, or a pin written without its tag's form (`2.0.0` for the tag `v2.0.0`), so downstream steps use the exact ref name. It refuses results that hold an invalid pin (exit 5, nothing written: HALT as in §4); on exit 3, HALT (exit code 3, `invalid-state`).
+It refuses results that hold an invalid pin (exit 5, nothing written: HALT as in §4); on exit 3, HALT (exit code 3, `invalid-state`).
 
 ## OUTPUT
 
