@@ -57,6 +57,7 @@ drop steps document, filled in as an agent fills them, against fixtures:
 from __future__ import annotations
 
 import errno
+import importlib.util
 import json
 import os
 import re
@@ -385,7 +386,7 @@ def test_dry_run_envelope_lists_the_planned_deletions(tmp_path):
 
 REPORT_VALUES = {
     "target_skill": "cognee", "drop_mode": "purge", "target_versions": ["0.5.0"], "manifest_updated": True,
-    "forge_left_in_place": None, "headless_mode": True, "mode_source": "--mode argument",
+    "forge_left_in_place": None, "keep_version": None, "headless_mode": True, "mode_source": "--mode argument",
     "confirm_source": "headless-auto",
 }
 
@@ -424,6 +425,8 @@ def test_report_emit_writes_the_result_files(tmp_path, record_status):
     assert record["outputs"] == [{"type": "skill", "path": deleted}]
     assert record["summary"]["headless_provenance"] == {"headless": True, "mode_source": "--mode argument",
                                                         "confirm": "headless-auto"}
+    # #1160: a drop that kept no version says so in the summary, never in the envelope.
+    assert record["summary"]["keep_version"] is None and "keep_version" not in envelope
 
 
 def _decision(text: str, gate: str, values: dict) -> dict:
@@ -434,16 +437,23 @@ def _decision(text: str, gate: str, values: dict) -> dict:
 
 
 def test_headless_decisions_reach_the_result_record(tmp_path):
-    """#593: the mode and the confirmation a headless run decides land in the record's headless_decisions."""
+    """#593: the mode and the confirmation a headless run decides land in the record's headless_decisions. #1160:
+    so does the version a `keep` argument made active, and the summary names it."""
     select = _read(SELECT)
+    guard = _section(select, "### 7. Active Version Guard", "### 8. ")
     mode = _section(select, "### 8. Ask Mode", "### 8b. ")
     confirm = _section(select, "### 10. Confirmation Gate", "### 12. ")
     command = _one_command(mode, "record --run-dir")
     assert "--workflow" not in command, "the drop schema has no headless_decisions to check a decision against"
     assert "run the §8 `record` command" in confirm
+    assert ("When `{headless_mode}` is true and `keep_version` is bound, record the keep as an auto-decision: stage "
+            "`{run_dir}/decision.json` as") in guard and "run the §8 `record` command" in guard
     run_dir = _run_dir(tmp_path)
-    decisions = [_decision(mode, "select.mode", {"drop_mode": "purge", "mode_source": "--mode argument"}),
+    decisions = [_decision(guard, "select.active-guard", {"keep_version": "0.5.0"}),
+                 _decision(mode, "select.mode", {"drop_mode": "purge", "mode_source": "--mode argument"}),
                  _decision(confirm, "select.confirm", {})]
+    assert decisions[0] == {"gate": "select.active-guard", "default_action": "use args", "taken_action": "keep 0.5.0",
+                            "reason": "keep argument"}
     for decision in decisions:
         (run_dir / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
         proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
@@ -452,17 +462,19 @@ def test_headless_decisions_reach_the_result_record(tmp_path):
     [template] = _fenced(contract, "json")
     skills = tmp_path / "skills"
     skills.mkdir()
-    deleted = str(skills / "cognee" / "0.5.0")
-    payload = _fill_json(template, {**REPORT_VALUES, "files_deleted": [deleted], "each": deleted,
-                                    "record_status": "success"})
+    deleted = str(skills / "cognee" / "0.6.0")
+    payload = _fill_json(template, {**REPORT_VALUES, "target_versions": ["0.6.0"], "keep_version": "0.5.0",
+                                    "files_deleted": [deleted], "each": deleted, "record_status": "success"})
     (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
     proc = _run(_one_command(contract, "emit --workflow skf-drop-skill"),
                 {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir), "skills_output_folder": str(skills)})
     assert proc.returncode == 0, proc.stderr
-    assert "headless_decisions" not in _envelope(proc.stdout), "the envelope has no such field"
+    envelope = _envelope(proc.stdout)
+    assert "headless_decisions" not in envelope and "keep_version" not in envelope, "the envelope has no such field"
     record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
     assert record["headless_decisions"] == decisions
-    assert decisions[0]["taken_action"] == "purge" and decisions[1]["gate"] == "select.confirm"
+    assert decisions[1]["taken_action"] == "purge" and decisions[2]["gate"] == "select.confirm"
+    assert (record["summary"]["keep_version"], record["summary"]["versions_affected"]) == ("0.5.0", ["0.6.0"])
 
 
 # --------------------------------------------------------------------------
@@ -709,8 +721,20 @@ def test_the_version_argument_answers_the_scope_gate():
     assert "Re-run with `version=all`." in draft
     assert "the drop never widens it to every version" in draft
     exported = _section(scope, "**If `target_in_manifest = true`:**", "**If [N] Specific version:**")
-    assert "a `version` argument of `all` takes **[A]** below, and any other value takes **[N]**" in exported
+    assert ("a `version` argument of `all` takes **[A]** below, `older` takes **[O]**, and any other value takes "
+            "**[N]**") in exported
     assert 'headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:scope`)' in exported
+    # #1160 enhancement-3: [O] drops every version but the active one, from the roster's list.
+    assert "- **[O]** Older versions: every manifest version except the active one\n" in exported
+    assert "`{target_skill}`: `all`, `older`, or one of its versions" in exported
+    older = _section(scope, "**If [O] Older versions:**", "**If [A] All versions:**")
+    assert ("set `target_versions` ← the `older_versions` of `{target_skill}`'s roster entry (its manifest versions "
+            "that are neither active nor deprecated, newest first) and `is_skill_level = false`.") in older
+    empty = "`{target_skill}` has no older version to drop: every version but the active one is already deprecated."
+    assert f'- **Interactive:** display "{empty}" and ask again.' in older
+    assert ('- **Headless (`{headless_mode}` is true):** HALT (exit code 2, `halt_reason: "input-invalid"`, phase '
+            '`select:scope`), with `skill: "{target_skill}"` in the halt envelope: "headless mode: ' + empty + '"'
+            ) in older
     assert "draft skills can only be dropped as a whole" not in scope, "a draft no longer ignores the argument"
     # The versions are named and checked from §5's ordered rows, never from the manifest map by eye.
     assert "one of its versions ({each `{version_rows}` entry with `in_manifest` true})" in exported
@@ -720,7 +744,11 @@ def test_the_version_argument_answers_the_scope_gate():
     assert "Bind `{version_rows}` ← the `versions` of `{target_skill}`'s roster entry" in versions
     assert "affected-versions" not in _read(SELECT), "the roster orders the versions"
     gates = next(line for line in _contract_text(with_skill=True).splitlines() if line.startswith("| **Gates** |"))
-    assert "Scope Gate [use args] (§6 version)" in gates
+    assert "Scope Gate [use args] (§6 version), Keep Gate [use args] (§7 keep)" in gates
+    inputs = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Inputs** |"))
+    assert "version (`all`, `older` or one version) [required for a skill in the manifest" in inputs
+    assert "keep (the version to make active before the drop, so dropping the active version keeps another) " \
+           "[optional]" in inputs
 
 
 def test_the_mode_argument_answers_the_mode_gate():
@@ -945,7 +973,7 @@ def test_the_whole_skill_deprecate_is_checked_and_reported_as_kept():
     verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 7. ")
     # drop-roster.py verify expects every version deprecated for a whole-skill deprecate, and no entry for a purge.
     assert "--mode {drop_mode} [--version {version}]" in _one_command(verify, "{dropRosterHelper} verify")
-    assert "Pass `--version` for a version-level drop." in verify
+    assert "Pass `--version` once per `target_versions` entry for a version-level drop." in verify
     remaining = _section(_read(REPORT), "### 1. Determine Remaining Versions", "### 2. ")
     assert '**If `is_skill_level == true` and `drop_mode == "purge"`:**' in remaining
     assert "a whole-skill deprecate, which keeps every version in the manifest" in remaining
@@ -1060,28 +1088,64 @@ def test_roster_counts_drive_the_active_version_guard(tmp_path, statuses, refuse
     assert (entry["counts"]["non_deprecated"] > 1) is refused
 
 
-def test_the_guard_refusal_names_a_recovery_that_works():
+@pytest.mark.parametrize("recovery", ["out-of-run", "keep"])
+def test_the_guard_refusal_names_a_recovery_that_works(recovery):
     """enhancement-3 (gate run 3), #1172: the refusal names Export Skill's `--version`, which points the
-    `active` link at the version to keep, so no step asks for a flip by hand."""
+    `active` link at the version to keep, so no step asks for a flip by hand. #1160 enhancement-1: the guard first
+    offers [K] Keep, which makes the roster's `keep_candidate` active and drops the old version in the same run
+    (headless: `keep=<version>`); the refusal and its out-of-run recipe stay for a run with nothing to keep, and a
+    headless refusal names the `keep=` value to re-run with."""
     guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
-    assert "with a different version selected" not in guard, "the refusal names the command to run"
-    assert ("run `[EX] Export Skill {target_skill} --version <version to keep>`, which points the `active` link at "
-            "that version, exports it and archives `{version}`, then return here to drop `{version}`") in guard
-    assert ("In (a), `<version to keep>` is the `keep_candidate` of `{target_skill}`'s roster entry; when it is null, "
-            "show `<version to keep>` as written.") in guard
-    assert "first `{version_rows}` entry other than" not in guard, "the roster helper picks it (#1158)"
-    # The recovery runs no command of select.md's own, so it binds no helper for it (lane review finding 3).
-    assert "atomicWrite" not in _read(SELECT)
     safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
-    assert ("`@Ferris EX <name> --version <version to keep>`, which points the skill's `active` link at it, exports "
-            "it and archives the old one") in safety
     drop = _section(_read("src/knowledge/version-paths.md"), "### Drop (DS - Drop Skill)", "**Skill-level drop:**")
-    assert ("`[EX] Export Skill <skill> --version <version to keep>` points the `active` link at it, exports it, and "
-            "its manifest update archives the old one") in drop
-    assert "switch active to another version first" not in drop
     for text in (guard, safety, drop):
         assert "ln -s" not in text, "Git Bash without symlink rights turns `ln -s` into a copy of the folder"
         assert "flip-link" not in text, "Export Skill moves the link: no recovery asks for a flip by hand"
+    if recovery == "out-of-run":
+        assert "with a different version selected" not in guard, "the refusal names the command to run"
+        assert ("run `[EX] Export Skill {target_skill} --version <version to keep>`, which points the `active` link at "
+                "that version, exports it and archives `{version}`, then return here to drop `{version}`") in guard
+        assert ("In (a), `<version to keep>` is the `keep_candidate` of `{target_skill}`'s roster entry; when it is "
+                "null, show `<version to keep>` as written.") in guard
+        assert "first `{version_rows}` entry other than" not in guard, "the roster helper picks it (#1158)"
+        # The recovery runs no command of select.md's own, so it binds no helper for it.
+        assert "atomicWrite" not in _read(SELECT)
+        assert ("- **Otherwise** (a headless run, or no such `keep_candidate`): refuse the drop with the message below "
+                "and HALT (exit code 5, `halt_reason: \"active-version-guard-refused\"`") in guard
+        # The docs keep Export Skill's `--version` for a drop that does not keep another version.
+        assert ("`@Ferris EX <name> --version <version to keep>`, which points the skill's `active` link at it, "
+                "exports it and archives the old one") in safety
+        assert ("`[EX] Export Skill <skill> --version <version to keep>` points the `active` link at it, exports it, "
+                "and its manifest update archives the old one") in drop
+        assert "switch active to another version first" not in drop
+        assert "Otherwise, the user must either make the version they keep active first" in drop
+        return
+    # The keep path: one run, offered with the roster's pick, taken headless only through `keep`.
+    assert "**GATE [default: use args]:** a `keep` argument answers this section in either mode" in guard
+    assert ("- **Interactive, when `{target_skill}`'s roster entry has a `keep_candidate` other than `{version}`:** "
+            "ask") in guard
+    assert "  - **[K]** Keep `{keep_candidate}`: make it active, then drop `{version}`\n" in guard
+    assert "  - **[A]** All versions: drop every version of `{target_skill}` at once\n" in guard
+    assert ("On [K], bind `keep_version` ← `{keep_candidate}`. On [A], set `target_versions = \"all\"` and "
+            "`is_skill_level = true`.") in guard
+    # [A] widens the scope §6 chose, so the purge check runs at the whole skill.
+    assert "**The purge check.** Run it at the scope §6 or §7 chose," in _section(_read(SELECT), "### 8b. ", "### 9. ")
+    # A keep_candidate equal to the dropped version (a manifest with two `active` rows) is no keep §7 accepts.
+    assert ("A headless refusal whose `keep_candidate` is neither null nor `{version}` ends with: \"Or re-run with "
+            "`keep={keep_candidate}` to make `{keep_candidate}` active and drop `{version}` in one run.\"") in guard
+    level = _section(_section(_read(EXECUTE), "### 2. Update Export Manifest", "### 3. "),
+                     "**If `is_skill_level == false` (version-level drop):**", "**If `is_skill_level == true`")
+    assert level.index("{updateActiveSymlinkHelper} update") < level.index(" set ") < level.index(" deprecate ")
+    rendered = _section(_read(REPORT), "### 2. Render the Report", "### Result Contract")
+    assert "when `keep_version` is bound, that `{keep_version}` is now the active version" in rendered
+    # The user docs describe Keep and the headless argument.
+    for token in ("Drop offers Keep, which makes another version on disk active",
+                  "drops the old one in the same run", "A headless drop of the active version then needs "
+                  "`keep=<version>`", "exit `5` (`active-version-guard-refused`)",
+                  "choose Older versions (`version=older`)"):
+        assert token in safety, token
+    assert ("its Keep option (`keep=<version>` in a headless run) points `active` at that version and records it as "
+            "the manifest's active version, then drops the old one in the same run") in drop
 
 
 def _link_active(group: Path, version: str) -> None:
@@ -1632,12 +1696,13 @@ def test_select_numbers_only_true_sequences():
     select = _read(SELECT)
     guard = _section(select, "### 7. Active Version Guard", "### 8. ")
     assert re.search(r"^\s*(\d+|[a-c])\. ", guard, flags=re.M) is None
-    assert ("When `target_in_manifest` is true, one version was selected (`is_skill_level = false`), its "
-            "`{version_rows}` entry's `status` is `\"active\"` and `{version_counts}.non_deprecated` (§5) is above "
-            "`1`, refuse the drop with the message below and HALT (exit code 5, "
+    assert ("When `target_in_manifest` is true, one version was selected (§6 [N]), its `{version_rows}` entry's "
+            "`status` is `\"active\"`, `{version_counts}.non_deprecated` (§5) is above `1` and no `keep_version` is "
+            "bound, the drop would leave `{target_skill}` without an active version:") in guard
+    assert ("refuse the drop with the message below and HALT (exit code 5, "
             "`halt_reason: \"active-version-guard-refused\"`, phase `select:active-version-guard`), with "
-            "`skill: \"{target_skill}\"` and `versions_affected: [\"{version}\"]` in the halt envelope. Otherwise "
-            "continue to §8.") in guard
+            "`skill: \"{target_skill}\"` and `versions_affected: [\"{version}\"]` in the halt envelope.") in guard
+    assert guard.rstrip().endswith("When the guard does not apply, or [K] or [A] answered it, continue to §8.")
     blast = _section(select, "#### 9b.", "### 10. ")
     for value in ("versions_count", "bytes_total", "context_files_count"):
         assert f"\n- **`{value}`**" in blast, value
@@ -1705,3 +1770,344 @@ def test_the_stages_cut_the_narration_of_helper_internals():
             "`{nextStepFile}`: the health check is the terminal step, and in a headless run it prints the envelope as "
             "the last line, so stopping at the report loses it. Do not re-run an earlier step after it "
             "completes.") in chain
+
+
+# --------------------------------------------------------------------------
+# #1160: keep another version active, and drop every older version, in one run
+# --------------------------------------------------------------------------
+
+UPDATE_ACTIVE = SCRIPTS / "skf-update-active-symlink.py"
+EACH_VERSION = "{each version in target_versions, space-separated}"
+# select.md §7's check of a `keep` argument, which _keep_is_valid restates over the roster's rows.
+KEEP_CHECK = ("When a `keep` argument was supplied, check it first, in either mode: it names a `{version_rows}` entry "
+              "that is not in `target_versions`, with `in_manifest` and `on_disk` true and a `status` other than "
+              "`\"deprecated\"`, and `target_versions` is not `\"all\"`.")
+# select.md §8b's merge of the purge checks over several versions, which _merge_purge_checks restates.
+PURGE_MERGE = ("Over two or more versions, merge the results in `target_versions` order: the first whose `verdict` is "
+               "not `\"ok\"` (else the first) gives `{purge_verdict}`, `{purge_reason}`, `{purge_detail}`, "
+               "`{purge_entries}` and the `{version}` the guard's message names, `{affected_directories}` and "
+               "`{forge_errors}` join every result's lists in order, and `{forge_left_in_place}` is the list of their "
+               "non-null values, or null when every one is null.")
+
+
+def _version_level_calls() -> dict:
+    """execute.md §2's version-level commands: the keep's link and manifest calls, then the one deprecate."""
+    manifest = _section(_read(EXECUTE), "### 2. Update Export Manifest", "### 3. ")
+    level = _section(manifest, "**If `is_skill_level == false` (version-level drop):**",
+                     "**If `is_skill_level == true`")
+    return {"update": _one_command(level, "{updateActiveSymlinkHelper} update"),
+            "set": _one_command(level, "{manifestOpsHelper} {skills_output_folder} set "),
+            "deprecate": _one_command(level, "{manifestOpsHelper} {skills_output_folder} deprecate ")}
+
+
+def _values(skills: Path, **extra) -> dict:
+    return {"updateActiveSymlinkHelper": str(UPDATE_ACTIVE), "manifestOpsHelper": str(MANIFEST_OPS),
+            "dropRosterHelper": str(ROSTER), "skillInventoryHelper": str(INVENTORY),
+            "skills_output_folder": str(skills), "target_skill": "cognee", **extra}
+
+
+def _set_exported(skills: Path, version: str, date: str) -> None:
+    path = skills / ".export-manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["exports"]["cognee"]["versions"][version]["last_exported"] = date
+    path.write_bytes(json.dumps(manifest).encode("utf-8"))
+
+
+def _keep_is_valid(rows: dict, keep: str, target_versions) -> bool:
+    """KEEP_CHECK over the roster's rows, keyed by version."""
+    row = rows.get(keep)
+    return (target_versions != "all" and row is not None and keep not in target_versions
+            and row["in_manifest"] and row["on_disk"] and row["status"] != "deprecated")
+
+
+def _final_state(skills: Path, versions: list[str]) -> dict:
+    """execute.md §5's documented check of a version-level deprecate, one `--version` per dropped version."""
+    verify = _one_command(_section(_read(EXECUTE), "### 5. Verify Final State", "### 7. "), "{dropRosterHelper} verify")
+    command = (verify.replace("[--version {version}]", " ".join(f"--version {v}" for v in versions))
+               .replace(" {each file in context_files_updated, quoted}", ""))
+    proc = _run(command, _values(skills, drop_mode="deprecate"))
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _emit_halt(tmp_path: Path, halt: dict) -> dict:
+    run_dir = _run_dir(tmp_path)
+    (run_dir / "halt.json").write_bytes(json.dumps(halt).encode("utf-8"))
+    proc = _run(_one_command(_read(SELECT), "emit-halt --workflow skf-drop-skill --run-dir"),
+                {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    return _envelope(proc.stderr)
+
+
+def _cognee(tmp_path: Path, statuses: dict, active: str, on_disk=None) -> tuple[Path, Path]:
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in statuses if on_disk is None else on_disk:
+        _write_skill(skills, "cognee", version)
+    _write_manifest(skills, "cognee", active, statuses)
+    forge.mkdir()
+    return skills, forge
+
+
+@pytest.mark.parametrize("rerun", [False, True], ids=["one-run", "re-run-after-a-halt"])
+def test_the_keep_path_makes_the_kept_version_active_then_drops(tmp_path, rerun):
+    """enhancement-1: [K] Keep, or a headless `keep=0.5.0`, run as execute.md §2 documents it. `active` points at the
+    kept version, the manifest lists it active with the export date it had (a drop exports nothing), and one call
+    deprecates the dropped one. A run whose deprecate halted after `set` takes the same arguments again: §7 accepts
+    the keep, its guard no longer applies, `update` is a no-op and `set` changes nothing."""
+    skills, forge = _cognee(tmp_path, {"0.6.0": "active", "0.5.0": "archived", "0.1.0": "deprecated"}, "0.6.0")
+    _set_exported(skills, "0.5.0", "2025-03-04")
+    _link_active(skills / "cognee", "0.6.0")
+    entry = _roster_entry(skills, forge, "cognee")
+    keep = entry["keep_candidate"]
+    assert keep == "0.5.0", "[K] offers the roster's pick"
+    assert _keep_is_valid({row["version"]: row for row in entry["versions"]}, keep, ["0.6.0"])
+    calls = _version_level_calls()
+    values = _values(skills, keep_version=keep)
+    if rerun:
+        for name in ("update", "set"):  # the first run got this far, then its deprecate halted
+            assert _run(calls[name], values).returncode == 0
+        rows = {row["version"]: row for row in _roster_entry(skills, forge, "cognee")["versions"]}
+        assert _keep_is_valid(rows, keep, ["0.6.0"]), "§7 accepts the same keep again"
+        assert rows["0.6.0"]["status"] == "archived", "the guard applies to an active version only"
+    proc = _run(calls["update"], values)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["action_taken"] == ("no-op" if rerun else "flipped")
+    proc = _run(calls["set"], values)
+    assert proc.returncode == 0, proc.stderr
+    proc = _run(calls["deprecate"].replace(EACH_VERSION, "0.6.0"), values)
+    assert proc.returncode == 0, proc.stderr
+    entry = _roster_entry(skills, forge, "cognee")
+    assert entry["active_version"] == "0.5.0"
+    assert {row["version"]: (row["status"], row["last_exported"]) for row in entry["versions"]} == {
+        "0.6.0": ("deprecated", "2026-01-01"), "0.5.0": ("active", "2025-03-04"), "0.1.0": ("deprecated", "2026-01-01")}
+    assert (skills / "cognee" / "active").resolve() == (skills / "cognee" / "0.5.0").resolve()
+    assert _final_state(skills, ["0.6.0"])["failures"] == []
+
+
+@pytest.mark.parametrize("skill, keep, target_versions, valid", [
+    ("cognee", "0.5.0", ["0.6.0"], True),
+    ("cognee", "0.1.0", ["0.6.0"], False),
+    ("cognee", "0.4.0", ["0.6.0"], False),
+    ("cognee", "0.6.0", ["0.6.0"], False),
+    ("cognee", "0.5.0", "all", False),
+    ("cognee", "9.9.9", ["0.6.0"], False),
+    ("draft", "0.2.0", "all", False),
+], ids=["kept", "deprecated", "not-on-disk", "in-scope", "version-all", "unknown", "draft"])
+def test_a_keep_argument_names_a_version_this_drop_can_keep(tmp_path, skill, keep, target_versions, valid):
+    """enhancement-1: §7 checks a `keep` argument in either mode against the roster's rows, and one this drop cannot
+    keep halts with exit 2 before any change, the guard or no guard."""
+    guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
+    assert KEEP_CHECK in guard
+    assert ('When it does not, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:active-version-guard`), '
+            'with `skill: "{target_skill}"` in the halt envelope') in guard
+    assert "When it does, bind `keep_version` ← it." in guard
+    skills, forge = _cognee(tmp_path, {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived",
+                                       "0.1.0": "deprecated"}, "0.6.0", on_disk=("0.6.0", "0.5.0", "0.1.0"))
+    _write_skill(skills, "draft", "0.2.0")
+    rows = {row["version"]: row for row in _roster_entry(skills, forge, skill)["versions"]}
+    assert _keep_is_valid(rows, keep, target_versions) is valid
+    if not valid:
+        envelope = _emit_halt(tmp_path, {"phase": "select:active-version-guard", "halt_reason": "input-invalid",
+                                         "exit_code": 2, "skill": skill,
+                                         "reason": f"`keep` argument `{keep}` is not a version of `{skill}` this drop "
+                                                   "can keep"})
+        assert (envelope["exit_code"], envelope["error"]["phase"]) == (2, "select:active-version-guard")
+
+
+def _atomic_write():
+    spec = importlib.util.spec_from_file_location("skf_atomic_write", SCRIPTS / "skf-atomic-write.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("broken", ["missing-target", "busy", "active-is-a-folder"])
+def test_a_keep_whose_link_cannot_move_halts_before_any_change(tmp_path, broken):
+    """enhancement-1: `update` refuses (exit 2 with its JSON: no folder for the kept version, or another flip held
+    the link's lock for its whole wait) or fails (exit 1, stderr only); §2 then halts with exit 4 before `set` runs,
+    so the manifest and the link are as they were."""
+    level = _section(_read(EXECUTE), "**If `is_skill_level == false` (version-level drop):**",
+                     "**If `is_skill_level == true`")
+    assert ('When no candidate exists, or `update` exits non-zero or prints no JSON, HALT (exit code 4, '
+            '`halt_reason: "write-failed"`, phase `execute:keep-active`) in every mode, before `set` runs, with the '
+            'resolved `skill`, `drop_mode` and `versions_affected` in the halt envelope') in level
+    assert "Nothing was changed. Re-run the drop once the cause is fixed." in level
+    skills, _ = _cognee(tmp_path, {"0.6.0": "active", "0.5.0": "archived"}, "0.6.0")
+    group = skills / "cognee"
+    _link_active(group, "0.6.0")
+    if broken == "missing-target":
+        shutil.rmtree(group / "0.5.0")
+    elif broken == "active-is-a-folder":
+        try:
+            (group / "active").unlink()
+        except OSError:
+            os.rmdir(group / "active")  # a directory link on Windows
+        (group / "active").mkdir()
+    before = (skills / ".export-manifest.json").read_bytes()
+    lock = None
+    if broken == "busy":
+        atomic_write = _atomic_write()
+        lock = atomic_write.take_flip_lock(group / "active")
+    try:
+        proc = _run(_version_level_calls()["update"], _values(skills, keep_version="0.5.0"))
+    finally:
+        if lock is not None:
+            atomic_write.release_flip_lock(group / "active", lock)
+    if broken in ("missing-target", "busy"):
+        assert proc.returncode == 2, proc.stderr
+        result = json.loads(proc.stdout)
+        assert result["status"] == broken
+        cause = result["halt_message"]
+        assert (group / "active").resolve() == (group / "0.6.0").resolve(), "the link is unchanged"
+    else:
+        assert (proc.returncode, proc.stdout) == (1, b""), proc.stderr
+        cause = proc.stderr.decode("utf-8").splitlines()[0]
+        assert (group / "active").is_dir() and not os.path.islink(group / "active")
+    envelope = _emit_halt(tmp_path, {"phase": "execute:keep-active", "halt_reason": "write-failed", "exit_code": 4,
+                                     "reason": f"SKF cannot make `0.5.0` the active version: {cause}. Nothing was "
+                                               "changed. Re-run the drop once the cause is fixed.",
+                                     "skill": "cognee", "drop_mode": "deprecate", "versions_affected": ["0.6.0"]})
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["manifest_updated"]) == (4, "write-failed", False)
+    assert envelope["error"]["phase"] == "execute:keep-active"
+    assert (skills / ".export-manifest.json").read_bytes() == before, "`set` never ran"
+
+
+def test_a_headless_refusal_names_the_keep_to_re_run_with(tmp_path):
+    """enhancement-1: with no `keep` argument a headless drop of the active version still exits 5, and its message
+    names the version the roster would keep."""
+    skills, forge = _cognee(tmp_path, {"0.6.0": "active", "0.5.0": "archived", "0.1.0": "deprecated"}, "0.6.0")
+    entry = _roster_entry(skills, forge, "cognee")
+    assert entry["counts"]["non_deprecated"] > 1, "the guard applies to 0.6.0"
+    guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
+    [ending] = re.findall(r'ends with: "(Or re-run with [^"]+)"', guard)
+    ending = ending.replace("{keep_candidate}", entry["keep_candidate"]).replace("{version}", "0.6.0")
+    assert ending == "Or re-run with `keep=0.5.0` to make `0.5.0` active and drop `0.6.0` in one run."
+    envelope = _emit_halt(tmp_path, {"phase": "select:active-version-guard", "halt_reason": "active-version-guard-refused",
+                                     "exit_code": 5, "skill": "cognee", "versions_affected": ["0.6.0"],
+                                     "reason": "Cannot drop the active version `0.6.0`. " + ending})
+    assert (envelope["exit_code"], envelope["versions_affected"]) == (5, ["0.6.0"])
+    assert envelope["error"]["reason"].endswith("`keep=0.5.0` to make `0.5.0` active and drop `0.6.0` in one run.")
+
+
+def _purge_check(skills: Path, forge: Path, version: str) -> dict:
+    """select.md §8b's documented purge check of one version, as an agent fills it."""
+    guard = _section(_read(SELECT), "### 8b. Purge Guard", "### 9. ")
+    command = _one_command(guard, "--purge-check").replace("[--purge-version {version}]", "--purge-version {version}")
+    proc = _run(command, _values(skills, forge_data_folder=str(forge), version=version))
+    result = json.loads(proc.stdout)
+    assert proc.returncode == 0 and result["status"] == "ok", result
+    return result["purge_check"]
+
+
+def _merge_purge_checks(results: list[dict]) -> dict:
+    """PURGE_MERGE over the checks of `target_versions`, in order."""
+    first = next((r for r in results if r["verdict"] != "ok"), results[0])
+    left = [r["forge_left_in_place"] for r in results if r["forge_left_in_place"] is not None]
+    return {"verdict": first["verdict"], "reason": first["reason"], "offending_entries": first["offending_entries"],
+            "version": first["version"],
+            "affected_directories": [path for r in results for path in r["affected_directories"]],
+            "forge_errors": [e for r in results for e in r["forge_errors"]], "forge_left_in_place": left or None}
+
+
+@pytest.mark.parametrize("link", ["0.7.0", "0.6.0"], ids=["link-on-the-active", "link-on-an-older-version"])
+def test_older_versions_drop_every_version_but_the_active_one_in_one_run(tmp_path, link):
+    """enhancement-3: [O] (headless `version=older`) binds the roster's `older_versions`, newest first. §8b checks
+    each version and merges, §2 deprecates them in one call, §4 deletes and repairs `active` once per version and
+    §5 passes one `--version` per version. The repair runs for each version, not only the active one: a link a
+    writing workflow left on an older version the purge deletes points back at the active one."""
+    statuses = {"0.7.0": "active", "0.6.0": "archived", "0.5.0": "archived", "0.1.0": "deprecated"}
+    skills, forge = _cognee(tmp_path, statuses, "0.7.0")
+    group = skills / "cognee"
+    _link_active(group, link)
+    target_versions = _roster_entry(skills, forge, "cognee")["older_versions"]
+    assert target_versions == ["0.6.0", "0.5.0"]
+    select = _read(SELECT)
+    assert "  - Version-level drop: the number of `target_versions` entries\n" in _section(select, "#### 9b.", "### 10. ")
+    assert PURGE_MERGE in _section(select, "### 8b. Purge Guard", "### 9. ")
+    merged = _merge_purge_checks([_purge_check(skills, forge, v) for v in target_versions])
+    assert (merged["verdict"], merged["forge_left_in_place"]) == ("ok", None)
+    assert merged["affected_directories"] == [str(group / "0.6.0"), str(group / "0.5.0")]
+    proc = _run(_version_level_calls()["deprecate"].replace(EACH_VERSION, " ".join(target_versions)), _values(skills))
+    assert proc.returncode == 0, proc.stderr
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    assert "Run the call below once per `target_versions` entry, with `{version}` that entry." in delete
+    paths = {f"path{i}": path for i, path in enumerate(merged["affected_directories"])}
+    command = _one_command(delete, "guarded-delete").replace(
+        "{each path in affected_directories, quoted, space-separated}", " ".join(f'"{{{k}}}"' for k in paths))
+    proc = _run(command, _values(skills, forge_data_folder=str(forge), **paths))
+    assert proc.returncode == 0, proc.stderr
+    deleted = json.loads(proc.stdout)
+    assert (deleted["files_deleted"], deleted["purge_status"]) == (merged["affected_directories"], "success")
+    for version in target_versions:
+        proc = _repair(_values(skills, version=version))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["action"] == ("flipped" if version == link else "none")
+    assert (group / "active").resolve() == (group / "0.7.0").resolve()
+    assert _final_state(skills, target_versions)["failures"] == []
+    entry = _roster_entry(skills, forge, "cognee")
+    assert {row["version"]: row["status"] for row in entry["versions"]} == {
+        "0.7.0": "active", "0.6.0": "deprecated", "0.5.0": "deprecated", "0.1.0": "deprecated"}
+    assert entry["older_versions"] == [], "a second [O] has nothing left to drop"
+
+
+def test_an_older_versions_purge_names_the_version_that_holds_foreign_entries(tmp_path):
+    """enhancement-3: the merged check refuses the purge with the first version that fails, and the guard's message
+    names that version; nothing runs after the halt, so nothing is deleted."""
+    skills, forge = _cognee(tmp_path, {"0.7.0": "active", "0.6.0": "archived", "0.5.0": "archived"}, "0.7.0")
+    (skills / "cognee" / "0.5.0" / "NOTES.md").write_bytes(b"mine\n")
+    target_versions = _roster_entry(skills, forge, "cognee")["older_versions"]
+    merged = _merge_purge_checks([_purge_check(skills, forge, v) for v in target_versions])
+    assert (merged["verdict"], merged["reason"], merged["version"]) == ("not-skf-output", "skill-version-mixed", "0.5.0")
+    assert merged["offending_entries"] == ["0.5.0/NOTES.md"]
+    guard = _section(_read(SELECT), "### 8b. Purge Guard", "### 9. ")
+    [message] = re.findall(r'^- `skill-version-mixed`: "(.+)"$', guard, flags=re.M)
+    message = (message.replace("{skills_output_folder}", skills.as_posix()).replace("{target_skill}", "cognee")
+               .replace("{version}", merged["version"]).replace("{purge_entries}", ", ".join(merged["offending_entries"])))
+    assert f"`{skills.as_posix()}/cognee/0.5.0` also holds entries SKF did not generate" in message
+    envelope = _emit_halt(tmp_path, {"phase": "select:purge-guard", "halt_reason": "not-skf-output", "exit_code": 5,
+                                     "skill": "cognee", "drop_mode": "purge", "reason": message})
+    assert (envelope["exit_code"], envelope["error"]["phase"]) == (5, "select:purge-guard")
+    assert all((skills / "cognee" / v).is_dir() for v in target_versions)
+
+
+def test_an_older_versions_purge_lists_each_forge_folder_it_leaves(tmp_path):
+    """enhancement-3: two forge version folders SKF did not generate are both left in place, and the dry-run,
+    success and halt envelopes carry `forge_left_in_place` as a list the schema accepts."""
+    skills, forge = _cognee(tmp_path, {"0.7.0": "active", "0.6.0": "archived", "0.5.0": "archived"}, "0.7.0")
+    (forge / "cognee").mkdir()
+    (forge / "cognee" / "skill-brief.yaml").write_bytes(b"name: cognee\n")
+    for version in ("0.6.0", "0.5.0"):
+        (forge / "cognee" / version).mkdir()
+        (forge / "cognee" / version / "data.csv").write_bytes(b"a,b\n")
+    target_versions = _roster_entry(skills, forge, "cognee")["older_versions"]
+    merged = _merge_purge_checks([_purge_check(skills, forge, v) for v in target_versions])
+    left = [str(forge / "cognee" / "0.6.0"), str(forge / "cognee" / "0.5.0")]
+    assert (merged["verdict"], merged["forge_left_in_place"]) == ("ok", left)
+    assert merged["affected_directories"] == [str(skills / "cognee" / v) for v in target_versions]
+    values = {"target_skill": "cognee", "drop_mode": "purge", "target_versions": target_versions,
+              "affected_directories": merged["affected_directories"], "forge_left_in_place": left}
+    [dry] = _fenced(_section(_read(SELECT), "### 10. Confirmation Gate", "### 12. "), "json")
+    contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
+    [success] = _fenced(contract, "json")
+    payloads = {"dry-run": _fill_json(dry, values),
+                "success": _fill_json(success, {**REPORT_VALUES, **values, "files_deleted": values["affected_directories"],
+                                                "each": values["affected_directories"][0], "record_status": "success"})}
+    for status, payload in payloads.items():
+        run_dir = tmp_path / status / "_bmad-output" / ".skf-run" / "skf-drop-skill-Ab3dE5gH"
+        run_dir.mkdir(parents=True)
+        (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
+        command = _one_command(_read(SELECT) if status == "dry-run" else contract, "emit --workflow skf-drop-skill")
+        proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir),
+                              "skills_output_folder": str(skills)})
+        assert proc.returncode == 0, proc.stderr
+        envelope = _envelope(proc.stdout)
+        assert (envelope["status"], envelope["forge_left_in_place"]) == (status, left)
+        assert envelope["versions_affected"] == ["0.6.0", "0.5.0"]
+    record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
+    assert record["summary"]["forge_left_in_place"] == left
+    halt = _emit_halt(tmp_path, {"phase": "execute:delete", "halt_reason": "delete-failed", "exit_code": 4,
+                                 "reason": "Purge failed", "skill": "cognee", "drop_mode": "purge",
+                                 "versions_affected": target_versions, "forge_left_in_place": left})
+    assert (halt["exit_code"], halt["forge_left_in_place"]) == (4, left)
+    schema = SCHEMA["properties"]["forge_left_in_place"]
+    assert schema["type"] == ["string", "array", "null"] and schema["items"] == {"type": "string", "minLength": 1}

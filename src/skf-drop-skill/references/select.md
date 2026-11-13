@@ -97,16 +97,17 @@ Bind `{version_rows}` ← the `versions` of `{target_skill}`'s roster entry (the
 
 ### 6. Ask Scope
 
-**GATE [default: use args]:** the `version` argument answers this section in either mode, so a supplied value is never asked for again.
+**GATE [default: use args]:** the `version` argument answers this section in either mode, so a supplied value is never asked for again: `all`, `older` or one version.
 
 **If `target_in_manifest = false`:** a draft skill can only be dropped as a whole. A `version` argument other than `all` asks for less, and the drop never widens it to every version: HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:scope`) in either mode, with `skill: "{target_skill}"` in the halt envelope: "`{target_skill}` has no manifest entry, so only the whole skill can be dropped. Re-run with `version=all`." Otherwise (no `version` argument, or `all`), skip the prompt: set `target_versions = "all"` and `is_skill_level = true`, then proceed to section 7.
 
-**If `target_in_manifest = true`:** a `version` argument of `all` takes **[A]** below, and any other value takes **[N]** with that value as the answer to "Which version?", without showing either prompt. With no `version` argument, headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:scope`), with `skill: "{target_skill}"` in the halt envelope, rather than guess between one version and the whole skill: "headless mode requires a `version` argument for `{target_skill}`: `all`, or one of its versions ({each `{version_rows}` entry with `in_manifest` true})." Interactive mode asks:
+**If `target_in_manifest = true`:** a `version` argument of `all` takes **[A]** below, `older` takes **[O]**, and any other value takes **[N]** with that value as the answer to "Which version?", without showing either prompt. With no `version` argument, headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:scope`), with `skill: "{target_skill}"` in the halt envelope, rather than guess between one version and the whole skill: "headless mode requires a `version` argument for `{target_skill}`: `all`, `older`, or one of its versions ({each `{version_rows}` entry with `in_manifest` true})." Interactive mode asks:
 
 "**Drop which version(s)?**
 
-- **[N]** Specific version — soft deprecate or hard purge a single version
-- **[A]** All versions — drops the entire skill (skill-level operation)
+- **[N]** Specific version: soft deprecate or hard purge a single version
+- **[O]** Older versions: every manifest version except the active one
+- **[A]** All versions: drops the entire skill (skill-level operation)
 - **[X]** Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 Wait for user selection.
@@ -122,13 +123,33 @@ Wait for user input (a supplied `version` argument is the input). Validate that 
 
 Set `target_versions = [<selected version>]` and `is_skill_level = false`.
 
+**If [O] Older versions:** set `target_versions` ← the `older_versions` of `{target_skill}`'s roster entry (its manifest versions that are neither active nor deprecated, newest first) and `is_skill_level = false`. When that list is empty:
+
+- **Interactive:** display "`{target_skill}` has no older version to drop: every version but the active one is already deprecated." and ask again.
+- **Headless (`{headless_mode}` is true):** HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:scope`), with `skill: "{target_skill}"` in the halt envelope: "headless mode: `{target_skill}` has no older version to drop: every version but the active one is already deprecated."
+
 **If [A] All versions:**
 
 Set `target_versions = "all"` and `is_skill_level = true`.
 
 ### 7. Active Version Guard
 
-When `target_in_manifest` is true, one version was selected (`is_skill_level = false`), its `{version_rows}` entry's `status` is `"active"` and `{version_counts}.non_deprecated` (§5) is above `1`, refuse the drop with the message below and HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the halt envelope. Otherwise continue to §8.
+**GATE [default: use args]:** a `keep` argument answers this section in either mode; with none, a headless run takes the refusal below.
+
+When a `keep` argument was supplied, check it first, in either mode: it names a `{version_rows}` entry that is not in `target_versions`, with `in_manifest` and `on_disk` true and a `status` other than `"deprecated"`, and `target_versions` is not `"all"`. When it does not, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` in the halt envelope: "`keep` argument `{supplied value}` is not a version of `{target_skill}` this drop can keep: name a manifest version that is on disk, not deprecated and not dropped by this run." When it does, bind `keep_version` ← it.
+
+When `target_in_manifest` is true, one version was selected (§6 [N]), its `{version_rows}` entry's `status` is `"active"`, `{version_counts}.non_deprecated` (§5) is above `1` and no `keep_version` is bound, the drop would leave `{target_skill}` without an active version:
+
+- **Interactive, when `{target_skill}`'s roster entry has a `keep_candidate` other than `{version}`:** ask
+
+  "**`{version}` is the active version of `{target_skill}`,** and other non-deprecated versions still exist.
+
+  - **[K]** Keep `{keep_candidate}`: make it active, then drop `{version}`
+  - **[A]** All versions: drop every version of `{target_skill}` at once
+  - **[X]** Cancel and exit (or type `cancel` / `exit` / `:q`)"
+
+  Wait for user selection. On [K], bind `keep_version` ← `{keep_candidate}`. On [A], set `target_versions = "all"` and `is_skill_level = true`.
+- **Otherwise** (a headless run, or no such `keep_candidate`): refuse the drop with the message below and HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the halt envelope.
 
 "**Cannot drop the active version `{version}`.**
 Other non-deprecated versions of `{target_skill}` still exist. To proceed, either:
@@ -137,7 +158,11 @@ Other non-deprecated versions of `{target_skill}` still exist. To proceed, eithe
 
 **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 
-In (a), `<version to keep>` is the `keep_candidate` of `{target_skill}`'s roster entry; when it is null, show `<version to keep>` as written.
+In (a), `<version to keep>` is the `keep_candidate` of `{target_skill}`'s roster entry; when it is null, show `<version to keep>` as written. A headless refusal whose `keep_candidate` is neither null nor `{version}` ends with: "Or re-run with `keep={keep_candidate}` to make `{keep_candidate}` active and drop `{version}` in one run."
+
+When `{headless_mode}` is true and `keep_version` is bound, record the keep as an auto-decision: stage `{run_dir}/decision.json` as `{"gate": "select.active-guard", "default_action": "use args", "taken_action": "keep <keep_version>", "reason": "keep argument"}` and run the §8 `record` command. If the command fails, go on: only that entry is lost.
+
+When the guard does not apply, or [K] or [A] answered it, continue to §8.
 
 ### 8. Ask Mode
 
@@ -173,15 +198,15 @@ Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P), and record `mode_so
 
 ### 8b. Purge Guard
 
-**The purge check.** Run it once, at the scope §6 chose, and reuse its result wherever this step reads it (§8's menu, the guard below and §9). Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`:
+**The purge check.** Run it at the scope §6 or §7 chose, once for a whole skill and once per `target_versions` entry for a version-level drop, and reuse its result wherever this step reads it (§8's menu, the guard below and §9). Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`:
 
 ```bash
 uv run {skillInventoryHelper} "{skills_output_folder}" --skill {target_skill} --purge-check [--purge-version {version}] --forge-data-folder "{forge_data_folder}"
 ```
 
-Pass `--purge-version {version}` for a single-version drop (`is_skill_level = false`) and leave it out for a whole skill. From its `purge_check`, bind `{purge_verdict}` ← `verdict`, `{purge_reason}` ← `reason`, `{purge_detail}` ← `detail`, `{purge_entries}` ← `offending_entries`, `{affected_directories}` ← `affected_directories`, `{forge_left_in_place}` ← `forge_left_in_place` and `{forge_errors}` ← `forge_errors`. The helper alone decides what a purge may delete: `{purge_reason}` names the rule that refused, and `{forge_left_in_place}` the forge folder a purge leaves where it is because SKF did not generate it.
+Pass `--purge-version {version}` with each version of a version-level drop (`is_skill_level = false`) and leave it out for a whole skill. From its `purge_check`, bind `{purge_verdict}` ← `verdict`, `{purge_reason}` ← `reason`, `{purge_detail}` ← `detail`, `{purge_entries}` ← `offending_entries`, `{affected_directories}` ← `affected_directories`, `{forge_left_in_place}` ← `forge_left_in_place` and `{forge_errors}` ← `forge_errors`. Over two or more versions, merge the results in `target_versions` order: the first whose `verdict` is not `"ok"` (else the first) gives `{purge_verdict}`, `{purge_reason}`, `{purge_detail}`, `{purge_entries}` and the `{version}` the guard's message names, `{affected_directories}` and `{forge_errors}` join every result's lists in order, and `{forge_left_in_place}` is the list of their non-null values, or null when every one is null. The helper alone decides what a purge may delete: `{purge_reason}` names the rule that refused, and `{forge_left_in_place}` the forge folder a purge leaves where it is because SKF did not generate it.
 
-When `{skillInventoryHelper}` resolves to no path, `{roster}.inventory` is false, the call exits non-zero, or its result has no `purge_check` (an installed `skf-skill-inventory.py` older than the flag), bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`: SKF cannot check what it would delete.
+When `{skillInventoryHelper}` resolves to no path, `{roster}.inventory` is false, the call exits non-zero, or its result has no `purge_check` (an installed `skf-skill-inventory.py` older than the flag), bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`: SKF cannot check what it would delete. Over several versions, one such call makes the whole check `"unknown"`.
 
 **The guard.** Skip it when `drop_mode == "deprecate"`. When `{purge_verdict}` is not `"ok"`, HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:purge-guard`) with the message for `{purge_reason}`, and `skill: "{target_skill}"` and `drop_mode: "purge"` in the halt envelope.
 
@@ -194,14 +219,14 @@ When `{skillInventoryHelper}` resolves to no path, `{roster}.inventory` is false
 
 ### 9. Compute Affected Directories
 
-`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes. In deprecate mode the list shows what the drop keeps on disk, and §10 presents it as retained. When the purge check has no verdict (`"unknown"`), build it from these paths instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for a single version, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
+`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes. In deprecate mode the list shows what the drop keeps on disk, and §10 presents it as retained. When the purge check has no verdict (`"unknown"`), build it from these paths instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for each `target_versions` entry of a version-level drop, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
 
 #### 9b. Compute Blast-Radius Metrics (for §10 summary)
 
 Compute the three scalars §10's `Scope:` line shows:
 
 - **`versions_count`**: the number of skill versions in scope, never counted by hand:
-  - Version-level drop: `1`
+  - Version-level drop: the number of `target_versions` entries
   - Skill-level drop: `{version_counts}.non_deprecated` (§5) for a skill in the manifest (the deprecated versions are already absent from the active managed sections), and `{version_counts}.on_disk` for a draft
 
 - **`bytes_total`**: the on-disk size of `affected_directories`. Delegate the recursive sum and the human label to the sizing helper rather than adding file sizes in-prompt:
@@ -228,7 +253,8 @@ Display the full operation summary with the blast-radius summary line ahead of t
 **About to drop:**
 
   Skill:   {target_skill}
-  Version: {version or "ALL versions"}
+  Version: {each target_versions entry, comma-separated, or "ALL versions"}
+  {if keep_version:} Keep:    {keep_version}, made the active version before the drop
   Mode:    {Deprecate (soft) | Purge (hard)}
   Scope:   {versions_count} version(s), ~{bytes_total} on disk, will rebuild {context_files_count} context file(s)
   Files:
@@ -251,7 +277,8 @@ Proceed? [Y/N]
 
 Resolved selection:
   Skill:   {target_skill}
-  Version: {target_versions[0] if is_skill_level == false else "all"}
+  Version: {"all" when is_skill_level == true, "older" when §6 took [O], else target_versions[0]}
+  {if keep_version:} Keep:    {keep_version}
   Mode:    {Deprecate (soft) | Purge (hard)}
 ```
 
@@ -277,5 +304,5 @@ Wait for explicit user response.
 
 ### 12. Load Next Step
 
-Step 2 reads the decisions this step bound where it made them: `target_skill`, `target_in_manifest`, `target_versions`, `drop_mode`, `is_skill_level`, `affected_directories`, `mode_source`, `forge_left_in_place`, `target_context_files` and `confirm_source`. `{nextStepFile}` performs the destructive mutation, so load it only after the §10 gate returned `Y`: chaining any earlier would drop without the user's explicit consent. Load, read the full file, and then execute it.
+Step 2 reads the decisions this step bound where it made them: `target_skill`, `target_in_manifest`, `target_versions`, `drop_mode`, `is_skill_level`, `affected_directories`, `mode_source`, `forge_left_in_place`, `keep_version` (null when §7 bound none), `target_context_files` and `confirm_source`. `{nextStepFile}` performs the destructive mutation, so load it only after the §10 gate returned `Y`: chaining any earlier would drop without the user's explicit consent. Load, read the full file, and then execute it.
 

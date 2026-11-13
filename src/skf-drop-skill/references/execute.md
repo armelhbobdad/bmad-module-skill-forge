@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'report.md'
-# {updateActiveSymlinkHelper}: the §4 `active` repair.
+# {updateActiveSymlinkHelper}: the §2 keep and the §4 `active` repair.
 updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
@@ -24,7 +24,7 @@ emitEnvelopeProbeOrder:
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# {manifestOpsHelper}: the §2 manifest write.
+# {manifestOpsHelper}: the §2 keep and manifest write.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
@@ -69,13 +69,22 @@ Write through `{manifestOpsHelper}`: atomic manifest mutation always goes throug
 
 **If `is_skill_level == false` (version-level drop):**
 
-For each version in `target_versions`, invoke:
+When `keep_version` is bound (select.md §7), make it the active version first, so the drop never leaves the skill without one. Resolve `{updateActiveSymlinkHelper}` from `{updateActiveSymlinkProbeOrder}` (first existing path wins), point `active` at it, then record it as the active version, keeping its `last_exported` date:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} deprecate {target_skill} {version}
+uv run {updateActiveSymlinkHelper} update --skill-group "{skills_output_folder}/{target_skill}" --version {keep_version}
+python3 {manifestOpsHelper} {skills_output_folder} set {target_skill} {keep_version} --keep-last-exported
 ```
 
-The helper sets `exports.{target_skill}.versions.{version}.status = "deprecated"` and writes the manifest atomically. It does NOT change `active_version` on the skill entry — if the dropped version was the active one (only reachable when it was the sole non-deprecated version per the step 1 guard), the field still points at it, but every consumer excludes deprecated versions from exports.
+When no candidate exists, or `update` exits non-zero or prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, phase `execute:keep-active`) in every mode, before `set` runs, with the resolved `skill`, `drop_mode` and `versions_affected` in the halt envelope: "**SKF cannot make `{keep_version}` the active version:** {its `halt_message`, its first stderr line, or "the active-link helper is missing; re-install SKF"}. Nothing was changed. Re-run the drop once the cause is fixed." A `set` that exits non-zero takes the manifest-write HALT below.
+
+Then deprecate every version in scope in one call:
+
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} deprecate {target_skill} {each version in target_versions, space-separated}
+```
+
+The helper checks every version before it marks any, sets the `status` of each to `"deprecated"` and writes the manifest atomically, once. It leaves `active_version` as it is: after a keep it names `{keep_version}`; otherwise, when the dropped version was the active one (the step 1 guard lets that through only for the last non-deprecated version), it still names it, and every consumer leaves deprecated versions out of exports.
 
 **If `is_skill_level == true` (skill-level drop):**
 
@@ -93,7 +102,7 @@ The helper sets `exports.{target_skill}.versions.{version}.status = "deprecated"
 
 When the helper exits 0 (`status: "ok"`), set context flag `manifest_updated = true`.
 
-**On error (the helper exits non-zero):** HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `execute:manifest-write`, path `{skills_output_folder}/.export-manifest.json`) in every mode, before section 3: "**Manifest update failed:** {the helper's `error`, `status: not_found` when the entry is no longer there, or its stderr when stdout holds no JSON}. Nothing was changed: no file was deleted, no context file was rebuilt, and the manifest is in its pre-drop state. Re-run the drop once the cause is fixed." The halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, with `manifest_updated: false`.
+**On error (the helper exits non-zero):** HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `execute:manifest-write`, path `{skills_output_folder}/.export-manifest.json`) in every mode, before section 3: "**Manifest update failed:** {the helper's `error`, `status: not_found` when the entry is no longer there, or its stderr when stdout holds no JSON}. Nothing was changed: no file was deleted, no context file was rebuilt, and the manifest is in its pre-drop state. Re-run the drop once the cause is fixed." The halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, with `manifest_updated: false`. When `keep_version` is bound, the part after the error reads instead: "`active` names `{keep_version}`; no file was deleted and no context file was rebuilt. Re-run the same drop to finish it." When `set` succeeded, the message adds "The manifest lists `{keep_version}` as active." after its first sentence, and the envelope carries `manifest_updated: true`.
 
 ### 3. Rebuild Context Files
 
@@ -125,7 +134,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 
    When no candidate exists, delete nothing by hand: take the `failed` outcome below, with "the inventory helper that checks each delete is missing; re-install SKF" as the error of every path. On a non-zero exit, or no JSON on stdout, take the `failed` outcome too, with the helper's `error` (its stderr when stdout holds no JSON) as the error of every path.
 
-2. **Version-level purge: repair `active`** (a whole-skill purge skips this item). `{version}` is the one `target_versions` entry. The version folder is already gone, so a link problem never claims `delete-failed`. Resolve `{updateActiveSymlinkHelper}` from `{updateActiveSymlinkProbeOrder}` (first existing path wins) and run:
+2. **Version-level purge: repair `active`** (a whole-skill purge skips this item). Run the call below once per `target_versions` entry, with `{version}` that entry. Each version folder is already gone, so a link problem never claims `delete-failed`. Resolve `{updateActiveSymlinkHelper}` from `{updateActiveSymlinkProbeOrder}` (first existing path wins) and run:
 
    ```bash
    uv run {updateActiveSymlinkHelper} repair-after-drop --skill-group "{skills_output_folder}/{target_skill}" --dropped {version}
@@ -155,11 +164,11 @@ Check the state the drop left, the manifest entry and the rows the rebuilt conte
 uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill} --mode {drop_mode} [--version {version}] {each file in context_files_updated, quoted}
 ```
 
-Pass `--version` for a version-level drop. Each `failures` entry is one failed check: its `detail` is what failed and its `manual_fix` the fix. When the call exits non-zero, or prints no JSON, the check itself failed: what failed is the helper's `error` (its stderr when stdout holds no JSON), and the fix is to check the `{target_skill}` entry of `{skills_output_folder}/.export-manifest.json` by hand and re-run `[EX] Export Skill`.
+Pass `--version` once per `target_versions` entry for a version-level drop. Each `failures` entry is one failed check: its `detail` is what failed and its `manual_fix` the fix. When the call exits non-zero, or prints no JSON, the check itself failed: what failed is the helper's `error` (its stderr when stdout holds no JSON), and the fix is to check the `{target_skill}` entry of `{skills_output_folder}/.export-manifest.json` by hand and re-run `[EX] Export Skill`.
 
 If any verification fails, record it in `verification_errors` with its manual fix, record the warning `verification_failed: {what failed}: {its manual fix}`, and do not halt: proceed to step 3 so the report shows what succeeded and what needs manual attention.
 
 ### 7. Load Next Step
 
-Step 3 reads what this step bound where it ran: `files_deleted`, `disk_freed`, `delete_failures`, `purge_status`, `manifest_updated`, `context_files_updated`, `context_files_failed` and `verification_errors`, with `forge_left_in_place` carried from step 1. Once every stage above has been attempted and its outcome bound, load, read the full file, and then execute `{nextStepFile}`.
+Step 3 reads what this step bound where it ran: `files_deleted`, `disk_freed`, `delete_failures`, `purge_status`, `manifest_updated`, `context_files_updated`, `context_files_failed` and `verification_errors`, with `forge_left_in_place` and `keep_version` carried from step 1. Once every stage above has been attempted and its outcome bound, load, read the full file, and then execute `{nextStepFile}`.
 

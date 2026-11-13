@@ -29,6 +29,11 @@
       is null when the skill has no active_version, when no other version
       qualifies, and when that script cannot be loaded.
 
+      `older_versions` is what select.md section 6 [O] Older versions drops:
+      the manifest versions that are not the active_version and whose status
+      is neither "active" nor "deprecated", newest first. It is empty for a
+      draft, and the same list when the roster holds the manifest rows alone.
+
       Without skf-skill-inventory.py (an older or broken install), or when
       its scan or resolve fails, `inventory` is false and the roster holds
       the manifest skills alone: SKF cannot check that it generated a folder
@@ -79,7 +84,8 @@ Output (stdout, one JSON object):
                                      "in_manifest", "on_disk",
                                      "last_exported", "ides"}],
                        "counts": {"non_deprecated", "on_disk"},
-                       "keep_candidate": str|null}],
+                       "keep_candidate": str|null,
+                       "older_versions": [str]}],
            "not_offered": [{"name", "errors"}], "empty": bool}
   rows:   {"status": "ok", "skill", "versions": [...]|null,
            "rows": [{"file", "version"}], "unchecked": [{"file", "error"}]}
@@ -178,7 +184,8 @@ def _version_row(version: str, active: str | None, records: dict, on_disk: bool)
 
 
 def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_folder, symlink=None) -> dict:
-    """One roster entry: the skill's versions newest first, with their manifest records, counts and keep_candidate."""
+    """One roster entry: the skill's versions newest first, with their manifest records, counts, keep_candidate
+    and older_versions."""
     active, records = _manifest_rows(entry)
     in_manifest = entry is not None
     resolved = None
@@ -204,6 +211,8 @@ def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_fold
             "on_disk": sum(1 for r in rows if r["on_disk"]) if resolved is not None else None,
         },
         "keep_candidate": symlink.pick_new_active(active, rows, active) if symlink and active else None,
+        "older_versions": [r["version"] for r in rows if r["in_manifest"] and not r["active"]
+                           and r["status"] not in ("active", "deprecated")],
     }
 
 

@@ -35,7 +35,7 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 Set `remaining_versions_display = "(skill fully removed)"`.
 
-**Otherwise** (one version, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
+**Otherwise** (one or more versions, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
 
 Read the target skill's versions from the roster:
 
@@ -49,7 +49,7 @@ When the call exits non-zero, or prints no JSON, set `remaining_versions_display
 
 ### 2. Render the Report
 
-Show the report in one block: the operation (Deprecate or Purge), `{target_skill}` and `target_versions` (or "ALL"); whether the manifest was updated (`manifest_updated`); the context files rebuilt (`context_files_updated`, or "(none)") and each one in `context_files_failed`; for a purge, the folders deleted (`files_deleted`, or "(none: nothing on disk)"), `disk_freed`, each `delete_failures` path with its error and its fix `rm -rf {path}`, and `forge_left_in_place` as "Left in place (not SKF output)" when it is set; `remaining_versions_display`; for a deprecate, that the files stay on disk and that setting the version's `status` back to `"active"` or `"archived"` in `{skills_output_folder}/.export-manifest.json`, then running `[EX] Export Skill`, reverses the drop; and each `verification_errors` entry with its manual fix.
+Show the report in one block: the operation (Deprecate or Purge), `{target_skill}` and `target_versions` (or "ALL"); when `keep_version` is bound, that `{keep_version}` is now the active version; whether the manifest was updated (`manifest_updated`); the context files rebuilt (`context_files_updated`, or "(none)") and each one in `context_files_failed`; for a purge, the folders deleted (`files_deleted`, or "(none: nothing on disk)"), `disk_freed`, each `delete_failures` path with its error and its fix `rm -rf {path}`, and `forge_left_in_place` as "Left in place (not SKF output)" when it is set; `remaining_versions_display`; for a deprecate, that the files stay on disk and that setting the version's `status` back to `"active"` or `"archived"` in `{skills_output_folder}/.export-manifest.json`, then running `[EX] Export Skill`, reverses the drop; and each `verification_errors` entry with its manual fix.
 
 ### Result Contract
 
@@ -73,13 +73,15 @@ The shared emitter writes the result contract (`shared/references/output-contrac
       "drop_mode": "{drop_mode}",
       "versions_affected": {target_versions},
       "forge_left_in_place": {forge_left_in_place},
+      "keep_version": {keep_version},
       "headless_provenance": {"headless": {headless_mode}, "mode_source": "{mode_source}", "confirm": "{confirm_source}"}
     }
   }
 }
 ```
 
-- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried, or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
+- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`, or `["0.6.0", "0.5.0"]` after Older versions) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried (a JSON array of paths after a purge check over several versions), or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
+- `{keep_version}` is the version select.md §7 made active before the drop, as a JSON string, or `null` when none.
 - `{record_status}` is `"partial"` when some (but not all) purge folders failed to delete (step 2's `purge_status`); then also put step 2's `delete_failures` in `summary.delete_failures`. Otherwise it is `"success"`. A full purge failure and a failed manifest write never reach this step: step 2 HALTs with `halt_reason: "delete-failed"` or `"manifest-write-failed"`.
 - `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, and `{mode_source}` and `{confirm_source}` the values step 1 set.
 - The payload carries no `warnings`: the emitter adds the ones step 2 recorded, so a run whose envelope reads `success` still names what needs a manual fix.

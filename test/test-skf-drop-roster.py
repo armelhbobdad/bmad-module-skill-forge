@@ -1,6 +1,7 @@
 """Tests for skf-drop-skill/scripts/drop-roster.py: the roster select.md section 2
 and report.md section 1 read in one call (the export manifest joined with the
-on-disk scan, with the version select.md section 7 names to keep), the
+on-disk scan, with the version select.md section 7 names to keep and the
+versions section 6 [O] Older versions drops), the
 managed-section rows, the headless-purge guard SKILL.md On Activation reads
 from the resolver JSON, and the final-state check execute.md section 5 runs
 (#1158).
@@ -416,6 +417,45 @@ def test_keep_candidate_is_null_without_its_helpers(tmp_path, project, missing):
     code, result = _run("skills", str(skills), "--forge-data-folder", str(forge), script=_copy_without(tmp_path, missing))
     assert code == 0
     assert {s["name"]: s["keep_candidate"] for s in result["skills"]}["cognee"] is None
+
+
+# --------------------------------------------------------------------------
+# older_versions: what select.md section 6 [O] Older versions drops (#1160)
+# --------------------------------------------------------------------------
+
+def test_older_versions_leave_out_the_active_and_the_deprecated(project):
+    skills, forge = project
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge))
+    assert code == 0
+    assert {s["name"]: s["older_versions"] for s in result["skills"]} == {
+        "cognee": ["0.9.0"], "gone": [], "draft": []}, "a draft has no manifest version to drop"
+
+
+@pytest.mark.parametrize("inventory", [True, False], ids=["with-the-scan", "manifest-rows-alone"])
+def test_older_versions_are_the_manifest_versions_newest_first(tmp_path, inventory):
+    """Neither the active_version nor a version whose status is "active" or "deprecated"; a manifest version with no
+    folder is listed too, and the list is the same when the roster holds the manifest rows alone."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in ("0.11.0", "0.10.0", "0.9.0", "0.3.0", "0.1.0"):
+        _skill(skills, "demo", version)
+    forge.mkdir()
+    _manifest(skills, {"demo": _entry("0.10.0", {"0.2.0": "archived", "0.11.0": "archived", "0.10.0": "active",
+                                                  "0.9.0": "archived", "0.3.0": "active", "0.1.0": "deprecated"})})
+    script = SCRIPT if inventory else _copy_without(tmp_path, "skf-skill-inventory.py")
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge), "--skill", "demo", script=script)
+    assert code == 0 and result["inventory"] is inventory
+    [demo] = result["skills"]
+    assert demo["older_versions"] == ["0.11.0", "0.9.0", "0.2.0"]
+
+
+def test_older_versions_are_empty_when_only_the_active_one_is_left(tmp_path):
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in ("0.6.0", "0.5.0"):
+        _skill(skills, "demo", version)
+    forge.mkdir()
+    _manifest(skills, {"demo": _entry("0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"})})
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge), "--skill", "demo")
+    assert code == 0 and result["skills"][0]["older_versions"] == []
 
 
 # --------------------------------------------------------------------------

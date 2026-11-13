@@ -266,7 +266,7 @@ Drops a specific version or the entire skill with two modes:
 
 **Hard drop (`--purge`):** Same as soft drop, plus deletes the version directory (`{skill_package}`) and forge data directory (`{forge_version}`, only when SKF generated it). Irreversible.
 
-**Active version guard:** Cannot drop the active version while other non-deprecated versions exist. The user must either make the version they keep active first (`[EX] Export Skill <skill> --version <version to keep>` points the `active` link at it, exports it, and its manifest update archives the old one), or drop all versions at once.
+**Active version guard:** Cannot drop the active version while other non-deprecated versions exist, unless the drop keeps another one: its Keep option (`keep=<version>` in a headless run) points `active` at that version and records it as the manifest's active version, then drops the old one in the same run. Otherwise, the user must either make the version they keep active first (`[EX] Export Skill <skill> --version <version to keep>` points the `active` link at it, exports it, and its manifest update archives the old one), or drop all versions at once.
 
 **Skill-level drop:** Removes the entire `{skill_group}` from the manifest. If purge, also deletes `{skill_group}` and `{forge_group}` directories (the forge one only when SKF generated it).
 
