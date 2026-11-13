@@ -2,12 +2,11 @@
 nextStepFile: 'report.md'
 verdictRollupScript: 'scripts/skf-verdict-rollup.py'
 reportDeltaScript: 'scripts/skf-report-delta.py'
+coverageTallyScript: 'scripts/skf-coverage-tally.py'
+reportUpdateScript: 'scripts/skf-report-update.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -40,19 +39,17 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Calculate Overall Verdict
 
-**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in the `{outputFile}` frontmatter, each from its tally helper. Rolling them up into one token has a single correct answer per input, and so has the number of recommendations they call for, so delegate both, and let the script read the counts from the report itself:
+**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in the `{outputFile}` frontmatter, each from its tally helper, so the script reads them from the report itself:
 
 ```bash
-uv run {verdictRollupScript} --report "{outputFile}"
+uv run {verdictRollupScript} --report "{outputFile}" > "{run_dir}/rollup.json"
 ```
 
-`--report` reads `coverageCovered`, `coverageMissing` and the other counts steps 2 to 4 persisted, once `stepsCompleted` lists `coverage`, `integrations` and `requirements`; `uv run {verdictRollupScript} --help` gives each key, the input it fills and the ladder. The script returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), `zeroPairsGuardFired`, `recommendations` (how many recommendations of each kind section 2 writes) and `recommendationCount` (their sum). Branch on its exit code and its JSON `code`:
+`--report` reads `coverageCovered`, `coverageMissing` and the other counts steps 2 to 4 persisted, once `stepsCompleted` lists `coverage`, `integrations` and `requirements`; `uv run {verdictRollupScript} --help` gives each key, the input it fills and the ladder. `{run_dir}/rollup.json` holds `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), `zeroPairsGuardFired`, `recommendations` (how many recommendations of each kind section 2 writes) and `recommendationCount` (their sum). Branch on its exit code and its JSON `code`:
 
 - `HELPER_MISSING` (exit 1): the shared report reader it loads is not installed; HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup`.
-- `INVALID_REPORT` or `INVALID_INPUT` (exit 2): its `error` names a stage `stepsCompleted` does not list, a count a stage left out of the frontmatter, or counts that disagree; HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `synthesize:rollup`, naming that `error`.
-- Any other non-zero exit (no JSON on stdout): HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup` with its stderr.
-
-Technologies marked **Replaced** in Step 02 are intentionally being removed and are already excluded from `missingCount` and the coverage denominator: they never trigger `CONDITIONALLY_FEASIBLE` or a [CS]/[QS] recommendation.
+- `INVALID_REPORT` or `INVALID_INPUT` (exit 2): its `error` names a stage `stepsCompleted` does not list, a count a stage left out of the frontmatter, a pair count the canonical verdict table does not hold, or counts that disagree; HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `synthesize:rollup`, naming that `error`.
+- Any other non-zero exit (no JSON in `{run_dir}/rollup.json`): HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup` with its stderr.
 
 **Write the rationale** from `matchedConditions`, naming the specific findings behind each code:
 - `zero-coverage` → "no coverage, analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Then proceed directly to section 2 to generate recommendations for the Missing and/or Replaced technologies surfaced by Step 02.
@@ -60,8 +57,6 @@ Technologies marked **Replaced** in Step 02 are intentionally being removed and 
 - `missing-coverage` / `risky-integration` / `requirements-not-addressed` / `requirements-partial` / `plausible-cap` → the stack can work but has gaps, risks, or unverified assumptions that must be addressed; name the specific items behind each code.
 - `zero-integration-pairs` (whatever the verdict) → append: "No integration pair between two covered technologies was found in the architecture document prose, so no integration was verified. Relationships drawn only in diagrams, or implied without an explicit co-mention, are not checked: describe them in prose to have them verified."
 - No codes (`FEASIBLE`) → the stack can support the architecture as described: every live technology has a skill, every integration pair is `Verified` (at least one of its two skills cites the other literally), and {IF requirements pass completed:} every requirement is fulfilled {IF requirements pass was skipped:} requirements were not evaluated (no PRD provided). {IF `pairsVerified` is 0:} The architecture names a single live technology, so it has no integration pair to verify.
-
-Store the verdict for use in the report.
 
 ### 2. Generate Prescriptive Recommendations
 
@@ -102,16 +97,16 @@ For each non-verified finding across all passes, generate one actionable next st
 
 Read `previousReport` from `{outputFile}` frontmatter (set in step 1): an earlier run's report, or empty when there is none or the user skipped the comparison. Step 1 compares against the newest earlier report unless the user names another; to compare against an older run, pass its timestamped report in step 1.
 
-**If `previousReport` is set:** comparing two runs has one correct answer, and so does reading their findings: each sits in a table with a pinned header. The delta helper reads both reports itself: the Coverage Analysis rows and the canonical `| lib_a | lib_b | verdict | rationale |` table of each, and the `evidence_tier` column of the previous report's `## Evidence Sources` table (section 5 writes it). It reads this run's tiers, each skill's `evidence_tier`, from `{inventoryFile}`. Run:
+**If `previousReport` is set:** the delta helper reads both reports itself: the Coverage Analysis rows and the canonical `| lib_a | lib_b | verdict | rationale |` table of each, and the `evidence_tier` column of the previous report's `## Evidence Sources` table (section 5 writes it). It reads this run's tiers, each skill's `evidence_tier`, from `{inventoryFile}`. Run:
 
 ```bash
-uv run {reportDeltaScript} --previous-report "{previousReport}" --current-report "{outputFile}" --inventory "{inventoryFile}"
+uv run {reportDeltaScript} --previous-report "{previousReport}" --current-report "{outputFile}" --inventory "{inventoryFile}" > "{run_dir}/delta.json"
 ```
 
-The script (run `uv run {reportDeltaScript} --help` for the contract and rankings) returns `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, `tierDowngrades` (each `{skill, from, to}`: a drop along `T1` > `T1-low` > `T2` > `T3`, such as `T1` to `T1-low`, counts as a regression) and `previousTiersRecorded`. Branch on its exit code and its JSON `code`:
+`{run_dir}/delta.json` (run `uv run {reportDeltaScript} --help` for the contract and rankings) holds `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, `tierDowngrades` (each `{skill, from, to}`: a drop along `T1` > `T1-low` > `T2` > `T3`, such as `T1` to `T1-low`, counts as a regression) and `previousTiersRecorded`. Branch on its exit code and its JSON `code`:
 
 - Exit 0: render the delta section from those results. When `previousTiersRecorded` is false (a report written before tiers were recorded), add "The previous report records no skill tiers, so tier changes were not compared." For each tier downgrade, flag: "skill `{skill}` evidence fell from `{from}` to `{to}`: check the forge tier with [SF] Setup Forge, then re-create the skill at its earlier tier with [CS] ([SS] for a stack skill)".
-- `UNKNOWN_TIER` or `INVALID_INPUT` (exit 2): a tier outside the scale, or an `{inventoryFile}` it cannot read. Run it again with `--no-tiers` added, render the delta section from that run, and add "Tier changes were not compared: {error}".
+- `UNKNOWN_TIER` or `INVALID_INPUT` (exit 2): a tier outside the scale, or an `{inventoryFile}` it cannot read. Note its `error`, run it again with `--no-tiers` added before the `>`, render the delta section from that run, and add "Tier changes were not compared: {error}".
 - `INVALID_REPORT` (exit 2): its `error` names a report that is not read (a `schemaVersion` other than `1.0`, a missing coverage or verdict table, the verdict table twice, or a verdict outside its token set). Write "No delta: {error}" in place of the delta section.
 - `HELPER_MISSING` (exit 1): the shared report reader it loads is not installed; HALT per the Workflow Rules (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:delta`.
 
@@ -144,24 +139,33 @@ Assemble the following for the report:
 
 ### 5. Append to Report
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:report`.
-
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
-Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}` (per the fixed heading order in `{feasibilitySchemaRef}`):
-- Include overall verdict with rationale in the `## Executive Summary` section (replace the placeholder text from the template)
-- Include prioritized recommendation list under `## Recommendations`
-- Include delta from previous run (if applicable) under `## Recommendations` as a subsection
-- Include suggested next workflow at the end of `## Recommendations`
-- Populate `## Evidence Sources`: the template already holds its table, with the header `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`. Fill it in place with one row per skill in `skill_inventory` (`{inventoryFile}`: `name`, `evidence_tier`, `confidence_tier` or `none`, `metadata_schema_version` or `none`, and `{skills_output_folder}/{path}/SKILL.md`); the next run's delta reads its `evidence_tier` column (section 3). Below it, list the architecture and PRD document paths.
-- Update frontmatter (shared-schema keys):
-  - Append `'synthesize'` to `stepsCompleted`
-  - Set `overallVerdict` to one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE`, `NOT_FEASIBLE` (case-sensitive, underscores not spaces)
-  - Set `recommendationCount` to the §1 rollup's `recommendationCount`
-  - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged` from the delta helper's `improvedCount` / `regressedCount` / `newCount` / `unchangedCount`
-  - Leave the pair and requirement counts as their stages' tallies wrote them: the report file is the system of record
-- Write the `overallVerdict` the §1 rollup returned, verbatim.
-- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `synthesize:report`, with `"path": "{outputFile}"`.
+Write the synthesis to `{outputFile}` (per the fixed heading order in `{feasibilitySchemaRef}`), each part to its own file first:
+- `{run_dir}/executive-summary.md`: the overall verdict with its rationale, which replaces the template's placeholder text under `## Executive Summary`
+- `{run_dir}/recommendations.md`: the prioritized recommendation list; then, when `previousReport` is set, the section 3 delta section (or its "No delta" line) under a `#### Delta from Previous Run` heading; then the suggested next workflow, last
+- `{run_dir}/input-documents.md`: the architecture and PRD document paths, which go below the Evidence Sources table
+
+The report keeps its `##` headings and the helper writes each `###` line, so no file holds a `#` or `##` heading, and the last two hold no `###` heading either.
+
+Render the rows of the template's `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |` table from the inventory, one per skill (the next run's delta reads its `evidence_tier` column, section 3):
+
+```bash
+uv run {coverageTallyScript} --kind evidence --render --skills-root "{skills_output_folder}" --stdin < "{inventoryFile}" > "{run_dir}/evidence-table.md"
+```
+
+On a non-zero exit, `{run_dir}/evidence-table.md` holds a JSON `error` instead, naming a skill the inventory gives no name or path, or an evidence tier off the scale: HALT (exit code 7, `halt_reason: "inventory-unreliable"`) at phase `synthesize:report`, naming that `error`. Then run the calls in order, stopping at the first that exits non-zero:
+
+```bash
+uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'Executive Summary' < "{run_dir}/executive-summary.md"
+uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'Recommendations' --subsection 'Prioritized Recommendations' < "{run_dir}/recommendations.md"
+uv run {reportUpdateScript} fill-table --report "{outputFile}" --heading 'Evidence Sources' < "{run_dir}/evidence-table.md"
+uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'Evidence Sources' --subsection 'Input Documents' < "{run_dir}/input-documents.md"
+uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind delta < "{run_dir}/delta.json"
+uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind synthesize < "{run_dir}/rollup.json"
+```
+
+Skip the `--kind delta` call unless section 3 computed a delta. The last call records the §1 rollup's `overallVerdict` and `recommendationCount` verbatim. On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:report`. On any other non-zero exit, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `synthesize:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 ### 6. Auto-Proceed to Next Step
 

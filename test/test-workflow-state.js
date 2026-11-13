@@ -103,7 +103,12 @@ async function runTests() {
   }
 
   // Step-05 must write delta fields to frontmatter
-  assert(vsStep05.includes('deltaImproved'), 'VS step 5 writes delta fields to frontmatter', 'synthesize.md should set delta* fields');
+  const vsReportUpdate = await readFile(path.join(srcDir, 'skf-verify-stack/scripts/skf-report-update.py'));
+  assert(
+    vsStep05.includes('set-counts --report "{outputFile}" --kind delta') && vsReportUpdate.includes('"deltaImproved"'),
+    'VS step 5 writes delta fields to frontmatter',
+    'synthesize.md should set delta* fields with skf-report-update.py set-counts --kind delta',
+  );
 
   // The coverage counts step 2 writes and step 5's verdict rollup reads from the report itself
   const vsStep02Coverage = await readFile(path.join(srcDir, 'skf-verify-stack/references/coverage.md'));
@@ -114,7 +119,11 @@ async function runTests() {
   );
   for (const field of ['coverageCovered', 'coverageMissing']) {
     assert(templateFields.has(field), `VS template has coverage count field: ${field}`, 'Missing from feasibility-report-template.md');
-    assert(vsStep02Coverage.includes(`\`${field}\``), `VS step 2 writes ${field}`, 'coverage.md should set it from the tally');
+    assert(
+      vsStep02Coverage.includes('set-counts --report "{outputFile}" --kind coverage') && vsReportUpdate.includes(`"${field}"`),
+      `VS step 2 writes ${field}`,
+      'coverage.md should set it from the tally with skf-report-update.py set-counts --kind coverage',
+    );
     assert(vsStep05.includes(`\`${field}\``), `VS step 5 reads ${field}`, 'synthesize.md should name it among the keys --report reads');
   }
 

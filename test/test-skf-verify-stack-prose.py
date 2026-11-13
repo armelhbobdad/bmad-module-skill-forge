@@ -202,9 +202,14 @@ def test_the_report_fills_the_templates_one_verdict_table():
     assert "fill it in place instead of appending another one" in write
     assert "With zero integration pairs, leave the table with its header and delimiter rows only." in write
     assert "Emit the canonical" not in write
-    # The canonical table ends at its first line that does not start with a
-    # pipe, so the display table needs a blank line above it.
-    assert "After one blank line, add the display table" in write
+    # The display table goes in its own subsection below the canonical one,
+    # after the fill, so the reader never takes it for the canonical table.
+    assert "the §5 display table with the extra Context and Evidence columns" in write
+    details = ("uv run {reportUpdateScript} replace-section --report \"{outputFile}\" --heading 'Integration Verdicts' "
+               "--subsection 'Integration Details' < \"{run_dir}/integration-details.md\"")
+    fill = "uv run {reportUpdateScript} fill-table --report \"{outputFile}\" --heading 'Integration Verdicts'"
+    assert write.index(fill) < write.index(details)
+    assert "After one blank line, add the display table" not in write
 
 
 # --- One tier scale for the evidence strength -------------------------------------
@@ -264,6 +269,23 @@ def test_the_plausible_recommendation_names_what_check_4_reads():
 
 
 # --- One home for each fact -----------------------------------------------------------
+
+
+REPORT_STAGES = ("coverage.md", "integrations.md", "requirements.md", "synthesize.md")
+
+
+def test_the_stages_restate_no_helper_and_state_the_replaced_rule_once():
+    """#1198: SKILL.md's Workflow Rules say why a stage runs a helper, and the
+    stages hand their counts to the report-update helper instead of mapping them."""
+    texts = {name: _read(REFERENCES / name) for name in REPORT_STAGES}
+    for name, text in texts.items():
+        for gone in ("one correct answer", "so delegate", "is judgment", "in-prose DFS", "Store the verdict",
+                     "Technologies marked **Replaced**", "Write the `overallVerdict`", "Update frontmatter",
+                     "Pipe the updated", "\u2190"):
+            assert gone not in text, (name, gone)
+    rule = "Do not emit a [CS]/[QS] recommendation for a Replaced technology"
+    assert sum(text.count(rule) for text in texts.values()) == 1
+    assert rule in _section(texts["synthesize.md"], "### 2. Generate Prescriptive Recommendations", "### 3.")
 
 
 def test_the_single_technology_fact_lives_in_synthesize_only():

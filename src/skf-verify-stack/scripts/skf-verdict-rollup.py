@@ -65,7 +65,14 @@ template starts coveragePercentage and the four pair counts at 0, a value
 no stage need have written, so the frontmatter's stepsCompleted list
 (read with the shared reader's frontmatter_list()) must name coverage,
 integrations and requirements, the three stages that write the counts: a
-report whose list lacks one fails the same way.
+report whose list lacks one fails the same way. The canonical `| lib_a |
+lib_b | verdict | rationale |` table under `## Integration Verdicts`, read
+with the shared reader's read_verdict_table(), must hold the pair counts:
+no such table, a second one, a row whose verdict is not Verified,
+Plausible, Risky or Blocked, or a number of rows of one verdict (each
+circular-dependency row is Risky) other than pairsVerified, pairsPlausible,
+pairsRisky or pairsBlocked fails the same way, naming the key and both
+numbers.
 
 Input schema (one object; counts come straight from the report frontmatter/tables):
   {
@@ -110,8 +117,10 @@ Condition codes (stable; the prompt cites these when synthesizing the rationale)
 Errors (stdout, one object): {"error": "<why>", "code": "<code>"}:
   INVALID_INPUT   the counts do not fit the input schema above
   INVALID_REPORT  --report: the report cannot be read, a key above is
-                  missing or holds no count, or stepsCompleted does not
-                  list a stage that writes them
+                  missing or holds no count, stepsCompleted does not list a
+                  stage that writes them, or the canonical verdict table is
+                  missing, there twice, holds an unknown verdict or does not
+                  hold the frontmatter's pair counts
   HELPER_MISSING  --report: the shared skf-validate-feasibility-report.py is
                   not in the shared scripts folder beside this skill's folder
 
@@ -161,6 +170,13 @@ REQUIREMENTS_PASS_KEY = "requirementsPass"
 REQUIREMENTS_PASSES = ("completed", "skipped")
 # Read only when requirementsPass is `completed`.
 REQUIREMENT_COUNTS = ("requirementsNotAddressed", "requirementsPartial")
+# --report: each pair count with the canonical table's verdict whose rows it counts.
+TABLE_COUNTS = (
+    ("pairsVerified", "Verified"),
+    ("pairsPlausible", "Plausible"),
+    ("pairsRisky", "Risky"),
+    ("pairsBlocked", "Blocked"),
+)
 INVALID_REPORT = "INVALID_REPORT"
 HELPER_MISSING = "HELPER_MISSING"
 # A frontmatter count: a whole number, a trailing comment allowed.
@@ -361,6 +377,39 @@ def counts_from_report(frontmatter, steps):
     return inp, None
 
 
+def _rows(count, noun):
+    """`1 Risky row`, `2 Risky rows`."""
+    return f"{count} {noun} row" if count == 1 else f"{count} {noun} rows"
+
+
+def check_verdict_table(content, body, inp, reader):
+    """None when the canonical verdict table holds the pair counts in `inp`, else why not.
+
+    `content` is the report's text and `body` the part after its frontmatter
+    (split_frontmatter()); each cycle row carries Risky, so it counts as one.
+    """
+    header = "| " + " | ".join(reader.VERDICT_TABLE_HEADER) + " |"
+    # The body starts on the file line after the frontmatter's closing `---`.
+    first_line = len(content.split("\n")) - len(body.split("\n")) + 1
+    found, rows, duplicate_line = reader.read_verdict_table(body, first_line)
+    if not found:
+        return f"the report has no `{header}` table under `## Integration Verdicts`"
+    if duplicate_line is not None:
+        return f"the report holds the `{header}` table twice (again at line {duplicate_line})"
+    counts = {verdict: 0 for _, verdict in TABLE_COUNTS}
+    for line, (lib_a, lib_b, verdict, _rationale) in rows:
+        if verdict not in counts:
+            return (f"line {line}: verdict {verdict!r} for `{lib_a}` and `{lib_b}` is not one of: "
+                    f"{', '.join(counts)}")
+        counts[verdict] += 1
+    for key, verdict in TABLE_COUNTS:
+        if inp[key] != counts[verdict]:
+            return (f"the report frontmatter's {key} is {inp[key]} but the canonical verdict table holds "
+                    f"{_rows(counts[verdict], verdict)}: the integrations stage wrote counts its table "
+                    "does not hold")
+    return None
+
+
 def rollup_report(path, reader):
     """(result, exit code) of the rollup over the report at `path`, read with `reader`."""
     try:
@@ -368,8 +417,11 @@ def rollup_report(path, reader):
         content = Path(path).read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         return make_error(f"cannot read the report {path}: {exc}", INVALID_REPORT), 2
-    frontmatter, _body = reader.split_frontmatter(content)
+    frontmatter, body = reader.split_frontmatter(content)
     inp, err = counts_from_report(frontmatter, reader.frontmatter_list(content, STEPS_COMPLETED_KEY))
+    if err:
+        return make_error(err, INVALID_REPORT), 2
+    err = check_verdict_table(content, body, inp, reader)
     if err:
         return make_error(err, INVALID_REPORT), 2
     result = rollup(inp)

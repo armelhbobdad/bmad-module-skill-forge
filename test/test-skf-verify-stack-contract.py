@@ -22,7 +22,9 @@ and pin the prose around them:
   into a folder that is absent;
 - the warnings the stages record are fixed codes the schema names, and they
   reach the envelope and the result file, a halt's envelope included;
-- stages 1 to 5 write only {outputFile}; report.md copies it to
+- stages 1 to 5 write only {outputFile}, stages 2 to 5 through the
+  report-update helper, each block of its calls followed by the
+  resolution-failure and write-failed halts; report.md copies it to
   {outputFileLatest} once, after the feasibility-report check;
 - the documented pipeline runs on a fixture: the enumerate inventory in the run
   folder, --expect-hashes naming a skill changed mid-run, the SKILL.md scanner
@@ -543,22 +545,51 @@ def test_the_circuit_breaker_halts_on_a_halt_line(tmp_path):
 WRITE_FAILED = re.compile(r'\(exit code 4, `halt_reason: "write-failed"`\) at phase `([a-z]+):report`')
 
 
+REPORT_UPDATE_CALL = re.compile(r"^uv run \{reportUpdateScript\} (set-counts|fill-table|replace-section) (.*)$", re.M)
+BASH_BLOCK = re.compile(r"^```bash\n(.*?)^```\n", re.M | re.S)
+
+
 @pytest.mark.parametrize("name", DRAFTING_STAGES)
 def test_stages_1_to_5_write_only_the_timestamped_report(name):
     text = _read(REFERENCES / name)
     assert "--target {outputFileLatest}" not in text
     assert '--target "{outputFileLatest}"' not in text
-    writes = [m.start() for m in re.finditer(re.escape("write --target {outputFile}`"), text)]
-    assert writes
-    for at in writes:
-        # Every write of the report names the write-failed halt right after it.
-        halt = WRITE_FAILED.search(text, at, at + 700)
-        assert halt, f"{name}: a report write at offset {at} has no write-failed halt"
-        assert halt.group(1) == PHASE_PREFIX[name]
-    # A stage that no longer writes the -latest copy keeps no path for it.
     frontmatter = text.split("\n---\n", 1)[0]
-    if name != "init.md":
-        assert "outputFileLatest:" not in frontmatter
+    if name == "init.md":
+        writes = [m.start() for m in re.finditer(re.escape("write --target {outputFile}`"), text)]
+        assert writes
+        for at in writes:
+            # Every write of the report names the write-failed halt right after it.
+            halt = WRITE_FAILED.search(text, at, at + 700)
+            assert halt, f"{name}: a report write at offset {at} has no write-failed halt"
+            assert halt.group(1) == PHASE_PREFIX[name]
+        return
+    # A stage that no longer writes the -latest copy keeps no path for it.
+    assert "outputFileLatest:" not in frontmatter
+    # Stages 2 to 5 write their keys, rows and sections through the report-update
+    # helper, which edits only its own part: none pipes the whole report by hand.
+    assert "{atomicWriteHelper}" not in text and "atomicWriteProbeOrder" not in frontmatter
+    assert "reportUpdateScript: 'scripts/skf-report-update.py'" in frontmatter
+    calls = REPORT_UPDATE_CALL.findall(text)
+    assert calls, name
+    for _command, rest in calls:
+        assert rest.startswith('--report "{outputFile}" '), rest
+    blocks = [m for m in BASH_BLOCK.finditer(text) if "{reportUpdateScript}" in m.group(1)]
+    assert sum(len(REPORT_UPDATE_CALL.findall(m.group(1))) for m in blocks) == len(calls)
+    phase = f"{PHASE_PREFIX[name]}:report"
+    for block in blocks:
+        if len(REPORT_UPDATE_CALL.findall(block.group(1))) > 1:
+            # A shell that runs the block whole exits with its last call's status, which
+            # would hide a refused call before it: the calls run one at a time.
+            before = text[:block.start()].rstrip("\n").rsplit("\n", 1)[-1]
+            assert before.endswith("Then run the calls in order, stopping at the first that exits non-zero:"), before
+        # The paragraph after each block of calls names both halts, at the stage's report phase.
+        after = text[block.end():].lstrip("\n").split("\n\n", 1)[0]
+        assert ("On exit 1, HALT (exit code 3, `halt_reason: \"resolution-failure\"`) at phase "
+                f"`{phase}`. On any other non-zero exit, HALT (exit code 4") in after, after
+        halt = WRITE_FAILED.search(after)
+        assert halt and halt.group(1) == PHASE_PREFIX[name], after
+        assert after.endswith('with `"path": "{outputFile}"`, naming its JSON `error`.'), after
 
 
 def test_report_publishes_the_latest_copy_after_the_check():
@@ -676,6 +707,8 @@ def test_the_documented_pipeline_runs_end_to_end(tmp_path):
     # §6 renders the canonical rows from the same files, as integrations.md calls it.
     write = _section(_read(REFERENCES / "integrations.md"), "### 6. Append to Report", "### 7.")
     [render] = [line.strip() for line in write.splitlines() if line.strip().startswith("uv run {coverageTallyScript}")]
+    render, saved = render.split(" > ")
+    assert shlex.split(saved) == ["{run_dir}/verdict-table.md"]
     command, source = render.split("uv run {coverageTallyScript}", 1)[1].split(" < ")
     render_args = shlex.split(command.replace("{run_dir}", run_dir.as_posix()))
     assert shlex.split(source) == ["{run_dir}/verdict-rows.json"]

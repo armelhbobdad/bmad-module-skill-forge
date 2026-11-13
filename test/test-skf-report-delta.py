@@ -699,6 +699,9 @@ def _section(heading, end, path=SYNTHESIZE):
 def test_synthesize_runs_the_delta_on_both_reports():
     delta = _section("### 3. Check for Previous Report", "### 4.")
     [call] = [line for line in delta.splitlines() if line.startswith("uv run {reportDeltaScript} ")]
+    # The result is saved for section 5's set-counts call.
+    call, saved = call.split(" > ")
+    assert shlex.split(saved) == ["{run_dir}/delta.json"]
     words = shlex.split(call.split("uv run {reportDeltaScript}", 1)[1])
     parser = mod._build_parser()
     args = parser.parse_args(words)
@@ -735,7 +738,16 @@ def test_synthesize_passes_evidence_tiers_on_the_scripts_scale():
 def test_the_report_persists_the_tier_the_next_run_reads():
     append = _section("### 5. Append to Report", "### 6.")
     assert f"`{TIER_HEADER}`" in append
-    assert "Fill it in place" in append
+    # The rows are rendered from the inventory and filled in place, never typed.
+    assert ('uv run {coverageTallyScript} --kind evidence --render --skills-root "{skills_output_folder}" '
+            '--stdin < "{inventoryFile}" > "{run_dir}/evidence-table.md"') in append
+    assert ("uv run {reportUpdateScript} fill-table --report \"{outputFile}\" --heading 'Evidence Sources' "
+            '< "{run_dir}/evidence-table.md"') in append
+    assert "`skill_inventory`" not in append
+    # The delta counts reach the frontmatter from the saved delta result, only when one was computed.
+    assert ('uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind delta '
+            '< "{run_dir}/delta.json"') in append
+    assert "Skip the `--kind delta` call unless section 3 computed a delta." in append
     delta = _section("### 3. Check for Previous Report", "### 4.")
     assert "`evidence_tier` column" in delta
     # The template seeds that table once, and the script reads its columns.
@@ -750,8 +762,13 @@ def test_coverage_writes_the_table_the_next_run_reads():
     assert f"`{COVERAGE_HEADER}`" in write
     cells = [cell.strip() for cell in COVERAGE_HEADER.strip("|").split("|")]
     assert all(column in cells for column in mod.COVERAGE_COLUMNS)
-    for verdict in mod.COVERAGE_VERDICTS:
-        assert f"`{verdict}`" in write, verdict
+    # Its rows are the ones §5 rendered, so each Verdict cell holds one token the delta reads.
+    assert ("uv run {reportUpdateScript} fill-table --report \"{outputFile}\" --heading 'Coverage Analysis' "
+            '< "{run_dir}/coverage-table.md"') in write
+    tally_spec = importlib.util.spec_from_file_location("skf_coverage_tally_delta", TALLY_PATH)
+    tally = importlib.util.module_from_spec(tally_spec)
+    tally_spec.loader.exec_module(tally)
+    assert tally.VALID_VERDICTS == mod.COVERAGE_VERDICTS
 
 
 if __name__ == "__main__":

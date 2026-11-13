@@ -40,21 +40,34 @@ integrations (integrations.md §4, persisted in §6)
 requirements (requirements.md §3, persisted in §5)
   Counts Fulfilled, Partially Fulfilled and Not Addressed.
 
---render (coverage and integrations)
+evidence (synthesize.md §5; --render only)
+  Renders the `## Evidence Sources` rows from the skf-enumerate-stack-skills.py
+  inventory, whose `evidence_tier` column the next run's delta reads.
+
+--render (coverage, integrations and evidence)
   Prints the report table's rows from the same rows instead of the counts,
   one Markdown table row per line and nothing else, so no stage types a row
   by hand: coverage.md §5 shows the coverage rows and §6 writes them under
-  `| Technology | Source Section | Skill Match | Verdict |`, and
+  `| Technology | Source Section | Skill Match | Verdict |`,
   integrations.md §6 writes the integration rows under the template's
-  canonical `| lib_a | lib_b | verdict | rationale |` header. The input is
-  checked as for the counts first. A coverage row gives its Source Section
-  and Skill Match from `section` and `skill` (`none` when null).
+  canonical `| lib_a | lib_b | verdict | rationale |` header, and
+  synthesize.md §5 writes the evidence rows under the template's
+  `| skill | evidence_tier | confidence_tier | metadata_schema_version |
+  skill_md |` header. The input is checked as for the counts first. A
+  coverage row gives its Source Section and Skill Match from `section` and
+  `skill` (`none` when null).
   An integration row needs its `rationale`; after the pair rows comes one row
   per cycle --cycles lists: `cycle`, the cycle's arrow chain (`A → B → C →
   A`), Risky and "circular integration dependency detected: `<chain>`", so
   the delta, which keys rows on their two libraries, never merges a cycle
-  into a pair. A cell holds its text on one line, each `|` behind a backslash.
-  With no row, nothing is printed.
+  into a pair.
+  An evidence row is `| name | evidence_tier | confidence_tier |
+  metadata_schema_version | <skills-root>/<path>/SKILL.md |` for each
+  `skills[]` entry, in inventory order, with `none` for a null or absent
+  confidence_tier or metadata_schema_version; --skills-root names the
+  skills folder the inventory's paths start from.
+  A cell holds its text on one line, each `|` behind a backslash. With no
+  row, nothing is printed.
 
 CLI usage:
   uv run skf-coverage-tally.py '<JSON>'                  # JSON literal positional
@@ -65,6 +78,7 @@ CLI usage:
   uv run skf-coverage-tally.py --kind requirements --stdin < rows.json
   uv run skf-coverage-tally.py --render --stdin < coverage-rows.json
   uv run skf-coverage-tally.py --kind integrations --render --cycles cycles.json --stdin < rows.json
+  uv run skf-coverage-tally.py --kind evidence --render --skills-root skills --stdin < skill-inventory.json
 
 Input schema (one object), by kind:
   coverage:
@@ -86,6 +100,11 @@ Input schema (one object), by kind:
     {"rows": [{"requirement_id": "R1", "verdict": "Fulfilled"}, ...]}
     verdict: Fulfilled, Partially Fulfilled or Not Addressed (case-sensitive).
     Each requirement_id once.
+  evidence:
+    the skf-enumerate-stack-skills.py inventory, {"skills": [{"name": "react",
+    "path": "react/active/react", "evidence_tier": "T1", "confidence_tier":
+    null, "metadata_schema_version": "1.3", ...}, ...]}: each entry needs its
+    `name` and `path`, and an evidence_tier of T1, T1-low, T2 or T3.
 
 Output (stdout, one object), by kind:
   coverage:
@@ -126,9 +145,12 @@ Exit codes:
      cannot be read or is not JSON
   2  input parsed but its schema or semantics are invalid (error object
      emitted as JSON), including a rows file with more or fewer pair rows
-     than --pairs stages; argparse usage errors, such as --cycles or --pairs
-     with another kind or --render with requirements, exit 2 too, with usage
-     on stderr and no JSON
+     than --pairs stages, and an inventory entry with no name or path or
+     an evidence tier off the scale (the error names the skill); argparse
+     usage errors, such as --cycles or --pairs with another kind, --render
+     with requirements, --kind evidence without --render or --skills-root,
+     or --skills-root with another kind, exit 2 too, with usage on stderr
+     and no JSON
 """
 
 from __future__ import annotations
@@ -142,10 +164,14 @@ from pathlib import Path
 VALID_VERDICTS = ("Covered", "Missing", "Replaced")
 INTEGRATION_VERDICTS = ("Verified", "Plausible", "Risky", "Blocked")
 REQUIREMENT_VERDICTS = ("Fulfilled", "Partially Fulfilled", "Not Addressed")
-KINDS = ("coverage", "integrations", "requirements")
-# The kinds whose report table --render prints.
-RENDER_KINDS = ("coverage", "integrations")
-# The Source Section or Skill Match of a coverage row that names none.
+KINDS = ("coverage", "integrations", "requirements", "evidence")
+# The kinds whose report table --render prints, and the one it alone prints.
+RENDER_KINDS = ("coverage", "integrations", "evidence")
+RENDER_ONLY_KINDS = ("evidence",)
+# The evidence tiers an inventory records, the scale skf-report-delta.py reads.
+EVIDENCE_TIERS = ("T1", "T1-low", "T2", "T3")
+# The Source Section or Skill Match of a coverage row that names none, and an
+# evidence row's empty cell.
 NO_CELL = "none"
 # A cycle row's lib_a, and how its lib_b chains the cycle's nodes.
 CYCLE_LABEL = "cycle"
@@ -444,6 +470,39 @@ def render_integrations(inp, cycles=None, pairs=None):
     return lines
 
 
+def _or_none(value):
+    """An evidence cell: its value as text, or NO_CELL for a null, absent or blank one."""
+    if value is None or not str(value).strip():
+        return NO_CELL
+    return str(value)
+
+
+def render_evidence(inp, skills_root):
+    """The Evidence Sources rows (skill, evidence_tier, confidence_tier,
+    metadata_schema_version, skill_md), one per inventory skill, or an error object."""
+    if not isinstance(inp, dict) or not isinstance(inp.get("skills"), list):
+        return make_error("Input must be the skf-enumerate-stack-skills.py inventory, an object with a `skills` list")
+    root = skills_root.rstrip("/\\")
+    lines = []
+    for i, entry in enumerate(inp["skills"]):
+        if not isinstance(entry, dict):
+            return make_error(f"skills[{i}] must be an object")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return make_error(f"skills[{i}] has no `name`")
+        name = name.strip()
+        path = entry.get("path")
+        path = path.strip().strip("/") if isinstance(path, str) else ""
+        if not path:
+            return make_error(f"skill `{name}` (skills[{i}]) has no `path`")
+        tier = entry.get("evidence_tier")
+        if tier not in EVIDENCE_TIERS:
+            return make_error(f"skill `{name}` has evidence_tier {tier!r}, not one of: {', '.join(EVIDENCE_TIERS)}")
+        lines.append(_table_row([name, tier, _or_none(entry.get("confidence_tier")),
+                                 _or_none(entry.get("metadata_schema_version")), f"{root}/{path}/SKILL.md"]))
+    return lines
+
+
 # --- CLI --------------------------------------------------------------------
 
 
@@ -460,7 +519,8 @@ def _build_parser():
             "rows that miss a staged pair. --kind requirements "
             "(requirements.md §3, persisted in §5) counts Fulfilled/Partially "
             "Fulfilled/Not Addressed. --render prints the coverage or integration "
-            "report rows instead of the counts."
+            "report rows instead of the counts, and --kind evidence --render "
+            "--skills-root FOLDER the Evidence Sources rows of an inventory."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -470,7 +530,9 @@ def _build_parser():
             "{\"technology\":\"postgres\",\"verdict\":\"Missing\"}]}'\n"
             "  uv run skf-coverage-tally.py --kind integrations --cycles cycles.json "
             "--stdin < rows.json\n"
-            "  uv run skf-coverage-tally.py --render --stdin < coverage-rows.json"
+            "  uv run skf-coverage-tally.py --render --stdin < coverage-rows.json\n"
+            "  uv run skf-coverage-tally.py --kind evidence --render --skills-root skills "
+            "--stdin < skill-inventory.json"
         ),
     )
     src = parser.add_mutually_exclusive_group()
@@ -516,8 +578,16 @@ def _build_parser():
         "--render",
         action="store_true",
         help=(
-            "With --kind coverage or integrations: print the report table's rows, "
-            "one Markdown row per line, instead of the counts."
+            "With --kind coverage, integrations or evidence: print the report table's "
+            "rows, one Markdown row per line, instead of the counts."
+        ),
+    )
+    parser.add_argument(
+        "--skills-root",
+        metavar="FOLDER",
+        help=(
+            "With --kind evidence: the skills folder the inventory's paths start "
+            "from, which each row's skill_md cell begins with."
         ),
     )
     return parser
@@ -551,7 +621,13 @@ def main(argv=None):
     if args.pairs is not None and args.kind != "integrations":
         parser.error("--pairs applies only with --kind integrations")
     if args.render and args.kind not in RENDER_KINDS:
-        parser.error("--render applies only with --kind coverage or integrations")
+        parser.error("--render applies only with --kind coverage, integrations or evidence")
+    if args.kind in RENDER_ONLY_KINDS and not args.render:
+        parser.error(f"--kind {args.kind} applies only with --render")
+    if args.kind == "evidence" and args.skills_root is None:
+        parser.error("--kind evidence needs --skills-root")
+    if args.skills_root is not None and args.kind != "evidence":
+        parser.error("--skills-root applies only with --kind evidence")
     raw = _resolve_input(args)
     if not raw.strip():
         parser.print_usage(file=sys.stderr)
@@ -579,6 +655,8 @@ def main(argv=None):
             data, files.get("--cycles"), files.get("--pairs"))
     elif args.kind == "requirements":
         result = tally_requirements(data)
+    elif args.kind == "evidence":
+        result = render_evidence(data, args.skills_root)
     else:
         result = (render_coverage if args.render else tally)(data)
     if isinstance(result, list):

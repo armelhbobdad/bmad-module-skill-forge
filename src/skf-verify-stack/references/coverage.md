@@ -2,15 +2,13 @@
 nextStepFile: 'integrations.md'
 coveragePatternsData: 'references/coverage-patterns.md'
 coverageTallyScript: 'scripts/skf-coverage-tally.py'
+reportUpdateScript: 'scripts/skf-report-update.py'
 comentionProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'
   - '{project-root}/src/shared/scripts/skf-comention-pairs.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -91,13 +89,13 @@ Record the cited section heading or annotation text as evidence for every techno
 - **Replaced** — no matching skill exists AND a deliberate-removal signal (above) was found; the technology is intentionally being removed/replaced, so no skill should exist for it
 - **Missing** — no matching skill found and no removal signal
 
-**Tally the matrix deterministically.** Assigning each verdict is judgment; counting the classes and computing the percentage has one correct answer, so delegate it. Write the matrix to `{run_dir}/coverage-rows.json` as `{"rows": [{"technology": "…", "section": "<its source section, or null>", "skill": "<the matching skill's name, or null>", "verdict": "Covered|Missing|Replaced"}, …]}`, one row per technology, and run:
+**Tally the matrix deterministically.** Write the matrix to `{run_dir}/coverage-rows.json` as `{"rows": [{"technology": "…", "section": "<its source section, or null>", "skill": "<the matching skill's name, or null>", "verdict": "Covered|Missing|Replaced"}, …]}`, one row per technology, and run:
 
 ```bash
-uv run {coverageTallyScript} --stdin < "{run_dir}/coverage-rows.json"
+uv run {coverageTallyScript} --stdin < "{run_dir}/coverage-rows.json" > "{run_dir}/coverage-tally.json"
 ```
 
-The script (run `uv run {coverageTallyScript} --help` for the contract) returns `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator: Covered + Missing, with Replaced excluded because a technology being removed is not a gap to close), `total_referenced`, and `coverage_percentage` (Replaced excluded from the denominator, half-up rounding pinned so the same matrix always yields the same integer). Consume these values in §5, §6 and §7 rather than recomputing them. When it exits non-zero, it rejected the rows and says why (its JSON `error`): fix them and run it again.
+`{run_dir}/coverage-tally.json` holds `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator: Covered + Missing), `total_referenced` and `coverage_percentage` (run `uv run {coverageTallyScript} --help` for the contract). When it exits non-zero, it rejected the rows and the file says why (its JSON `error`): fix them and run it again.
 
 ### 4. Detect Extra Skills
 
@@ -118,18 +116,18 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 Render the matrix's table rows from the §3 rows file, once, for this display and the report (§6):
 
 ```bash
-uv run {coverageTallyScript} --render --stdin < "{run_dir}/coverage-rows.json"
+uv run {coverageTallyScript} --render --stdin < "{run_dir}/coverage-rows.json" > "{run_dir}/coverage-table.md"
 ```
 
-It prints one row per technology, its Source Section and Skill Match `none` where the rows file names none. On a non-zero exit it prints a JSON `error` instead: fix the row it names in `{run_dir}/coverage-rows.json`, run the §3 tally again, then this call, and never paste that output into the table.
+`{run_dir}/coverage-table.md` holds one row per technology, its Source Section and Skill Match `none` where the rows file names none. On a non-zero exit it holds a JSON `error` instead: fix the row it names in `{run_dir}/coverage-rows.json`, run the §3 tally again, then this call.
 
 "**Pass 1: Technology Coverage**
 
 | Technology | Source Section | Skill Match | Verdict |
 |------------|---------------|-------------|---------|
-{the rendered rows, as printed}
+{the rows of `{run_dir}/coverage-table.md`}
 
-**Coverage: {covered_count}/{live_count} ({coverage_percentage}%)** (from the §3 tally; `live_count` excludes **Replaced** technologies)
+**Coverage: {covered_count}/{live_count} ({coverage_percentage}%)** (from `{run_dir}/coverage-tally.json`; `live_count` excludes **Replaced** technologies)
 
 {IF 100% coverage AND no Extra skills:}
 **All referenced technologies have a matching skill. No extra skills detected.**
@@ -154,22 +152,21 @@ It prints one row per technology, its Source Section and Skill Match `none` wher
 
 ### 6. Append to Report
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:report`.
-
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
-Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySchemaRef}` — section headings are fixed and ordered: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`):
-- Include the full coverage table: the §5 header `| Technology | Source Section | Skill Match | Verdict |`, its delimiter row and the rows §5 rendered, as printed, so each Verdict cell holds one token alone (`Covered`, `Missing` or `Replaced`): the next run's delta reads the Technology and Verdict columns
-- Include coverage percentage
-- Include missing skill recommendations
-- Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are not gaps and carry no [CS]/[QS] recommendation
-- Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4, and the §5 detection limitation when it shows
-- Update frontmatter: append `'coverage'` to `stepsCompleted`; from the §3 tally, set `coveragePercentage` ← `coverage_percentage` (integer 0..100), `coverageCovered` ← `covered_count`, `coverageMissing` ← `missing_count` and `coverageReplaced` ← `replaced_count` (synthesize's verdict rollup reads the three counts)
-- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `coverage:report`, with `"path": "{outputFile}"`.
+Write the **Coverage Analysis** section of `{outputFile}` (see `{feasibilitySchemaRef}`; its section headings are fixed and ordered: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`). First write `{run_dir}/coverage-section.md`: the §5 header `| Technology | Source Section | Skill Match | Verdict |` and its delimiter row, a blank line, then the coverage percentage, the missing skill recommendations, the Replaced (being removed/replaced) subdivision from section 3 with its cited removal evidence and no [CS]/[QS] recommendation, the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4, and the §5 detection limitation when it shows. The report keeps its `## Coverage Analysis` line, so the file holds no `#` or `##` heading. Then run the calls in order, stopping at the first that exits non-zero:
+
+```bash
+uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'Coverage Analysis' < "{run_dir}/coverage-section.md"
+uv run {reportUpdateScript} fill-table --report "{outputFile}" --heading 'Coverage Analysis' < "{run_dir}/coverage-table.md"
+uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind coverage < "{run_dir}/coverage-tally.json"
+```
+
+On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:report`. On any other non-zero exit, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `coverage:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 ### 7. Auto-Proceed to Next Step
 
-{IF coverage_percentage is 0:} display one warning line (headless: log it), record it in the run sink, and continue; the run resolves to `NOT_FEASIBLE` in synthesize, and the report still carries a recommendation for each Missing or Replaced technology:
+{IF the `coverage_percentage` of `{run_dir}/coverage-tally.json` is 0:} display one warning line (headless: log it), record it in the run sink, and continue; the run resolves to `NOT_FEASIBLE` in synthesize, and the report still carries a recommendation for each Missing or Replaced technology:
 - when `total_referenced` is 0: "**Warning:** the architecture document names no technology, so there is nothing to verify. Name the stack's technologies in it (a Tech Stack section, say), then re-run [VS]." Record `no_technology_referenced: the architecture document names no technology`.
 - when `live_count` is 0 (every referenced technology is Replaced): "**Warning:** every referenced technology is marked for removal or replacement, so nothing live is left to verify. Update the architecture document to describe the technologies that remain, then re-run [VS]." Record `no_live_technology: every referenced technology is marked for removal or replacement`.
 - otherwise: "**Warning:** 0% coverage: no generated skill matches a referenced technology, so the integration and requirements passes have nothing to check. Generate skills with [CS] or [QS] for the Missing technologies, then re-run [VS]." Record `zero_coverage: no generated skill matches a referenced technology`.
