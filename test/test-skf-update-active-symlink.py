@@ -1032,3 +1032,17 @@ class TestCli:
             assert result.returncode == 1
             assert result.stdout == ""
             assert result.stderr.splitlines()[-1] == f"error: skill-group not a directory: {missing}"
+
+
+def test_an_error_line_is_utf8_on_a_cp1252_console(tmp_path):
+    """A Windows console gives the helper cp1252 streams, and the refusal for an `active` folder names it with
+    a dash outside ASCII: the helper writes UTF-8 anyway, so a caller reading its stderr as UTF-8 (Drop Skill's
+    keep halt) gets the same line on every platform."""
+    group = _make_group(tmp_path, "1.0.0", "1.6.2")
+    (group / "active").mkdir()
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "update", "--skill-group", str(group),
+                           "--version", "1.6.2"], capture_output=True, env=env, timeout=60, check=False)
+    assert (proc.returncode, proc.stdout) == (1, b"")
+    line = proc.stderr.decode("utf-8").splitlines()[0]
+    assert line.startswith("error: ") and "not a symlink \u2014 refusing" in line, line

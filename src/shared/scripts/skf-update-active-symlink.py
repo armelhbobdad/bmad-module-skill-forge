@@ -579,5 +579,18 @@ def main(argv: list[str] | None = None) -> int:
     return args.func(args)
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure the output streams to UTF-8 (a Windows console uses cp1252),
+    so an error line reads the same on every platform."""
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     raise SystemExit(main())
