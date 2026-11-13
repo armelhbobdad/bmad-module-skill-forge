@@ -38,8 +38,9 @@ distribution ALWAYS bins `entries[]`, so it always sums to `len(entries)`. What
   - **library** — `exports_documented = len(entries)`; the four bins sum to it.
   - **reference-app** — `entries[]` are per-citation, so the distribution sums
     to the *citation count* (= `len(entries)`), NOT to `exports_documented`
-    (which is the pattern-surface proxy `pattern_surfaces_documented`, a
-    judgment value). `effective_denominator` is never emitted.
+    (which is the pattern-surface proxy `pattern_surfaces_documented`: with
+    `--skill-md`, the Pattern Surface table's data rows, read; see below).
+    `effective_denominator` is never emitted.
   - **stack**: `exports_documented` comes from the payload (a stack's own
     barrel is empty by design), and the distribution still sums to the
     *entry count* (= `len(entries)`), one per provenance entry. A stack's
@@ -75,7 +76,8 @@ Judgment payload (stdin JSON, compute mode)::
       "exports_public_api":  40,          # int  — public-entry-point export count (judgment)
       "exports_internal":    19,          # int: internal export count, Python/Rust/Dart `_` names left out (judgment)
       "effective_denominator": 12,        # int|null — optional, curated-subset scopes only
-      "pattern_surfaces_documented": 8,   # int  — reference-app only (exports_documented proxy)
+      "pattern_surfaces_documented": 8,   # int: reference-app only (exports_documented proxy);
+                                          #      leave it out with --skill-md, which counts it
       "exports_documented":  0,           # int  — stack only (own-barrel count, usually 0)
       "scripts": [ ... ],                 # list — scripts[] array (or "scripts_count": int)
       "assets":  [ ... ]                  # list — assets[]  array (or "assets_count":  int)
@@ -97,6 +99,22 @@ Output JSON (both modes)::
       "confidence_distribution": {"t1": 40, "t1_low": 5, "t2": 10, "t3": 4},
       "coherence": {"ok": true, "violations": []}
     }
+
+Pattern Surface count (`--skill-md PATH`, compute mode, `--shape
+reference-app` only)
+-----------------------------------------------------------------------
+
+The helper reads `pattern_surfaces_documented` from the SKILL.md at PATH
+instead of taking a count typed into the payload: it counts the data rows of
+every table block under a heading whose text is `Pattern Surface`, the
+header row and a separator second row left out, walking the tables with
+skf-scan-skill-md-structure.py's `iter_table_blocks` (loaded from this
+folder), the walker its table-drift check reads. A payload that also gives
+`pattern_surfaces_documented` must give that count. Exit 2, with one stderr
+line naming the cause and nothing written, when the payload's count differs,
+the file has no `Pattern Surface` heading, it cannot be read, the scan
+helper is not beside this one, or `--skill-md` comes with `--check` or
+another shape.
 
 Label agreement (both modes)
 ---------------------------
@@ -136,12 +154,14 @@ Exit codes:
   1: coherence violations present (drift to auto-fix, a bad signature_source,
      or a label that disagrees with extraction_method); the JSON on stdout is
      still authoritative, so rely on it, not the code
-  2: usage, IO or JSON-decode error
+  2: usage, IO or JSON-decode error, or a `--skill-md` count refused (see
+     Pattern Surface count above)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -162,6 +182,11 @@ _KNOWN_METHODS = (
 _T1_METHODS = ("ast-grep", "ast_bridge")            # confidence T1
 _T1_LOW_METHODS = ("source-read", "source_reading")  # confidence T1-low, signature_source never T1
 _LABELED_CONFIDENCE = ("T1", "T1-LOW")
+
+# --skill-md: the table walker's script, beside this one, and the heading whose
+# tables a reference app's pattern surfaces are the data rows of.
+_SCAN_HELPER = "skf-scan-skill-md-structure.py"
+_PATTERN_SURFACE_HEADING = "Pattern Surface"
 
 
 # --------------------------------------------------------------------------
@@ -307,6 +332,41 @@ def derive_stats(prov: dict, judgment: dict, shape: str = "library") -> dict:
             "unrecognized_signature_source": unrecognized,
         },
     }
+
+
+def _scan_helper():
+    """skf-scan-skill-md-structure.py, loaded from this script's folder.
+    Raises ValueError when it is not there or cannot be loaded."""
+    path = Path(__file__).resolve().parent / _SCAN_HELPER
+    if not path.is_file():
+        raise ValueError(f"{_SCAN_HELPER} not found beside {Path(__file__).name}; re-install SKF")
+    try:
+        spec = importlib.util.spec_from_file_location("skf_scan_skill_md_structure_stats", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no import spec for {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as exc:  # whatever the script raises, the count cannot be read
+        raise ValueError(f"cannot load {_SCAN_HELPER}: {exc}") from exc
+    return module
+
+
+def count_pattern_surfaces(skill_md: Path) -> int:
+    """The data rows of every table block under a `Pattern Surface` heading
+    of `skill_md` (see "Pattern Surface count" in the module docstring).
+    Raises ValueError when the file cannot be read, the scan helper is
+    missing or the file has no such heading."""
+    scan = _scan_helper()
+    try:
+        text = scan._read_markdown(skill_md)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"cannot read {skill_md}: {exc}") from exc
+    headings = (scan._HEADING_RE.match(line) for line in text.splitlines())
+    if not any(m is not None and m.group(2).strip() == _PATTERN_SURFACE_HEADING for m in headings):
+        raise ValueError(f"{skill_md} has no `{_PATTERN_SURFACE_HEADING}` heading to count the pattern "
+                         "surfaces of")
+    return sum(len(body) for section, _header, body in scan.iter_table_blocks(text)
+               if section == _PATTERN_SURFACE_HEADING)
 
 
 # --------------------------------------------------------------------------
@@ -565,6 +625,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="assembly shape (default: library in compute mode; inferred from "
              "metadata.json in --check mode). Selects what exports_documented equals.",
     )
+    parser.add_argument(
+        "--skill-md", metavar="PATH", dest="skill_md", default=None,
+        help="compute mode with --shape reference-app only: count pattern_surfaces_documented as the data "
+             "rows of the SKILL.md's Pattern Surface tables; a payload count that differs exits 2",
+    )
     parser.add_argument("-o", "--output", dest="output", help="write JSON here (default: stdout)")
     parser.add_argument("--verbose", action="store_true", help="diagnostics to stderr")
     return parser
@@ -584,6 +649,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if not isinstance(prov, dict):
         sys.stderr.write("error: provenance-map must be a JSON object at top level\n")
+        return 2
+
+    if args.skill_md is not None and (args.check or args.shape != "reference-app"):
+        sys.stderr.write("error: --skill-md counts a reference app's pattern surfaces: pass it in compute mode "
+                         "with --shape reference-app, never with --check or another shape\n")
         return 2
 
     if args.check:
@@ -619,6 +689,20 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"error: {exc}\n")
             return 2
         shape = args.shape or "library"
+        if args.skill_md is not None:
+            try:
+                counted = count_pattern_surfaces(Path(args.skill_md))
+            except ValueError as exc:
+                sys.stderr.write(f"error: {exc}\n")
+                return 2
+            given = judgment.get("pattern_surfaces_documented")
+            if given is not None and (isinstance(given, bool) or _int(given, -1) != counted):
+                sys.stderr.write(
+                    f"error: the payload's pattern_surfaces_documented ({given!r}) is not the {counted} data "
+                    f"row(s) of the Pattern Surface tables in {args.skill_md}: leave the count out, "
+                    "--skill-md counts it\n")
+                return 2
+            judgment = {**judgment, "pattern_surfaces_documented": counted}
         derived = derive_stats(prov, judgment, shape)
         coherence = coherence_compute(derived, prov)
 

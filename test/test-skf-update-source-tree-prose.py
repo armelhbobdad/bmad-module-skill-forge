@@ -1470,9 +1470,19 @@ def test_6_fixes_through_the_verifier_and_skips_the_set_diff_for_a_reference_app
                  "Skip this step when", "moves no citation of a line another entry also records",
                  "writes each changed file through skf-atomic-write.py", "which only a gap-driven run reaches"):
         assert gone not in six_a, gone
-    grace = _slice(six_a, "**Graceful degradation:**", "\n")
-    assert "Skip the set diff for a reference app (`scope_type: reference-app`" in grace
-    assert "note `set diff not applicable: reference app`" in grace
+    # with no verifier, §6 records a SKIP and a warning and goes on, comparing nothing by hand (#1191 leanness-9)
+    assert "**Graceful degradation:**" not in six_a and "fall back to the manual set comparison" not in six_a
+    skip = _slice(six_a, "**Verifier missing:**", "\n")
+    for token in ("record `Provenance: SKIP (verifier missing; re-install SKF)` in the evidence report's Validation "
+                  "Summary",
+                  "add `provenance: verifier missing; re-install SKF to check provenance completeness` to `warnings[]`, "
+                  "recorded as **Warnings go to the run log** says, and go on to §7",
+                  "Compare no set and check no line by hand"):
+        assert token in skip, token
+    comment = _comment_before(_frontmatter(_read(WRITE)), "verifyProvenanceCompletenessProbeOrder")
+    assert "SKIP (verifier missing; re-install SKF)" in comment and "by-hand set comparison" not in comment
+    assert "- Provenance: {PASS/WARN/SKIP}" in _read(WRITE)
+    assert "| Provenance | {PASS/WARN/SKIP} | {count} |" in _read(REPORT)
 
     verifier = _module(VERIFIER, "skf_verify_provenance_fix_prose")
     src = tmp_path / "src"
@@ -1549,17 +1559,36 @@ def test_documented_helper_calls_quote_every_path():
     six_a = _slice(_read(WRITE), "### 6. Provenance Completeness", "### 7.")
     for sub in ("verify", "fix"):
         calls.append((_fence(six_a, "uv run {" + verifier + "} " + sub), verifier))
-    kind_at = re.findall(r"`(uv run \{" + verifier + r"\} kind-at [^`]*)`", _read(WRITE))
-    assert len(kind_at) == 1, kind_at
-    calls += [(call, verifier) for call in kind_at]
-    assert len(calls) == 17
+    # write §2 and §6 relabel through the verifier and run no kind-at of their own (#1191 determinism-5)
+    assert not re.findall(r"`(uv run \{" + verifier + r"\} kind-at [^`]*)`", _read(WRITE))
+    calls += [(call, verifier) for call in _relabel_calls()]
+    calls += [(call, verifier) for call in _move_calls()]
+    assert len(calls) == 20
     for call, helper in calls:
         assert _unquoted_placeholders(call, helper) == [], call
 
 
+def _relabel_calls() -> tuple[str, str]:
+    """write §2's relabel of the stats helper's label violations and §6 step 2's relabel of verify's node kinds."""
+    write = _read(WRITE)
+    two = _slice(write, "### 2. Write Updated metadata.json", "### 3.")
+    six = _slice(write, "### 6. Provenance Completeness", "### 7.")
+    return (_fence(two, "uv run {verifyProvenanceCompletenessHelper} relabel"),
+            _fence(six, "uv run {verifyProvenanceCompletenessHelper} relabel"))
+
+
+def _move_calls() -> tuple[str, str]:
+    """merge §6b's two citation moves: the staged package's (normal mode) and the in-place one (gap-driven)."""
+    six_b = _slice(_read(MERGE), "### 6b. Write Merged Files to Disk", "### 7.")
+    staged = _slice(six_b, "4. **Write and verify the merged SKILL.md in the staged package**", "5. **Publish it.**")
+    in_place = _slice(six_b, "**Write the merged files in place**", "**Do NOT write here:**")
+    return (_fence(staged, "uv run {verifyProvenanceCompletenessHelper} fix"),
+            _fence(in_place, "uv run {verifyProvenanceCompletenessHelper} fix"))
+
+
 def test_node_kinds_are_looked_up_with_kind_at():
-    """§6's node-kind fix runs kind-at with the patterns file as --recipes (#584); write §2 relabels by the Relabel
-    Rule that file states once, which runs the same call (W3-create-extraction handoff, #600)."""
+    """§6's node-kind fix and §2's relabel run the verifier's `relabel`, with the patterns file as --recipes, which
+    applies the Relabel Rule that file points to and looks a kind up with kind-at (#584, #1191 determinism-5)."""
     write = _read(WRITE)
     frontmatter = yaml.safe_load(_frontmatter(write))
     # one name for extraction-patterns.md in every stage file, as re-extract.md names it
@@ -1570,11 +1599,21 @@ def test_node_kinds_are_looked_up_with_kind_at():
         "{project-root}/src/skf-create-skill/references/extraction-patterns.md"]
     two = _slice(write, "### 2. Write Updated metadata.json", "### 3.")
     six_a = _slice(write, "### 6. Provenance Completeness", "### 7.")
-    match = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", six_a)
-    assert match, "no kind-at call"
-    assert '--recipes "{extractionPatternsData}"' in match.group(1)
+    violations, node_kinds = _relabel_calls()
+    for call in (violations, node_kinds):
+        for token in ('--provenance "{forge_version}/provenance-map.json"', '--recipes "{extractionPatternsData}"',
+                      '[--records "{run_dir}/reextract-records.json"]', '[--source-root "{source_root}"] [--no-kind-at]'):
+            assert token in call, token
+    assert '--violations "{run_dir}/stats.json"' in violations
+    assert f'--node-kinds "{VERIFY_JSON}"' in node_kinds
     assert "which runs the ast-grep recipes for its language" not in two
-    assert "`status` is `found`" in six_a and "never invent a kind" in six_a.replace("Never", "never")
+    kinds = _slice(six_a, "2. **Node kinds.**", "These fixes apply")
+    for token in ("Never set a kind by hand", "never changes `extraction_method`",
+                  "list each `left_as_warn[]` item as a WARN with its `why`",
+                  "fix no node kind and list each one as a WARN"):
+        assert token in kinds, token
+    # the atomic write the by-hand node-kind fix made is the verifier's now: write.md binds no atomic helper
+    assert "atomicWriteProbeOrder" not in frontmatter and "{atomicWriteHelper}" not in write
     assert "run the recipes `{extraction" not in six_a
     # §2 states no copy of the general rule: it relabels by the rule's one home and keeps only update's own clauses
     relabel = _slice(two, "**Label violations.**", "\n")
@@ -1585,21 +1624,93 @@ def test_node_kinds_are_looked_up_with_kind_at():
         assert gone not in relabel, gone
 
 
-@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
-def test_the_documented_kind_at_call_runs(tmp_path, capsys):
-    """The kind-at call write §2 and §6 document finds a recipe's kind with the probe-ordered patterns (#584)."""
-    write = _read(WRITE)
-    call = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", write).group(1)
-    patterns = yaml.safe_load(_frontmatter(write))["extractionPatternsDataProbeOrder"][1]
+def _relabel_values(tmp_path: Path) -> dict:
+    """The values write §2's and §6's relabel calls take, over a map of three entries the checks flag."""
+    patterns = yaml.safe_load(_frontmatter(_read(WRITE)))["extractionPatternsDataProbeOrder"][1]
     src = tmp_path / "src"
     (src / "pkg").mkdir(parents=True)
     (src / "pkg" / "api.py").write_bytes(API_PY)
-    values = {"source_root": str(src), "source_file": "pkg/api.py", "source_line": "5", "export_name": "search",
-              "extractionPatternsData": str(REPO_ROOT / patterns[len("{project-root}/"):])}
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    forge = tmp_path / "forge"
+    forge_version = forge / "app" / "1.0.1"
+    forge_version.mkdir(parents=True)
+    entries = [
+        # read by eye, labelled T1: part 1 sets T1-low
+        {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 5,
+         "confidence": "T1", "extraction_method": "source-read", "ast_node_type": None, "signature_source": "T1-low"},
+        # an ast-grep entry with no kind, whose record names its recipe: the recipe's kind, no kind-at
+        {"export_name": "search", "export_type": "function", "source_file": "pkg/other.py", "source_line": 2,
+         "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": None, "signature_source": "T1"},
+        # an ast-grep entry with an invented kind and no record: kind-at at its line
+        {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 5,
+         "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "function_def",
+         "signature_source": "T1"},
+    ]
+    (forge_version / "provenance-map.json").write_bytes(json.dumps({"entries": entries}, indent=2).encode("utf-8"))
+    (run_dir / "reextract-records.json").write_bytes(json.dumps({"mode": "normal", "files": [
+        {"file_path": "pkg/other.py", "exports": [
+            {"name": "search", "location": "pkg/other.py:2", "extraction_method": "ast-grep",
+             "ast_recipe": "python-public-functions"}]}]}).encode("utf-8"))
+    return {"forge_version": str(forge_version), "run_dir": str(run_dir), "source_root": str(src),
+            "forge_data_folder": str(forge), "skill_name": "app",
+            "extractionPatternsData": str(REPO_ROOT / patterns[len("{project-root}/"):])}
+
+
+def test_the_documented_relabel_call_relabels_the_stats_violations(tmp_path, capsys):
+    """write §2's relabel call, as written, settles the stats helper's label violations and writes the map; under
+    the drift override a kind it would read from the tree is left as `kind-at-skipped` (#1191 determinism-5)."""
+    values = _relabel_values(tmp_path)
+    forge_version, run_dir = Path(values["forge_version"]), Path(values["run_dir"])
+    stats = _module(STATS_HELPER, "skf_render_metadata_stats_relabel_prose")
+    prov = json.loads((forge_version / "provenance-map.json").read_bytes())
+    (run_dir / "stats.json").write_bytes(json.dumps(
+        {"coherence": {"ok": False, "violations": stats.check_label_agreement(prov)}}).encode("utf-8"))
+    violations, _ = _relabel_calls()
+    verifier = _module(VERIFIER, "skf_verify_provenance_relabel_prose")
+    code = verifier.main(_argv_with(violations, "verifyProvenanceCompletenessHelper", values,
+                                    keep=("--records", "--source-root")))
+    out = json.loads((run_dir / "relabel.json").read_bytes())
+    assert code == 0, out
+    assert [(r["entry_index"], r["field"], r["from"], r["to"]) for r in out["relabeled"]] == [
+        (0, "confidence", "T1", "T1-low"), (1, "ast_node_type", None, "function_definition")]
+    entries = json.loads((forge_version / "provenance-map.json").read_bytes())["entries"]
+    assert stats.check_label_agreement({"entries": entries}) == []
+    assert out["files_written"] == [str(forge_version / "provenance-map.json")]
+    # under the drift override: --no-kind-at, and an entry with no record keeps its violation as a WARN
+    entries[1]["ast_node_type"] = None
+    (run_dir / "reextract-records.json").write_bytes(b'{"mode": "normal", "files": []}')
+    (forge_version / "provenance-map.json").write_bytes(json.dumps({"entries": entries}).encode("utf-8"))
+    (run_dir / "stats.json").write_bytes(json.dumps(
+        {"coherence": {"ok": False, "violations": stats.check_label_agreement({"entries": entries})}}).encode("utf-8"))
+    code = verifier.main(_argv_with(violations, "verifyProvenanceCompletenessHelper", values,
+                                    keep=("--records", "--source-root", "--no-kind-at")))
+    out = json.loads((run_dir / "relabel.json").read_bytes())
+    assert code == 1 and out["relabeled"] == []
+    assert [(w["entry_index"], w["field"], w["why"]) for w in out["left_as_warn"]] == [
+        (1, "ast_node_type", "kind-at-skipped")]
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_the_documented_kind_at_call_runs(tmp_path, capsys):
+    """§6 step 2's relabel call finds a recipe's kind at an entry's line with the probe-ordered patterns, through
+    kind-at, when no record names the recipe (#584, #1191 determinism-5)."""
+    values = _relabel_values(tmp_path)
+    forge_version, run_dir = Path(values["forge_version"]), Path(values["run_dir"])
+    verify = Path(values["forge_data_folder"]) / "app" / ".skf-update-verify.json"
+    verify.write_bytes(json.dumps({"node_kinds": [
+        {"entry_index": 2, "export_name": "search", "source_file": "pkg/api.py", "source_line": 5,
+         "ast_node_type": "function_def", "language": "python", "reason": "invalid-kind"}]}).encode("utf-8"))
+    _, node_kinds = _relabel_calls()
     verifier = _module(VERIFIER, "skf_verify_provenance_kind_at_prose")
-    code = verifier.main(_argv(call, "verifyProvenanceCompletenessHelper", values))
-    out = json.loads(capsys.readouterr().out)
-    assert code == 0 and (out["status"], out["kind"]) == ("found", "function_definition"), out
+    code = verifier.main(_argv_with(node_kinds, "verifyProvenanceCompletenessHelper", values,
+                                    keep=("--source-root",)))
+    out = json.loads((run_dir / "relabel-node-kinds.json").read_bytes())
+    assert code == 0, out
+    assert [(r["entry_index"], r["from"], r["to"]) for r in out["relabeled"]] == [
+        (2, "function_def", "function_definition")]
+    entry = json.loads((forge_version / "provenance-map.json").read_bytes())["entries"][2]
+    assert (entry["ast_node_type"], entry["extraction_method"]) == ("function_definition", "ast-grep")
 
 
 # --------------------------------------------------------------------------
@@ -2342,7 +2453,9 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
     assert "look up no node kind" not in zero_a
     write = _read(WRITE)
     assert "run no recipe at `{source_root}`, so no `kind-at`" in _slice(write, "  **Label violations.**", "\n")
-    assert "the tree read is not the recorded commit, so run no `kind-at`" in _slice(write, "2. **Node kinds.**", "\n")
+    kinds = _slice(write, "2. **Node kinds.**", "These fixes apply")
+    assert "and `--no-kind-at` when `{workspace_drift_status}` is `overridden` (gap-driven.md §3: the tree read is not " \
+           "the recorded commit, so run no `kind-at`)" in kinds
 
 
 def test_every_change_category_halts_or_passes_the_drift_gate(tmp_path, capsys):
@@ -2403,16 +2516,18 @@ def test_relabel_runs_no_recipe_under_the_override():
     """write §2 looks up no node kind at HEAD: the violation stays, with a WARN that names the drift (#557)."""
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     relabel = _slice(two, "**Label violations.**", "\n")
-    drift = _slice(relabel, "**Under the drift override**", "Rewrite `{forge_version}/provenance-map.json`")
+    drift = _slice(relabel, "**Under the drift override**", "This relabel applies to every entry")
     for token in ("run no recipe at `{source_root}`, so no `kind-at`",
-                  "Leave each violation that needs a kind from the tree in place",
+                  "Pass `--no-kind-at`: it leaves each violation that needs a kind from the tree in place "
+                  "(`kind-at-skipped`)",
                   "list it as a WARN ending ` " + DRIFT_NOTE + ")`",
                   "a relabel that reads nothing from the tree still applies",
                   "With the status `ok` or `skipped`, run the lookup as the rule says"):
         assert token in drift, token
     # the gate follows the rule whose lookup it gates, and the re-run keeps the shape (#550)
     assert relabel.index("`## Relabel Rule`") < relabel.index("**Under the drift override**")
-    assert "re-run the helper with the same payload, `--shape` and `-o`" in relabel
+    after = _slice(two, "Pass `--records` when that file exists", "\n")
+    assert "re-run the helper with the same payload, `--shape` and `-o` (and `--skill-md` for a reference app)" in after
 
 
 def test_name_lookup_filters_by_the_citation_file(tmp_path):
@@ -3073,7 +3188,7 @@ def test_a_gap_outside_the_brief_scope_is_never_repaired_there(tmp_path, capsys)
                   "`scope.include` or `scope.exclude`) and fix the map entry by hand",
                   "A file the scope takes is repaired from as before"):
         assert token in scoped, token
-    assert "Pass `--brief` as bullet 1 does" in \
+    assert "Pass `--brief` and `--extraction` as bullet 1 does" in \
         _slice(text, "2. **Write the gap-driven records**", "   - **`unresolved`:**")
     zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
     assert "as they are, less each one the brief's scope leaves out" in _slice(zero_a, "2. **The file set**", "\n")
@@ -3444,10 +3559,14 @@ def test_a_moved_export_across_files_names_its_old_file():
     shape = _slice(_read(DETECT), "The helper emits the unified manifest envelope:", "### 4.")
     assert "[{name, change_type, old_line, new_line, old_file?}, ...]" in shape
     assert "a `MOVED_EXPORT` across files an `old_file`, the file it left, where `apply` finds its entry" in shape
-    # merge moves a cross-file citation to the new file
+    # merge's script moves a cross-file citation to the new file, never by hand (#1191 determinism-1)
     priority2 = _slice(_read(MERGE), "**Priority 2", "**Priority 3")
-    assert ("a citation `[AST:{old_file}:L{old_line}]` (or `[SRC:...]`) becomes the file its `per_file` item names "
-            "and its `new_line`, `[AST:{file_path}:L{new_line}]`, keeping its prefix") in priority2
+    for token in ("§6b moves each `MOVED_EXPORT`'s citations (in gap-driven mode, each record marked `moved`) by "
+                  "script: never move a citation by hand",
+                  "when the change manifest gives it an `old_file` (a move across files), to the file its `per_file` "
+                  "item names, keeping its prefix"):
+        assert token in priority2, token
+    assert "Update file:line citations in generated content" not in priority2
 
 
 def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
@@ -3570,6 +3689,110 @@ def test_merge_edits_the_file_a_split_body_finding_cites():
     assert "Do **not** add, modify, or remove any provenance `entries[]` row" in priority8
 
 
+def test_merge_moves_citations_by_script(tmp_path, capsys):
+    """merge §6b's documented `fix --moves` calls move each moved export's citations once, in SKILL.md and every
+    references/*.md, and never the map: the 6 to 7 / 7 to 8 chain lands each citation on its own export's line, and
+    a repair moves only the records marked `moved` that the map holds (#1191 determinism-1)."""
+    merge = _read(MERGE)
+    assert yaml.safe_load(_frontmatter(merge))["verifyProvenanceCompletenessProbeOrder"] == VERIFIER_PATHS
+    assert "never move a citation by hand" in _comment_before(_frontmatter(merge), "verifyProvenanceCompletenessProbeOrder")
+    six_b = _slice(merge, "### 6b. Write Merged Files to Disk", "### 7.")
+    staged_step = _slice(six_b, "4. **Write and verify the merged SKILL.md in the staged package**", "5. **Publish it.**")
+    for token in ("When `counts.exports_moved` of `{run_dir}/change-manifest.json` is above 0",
+                  'record --run-dir "{run_dir}" --warnings-file "{run_dir}/citation-moves.json"',
+                  "re-read each file in its `files_written[]` into context and continue",
+                  'HALT with status `halted-for-write-failure` before the version is published (halt procedure: '
+                  '`phase: "merge:move-citations"`, `path: "{version_staging}/{skill_name}"`'):
+        assert token in staged_step, token
+    assert staged_step.index("fix \\\n       --moves") < staged_step.index("manual-verify")
+    in_place_step = _slice(six_b, "4. **Move the moved exports' citations**", "**Do NOT write here:**")
+    for token in ("when `counts.moved` of `{run_dir}/gap-records.json` is above 0",
+                  "every file of the package, since step 2 staged only the files the merge changed",
+                  "On `manual_verify.ok` false: HALT with status `halted-for-manual-mismatch`",
+                  "whose rollback restores the package and the brief from the snapshot"):
+        assert token in in_place_step, token
+    staged, in_place = _move_calls()
+    assert '--provenance "{provenance_map_path}"' in staged and '--provenance "{provenance_map_path}"' in in_place
+    assert '--manual-inventory "{manual_inventory}"' in in_place and "--manual-inventory" not in staged
+
+    verifier = _module(VERIFIER, "skf_verify_provenance_moves_prose")
+    package = tmp_path / "skills" / "app" / "1.0.1.skf-tmp" / "app"
+    (package / "references").mkdir(parents=True)
+    (package / "SKILL.md").write_bytes(b"# app\n\n`LIMIT` [AST:src/config.py:L6] and `DEFAULT` [AST:src/config.py:L7].\n")
+    (package / "references" / "api.md").write_bytes(b"- `DEFAULT` [SRC:src/config.py:L7-8]\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    entries = [{"export_name": "LIMIT", "source_file": "src/config.py", "source_line": 6},
+               {"export_name": "DEFAULT", "source_file": "src/config.py", "source_line": 7}]
+    prov = tmp_path / "forge" / "app" / "1.0.0" / "provenance-map.json"
+    prov.parent.mkdir(parents=True)
+    prov.write_bytes(json.dumps({"entries": entries}).encode("utf-8"))
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"counts": {"exports_moved": 2}, "per_file": [
+        {"file_path": "src/config.py", "status": "MODIFIED", "exports_affected": [
+            {"name": "LIMIT", "change_type": "MOVED_EXPORT", "old_line": 6, "new_line": 7},
+            {"name": "DEFAULT", "change_type": "MOVED_EXPORT", "old_line": 7, "new_line": 8}]}]}).encode("utf-8"))
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(prov),
+              "version_staging": str(package.parent), "skill_name": "app"}
+    assert verifier.main(_argv(staged, "verifyProvenanceCompletenessHelper", values)) == 0
+    out = json.loads((run_dir / "citation-moves.json").read_bytes())
+    assert out["warnings"] == [] and out["summary"]["citations_moved"] == 3
+    assert (package / "SKILL.md").read_bytes() == (
+        b"# app\n\n`LIMIT` [AST:src/config.py:L7] and `DEFAULT` [AST:src/config.py:L8].\n")
+    assert (package / "references" / "api.md").read_bytes() == b"- `DEFAULT` [SRC:src/config.py:L8-9]\n"
+    assert json.loads(prov.read_bytes()) == {"entries": entries}
+    # the repair: gap-records' output, the records marked `moved` that the map holds, checked against the inventory
+    (package / "SKILL.md").write_bytes(b"# app\n\n[AST:src/config.py:L6] [AST:src/config.py:L7]\n")
+    (run_dir / "reextract-records.json").write_bytes(json.dumps({"mode": "gap-driven", "files": [], "verification": [
+        {"export_name": "LIMIT", "gap_category": "MOVED_EXPORT", "verification": "moved", "in_map": True,
+         "provenance_citation": "src/config.py:6", "new_location": "src/config.py:9"},
+        {"export_name": "DEFAULT", "gap_category": "MODIFIED_EXPORT", "verification": "verified", "in_map": True,
+         "provenance_citation": "src/config.py:7", "new_location": None}]}).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(HASH_CONTENT), "manual-inventory", str(package / "SKILL.md")],
+                          capture_output=True)
+    assert proc.returncode == 0, proc.stderr
+    (run_dir / "manual-inventory.json").write_bytes(proc.stdout)
+    values.update(skill_package=str(package), manual_inventory=str(run_dir / "manual-inventory.json"))
+    assert verifier.main(_argv(in_place, "verifyProvenanceCompletenessHelper", values)) == 0
+    out = json.loads((run_dir / "citation-moves.json").read_bytes())
+    assert out["manual_verify"]["ok"] is True
+    assert (package / "SKILL.md").read_bytes() == b"# app\n\n[AST:src/config.py:L9] [AST:src/config.py:L7]\n"
+
+
+def test_gap_driven_answers_reachability_from_one_runner_run():
+    """gap-driven.md §4 runs the whole-scope runner once and hands it to both gap-records calls, whose diff answers
+    the reachability gate; the gate asks only where the diff cannot decide, and walks no barrel; write §2 reuses
+    the run unless a rescope amended its scope (#1191 determinism-6)."""
+    text = _read(GAP)
+    four = _slice(text, "### 4. Spot-Check Each Gap's Export", "### 4a.")
+    once = _slice(four, "**The public API, once.**", "1. **Spot-check and route.**")
+    for token in ("At Forge tier and above, for a skill with a source tree (not docs-only), when "
+                  "`{workspace_drift_status}` is not `overridden`",
+                  "On exit 1 (`incomplete`) run it once more",
+                  'pass `--extraction "{run_dir}/public-api.json"` to both `gap-records` calls below',
+                  "After exit 2 or 3, no JSON or no candidate, pass no `--extraction`"):
+        assert token in once, token
+    call = _fence(once, "uv run {extractPublicApiHelper} --mode full")
+    write_two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    write_call = re.search(r"`(uv run \{extractPublicApiHelper\} --mode full [^`]*)`", write_two).group(1)
+    assert call.replace("\\\n", " ").split() == write_call.split()  # write §2's call, as written
+    for gap_call in _gap_calls():
+        assert '[--extraction "{run_dir}/public-api.json"]' in gap_call
+    gate = _slice(text, "     - **Public-reachability gate (`NEW_EXPORT` only):**", "\n")
+    for token in ("that `--extraction` did not answer",
+                  "the call asks only where that diff cannot decide: no `--extraction` (Quick tier, a runner exit 2 "
+                  "or 3), an incomplete run or one with errors, an entry point the runner could not trace "
+                  "(`entry_points.unresolved`), a name it lists in `extraction_gaps`, or a file outside its "
+                  "`files_in_scope_list` or in a language no recipe reads"):
+        assert token in gate, token
+    for gone in ("resolve the symbol's module path", "re-exported from the package entry-point barrel",
+                 "every ancestor module on the path from that barrel is public"):
+        assert gone not in gate, gone
+    reuse = _slice(write_two, "In gap-driven mode, gap-driven.md §4 already ran it", "instead of running it again")
+    for token in ("when it wrote `{run_dir}/public-api.json` with `status` `ok`",
+                  "`counts.rescoped` of `{run_dir}/gap-records.json` is 0"):
+        assert token in reuse, token
+
+
 def test_merge_keeps_the_reference_files_in_step_with_the_body():
     """In a split-body skill an export's text also lives in references/*.md: Priorities 1 to 5 change it in every
     file that documents the export, Priority 1 deletes a reference file it leaves empty with its pointer, Priority 5
@@ -3585,7 +3808,7 @@ def test_merge_keeps_the_reference_files_in_step_with_the_body():
                   "`references/*.md` alike.",
                   "Priority 1 removes the export's content from each file, and deletes a reference file it leaves "
                   "documenting nothing and holding no `[MANUAL]` block, with SKILL.md's `> See` pointer to that file",
-                  "Priority 2 moves its citations (`[AST:]` and `[SRC:]` alike) in each",
+                  "§6b moves its citations (`[AST:]` and `[SRC:]` alike) in each by script (Priority 2), never by hand",
                   "Priority 3 renames it in each", "Priority 4 replaces its content in each",
                   "Priority 5 adds a new export where the skill documents that kind of export",
                   "corrects any statement, in SKILL.md or a `references/*.md` file, that calls the new export not "
@@ -3631,7 +3854,10 @@ def test_the_result_line_names_the_references_the_run_wrote():
                   "`{forge_version}/evidence-report.md`, the one write.md §4 appended, never an earlier update's",
                   "(`{skill_group}/{baseline_version}/{skill_name}/references/`) do not hold alike",
                   "a file in `{run_dir}/references/`, where merge.md §6b staged each one it wrote",
-                  "a path `{run_dir}/references-removed.txt` lists"):
+                  "a path `{run_dir}/references-removed.txt` lists",
+                  # a repair's citation move writes in place, every file of the package (#1191 determinism-1)
+                  "or a `references/` path in the `files_written[]` of `{run_dir}/citation-moves.json`, where "
+                  "merge.md §6b moved citations in place"):
         assert token in rule, token
 
 
@@ -3681,29 +3907,41 @@ def test_reference_app_stats_use_the_reference_app_shape():
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     shape = _slice(two, "  **Shape:**", "\n")
     for token in ("read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it",
-                  "When it is `reference-app`, pass `--shape reference-app` and put `pattern_surfaces_documented` in "
-                  "the payload",
+                  "When it is `reference-app`, pass `--shape reference-app` and `--skill-md \"{skill_package}/SKILL.md\"`, "
+                  "which counts `pattern_surfaces_documented`",
                   "pass no `--shape` (the helper's default, the library shape)"):
         assert token in shape, token
     # init.md's Stack Skill Guard is the one gate for stacks: write does not narrate a route no stack takes (#600)
     assert "Stack Skill Guard" not in shape and "**This guard is the single gate for stack skills**" in _read(INIT)
     payload = _slice(two, "  - `pattern_surfaces_documented` (reference app only):", "\n")
-    assert "the number of rows in the `## Pattern Surface` table of the merged SKILL.md" in payload
+    # the helper counts the rows; the payload holds no typed count (#1191 determinism-7)
+    for token in ("none in the payload, and never typed",
+                  "has the helper count the data rows of the merged SKILL.md's `## Pattern Surface` tables"):
+        assert token in payload, token
+    halt = _slice(two, "On its exit 2 (SKILL.md has no `Pattern Surface` heading", "\n")
+    assert ('HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:stats"`, '
+            '`path: "{skill_package}/SKILL.md"`, its stderr as `reason`)') in halt
     stats = _slice(two, "- **Compute the `stats` block", "\n")
     assert "sets `exports_documented` = the entry count for the library shape" in stats
     assert "\u2014" not in stats
     compile_ = _read(SRC / "skf-create-skill" / "references" / "compile.md")
     assert "pass `--shape reference-app`" in compile_ and "`pattern_surfaces_documented`" in compile_
+    shape_ = _slice(compile_, "- **Shape:**", "\n")
+    assert "`--skill-md <staging-skill-dir>/SKILL.md` (the SKILL.md §2a wrote), with no " \
+           "`pattern_surfaces_documented` in the payload" in shape_
+    assert "(the Pattern Surface row count) in the payload" not in shape_
 
 
 def _stats_main(block: str, forge_version: Path, monkeypatch, capsys) -> tuple[int, dict]:
-    """Run one of write §2's fenced helper calls, as written, through the helper's own main()."""
+    """Run one of write §2's fenced helper calls, as written, through the helper's own main(). `{skill_package}`
+    is `forge_version` too: a reference app's SKILL.md lies there."""
     payload = re.search(r"echo '(.*)' \\", block).group(1)
-    for placeholder, value in (("{N}", "4"), ("{M}", "1"), ("{P}", "2"), ("{scripts-inventory-or-[]}", "[]"),
+    for placeholder, value in (("{N}", "4"), ("{M}", "1"), ("{scripts-inventory-or-[]}", "[]"),
                                ("{assets-inventory-or-[]}", "[]")):
         payload = payload.replace(placeholder, value)
     # split the template, then fill it in: POSIX shlex.split would drop the backslashes of a Windows path
     argv = [arg.replace("{forge_version}", str(forge_version)).replace("{run_dir}", str(forge_version))
+            .replace("{skill_package}", str(forge_version))
             for arg in shlex.split(block.split("uv run {renderMetadataStatsHelper}", 1)[1])]
     spec = importlib.util.spec_from_file_location("skf_render_metadata_stats_calls", STATS_HELPER)
     stats = importlib.util.module_from_spec(spec)
@@ -3724,10 +3962,15 @@ def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
     forge_version = tmp_path / "Users\\runner"
     forge_version.mkdir(parents=True)
     (forge_version / "provenance-map.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    # the reference app's SKILL.md: a header, a separator and two data rows under its Pattern Surface heading
+    (forge_version / "SKILL.md").write_bytes(
+        b"# app\n\n## Pattern Surface\n\n| Surface | File |\n|---|---|\n| search | src/app.py |\n| fetch | src/app.py |\n"
+        b"\n## Other\n\n| a |\n|---|\n| b |\n")
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     library = _fence(two, '    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json -o "{run_dir}')
-    app = _fence(two, "--shape reference-app -o")
-    assert library != app and "--shape" not in library and '"pattern_surfaces_documented": {P}' in app
+    app = _fence(two, "--shape reference-app --skill-md")
+    assert library != app and "--shape" not in library and '--skill-md "{skill_package}/SKILL.md"' in app
+    assert "pattern_surfaces_documented" not in app  # the helper counts it, never the payload (#1191)
     code, out = _stats_main(library, forge_version, monkeypatch, capsys)
     assert code == 0 and out["coherence"]["ok"] is True
     assert out["stats"]["exports_documented"] == 3 and "pattern_surfaces_documented" not in out["stats"]
@@ -3783,9 +4026,10 @@ def test_the_documented_library_call_keeps_the_effective_denominator_it_is_passe
     forge_version = tmp_path / "fv"
     forge_version.mkdir()
     (forge_version / "provenance-map.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    (forge_version / "SKILL.md").write_bytes(b"## Pattern Surface\n\n| a |\n|---|\n| b |\n")
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     library = _fence(two, '    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json -o "{run_dir}')
-    app = _fence(two, "--shape reference-app -o")
+    app = _fence(two, "--shape reference-app --skill-md")
     key = '"exports_internal": {M}, '
     assert key in library and key in app
     code, out = _stats_main(library.replace(key, key + '"effective_denominator": 7, '), forge_version,

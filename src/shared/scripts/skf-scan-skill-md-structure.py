@@ -569,14 +569,17 @@ def _is_separator_row(cells: list[str]) -> bool:
     return all(_TABLE_SEP_CELL_RE.match(c) is not None for c in cells)
 
 
-def find_table_drift(text: str) -> list[dict]:
-    """Walk table blocks, flag rows whose column count differs from the header.
+def iter_table_blocks(text: str):
+    """Yield each table block as (section, header, body_rows).
 
-    Tracks the most-recently-seen heading text so each finding can name the
-    section it's in. The heading text reported is the raw text after the `#`
-    characters, with surrounding whitespace stripped.
+    A block is a run of contiguous `|...|` rows. `section` is the text of
+    the most recent heading above it (the raw text after the `#`
+    characters, surrounding whitespace stripped; "" before any heading),
+    `header` its first row and `body_rows` the rows after it, less a
+    separator second row. Each row is (1-based line number, row text).
+    `find_table_drift` and skf-render-metadata-stats.py's Pattern Surface
+    count read tables through this one walker.
     """
-    findings: list[dict] = []
     lines = text.splitlines()
     current_section = ""
     i = 0
@@ -591,42 +594,39 @@ def find_table_drift(text: str) -> list[dict]:
             i += 1
             continue
 
-        # Start of a table block. Collect contiguous rows.
-        block_start = i
+        # Start of a table block. Collect contiguous rows; i ends past it.
         block_rows: list[tuple[int, str]] = []
         while i < len(lines) and _TABLE_ROW_RE.match(lines[i]):
             block_rows.append((i + 1, lines[i]))  # 1-based line numbers
             i += 1
 
-        if not block_rows:
-            continue
-
-        header_lineno, header_text = block_rows[0]
-        header_cells = _split_row_cells(header_text)
-        expected = len(header_cells)
-
-        # If the second row is a separator, skip it from drift checking.
+        # A separator second row is no body row.
         body_rows = block_rows[1:]
         if body_rows:
             _, second_text = body_rows[0]
             if _is_separator_row(_split_row_cells(second_text)):
                 body_rows = body_rows[1:]
+        yield current_section, block_rows[0], body_rows
 
+
+def find_table_drift(text: str) -> list[dict]:
+    """Walk table blocks, flag rows whose column count differs from the header.
+
+    Each finding names the section it's in, as `iter_table_blocks` gives it.
+    """
+    findings: list[dict] = []
+    for section, (_, header_text), body_rows in iter_table_blocks(text):
+        expected = len(_split_row_cells(header_text))
         for row_lineno, row_text in body_rows:
-            cells = _split_row_cells(row_text)
-            actual = len(cells)
+            actual = len(_split_row_cells(row_text))
             if actual != expected:
                 findings.append({
                     "line": row_lineno,
-                    "section": current_section,
+                    "section": section,
                     "expected_cols": expected,
                     "actual_cols": actual,
                     "row": row_text,
                 })
-
-        # if the block ended at a non-row line, fall through to advance i;
-        # i already points past the block.
-        _ = block_start  # explicitly unused, kept for readability
     return findings
 
 

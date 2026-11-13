@@ -30,12 +30,15 @@ entries are per-citation, so the two sets measure different surfaces:
 `missing` and `orphaned` stay empty and `summary.set_diff` is
 `not-applicable` (`checked` otherwise).
 
-Four more subcommands act on the same rules: `fix` applies the citation
-prefix and source-line fixes a `verify` result has one answer for,
+Five more subcommands act on the same rules: `fix` applies the citation
+prefix and source-line fixes a `verify` result has one answer for, or,
+with `--moves`, moves the citations of a run's moved exports,
 `definition-lines` gives the lines that define one export,
 `classify-stale` decides which stale names are fabricated signatures and
-where the source declares the others, and `kind-at` gives the node kind
-of the recipe that matches a source line.
+where the source declares the others, `kind-at` gives the node kind of
+the recipe that matches a source line, and `relabel` applies the Relabel
+Rule to the label violations of a stats result and the node kinds of a
+verify result.
 
 An LLM set-diff can silently pass a dropped or orphaned entry, and eyeballing
 whether a cited line still exists is not something the model can do reliably.
@@ -409,8 +412,46 @@ Subcommands:
                     "left_as_warn_count": <int>}
       }
 
-    `fix` handles no `missing`, `orphaned` or `node_kinds` finding: read
-    those from the verify result. Run `verify` again after it.
+    `fix` handles no `missing` or `orphaned` finding: read those from the
+    verify result; `relabel --node-kinds` settles the `node_kinds` ones.
+    Run `verify` again after it.
+
+  fix --moves <moves.json> --provenance <provenance-map.json>
+      --skill-dir <dir> [--manual-inventory <inventory.json>]
+      [--dry-run] [-o <out.json>]
+
+    Moves the citations of a run's moved exports, the second input `fix`
+    takes in place of `--verify` (exactly one of the two; `--no-line-moves`
+    goes with `--verify` only). `--moves` is either a change manifest, each
+    of whose `per_file[].exports_affected[]` items with `change_type`
+    `MOVED_EXPORT` moves from (its `old_file`, else the item's
+    `file_path`, and its `old_line`) to (the item's `file_path`, its
+    `new_line`), or gap-records' output (`mode` `gap-driven`), each of
+    whose `verification[]` records that is `moved` and `in_map` moves from
+    its `provenance_citation` to its `new_location`; any other JSON exits
+    2. Every move goes through the one-pass rule of step 2 above: a
+    citation of either prefix whose normalized path and first line are a
+    move's old location takes the new line, a range shifts both ends by
+    the same amount, a move across files rewrites the cited path to the
+    new file as `--moves` writes it, and the prefix stays. A citation
+    stays (`shared-line`) when another export claims its old location: a
+    `--provenance` entry recorded there under a name the moves from it do
+    not hold, moves from it to two targets, or an export `--moves` places
+    there (a manifest `NEW_EXPORT` or `MODIFIED_EXPORT` at its file and
+    `new_line`; another gap-driven record's located line: a `verified`
+    one's `provenance_citation`, a `moved` or `re-extracted` one's
+    `new_location`). A `MOVED_EXPORT`'s own new line is no claim, since
+    merge writes the claimed exports' citations at their new lines before
+    the move runs and a chain (`LIMIT` 6 to 7, `DEFAULT` 7 to 8) must still
+    move each citation once. A citation inside a [MANUAL] block stays
+    (`inside-manual-block`). It writes markdown only, through the atomic
+    helper as above: `--provenance` is read, never written (the map the
+    update started from, which update-skill's `apply` rewrites).
+
+    Emit JSON: the keys above, `applied[]` and `left_as_warn[]` holding
+    `citation-line` items only, with one more key:
+        "warnings": ["provenance: citation <citation> at <file>:<line> not
+                      moved (<why>): <export names>", ...]  # one per left item
 
   definition-lines --file <source_file> --name <export_name>
                    [--source-root <path>] [--line <n>]
@@ -750,6 +791,57 @@ Subcommands:
     matched. Never invent a kind: anything but `found` leaves the entry as
     it is.
 
+  relabel --provenance <provenance-map.json> --recipes <recipes>
+          [--violations <stats.json>] [--node-kinds <verify.json>]
+          [--records <reextract-records.json>] [--source-root <path>]
+          [--no-kind-at] [-o <out.json>]
+
+    Applies create-skill's relabel-rule.md to a provenance map and writes
+    it, so no prompt relabels an entry by hand. It needs at least one of
+    `--violations` (skf-render-metadata-stats.py's JSON: each
+    `coherence.violations[]` item on `provenance.entries[<i>].<field>`)
+    and `--node-kinds` (a verify result's `node_kinds[]`). Each item names
+    its entry by index, confirmed by its `export_name` (and, for a node
+    kind, its `source_file`), else it is left as `entry-not-found`. An
+    entry's record is the record of its `export_name` in the `--records`
+    block of its `source_file` (the one at its `source_line` when there are
+    several).
+
+      1. Labels: a `confidence`, `signature_source` or null `ast_node_type`
+         violation sets the field to the violation's `expected`. An
+         `extraction_method` violation sets the method of the entry's
+         record (`ast-grep` or `source-read`), else `source-read`, and the
+         entry is checked once more by skf-render-metadata-stats.py's
+         `check_label_agreement` (loaded from beside this script) and
+         relabeled by what it reports.
+      2. Node kind: an `ast_node_type` whose `expected` is `non-null`, and
+         each `node_kinds[]` item, takes the `rule.kind` of the recipe the
+         entry's record names in `ast_recipe` (that id's form for the
+         file's language, as kind-at picks it, else the kind all its forms
+         share), else the `kind-at` kind at the entry's current
+         `source_line` when its status is `found`. It never changes
+         `extraction_method`. With `--no-kind-at` (the drift override), or
+         with no `--source-root` folder, no kind is looked up.
+
+    A map that changed is written as `fix` writes it (two-space JSON,
+    non-ASCII kept, a final newline, through skf-atomic-write.py beside
+    this script).
+
+    Emit JSON:
+      {
+        "relabeled": [{"entry_index", "export_name", "source_file",
+                       "field", "from", "to"}, ...],
+        "left_as_warn": [{"entry_index", "export_name", "source_file",
+                          "field",
+                          "why": "entry-not-found" | "kind-at-skipped"
+                                 | "no-source-root" | "kind-at-failed"
+                                 | <a kind-at status: "ambiguous",
+                                    "no-match", "incomplete",
+                                    "skipped-..." >}, ...],
+        "files_written": ["<path>", ...],
+        "summary": {"relabeled_count": <int>, "left_as_warn_count": <int>}
+      }
+
 CLI examples:
   uv run skf-verify-provenance-completeness.py verify \\
       --metadata {skill_package}/metadata.json \\
@@ -760,6 +852,10 @@ CLI examples:
   uv run skf-verify-provenance-completeness.py fix --verify {verify_json} \\
       --provenance {forge_version}/provenance-map.json \\
       --skill-dir {skill_package}
+  uv run skf-verify-provenance-completeness.py fix \\
+      --moves {run_dir}/change-manifest.json \\
+      --provenance {provenance_map_path} --skill-dir {staged_package} \\
+      -o {run_dir}/citation-moves.json
   uv run skf-verify-provenance-completeness.py definition-lines \\
       --source-root {source_root} --file src/api.py --name search --line 26
   uv run skf-verify-provenance-completeness.py classify-stale \\
@@ -771,6 +867,10 @@ CLI examples:
   uv run skf-verify-provenance-completeness.py kind-at \\
       --source-root {source_root} --file src/api.ts --line 12 --name Store \\
       --recipes {extractionPatternsData}
+  uv run skf-verify-provenance-completeness.py relabel \\
+      --provenance {forge_version}/provenance-map.json \\
+      --violations {run_dir}/stats.json --recipes {extractionPatternsData} \\
+      --records {run_dir}/reextract-records.json --source-root {source_root}
 
 Exit codes:
   verify
@@ -778,7 +878,7 @@ Exit codes:
     1  verification ran and found missing / orphaned / stale entries,
        citation findings or node-kind findings (status "findings");
        advisory: the caller decides how to surface it
-  fix
+  fix (either input)
     0  nothing left as a WARN (and manual_verify ok when it ran)
     1  something left as a WARN, or manual_verify not ok
   definition-lines
@@ -788,12 +888,19 @@ Exit codes:
   kind-at
     0  status "found"
     1  any other status
+  relabel
+    0  nothing left as a WARN
+    1  something left as a WARN
   2  error, for every subcommand (an input file or folder not found,
      --skill-dir without a SKILL.md, malformed JSON or YAML, a verify
-     result without stale[] and citations[], --names without a list of
+     result without stale[] and citations[], a --moves file that is
+     neither a change manifest nor gap-records' output, --verify and
+     --moves together or neither, relabel with neither --violations nor
+     --node-kinds, a --violations file with no coherence.violations[], a
+     --node-kinds file with no node_kinds[], --names without a list of
      names, --inventory without an `exports` list, a --brief that is not
-     a YAML mapping, no recipe in --recipes, no PyYAML for kind-at or
-     --brief, an atomic write that failed, an -o
+     a YAML mapping, no recipe in --recipes, no PyYAML for kind-at,
+     relabel or --brief, an atomic write that failed, an -o
      file that cannot be written, or any unexpected failure, such as an
      unreadable file; once fix has started writing, stderr names the files
      already written); one line on stderr and no JSON
@@ -5109,7 +5216,7 @@ class _SkillFile:
         edits = [
             (c["start"], c["end"], _rewritten_citation(c))
             for c in self.citations
-            if c.get("new_prefix") or c.get("shift")
+            if c.get("new_prefix") or c.get("shift") or c.get("new_path")
         ]
         if not edits:
             return None
@@ -5120,13 +5227,19 @@ class _SkillFile:
 
 
 def _rewritten_citation(cit: dict) -> str:
-    """A citation with its new prefix and its lines shifted: a range moves
-    both ends by the same amount (`L10-12` to `L13-15`)."""
+    """A citation with its new prefix, its new path (a move across files) and
+    its lines shifted: a range moves both ends by the same amount (`L10-12`
+    to `L13-15`)."""
     m = cit["match"]
     base = m.start()
     subs: list[tuple[int, int, str]] = []
     if cit.get("new_prefix"):
         subs.append((m.start(1) - base, m.end(1) - base, cit["new_prefix"]))
+    if cit.get("new_path"):
+        raw = m.group(2)
+        lead = raw[: len(raw) - len(raw.lstrip())]
+        trail = raw[len(raw.rstrip()):]
+        subs.append((m.start(2) - base, m.end(2) - base, lead + cit["new_path"] + trail))
     shift = cit.get("shift", 0)
     if shift:
         subs.append((m.start(3) - base, m.end(3) - base, str(int(m.group(3)) + shift)))
@@ -5172,6 +5285,69 @@ def _stale_entry_indices(entries: list, item: dict) -> list[int]:
     ):
         return [index]
     return [i for i, entry in enumerate(entries) if same(entry)]
+
+
+def _recorded_lines(entries: list) -> dict[tuple[str, int], set[int]]:
+    """The indices of the provenance entries recorded at each (normalized
+    source file, source line)."""
+    recorded: dict[tuple[str, int], set[int]] = {}
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        sf = entry.get("source_file")
+        line = _coerce_line(entry.get("source_line"))
+        if isinstance(sf, str) and sf.strip() and isinstance(line, int):
+            recorded.setdefault((normalize_path(sf), line), set()).add(index)
+    return recorded
+
+
+def _plan_line_moves(
+    files: dict[str, "_SkillFile"],
+    rels: list[str],
+    planned: dict[tuple[str, int], tuple[set, list[str], bool]],
+) -> tuple[list[tuple["_SkillFile", dict, list[str]]], list[dict]]:
+    """The one-pass citation-line rule `fix` applies to every planned move.
+
+    `planned` maps a (normalized path, line) a move leaves to (its targets,
+    each (the new path as the input writes it, or None to keep the cited
+    path; the new line), the export names there, whether another export
+    claims that line). Each citation of either prefix whose normalized path
+    and first line are a planned key takes its one target, read from the
+    citation as it stands, before any move: so a citation moves at most
+    once. It stays (`shared-line`) when another export claims its line or
+    the moves there go to two targets, and inside a [MANUAL] block
+    (`inside-manual-block`). Returns (the moves, each (file, citation,
+    names), and the citations left)."""
+    line_fixes: list[tuple[_SkillFile, dict, list[str]]] = []
+    left: list[dict] = []
+    for rel in rels:
+        doc = files[rel]
+        for cit in doc.citations:
+            key = (normalize_path(cit["cited_file"]), cit["cited_line"])
+            move = planned.get(key)
+            if move is None:
+                continue
+            targets, names, claimed = move
+            if claimed or len(targets) > 1:
+                why = "shared-line"  # it may cite the other export
+            elif doc.in_manual(cit["start"]):
+                why = "inside-manual-block"
+            else:
+                (path, new), = targets
+                cit["shift"] = new - cit["cited_line"]
+                if path is not None and normalize_path(path) != key[0]:
+                    cit["new_path"] = path.strip()
+                line_fixes.append((doc, cit, names))
+                continue
+            left.append({
+                "kind": FIX_CITATION_LINE,
+                "file": rel,
+                "line": cit["line"],
+                "citation": cit["text"],
+                "export_names": names,
+                "why": why,
+            })
+    return line_fixes, left
 
 
 def plan_fixes(
@@ -5258,50 +5434,24 @@ def plan_fixes(
             why = "entry-not-found"
         left.append(dict(item, kind=FIX_SOURCE_LINE, why=why))
 
-    recorded: dict[tuple[str, int], set[int]] = {}
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            continue
-        sf = entry.get("source_file")
-        line = _coerce_line(entry.get("source_line"))
-        if isinstance(sf, str) and sf.strip() and isinstance(line, int):
-            recorded.setdefault((normalize_path(sf), line), set()).add(index)
+    recorded = _recorded_lines(entries)
     movers: dict[tuple[str, int], dict[int, int]] = {}
     for index, new in moves.items():
         entry = entries[index]
         key = (normalize_path(entry["source_file"]), _coerce_line(entry["source_line"]))
         movers.setdefault(key, {})[index] = new
-
-    line_fixes: list[tuple[dict, dict, list[str]]] = []
-    for rel in rels:
-        doc = files[rel]
-        for cit in doc.citations:
-            key = (normalize_path(cit["cited_file"]), cit["cited_line"])
-            moving = movers.get(key)
-            if not moving:
-                continue
-            here = recorded.get(key, set()) | set(moving)
-            names = sorted(
-                {n for n in (entries[i].get("export_name") for i in here)
-                 if isinstance(n, str) and n}
-            )
-            targets = set(moving.values())
-            if here - set(moving) or len(targets) > 1:
-                why = "shared-line"  # it may cite the other entry's export
-            elif doc.in_manual(cit["start"]):
-                why = "inside-manual-block"
-            else:
-                cit["shift"] = targets.pop() - cit["cited_line"]
-                line_fixes.append((doc, cit, names))
-                continue
-            left.append({
-                "kind": FIX_CITATION_LINE,
-                "file": rel,
-                "line": cit["line"],
-                "citation": cit["text"],
-                "export_names": names,
-                "why": why,
-            })
+    planned: dict[tuple[str, int], tuple[set, list[str], bool]] = {}
+    for key, moving in movers.items():
+        here = recorded.get(key, set()) | set(moving)
+        names = sorted(
+            {n for n in (entries[i].get("export_name") for i in here)
+             if isinstance(n, str) and n}
+        )
+        # another entry recorded there: the citation may cite its export
+        planned[key] = ({(None, new) for new in moving.values()}, names,
+                        bool(here - set(moving)))
+    line_fixes, moved_left = _plan_line_moves(files, rels, planned)
+    left.extend(moved_left)
 
     for doc, cit in prefix_fixes:
         applied.append({
@@ -5345,6 +5495,381 @@ def plan_fixes(
         "left_as_warn": left,
         "markdown": markdown,
         "provenance": new_prov,
+    }
+
+
+# --------------------------------------------------------------------------
+# A run's moved exports (fix --moves)
+# --------------------------------------------------------------------------
+
+
+def _location(value: object) -> tuple[str, int] | None:
+    """(file as written, line) of a `file:line` string, or None."""
+    if not isinstance(value, str) or ":" not in value:
+        return None
+    path, _, rest = value.rpartition(":")
+    line = _coerce_line(rest)
+    if not path.strip() or not isinstance(line, int) or line < 1:
+        return None
+    return path.strip(), line
+
+
+def _line_number(value: object) -> int | None:
+    line = _coerce_line(value)
+    return line if isinstance(line, int) and line >= 1 else None
+
+
+def load_moves(doc: dict) -> tuple[list[dict], list[dict]]:
+    """(moves, claims) of a change manifest or of gap-records' output.
+
+    A move is {name, from: (path, line), to: (path as written, line)}; a
+    claim is {name, at: (path, line)}, an export the input places at a line
+    with its citation already written there. A manifest gives a move per
+    `per_file[].exports_affected[]` MOVED_EXPORT, from its `old_file` (else
+    the item's `file_path`) and `old_line` to the item's `file_path` and
+    its `new_line`, and a claim per NEW_EXPORT and MODIFIED_EXPORT at the
+    item's `file_path` and its `new_line`. Gap-records' output (`mode`
+    `gap-driven`) gives a move per `verification[]` record that is `moved`
+    and `in_map`, from its `provenance_citation` to its `new_location`, and
+    a claim per located record: a `verified` one at its
+    `provenance_citation`, a `moved` or `re-extracted` one at its
+    `new_location`, but for a moved MOVED_EXPORT, whose citation is the one
+    that moves there. A move that stays where it is moves nothing. Raises
+    ValueError for any other JSON."""
+    moves: list[dict] = []
+    claims: list[dict] = []
+    if isinstance(doc.get("per_file"), list):
+        for item in _dict_items(doc["per_file"]):
+            path = item.get("file_path")
+            if not isinstance(path, str) or not path.strip():
+                continue
+            for change in _dict_items(item.get("exports_affected")):
+                name = change.get("name")
+                kind = change.get("change_type")
+                new = _line_number(change.get("new_line"))
+                if new is None:
+                    continue
+                if kind in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+                    claims.append({"name": name, "at": (path, new)})
+                elif kind == "MOVED_EXPORT":
+                    old_file = change.get("old_file")
+                    old_path = old_file if isinstance(old_file, str) and old_file.strip() else path
+                    old = _line_number(change.get("old_line"))
+                    if old is not None:
+                        moves.append({"name": name, "from": (old_path, old), "to": (path, new)})
+    elif doc.get("mode") == "gap-driven" and isinstance(doc.get("verification"), list):
+        for record in _dict_items(doc["verification"]):
+            name = record.get("export_name")
+            outcome = record.get("verification")
+            if outcome == "moved" and record.get("in_map") is True:
+                old = _location(record.get("provenance_citation"))
+                new = _location(record.get("new_location"))
+                if old is not None and new is not None:
+                    moves.append({"name": name, "from": old, "to": new})
+                if record.get("gap_category") == "MOVED_EXPORT":
+                    continue  # its new line is no claim: its citation moves there
+            at = record.get("provenance_citation") if outcome == "verified" else (
+                record.get("new_location") if outcome in ("moved", "re-extracted") else None)
+            where = _location(at)
+            if where is not None:
+                claims.append({"name": name, "at": where})
+    else:
+        raise ValueError(
+            "--moves is neither a change manifest (per_file[]) nor gap-records' "
+            "output (mode gap-driven, verification[])"
+        )
+    moves = [
+        m for m in moves
+        if (normalize_path(m["from"][0]), m["from"][1])
+        != (normalize_path(m["to"][0]), m["to"][1])
+    ]
+    return moves, claims
+
+
+def plan_moves(moves_doc: dict, prov: dict, skill_dir: Path) -> dict:
+    """Plan the citation moves of a run's moved exports (`load_moves`).
+
+    Every move goes through `_plan_line_moves`, the one-pass rule `fix`
+    gives its source-line moves: a citation of either prefix whose
+    normalized path and first line are a move's old location takes the new
+    line, and the new file on a move across files. Another export claims
+    that location, so its citations stay (`shared-line`), when the map
+    records an entry there under a name the moves from it do not hold, the
+    moves from it go to two targets, or the input places an export there (a
+    claim). A `MOVED_EXPORT`'s own new line is no claim, so a chain (6 to
+    7, then 7 to 8) moves each citation once. The provenance map is read,
+    never changed. Returns {applied, left_as_warn, markdown: {rel: new text},
+    provenance: None}; nothing is written."""
+    moves, claims = load_moves(moves_doc)
+    rels = [
+        p.relative_to(skill_dir).as_posix() for p in skill_markdown_files(skill_dir)
+    ]
+    files = {rel: _SkillFile(skill_dir, rel) for rel in rels}
+    entries = prov.get("entries") if isinstance(prov.get("entries"), list) else []
+    recorded = _recorded_lines(entries)
+    claimed: dict[tuple[str, int], set[str]] = {}
+    for claim in claims:
+        key = (normalize_path(claim["at"][0]), claim["at"][1])
+        claimed.setdefault(key, set()).add(claim["name"] if isinstance(claim["name"], str) else "")
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    for move in moves:
+        key = (normalize_path(move["from"][0]), move["from"][1])
+        grouped.setdefault(key, []).append(move)
+    planned: dict[tuple[str, int], tuple[set, list[str], bool]] = {}
+    for key, here in grouped.items():
+        movers = {m["name"] for m in here if isinstance(m["name"], str)}
+        others = {
+            n for n in (entries[i].get("export_name") for i in recorded.get(key, set()))
+            if n not in movers
+        } | claimed.get(key, set())
+        names = sorted(n for n in movers | others if isinstance(n, str) and n)
+        targets = {(m["to"][0], m["to"][1]) for m in here}
+        if len({(normalize_path(p), n) for p, n in targets}) == 1:
+            targets = {min(targets)}  # one target, however the input spells its path
+        planned[key] = (targets, names, bool(others))
+    line_fixes, left = _plan_line_moves(files, rels, planned)
+    applied = [
+        {
+            "kind": FIX_CITATION_LINE,
+            "file": doc.rel,
+            "line": cit["line"],
+            "citation": cit["text"],
+            "fixed": _rewritten_citation(cit),
+            "export_names": names,
+        }
+        for doc, cit, names in line_fixes
+    ]
+    markdown = {}
+    for rel in rels:
+        text = files[rel].fixed_text()
+        if text is not None:
+            markdown[rel] = text
+    return {
+        "applied": applied,
+        "left_as_warn": left,
+        "markdown": markdown,
+        "provenance": None,
+    }
+
+
+def move_warnings(left: list[dict]) -> list[str]:
+    """One `provenance:` warning per citation `fix --moves` left in place."""
+    return [
+        f"provenance: citation {item['citation']} at {item['file']}:{item['line']} "
+        f"not moved ({item['why']}): {', '.join(item['export_names']) or 'no export named'}"
+        for item in left
+    ]
+
+
+# --------------------------------------------------------------------------
+# The Relabel Rule (relabel)
+# --------------------------------------------------------------------------
+
+
+# A label violation skf-render-metadata-stats.py reports on one entry.
+_ENTRY_FIELD_RE = re.compile(r"^provenance\.entries\[(\d+)\]\.([A-Za-z_]+)$")
+RELABEL_FIELDS = ("confidence", "signature_source", "ast_node_type", "extraction_method")
+STATS_HELPER = "skf-render-metadata-stats.py"
+# The methods part 1 sets an unknown or missing extraction_method to.
+RELABEL_METHODS = ("ast-grep", "source-read")
+# Why relabel left a label: the entry is not where the item says, or no kind
+# was looked up (--no-kind-at, no source tree, a lookup that failed); any
+# other `why` is the kind-at status.
+RELABEL_ENTRY_NOT_FOUND = "entry-not-found"
+RELABEL_KIND_AT_SKIPPED = "kind-at-skipped"
+RELABEL_NO_SOURCE_ROOT = "no-source-root"
+RELABEL_KIND_AT_FAILED = "kind-at-failed"
+
+
+def _record_blocks(records: dict | None) -> dict[str, list[dict]]:
+    """The records of a reextract-records.json, by normalized file path."""
+    blocks: dict[str, list[dict]] = {}
+    if not isinstance(records, dict):
+        return blocks
+    for block in _dict_items(records.get("files")):
+        path = block.get("file_path")
+        if isinstance(path, str) and path.strip():
+            blocks.setdefault(normalize_path(path), []).extend(
+                _dict_items(block.get("exports"))
+            )
+    return blocks
+
+
+def entry_record(blocks: dict[str, list[dict]], entry: dict) -> dict | None:
+    """This run's record of a provenance entry: the record of its
+    `export_name` in the block of its `source_file`, the one at its
+    `source_line` when several are, else None."""
+    sf, name = entry.get("source_file"), entry.get("export_name")
+    if not isinstance(sf, str) or not sf.strip() or not isinstance(name, str) or not name:
+        return None
+    named = [
+        r for r in blocks.get(normalize_path(sf), [])
+        if name in (r.get("name"), r.get("export_name"), r.get("local"))
+    ]
+    if len(named) > 1:
+        line = _coerce_line(entry.get("source_line"))
+        named = [r for r in named if (_location(r.get("location")) or ("", None))[1] == line]
+    return named[0] if len(named) == 1 else None
+
+
+def recipe_kind(recipes: list[dict], recipe_id: object, language: str | None) -> str | None:
+    """The `rule.kind` of recipe `recipe_id`: its form for `language`, as
+    `recipe_runs` picks it, else the kind all its forms share; None when
+    there is no such recipe or its forms disagree."""
+    if not isinstance(recipe_id, str) or not recipe_id:
+        return None
+    forms = [r for r in recipes if r["id"] == recipe_id]
+    if not forms:
+        return None
+    if language is not None:
+        runs = recipe_runs(forms, language)
+        if runs:
+            return runs[0]["rule"]["kind"]
+    kinds = {r["rule"]["kind"] for r in forms}
+    return kinds.pop() if len(kinds) == 1 else None
+
+
+def plan_relabel(
+    prov: dict,
+    violations: list[dict],
+    node_kinds: list[dict],
+    recipes: list[dict],
+    records: dict | None,
+    source_root: Path | None,
+    kind_at: bool = True,
+    label_check=None,
+) -> dict:
+    """Apply relabel-rule.md to a copy of the map.
+
+    Part 1: a `confidence`, `signature_source` or null `ast_node_type`
+    violation takes the violation's `expected`; an `extraction_method` one
+    takes the method of this run's record of the entry (`ast-grep` or
+    `source-read`), else `source-read`, and the entry is then checked once
+    more by `label_check` (skf-render-metadata-stats.py's
+    `check_label_agreement`) and relabeled by what it reports. Part 2: an
+    `ast_node_type` the label check wants `non-null`, and each `node_kinds[]`
+    item, takes the kind of the recipe the entry's record names
+    (`ast_recipe`), else the `kinds_at` kind at its current `source_line`
+    when that is `found`. A node kind never changes `extraction_method`.
+    Each item names its entry by index, confirmed by `export_name` (and a
+    node kind by `source_file`). Returns {relabeled, left_as_warn,
+    provenance: the new map or None}."""
+    new = copy.deepcopy(prov)
+    entries = new.get("entries") if isinstance(new.get("entries"), list) else []
+    blocks = _record_blocks(records)
+    relabeled: list[dict] = []
+    left: list[dict] = []
+    kinds_wanted: dict[int, None] = {}  # entry indices whose kind part 2 settles, in order
+
+    def item_of(index: object, entry: dict | None, field: str) -> dict:
+        entry = entry if isinstance(entry, dict) else {}
+        return {"entry_index": index, "export_name": entry.get("export_name"),
+                "source_file": entry.get("source_file"), "field": field}
+
+    def set_field(index: int, field: str, value: object) -> None:
+        entry = entries[index]
+        old = entry.get(field)
+        if old == value and field in entry:
+            return
+        entry[field] = value
+        relabeled.append(dict(item_of(index, entry, field), **{"from": old, "to": value}))
+
+    def apply_label(index: int, field: str, expected: object) -> None:
+        if field == "ast_node_type":
+            if expected is None:
+                set_field(index, field, None)
+            else:
+                kinds_wanted.setdefault(index)
+        elif field in ("confidence", "signature_source") and isinstance(expected, str):
+            set_field(index, field, expected)
+
+    def confirmed(index: object, name: object, source_file: object = None,
+                  check_file: bool = False) -> bool:
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(entries):
+            return False
+        entry = entries[index]
+        if not isinstance(entry, dict) or entry.get("export_name") != name:
+            return False
+        return not check_file or entry.get("source_file") == source_file
+
+    for violation in violations:
+        m = _ENTRY_FIELD_RE.match(str(violation.get("field") or ""))
+        if m is None or m.group(2) not in RELABEL_FIELDS:
+            continue
+        index, field = int(m.group(1)), m.group(2)
+        if not confirmed(index, violation.get("export_name")):
+            left.append(dict(item_of(index, None, field),
+                             export_name=violation.get("export_name"), why=RELABEL_ENTRY_NOT_FOUND))
+            continue
+        if field != "extraction_method":
+            apply_label(index, field, violation.get("expected"))
+            continue
+        record = entry_record(blocks, entries[index]) or {}
+        method = record.get("extraction_method")
+        set_field(index, field, method if method in RELABEL_METHODS else "source-read")
+        for again in label_check({"entries": [entries[index]]}):
+            m2 = _ENTRY_FIELD_RE.match(str(again.get("field") or ""))
+            if m2 is not None and m2.group(2) in RELABEL_FIELDS[:3]:
+                apply_label(index, m2.group(2), again.get("expected"))
+
+    for item in node_kinds:
+        index = item.get("entry_index")
+        if not confirmed(index, item.get("export_name"), item.get("source_file"), True):
+            left.append(dict(item_of(index, None, "ast_node_type"),
+                             export_name=item.get("export_name"),
+                             source_file=item.get("source_file"), why=RELABEL_ENTRY_NOT_FOUND))
+            continue
+        kinds_wanted.setdefault(index)
+
+    lookups: dict[str, list[int]] = {}
+    for index in kinds_wanted:
+        entry = entries[index]
+        language = ast_grep_language(entry.get("source_file"))
+        record = entry_record(blocks, entry) or {}
+        kind = recipe_kind(recipes, record.get("ast_recipe"), language)
+        if kind is not None:
+            set_field(index, "ast_node_type", kind)
+        elif not kind_at:
+            left.append(dict(item_of(index, entry, "ast_node_type"), why=RELABEL_KIND_AT_SKIPPED))
+        elif source_root is None:
+            left.append(dict(item_of(index, entry, "ast_node_type"), why=RELABEL_NO_SOURCE_ROOT))
+        else:
+            lookups.setdefault(normalize_path(entry.get("source_file") or ""), []).append(index)
+
+    for path, wanted in lookups.items():
+        indices = []
+        for index in wanted:
+            if isinstance(_coerce_line(entries[index].get("source_line")), int):
+                indices.append(index)
+            else:  # no line to look a kind up at
+                left.append(dict(item_of(index, entries[index], "ast_node_type"),
+                                 why=RELABEL_KIND_AT_FAILED))
+        if not indices:
+            continue
+        try:
+            if not path or posixpath.isabs(path) or path.split("/")[0] == ".." \
+                    or re.match(r"[A-Za-z]:", path):
+                raise ValueError(f"{path!r} is not a path below the source root")
+            source = (source_root / path).read_bytes()
+            targets = [(_coerce_line(entries[i].get("source_line")),
+                        entries[i].get("export_name") or None) for i in indices]
+            results = kinds_at(source, ast_grep_language(path), targets, recipes)
+        except Exception:  # noqa: BLE001 - this file's lookups only, never a kind
+            for index in indices:
+                left.append(dict(item_of(index, entries[index], "ast_node_type"),
+                                 why=RELABEL_KIND_AT_FAILED))
+            continue
+        for index, result in zip(indices, results):
+            if result["status"] == "found":
+                set_field(index, "ast_node_type", result["kind"])
+            else:
+                left.append(dict(item_of(index, entries[index], "ast_node_type"),
+                                 why=result["status"]))
+
+    return {
+        "relabeled": relabeled,
+        "left_as_warn": left,
+        "provenance": new if relabeled else None,
     }
 
 
@@ -5586,10 +6111,15 @@ def _cmd_kind_at(args: argparse.Namespace) -> int:
 
 
 def _cmd_fix(args: argparse.Namespace) -> int:
-    verify_path = Path(args.verify)
+    moving = args.moves is not None
+    if moving and args.no_line_moves:
+        print("error: --no-line-moves goes with --verify, not --moves", file=sys.stderr)
+        return 2
+    input_path = Path(args.moves if moving else args.verify)
+    input_label = "moves file" if moving else "verify result"
     prov_path = Path(args.provenance)
     skill_dir = Path(args.skill_dir)
-    for path, label in ((verify_path, "verify result"), (prov_path, "provenance map")):
+    for path, label in ((input_path, input_label), (prov_path, "provenance map")):
         if not path.is_file():
             print(f"error: {label} not found: {path}", file=sys.stderr)
             return 2
@@ -5598,16 +6128,18 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         print(f"error: {problem}", file=sys.stderr)
         return 2
     try:
-        verify_result = load_json_object(verify_path, "verify result")
+        verify_result = load_json_object(input_path, input_label)
         prov = load_json_object(prov_path, "provenance map")
+        if moving:
+            load_moves(verify_result)  # refuse any other JSON before planning
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if not all(
+    if not moving and not all(
         isinstance(verify_result.get(key), list) for key in ("stale", "citations")
     ):
         print(
-            f"error: {verify_path} is not a verify result (no stale[] and "
+            f"error: {input_path} is not a verify result (no stale[] and "
             f"citations[])",
             file=sys.stderr,
         )
@@ -5626,7 +6158,10 @@ def _cmd_fix(args: argparse.Namespace) -> int:
             return 2
 
     try:
-        plan = plan_fixes(verify_result, prov, skill_dir, not args.no_line_moves)
+        plan = (
+            plan_moves(verify_result, prov, skill_dir) if moving
+            else plan_fixes(verify_result, prov, skill_dir, not args.no_line_moves)
+        )
     except Exception as exc:  # noqa: BLE001 - exit 2, never read as a fix
         return _unexpected("fix", exc)
 
@@ -5691,9 +6226,117 @@ def _cmd_fix(args: argparse.Namespace) -> int:
             "left_as_warn_count": len(left),
         },
     }
+    if moving:
+        result["warnings"] = move_warnings(left)
     if not _emit(result, args.output, written):
         return 2
     return 0 if not left and (manual is None or manual.get("ok")) else 1
+
+
+def _cmd_relabel(args: argparse.Namespace) -> int:
+    if args.violations is None and args.node_kinds is None:
+        print("error: relabel needs --violations, --node-kinds or both", file=sys.stderr)
+        return 2
+    prov_path = Path(args.provenance)
+    inputs = [(prov_path, "provenance map"), (Path(args.recipes), "recipes")]
+    for value, label in ((args.violations, "violations"), (args.node_kinds, "node kinds"),
+                         (args.records, "records")):
+        if value is not None:
+            inputs.append((Path(value), label))
+    for path, label in inputs:
+        if not path.is_file():
+            print(f"error: {label} not found: {path}", file=sys.stderr)
+            return 2
+    violations: list[dict] = []
+    node_kinds: list[dict] = []
+    try:
+        prov = load_json_object(prov_path, "provenance map")
+        records = (
+            load_json_object(Path(args.records), "records") if args.records else None
+        )
+        if args.violations is not None:
+            stats = load_json_object(Path(args.violations), "violations")
+            coherence = stats.get("coherence")
+            if not isinstance(coherence, dict) or not isinstance(
+                coherence.get("violations"), list
+            ):
+                raise ValueError(
+                    f"{args.violations} is not a stats result (no coherence.violations[])"
+                )
+            violations = _dict_items(coherence["violations"])
+        if args.node_kinds is not None:
+            found = load_json_object(Path(args.node_kinds), "node kinds")
+            if not isinstance(found.get("node_kinds"), list):
+                raise ValueError(
+                    f"{args.node_kinds} is not a verify result with node_kinds[] "
+                    "(run verify with --check-node-kinds)"
+                )
+            node_kinds = _dict_items(found["node_kinds"])
+        recipes = load_recipes(Path(args.recipes))
+    except ImportError:
+        print(
+            "error: relabel reads recipes with PyYAML: run the helper with "
+            "`uv run`, which installs it",
+            file=sys.stderr,
+        )
+        return 2
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not recipes:
+        print(f"error: no ast-grep recipe in {args.recipes}", file=sys.stderr)
+        return 2
+    label_check = None
+    if any(
+        (m := _ENTRY_FIELD_RE.match(str(v.get("field") or ""))) is not None
+        and m.group(2) == "extraction_method"
+        for v in violations
+    ):
+        try:
+            label_check = _load_sibling_module(
+                STATS_HELPER, "skf_render_metadata_stats"
+            ).check_label_agreement
+        except Exception as exc:  # noqa: BLE001 - nothing is written without it
+            print(f"error: {STATS_HELPER} could not be loaded: {exc}; nothing written",
+                  file=sys.stderr)
+            return 2
+    root = Path(args.source_root) if args.source_root else None
+    try:
+        plan = plan_relabel(
+            prov, violations, node_kinds, recipes, records,
+            root if root is not None and root.is_dir() else None,
+            kind_at=not args.no_kind_at, label_check=label_check,
+        )
+    except Exception as exc:  # noqa: BLE001 - exit 2, never read as a relabel
+        return _unexpected("relabel", exc)
+    written: list[str] = []
+    if plan["provenance"] is not None:
+        helper = _sibling_helper(ATOMIC_WRITE_HELPER)
+        if helper is None:
+            print(
+                f"error: {ATOMIC_WRITE_HELPER} not found beside "
+                f"{Path(__file__).name}; nothing written",
+                file=sys.stderr,
+            )
+            return 2
+        text = json.dumps(plan["provenance"], indent=2, ensure_ascii=False) + "\n"
+        try:
+            atomic_write(helper, prov_path, text.encode("utf-8"))
+        except OSError as exc:
+            print(f"error: {exc}; nothing written", file=sys.stderr)
+            return 2
+        written.append(str(prov_path))
+    left = plan["left_as_warn"]
+    result = {
+        "relabeled": plan["relabeled"],
+        "left_as_warn": left,
+        "files_written": written,
+        "summary": {"relabeled_count": len(plan["relabeled"]),
+                    "left_as_warn_count": len(left)},
+    }
+    if not _emit(result, args.output, written):
+        return 2
+    return 0 if not left else 1
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -5764,16 +6407,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "fix",
         help=(
             "apply the citation-prefix and source-line fixes a verify result "
-            "has one answer for"
+            "has one answer for, or move the citations of a run's moved exports"
         ),
     )
-    p.add_argument(
-        "--verify", required=True, help="path to the JSON a verify run wrote"
+    given = p.add_mutually_exclusive_group(required=True)
+    given.add_argument("--verify", help="path to the JSON a verify run wrote")
+    given.add_argument(
+        "--moves",
+        help=(
+            "a change manifest (its MOVED_EXPORT items) or gap-records' output "
+            "(its moved in-map records): move their citations only, never the map"
+        ),
     )
     p.add_argument(
         "--provenance",
         required=True,
-        help="path to the provenance-map.json that verify run read",
+        help=(
+            "path to the provenance-map.json that verify run read (with --moves: "
+            "the map the update started from, read only)"
+        ),
     )
     p.add_argument(
         "--skill-dir",
@@ -5791,7 +6443,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-line-moves",
         action="store_true",
-        help="fix citation prefixes only; list every source-line finding",
+        help="with --verify: fix citation prefixes only; list every source-line finding",
     )
     p.add_argument(
         "--dry-run", action="store_true", help="plan the fixes, write nothing"
@@ -5926,6 +6578,63 @@ def _build_parser() -> argparse.ArgumentParser:
         help="write JSON to this file instead of stdout ('-' for stdout)",
     )
     p.set_defaults(func=_cmd_kind_at)
+
+    p = sub.add_parser(
+        "relabel",
+        help=(
+            "apply the Relabel Rule to the label violations of a stats result "
+            "and the node kinds of a verify result, and write the map"
+        ),
+    )
+    p.add_argument(
+        "--provenance", required=True, help="path to provenance-map.json, rewritten"
+    )
+    p.add_argument(
+        "--violations",
+        default=None,
+        help=(
+            "skf-render-metadata-stats.py's JSON: its coherence.violations[] on "
+            "provenance.entries[<i>].*"
+        ),
+    )
+    p.add_argument(
+        "--node-kinds",
+        default=None,
+        help="a verify result's JSON (with --check-node-kinds): its node_kinds[]",
+    )
+    p.add_argument(
+        "--recipes",
+        required=True,
+        help=(
+            "the recipes: a markdown file (its ```yaml fences, such as "
+            "extraction-patterns.md) or a YAML file"
+        ),
+    )
+    p.add_argument(
+        "--records",
+        default=None,
+        help=(
+            "this run's reextract-records.json: the record of an entry names "
+            "its ast_recipe and extraction_method"
+        ),
+    )
+    p.add_argument(
+        "--source-root",
+        default=None,
+        help="the source tree kind-at reads; without it no kind is looked up",
+    )
+    p.add_argument(
+        "--no-kind-at",
+        action="store_true",
+        help="look no kind up in the tree (the drift override): list it as a WARN",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="write JSON to this file instead of stdout ('-' for stdout)",
+    )
+    p.set_defaults(func=_cmd_relabel)
     return parser
 
 

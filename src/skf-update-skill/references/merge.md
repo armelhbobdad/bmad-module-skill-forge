@@ -20,6 +20,12 @@ skillInventoryProbeOrder:
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path
+# when §6b moves the citations of this run's moved exports (Priority 2);
+# HALT if neither resolves: never move a citation by hand.
+verifyProvenanceCompletenessProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
+  - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
 # stage; resolve them again when a binding was lost: first existing path wins.
 # §8's gate decision goes to the run log through the first; the halt
@@ -87,7 +93,7 @@ Read this step's inputs from disk, never from memory: the change manifest from `
 
 Apply merge in the following priority order.
 
-**A split-body skill** (one whose `references/*.md` files document exports, the `## Full` sections a body split moved among them): Priorities 1 to 5 apply their change to every file that documents the export, SKILL.md and each `references/*.md` alike. Priority 1 removes the export's content from each file, and deletes a reference file it leaves documenting nothing and holding no `[MANUAL]` block, with SKILL.md's `> See` pointer to that file; Priority 2 moves its citations (`[AST:]` and `[SRC:]` alike) in each, Priority 3 renames it in each, Priority 4 replaces its content in each, and Priority 5 adds a new export where the skill documents that kind of export (a `references/*.md` file when the skill keeps that kind there) and corrects any statement, in SKILL.md or a `references/*.md` file, that calls the new export not covered. [MANUAL] blocks are inventoried and verified in SKILL.md only: nothing re-checks one in a `references/*.md` file yet, so the merge leaves such a block untouched, as it never edits inside one in SKILL.md without the user's §4 decision. §6b writes each `references/*.md` file this changes or adds, and deletes each one it removes.
+**A split-body skill** (one whose `references/*.md` files document exports, the `## Full` sections a body split moved among them): Priorities 1 to 5 apply their change to every file that documents the export, SKILL.md and each `references/*.md` alike. Priority 1 removes the export's content from each file, and deletes a reference file it leaves documenting nothing and holding no `[MANUAL]` block, with SKILL.md's `> See` pointer to that file; §6b moves its citations (`[AST:]` and `[SRC:]` alike) in each by script (Priority 2), never by hand, Priority 3 renames it in each, Priority 4 replaces its content in each, and Priority 5 adds a new export where the skill documents that kind of export (a `references/*.md` file when the skill keeps that kind there) and corrects any statement, in SKILL.md or a `references/*.md` file, that calls the new export not covered. [MANUAL] blocks are inventoried and verified in SKILL.md only: nothing re-checks one in a `references/*.md` file yet, so the merge leaves such a block untouched, as it never edits inside one in SKILL.md without the user's §4 decision. §6b writes each `references/*.md` file this changes or adds, and deletes each one it removes.
 
 **Priority 1 — Process DELETED exports:**
 - Remove generated content for deleted exports
@@ -97,7 +103,7 @@ Apply merge in the following priority order.
 - **Gap-driven rescopes** (`DELETED_EXPORT` from gap-driven.md §1 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). gap-driven.md §4 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
 
 **Priority 2 — Process MOVED exports:**
-- Update file:line citations in generated content: a `MOVED_EXPORT`'s citation takes its `new_line`, and when the change manifest gives it an `old_file` (a move across files), a citation `[AST:{old_file}:L{old_line}]` (or `[SRC:...]`) becomes the file its `per_file` item names and its `new_line`, `[AST:{file_path}:L{new_line}]`, keeping its prefix. A `MODIFIED_EXPORT` with an `old_file` (it also changed) is rewritten whole by Priority 4.
+- §6b moves each `MOVED_EXPORT`'s citations (in gap-driven mode, each record marked `moved`) by script: never move a citation by hand. The script moves each `[AST:]` or `[SRC:]` citation of the export's old line to its `new_line`, and, when the change manifest gives it an `old_file` (a move across files), to the file its `per_file` item names, keeping its prefix; a citation another export also claims, or one inside a [MANUAL] block, stays where it is with a `provenance:` warning. A `MODIFIED_EXPORT` with an `old_file` (it also changed) is rewritten whole by Priority 4.
 - **Gap-driven:** move citations only for an export whose gap-driven.md §4 spot-check recorded `moved`. A `MOVED_EXPORT` that recorded `unknown` (the drift override among the causes), `verified` or `missing` moves none: write.md §3 leaves its line as it is.
 - Update provenance map file references
 - [MANUAL] blocks unaffected (content unchanged)
@@ -300,7 +306,17 @@ uv run {runLockHelper} acquire \
 
    Bind `{version_staging}` ← `staging`: the empty folder `{skill_group}/{new_version}.skf-tmp` it created (it clears one an interrupted run left).
 3. **Copy the current package** `{skill_package}` to `{version_staging}/{skill_name}`, naming both without a trailing `/` — equivalent to `cp -a "{skill_package}" "{version_staging}/{skill_name}"`: SKILL.md, metadata.json, context-snippet.md, `references/`, `scripts/`, `assets/` and every other entry, each link copied as a link and never followed. The files this update does not rewrite carry over to the new version this way.
-4. **Write and verify the merged SKILL.md in the staged package**, before anything is published. Use the `Edit` or `Write` tool to write the merged SKILL.md content (UTF-8) to `{version_staging}/{skill_name}/SKILL.md`, and each `references/*.md` the merge changed or added, at any priority, into `{version_staging}/{skill_name}/references/`, and delete from there each one the merge removed. Then, from `{project-root}`, check the [MANUAL] blocks against the inventory §4 amended:
+4. **Write and verify the merged SKILL.md in the staged package**, before anything is published. Use the `Edit` or `Write` tool to write the merged SKILL.md content (UTF-8) to `{version_staging}/{skill_name}/SKILL.md`, and each `references/*.md` the merge changed or added, at any priority, into `{version_staging}/{skill_name}/references/`, and delete from there each one the merge removed. When `counts.exports_moved` of `{run_dir}/change-manifest.json` is above 0, move the moved exports' citations (Priority 2) in the staged package: resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and, from `{project-root}`, run:
+
+   ```bash
+   uv run {verifyProvenanceCompletenessHelper} fix \
+       --moves "{run_dir}/change-manifest.json" \
+       --provenance "{provenance_map_path}" \
+       --skill-dir "{version_staging}/{skill_name}" \
+       -o "{run_dir}/citation-moves.json"
+   ```
+
+   It moves each citation of a `MOVED_EXPORT`, in SKILL.md and every `references/*.md`, once, in one pass, so a chain (`LIMIT` from 6 to 7, `DEFAULT` from 7 to 8) never moves a citation twice, and it changes no provenance map. On exit 0 or 1 with JSON, record its `warnings` (one `provenance:` line per citation it left in place), from `{project-root}`: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/citation-moves.json"`, re-read each file in its `files_written[]` into context and continue. On exit 2, no JSON or no candidate resolves: HALT with status `halted-for-write-failure` before the version is published (halt procedure: `phase: "merge:move-citations"`, `path: "{version_staging}/{skill_name}"`, `reason: "<its stderr, or skf-verify-provenance-completeness.py is missing; re-install SKF>"`); its rollback removes `{version_staging}`. Then, from `{project-root}`, check the [MANUAL] blocks against the inventory §4 amended:
 
    ```bash
    uv run {hashContentHelper} manual-verify "{version_staging}/{skill_name}/SKILL.md" \
@@ -332,6 +348,18 @@ If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, p
 
    On `ok` false, or a failing command: HALT with status `halted-for-manual-mismatch` before the package changes (halt procedure: `phase: "merge:verify-manual-integrity"`, `path: "{run_dir}/SKILL.md"`, `reason: "[MANUAL] blocks differ from the approved inventory: modified {modified}; missing {missing}"`); its rollback restores the brief step 1 amended.
 3. **Copy it over the package.** Copy `{run_dir}/SKILL.md` to `{skill_package}/SKILL.md`, and each file in `{run_dir}/references/`, every `references/*.md` the merge changed or added at any priority, into `{skill_package}/references/`, and delete from the package each path `{run_dir}/references-removed.txt` lists.
+4. **Move the moved exports' citations** (Priority 2) in the package, when `counts.moved` of `{run_dir}/gap-records.json` is above 0: every file of the package, since step 2 staged only the files the merge changed. Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and, from `{project-root}`, run:
+
+   ```bash
+   uv run {verifyProvenanceCompletenessHelper} fix \
+       --moves "{run_dir}/reextract-records.json" \
+       --provenance "{provenance_map_path}" \
+       --skill-dir "{skill_package}" \
+       --manual-inventory "{manual_inventory}" \
+       -o "{run_dir}/citation-moves.json"
+   ```
+
+   It moves the citations of each record marked `moved` that the provenance map holds, as the version folder's step 4 above says, and checks SKILL.md's [MANUAL] blocks against the inventory after its writes. On `manual_verify.ok` false: HALT with status `halted-for-manual-mismatch`, as step 2's check does (halt procedure: `phase: "merge:verify-manual-integrity"`, `path: "{skill_package}/SKILL.md"`, `reason: "[MANUAL] blocks differ from the approved inventory: modified {modified}; missing {missing}"`). Otherwise act on its exit as that step says, with `path: "{skill_package}"` on a halt, whose rollback restores the package and the brief from the snapshot.
 
 **Do NOT write here:**
 - `metadata.json`, `provenance-map.json`, `evidence-report.md`: derived from the merge output, written by step 5 sections 2–4 (the version folder above only copies the previous version's files, which step 5 then rewrites)

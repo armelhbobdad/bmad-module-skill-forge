@@ -82,7 +82,8 @@ Subcommands:
 
   gap-records --manifest <file> --provenance-map <file> [--source-root <dir>]
               [--brief <file>] [--drift-status ok|skipped|overridden]
-              [--judgments <file>] [--remediation-records <file>]
+              [--extraction <file>] [--judgments <file>]
+              [--remediation-records <file>]
               [--evidence <file> --tier <tier>]
               (--plan [--files-out <file>] | -o <file>)
       A gap-driven repair's spot-checks, routing and verification records
@@ -92,7 +93,9 @@ Subcommands:
       records are written to -o through a temporary file and a rename.
       With --brief (the skill brief), no file a gap cites or its
       Remediation names that the brief's scope leaves out is checked,
-      scanned or repaired from.
+      scanned or repaired from. With --extraction (the whole-scope recipe
+      runner's JSON), the public-reachability gate is answered from its
+      entry_point_diff where that diff decides it (step 5).
 
   baseline-gaps --provenance-map <file> --extraction <file> --files <file>
                 --source-root <dir> -o <file>
@@ -732,8 +735,8 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      warns, as before), nor one whose file is absolute or outside
      --source-root, links resolved (a cited file the brief's scope leaves
      out is never checked, so never located), nor a NEW_EXPORT
-     --judgments answers internal-unreachable (one not yet answered is
-     located, so its scan may go unused).
+     --judgments or --extraction answers internal-unreachable (one not yet
+     answered is located, so its scan may go unused).
   --plan stops here: {"status": "planned", "reextract": {"entries":
   [{gap_id, name, severity, resolved_paths (those the scope takes)}],
   "files": [the union of their resolved_paths, then of the located
@@ -775,12 +778,27 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      warning (§4a's by-eye pass may add it to --export-details). Files to
      match, of either kind, with no --remediation-records are an error.
   5. The public-reachability gate: every NEW_EXPORT that is verified,
-     moved or re-extracted takes the answered `reachability`, `public` or
-     `internal-unreachable`. An internal one keeps its outcome in its
-     verification record (with no signature), its record is not in
-     `files`, `counts` tallies it under `reclassified` instead of its
-     outcome, and it is listed in `reclassified` (merge queues it as a
-     metadata update; apply writes no entry for it).
+     moved or re-extracted takes a `reachability`, `public` or
+     `internal-unreachable`. With --extraction (the whole-scope recipe
+     runner's JSON, at any scope type), the runner pre-answers it for the
+     export's name and the file it was located in (the checked file of a
+     verified or moved one, the record's file of a re-extracted one): when
+     the runner's JSON has no entry_point_diff, is incomplete or has
+     errors, nothing is pre-answered; else `public` when the pair is one
+     the diff's `public` or `other_definitions` give (the name or its
+     `local`, a namespace item's `members` in its place) or a `public`
+     item of its name and family has no file, by skf-extraction-
+     inventory.py's pair rule with no barrel or scope-type gate; else no
+     answer when entry_points.unresolved is not empty, the pair is an
+     extraction_gaps row, or the file is not in files_in_scope_list or is
+     in files_without_recipes_list; else `internal-unreachable` when the
+     diff's `internal` holds the pair; else no answer. A pre-answer wins
+     over a --judgments one; the rest are asked, as without --extraction.
+     An internal one keeps its outcome in its verification record (with no
+     signature), its record is not in `files`, `counts` tallies it under
+     `reclassified` instead of its outcome, and it is listed in
+     `reclassified` (merge queues it as a metadata update; apply writes no
+     entry for it).
 
   Any answer missing in step 3 or 5 (a `docstring` too, for each
   re-extracted entry): {"status": "needs-judgment", "needs_judgment":
@@ -3156,6 +3174,7 @@ class _GapEntry:
         self.signature_at: tuple[str, int] | None = None  # where a check located it: its signature's record
         self.waits = False  # on a declaring_line answer
         self.failure: str | None = None  # why its spot-check failed
+        self.pre_reach: str | None = None  # the reachability --extraction answers (step 5)
 
     @property
     def blocking(self) -> bool:
@@ -3284,13 +3303,26 @@ class _GapEntry:
         return self.outcome in ("verified", "moved", "re-extracted")
 
     @property
+    def reachability(self) -> str | None:
+        """The public-reachability answer: --extraction's, else the --judgments one, else None."""
+        return self.pre_reach or self.answers.get("reachability")
+
+    @property
     def internal(self) -> bool:
-        return self.category == "NEW_EXPORT" and self.answers.get("reachability") == "internal-unreachable"
+        return self.category == "NEW_EXPORT" and self.reachability == "internal-unreachable"
+
+    def pre_answer(self, reach: "_Reachability | None") -> None:
+        """Take --extraction's reachability for a located NEW_EXPORT, at the file it was located in."""
+        if reach is None or self.category != "NEW_EXPORT" or not self.located:
+            return
+        path = self.record_path if self.outcome == "re-extracted" else self.recorded[0]
+        names = [n for n in (self.name, self.declared, _name_of(self.record) if self.record else None) if n]
+        self.pre_reach = reach.answer(list(dict.fromkeys(names)), path)
 
     def needs(self) -> list[str]:
         """The answers the entry still waits on once routed."""
         want = []
-        if self.category == "NEW_EXPORT" and self.located and "reachability" not in self.answers:
+        if self.category == "NEW_EXPORT" and self.located and self.reachability is None:
             want.append("reachability")
         if self.outcome == "re-extracted" and "docstring" not in self.answers:
             want.append("docstring")
@@ -3335,8 +3367,7 @@ class _GapEntry:
             "pinned_definition_lines": _pinned_lines(self.entry.get("remediation"))
             if self.category == "MOVED_EXPORT" else None,
             "resolution_source": "remediation-paths" if self.outcome == "re-extracted" else None,
-            "reachability": self.answers.get("reachability") if self.category == "NEW_EXPORT" and self.located
-            else None,
+            "reachability": self.reachability if self.category == "NEW_EXPORT" and self.located else None,
             "export_type": signed.get("type", signed.get("export_type")),
             "params": signed.get("params", signed.get("parameters")),
             "return_type": signed.get("return_type"),
@@ -3367,11 +3398,50 @@ class _GapEntry:
         return "unlabeled"
 
 
+class _Reachability:
+    """The public-reachability answers the whole-scope recipe runner's JSON gives (gap-records --extraction; see
+    step 5 of "Gap records" in the module docstring)."""
+
+    def __init__(self, extraction: object):
+        if not isinstance(extraction, dict):
+            raise ValueError("--extraction must hold a JSON object: the recipe runner's output")
+        diff = extraction.get("entry_point_diff")
+        points = extraction.get("entry_points") if isinstance(extraction.get("entry_points"), dict) else {}
+        # no diff, an incomplete run or one with errors: nothing is pre-answered
+        self.usable = isinstance(diff, dict) and extraction.get("status") != "incomplete" \
+            and not extraction.get("errors")
+        diff = diff if isinstance(diff, dict) else {}
+        inventory = _inventory()
+        # skf-extraction-inventory.py's pair rule, with no barrel gate: `extraction_gaps` rows are no public pair here
+        self.surface = inventory._PublicSurface({k: diff.get(k) for k in ("public", "other_definitions")}, {})
+        self.families = inventory._FAMILY_OF_EXTENSION
+        self.gaps = inventory._PublicSurface({"extraction_gaps": diff.get("extraction_gaps")}, {}).pairs
+        self.unresolved = bool(points.get("unresolved"))
+        self.internal = {(item.get("name"), _norm_path(item.get("source_file")))
+                         for item in diff.get("internal") or [] if isinstance(item, dict)}
+        self.in_scope = {_norm_path(f) for f in extraction.get("files_in_scope_list") or []}
+        self.no_recipe = {_norm_path(f) for f in extraction.get("files_without_recipes_list") or []}
+
+    def answer(self, names: list[str], path: str | None) -> str | None:
+        """`public`, `internal-unreachable`, or None (asked) for an export located at `path` under `names`."""
+        if not self.usable or not path:
+            return None
+        family = self.families.get(os.path.splitext(path)[1].lower())
+        if any((n, path) in self.surface.pairs or (family, n) in self.surface.unfiled for n in names):
+            return "public"
+        if self.unresolved or any((n, path) in self.gaps for n in names):
+            return None
+        if path not in self.in_scope or path in self.no_recipe:
+            return None
+        return "internal-unreachable" if any((n, path) in self.internal for n in names) else None
+
+
 def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | None, drift_status: str = "ok",
                 judgments: dict | None = None, remediation: dict | None = None, plan: bool = False,
-                tier: str | None = None, scope=None) -> tuple[dict | None, dict]:
+                tier: str | None = None, scope=None, extraction: object = None) -> tuple[dict | None, dict]:
     """(reextract-records.json or None, the summary): see "Gap records" in the module docstring. `scope` is the
-    brief's (_brief_scope), or None for a skill with no brief."""
+    brief's (_brief_scope), or None for a skill with no brief; `extraction` the whole-scope runner's JSON, or None."""
+    reach = _Reachability(extraction) if extraction is not None else None
     if not isinstance(manifest, dict) or not isinstance(manifest.get("entries"), list):
         raise ValueError("the change manifest has no `entries` array: is it translate's output?")
     entries = [e for e in manifest["entries"] if isinstance(e, dict)]
@@ -3399,6 +3469,7 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
         warnings.append(VERIFIER_MISSING)
     for g in routed:
         g.route(root, drift)
+        g.pre_answer(reach)
     warnings += [f"provenance: spot-check failed for {g.name}: {g.failure}" for g in routed if g.failure]
     waiting = [{"gap_id": g.entry.get("gap_id"), "name": g.name, "needs": ["declaring_line"],
                 "file": g.recorded[0], "line": g.recorded[1]} for g in routed if g.waits]
@@ -3432,6 +3503,7 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
     for g in to_scan:
         files_scanned, found = g.match(blocks)
         if g.record is not None:
+            g.pre_answer(reach)
             continue
         if g.outside_scope:  # none of the files the scope takes holds it, and a file it leaves out may (#824)
             g.outcome, g.unknown_reason, g.citation_check = "unknown", "outside-scope", g.cited_cause
@@ -3856,6 +3928,7 @@ def _cmd_gap_records(args: argparse.Namespace) -> int:
             plan=args.plan,
             tier=args.tier,
             scope=scope,
+            extraction=_load_json_file(Path(args.extraction), "--extraction file") if args.extraction else None,
         )
         if summary["status"] == "planned" and args.files_out:
             _write_json_atomic(Path(args.files_out), summary["reextract"]["files"])
@@ -4083,6 +4156,9 @@ def _build_parser() -> argparse.ArgumentParser:
                             "scope leaves out is checked, scanned or repaired from; without it there is no scope test")
     p_gap.add_argument("--drift-status", choices=DRIFT_STATUSES, default="ok",
                        help="the workspace drift check's status; overridden runs the drift gate")
+    p_gap.add_argument("--extraction", metavar="FILE",
+                       help="the whole-scope recipe runner's JSON: its entry_point_diff pre-answers the "
+                            "public-reachability gate where it decides it")
     p_gap.add_argument("--judgments", metavar="FILE", help="the answers to its needs_judgment[], keyed by gap id")
     p_gap.add_argument("--remediation-records", metavar="FILE",
                        help="`records` output over the files the plan listed")

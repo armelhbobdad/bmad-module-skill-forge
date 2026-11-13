@@ -131,10 +131,14 @@ def test_merge_never_overwrites_a_version():
 
 def test_merge_stages_copies_publishes_and_rebinds_in_order():
     six_b = _merge_6b()
+    # the moved exports' citations move by script in the staged package before its [MANUAL] check, and in place
+    # after the repair's copy (#1191 determinism-1)
     marks = ["**Record what this run writes**", "**Never overwrite a version.**", "stage-dir --target",
              "**Copy the current package**", "**Write and verify the merged SKILL.md in the staged package**",
+             '--moves "{run_dir}/change-manifest.json"',
              'manual-verify "{version_staging}/{skill_name}/SKILL.md"', "commit-dir --target",
-             "**Create the forge folder**", "**Rebind**", "**Write the merged files in place**"]
+             "**Create the forge folder**", "**Rebind**", "**Write the merged files in place**",
+             "3. **Copy it over the package.**", '--moves "{run_dir}/reextract-records.json"', "**Do NOT write here:**"]
     positions = [six_b.index(m) for m in marks]
     assert positions == sorted(positions), marks
     # the merged SKILL.md is verified against the approved inventory before anything is published (W1 handoff)
@@ -142,6 +146,10 @@ def test_merge_stages_copies_publishes_and_rebinds_in_order():
     for token in ("`{version_staging}/{skill_name}/SKILL.md`", '--inventory "{manual_inventory}"',
                   "HALT with status `halted-for-manual-mismatch` before the version is published",
                   '`phase: "merge:verify-manual-integrity"`', "its rollback removes `{version_staging}`"):
+        assert token in staged, token
+    for token in ("When `counts.exports_moved` of `{run_dir}/change-manifest.json` is above 0",
+                  '--skill-dir "{version_staging}/{skill_name}"', '`phase: "merge:move-citations"`',
+                  "skf-verify-provenance-completeness.py is missing; re-install SKF"):
         assert token in staged, token
     assert "Bind `{version_staging}` ← `staging`" in _step(six_b, 2)
     copy = _step(six_b, 3)
