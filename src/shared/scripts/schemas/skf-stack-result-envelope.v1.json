@@ -15,6 +15,7 @@
           "config-missing": 2,
           "input-invalid": 2,
           "no-manifests": 2,
+          "empty-scope": 2,
           "all-extractions-failed": 2,
           "schema-version-mismatch": 2,
           "unknown-verdict-token": 2,
@@ -84,7 +85,7 @@
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 5, 6],
-      "description": "Derived from halt_reason: null gives 0; config-missing, input-invalid, no-manifests, all-extractions-failed, schema-version-mismatch and unknown-verdict-token 2; forge-tier-missing, helper-missing and resolution-failure 3; write-failure 4; not-skf-output and flat-layout 5; user-cancelled 6."
+      "description": "Derived from halt_reason: null gives 0; config-missing, input-invalid, no-manifests, empty-scope, all-extractions-failed, schema-version-mismatch and unknown-verdict-token 2; forge-tier-missing, helper-missing and resolution-failure 3; write-failure 4; not-skf-output and flat-layout 5; user-cancelled 6."
     },
     "halt_reason": {
       "type": ["string", "null"],
@@ -93,6 +94,7 @@
         "config-missing",
         "input-invalid",
         "no-manifests",
+        "empty-scope",
         "all-extractions-failed",
         "schema-version-mismatch",
         "unknown-verdict-token",
@@ -166,7 +168,7 @@
           },
           "evidence": {
             "type": "object",
-            "description": "Optional gate data. The scope gate gives scope (the libraries kept) and dropped (each library the default left out, with its reason), so no library leaves the stack unrecorded."
+            "description": "Optional gate data. The scope gate gives scope (the libraries kept), dropped (each library the default left out, with its reason, led by 'in v<version>: ' for a library of the published stack) and prior_kept (the published libraries a rerun kept below the threshold; [] on a new stack and in compose mode), so no library leaves the stack unrecorded."
           }
         }
       },

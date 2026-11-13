@@ -69,13 +69,7 @@ Display the line it prints and stop with the halt's exit code (`references/invoc
 
 **The atomic writer.** Resolve `{atomicWriteHelper}` from `{atomicWriteProbeOrder}`; first existing path wins. If neither exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `generate-output:atomic-writer`) with "**Cannot proceed.** `skf-atomic-write.py` is missing, so the stack cannot be written safely. Re-install SKF, then re-run." Nothing is written before this check: §2 to §6 stage the package, which §9 commits whole before §10 flips the `active` link, and §7 and §8b write each workspace file atomically.
 
-**Pre-flight: ownership, phase 1.** Before any prior metadata is read, resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}` and run:
-
-```bash
-uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --forge-data-folder {forge_data_folder}
-```
-
-Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail` and `{prior_active_version}` ← `write_check.marked_active_version`, and apply the ownership refusals below. When `{prior_active_version}` is not null, read `{skills_output_folder}/{stack_name}/{prior_active_version}/{stack_name}/metadata.json`: a `skill_type` other than `"stack"` is a HALT (exit 4, `halt_reason: "write-failure"`, phase `generate-output:not-a-stack`, `path` `{skill_group}`) with "**Cannot proceed.** `{skills_output_folder}/{stack_name}/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or pass another `stack_name` to avoid collision." Otherwise the run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` as `{prior_libraries}`. A new stack leaves `{prior_stack_version}` unset.
+**Prior stack.** Step 1 §0 checked `{skill_group}` and bound `{prior_active_version}`, `{prior_stack_version}` and `{prior_libraries}` (read them from `{runFile}` if lost): a set `{prior_stack_version}` makes this run a **re-composition**, a `null` one a new stack. Resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}`; first existing path wins.
 
 **Stack version.** `{skillInventoryHelper}` computes `{version}`; never reduce, compare or bump a version by hand:
 
@@ -94,13 +88,13 @@ Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_ch
 
 Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call is malformed: fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON, or the prior `version` names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
 
-**Pre-flight: ownership, phase 2.** Before the first write below, run the same check for `{version}` and apply the same bindings and refusals:
+**Pre-flight: ownership, phase 2.** Before the first write below, check the version folder this run writes: run the call below, bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`, and apply the ownership refusals below:
 
 ```bash
 uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}
 ```
 
-**Ownership refusals (both phases).** Continue only when the status is `ok` and `{write_verdict}` is `"ok"`, or, when no helper candidate resolves, only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise create nothing and refuse with "**`{stack_name}`: nothing was written.** {clause}", taking the clause of the first case that applies:
+**Ownership refusals.** Continue only when the status is `ok` and `{write_verdict}` is `"ok"`, or, when no helper candidate resolves, only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise create nothing and refuse with "**`{stack_name}`: nothing was written.** {clause}", taking the clause of the first case that applies:
 
 - `{write_verdict}` is `"flat-layout"`: "It still uses the flat layout: a version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {stack_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
 - `{write_verdict}` is `"not-skf-output"`: "It is not SKF output: `{write_folder}` {write_detail}, so SKF writes no version there. {remedy}"
@@ -223,7 +217,7 @@ echo '{}' | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.js
 <md-content> | python3 {atomicWriteHelper} write --target {forge_version}/evidence-report.md
 ```
 
-**evidence-report.md** lists each library's extraction summary and tier from `{bundleFile}` (its `failed[]` included); each pair's integration result; every `workflow_warnings[]` entry, each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds; each auto-decision of `{run_dir}/headless-decisions.jsonl` as its `gate`, `taken_action` and `reason` (the scope gate's dropped libraries included), or "none"; and the helper's `confidence_distribution`, one count per entry (`metadata.json` counts libraries), or "not computed" when the helper is missing or exits `2`.
+**evidence-report.md** lists each library's extraction summary and tier from `{bundleFile}` (its `failed[]` included); each pair's integration result; every `workflow_warnings[]` entry, each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds; each auto-decision of `{run_dir}/headless-decisions.jsonl` as its `gate`, `taken_action` and `reason` (the scope gate's dropped libraries and `prior_kept` included), or "none"; and the helper's `confidence_distribution`, one count per entry (`metadata.json` counts libraries), or "not computed" when the helper is missing or exits `2`.
 
 ### 9. Commit Staging Directory
 

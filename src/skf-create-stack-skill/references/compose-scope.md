@@ -3,6 +3,7 @@ nextStepFile: 'rank-and-confirm.md'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runFile: '{run_dir}/run.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -33,11 +34,11 @@ Present skills sorted by architectural layer (from architecture doc if available
 - If `architecture_doc_path` is not null: **wrap the architecture-doc parse in try/except**. On any parse error (file unreadable, malformed markdown, no H2 structure), fall back to alphabetical ordering and log a warning `"architecture-doc parse failed: {error}; falling back to alphabetical"`. Otherwise parse section headers to determine layer grouping.
 - If `architecture_doc_path` is null or layers not detectable: present alphabetically.
 
-Display skills as a table:
+Display skills as a table, with the Published column only on a rerun (`{prior_libraries}` set; read it from `{runFile}` if lost): `kept` for a skill of `{prior_libraries}`, `new` for any other:
 
-| # | Skill | Language | Tier | Architecture Layer |
-|---|-------|----------|------|--------------------|
-| 1 | {name} | {language} | {confidence_tier} | {layer or 'Unclassified'} |
+| # | Skill | Language | Tier | Architecture Layer | Published |
+|---|-------|----------|------|--------------------|-----------|
+| 1 | {name} | {language} | {confidence_tier} | {layer or 'Unclassified'} | {kept or new} |
 
 Set `confirmed_dependencies` ← that scope, with the overrides applied.
 

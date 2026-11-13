@@ -17,6 +17,9 @@ enumerateStackSkillsProbeOrder:
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 runFile: '{run_dir}/run.json'
 ---
 
@@ -26,7 +29,7 @@ runFile: '{run_dir}/run.json'
 
 ## STEP GOAL:
 
-Load forge tier configuration, validate prerequisites, bind and check the invocation inputs, and choose the mode and the folder code mode scans.
+Load forge tier configuration, validate prerequisites, check the stack's folder and read the stack a rerun builds on, bind and check the invocation inputs, and choose the mode and the folder code mode scans.
 
 ## Rules
 
@@ -48,7 +51,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --target
 SKF_JSON
 ```
 
-**Halt envelope.** Every later HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}"}`, leaving out `skill_name` before §0 binds `{stack_name}` and adding `"path"` when the halt names a file, then run:
+**Halt envelope.** Every later HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}"}`, leaving out `skill_name` before §0 binds `{stack_name}` and adding `"path"` when the halt names a file or folder, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -79,6 +82,25 @@ uv run {frontmatterValidator} --check-name {stack_name}
 ```
 
 On exit `1` (a name over 64 characters, two hyphens in a row, an upper-case letter or another character the rule refuses), HALT (exit 2, `halt_reason: "input-invalid"`, phase `init:stack-name`, no `skill_name`: the name was refused) with "**Cannot proceed.** `stack_name` `{value}` gives `{stack_name}`, which is not a skill name: {each `issues[]` message}. Fix the input and re-run."
+
+**Ownership, phase 1.** Before any prior metadata is read or any import counted, check the stack's folder, `{skill_group}` (`{skills_output_folder}/{stack_name}/`): resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}`; first existing path wins. Run:
+
+```bash
+uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --forge-data-folder {forge_data_folder}
+```
+
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail` and `{prior_active_version}` ← `write_check.marked_active_version`, and apply the ownership refusals below. When `{prior_active_version}` is not null, read `{skills_output_folder}/{stack_name}/{prior_active_version}/{stack_name}/metadata.json`: a `skill_type` other than `"stack"` is a HALT (exit 4, `halt_reason: "write-failure"`, phase `init:not-a-stack`, `path` `{skill_group}`) with "**Cannot proceed.** `{skills_output_folder}/{stack_name}/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or pass another `stack_name` to avoid collision." Otherwise this run reruns the published stack: bind `{prior_stack_version}` ← its `version` and `{prior_libraries}` ← its `libraries`, which step 3 marks the scope against and step 7 versions a compose-mode re-composition from. A new stack leaves all three `null`.
+
+**Ownership refusals.** Continue only when the status is `ok` and `{write_verdict}` is `"ok"`, or, when no helper candidate resolves, only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise create nothing and refuse with "**`{stack_name}`: nothing was written.** {clause}", taking the clause of the first case that applies:
+
+- `{write_verdict}` is `"flat-layout"`: "It still uses the flat layout: a version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {stack_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
+- `{write_verdict}` is `"not-skf-output"`: "It is not SKF output: `{write_folder}` {write_detail}, so SKF writes no version there. {remedy}"
+- The status is not `ok`, or the output has no `write_check` (an older helper with no `--write-check` reports a new skill as `SKILL_NOT_FOUND`): "SKF could not check who generated it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date). {remedy}"
+- No helper candidate resolved: "SKF cannot check who generated it: `skf-skill-inventory.py` is missing; re-install SKF. {remedy}"
+
+`{remedy}` is "A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{stack_name}` yourself and pass another `stack_name` for this stack. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder without `metadata.json` may be an interrupted run's: delete it yourself."
+
+Each refusal is a HARD HALT (exit 5, `halt_reason: "not-skf-output"`, or `halt_reason: "flat-layout"` for the flat-layout refusal, phase `init:ownership`, `path` `{write_folder}`, or `{skill_group}` when no helper candidate resolved): stop here, before any import is counted.
 
 ### 0b. Offer to Resume at the Review Gate
 
@@ -183,7 +205,7 @@ If compose_mode:
 
 ### 4. Display Initialization Summary
 
-Report that the Stack Skill Forge is initialized, naming: the project (`{project_name}`); the forge tier (`{forge_tier}`) with its positive-capability framing (Quick = source reading and import counting; Forge = AST-backed structural analysis; Forge+ = AST structural + CCC semantic search for the files that show each integration; Deep = full intelligence: structural + contextual + temporal); the available tools (`{tool_list}`); the stack name (`{stack_name}`); and the resolved input mode (auto-detect, explicit dependency list, or compose mode), with the folder code mode scans (`{scan_root}`).
+Report that the Stack Skill Forge is initialized, naming: the project (`{project_name}`); the forge tier (`{forge_tier}`) with its positive-capability framing (Quick = source reading and import counting; Forge = AST-backed structural analysis; Forge+ = AST structural + CCC semantic search for the files that show each integration; Deep = full intelligence: structural + contextual + temporal); the available tools (`{tool_list}`); the stack name (`{stack_name}`) and, on a rerun, the published version it builds on (`v{prior_stack_version}`, with its `{prior_libraries}` count); and the resolved input mode (auto-detect, explicit dependency list, or compose mode), with the folder code mode scans (`{scan_root}`).
 
 ### 5. Save the Run's Bindings
 
@@ -192,11 +214,12 @@ Save the bindings above in `{runFile}`, so a step that lost one to compaction re
 ```json
 {"stack_name": "<stack name>", "headless_mode": false, "project_root": "<path>", "scan_root": "<path>",
  "compose_mode": false, "architecture_doc_path": null, "explicit_deps": null, "scope_overrides": null,
+ "prior_active_version": null, "prior_stack_version": null, "prior_libraries": null,
  "stackSkillTemplatePath": "<path>", "integrationPatternsPath": "<path>", "onCompleteCommand": "",
  "forge_tier": "<tier>", "detected_tier": "<tier>", "available_tools": ["<tool>"]}
 ```
 
-`forge_tier` is the run tier, after §1's override and §2's downgrade; `detected_tier` is the one `forge-tier.yaml` names. Then run:
+`forge_tier` is the run tier, after §1's override and §2's downgrade; `detected_tier` is the one `forge-tier.yaml` names; the three `prior_` keys are §0's, `null` on a new stack, with `prior_libraries` the published `libraries` list. Then run:
 
 ```bash
 uv run {atomicWriteHelper} write --target "{runFile}" < "{run_dir}/run-bindings.json"
