@@ -806,7 +806,7 @@ def test_ratify_version_line_names_the_r_pass():
             "brief's ref but keeps the hydrated version)") in line
     assert "this path never ran step 2" not in line
     [call] = [line for line in section.splitlines() if "--base-brief" in line]
-    assert call == ('uv run {writeSkillBriefHelper} write --target {resolved-target-path} '
+    assert call == ('uv run {writeSkillBriefHelper} write --target {resolved-target-path} --held-amendments-only '
                     '--base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json" '
                     '> "{run_dir}/brief-write.json"')
     confirm = _read(REFERENCES / "confirm-brief.md")

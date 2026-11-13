@@ -147,6 +147,21 @@ Base brief form (`write --base-brief <file> [--doc-urls-file <file>]
   both. stdin is not read, and --from-flat does not apply. A date the
   YAML holds unquoted is read as its ISO text.
 
+Held amendments (`write --held-amendments-only`, any form):
+
+  scope.amendments keeps only the entries whose change the scope written
+  still holds: a `promoted` path scope.include lists (an empty include
+  covers every path), an `excluded` path scope.exclude lists, a
+  `demoted-include` or `demoted-exclude` path the list no longer holds, a
+  `demo-excluded` glob scope.demo_patterns lists, a `registry-confirmed`
+  path that is scope.registry_path. Any other action, such as `skipped`,
+  changes no field and is kept. Each entry dropped adds the warning
+  `scope.amendments: dropped the <action> entry for <path>: scope.<field>
+  does not hold that change`, and a log left empty is removed. Brief
+  Skill passes it when it writes a new scope over a brief create-skill or
+  update-skill amended, so update-skill offers a dropped path again
+  instead of reading it as already in scope.
+
 Output (success):
 
   {
@@ -486,6 +501,64 @@ def _check_component_fields(scope: dict[str, Any]) -> None:
                          field="scope.ui_variants")
 
 
+# The scope field each amendment action changes, and whether its path is then in that field.
+_AMENDMENT_CHANGES = {
+    "promoted": ("include", True),
+    "excluded": ("exclude", True),
+    "demoted-include": ("include", False),
+    "demoted-exclude": ("exclude", False),
+    "demo-excluded": ("demo_patterns", True),
+}
+
+
+def _amendment_holds(scope: dict[str, Any], entry: dict[str, Any]) -> tuple[bool, str]:
+    """Whether `scope` still holds the change `entry` records, and the field that change is in."""
+    action, path = entry.get("action"), entry.get("path")
+    if action == "registry-confirmed":
+        return scope.get("registry_path") == path, "registry_path"
+    if action not in _AMENDMENT_CHANGES:
+        return True, ""
+    field, added = _AMENDMENT_CHANGES[action]
+    values = scope.get(field) or []
+    if field == "include" and added and not values:
+        # An empty scope.include covers every file, so a promotion holds there.
+        return True, field
+    return (path in values) == added, field
+
+
+def keep_held_amendments(scope: dict[str, Any]) -> list[str]:
+    """Drop each scope.amendments entry whose change `scope` no longer holds; one warning per entry dropped.
+
+    An entry records a change to another scope field (skill-brief-schema.md,
+    Scope Amendments): `promoted` adds its path to scope.include and
+    `excluded` to scope.exclude, `demoted-include` and `demoted-exclude`
+    take it out of them, `demo-excluded` adds the glob to
+    scope.demo_patterns and `registry-confirmed` sets scope.registry_path.
+    The readers act on the entry alone (update-skill reads a `promoted`
+    path as already in scope), so an entry whose change the scope does not
+    hold would hide that path from them. Any other action (`skipped`,
+    `deferred-headless`) changes no field and is kept. A log left empty is
+    removed.
+    """
+    amendments = scope.get("amendments")
+    if not amendments:
+        return []
+    kept: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for entry in amendments:
+        holds, field = _amendment_holds(scope, entry)
+        if holds:
+            kept.append(entry)
+        else:
+            warnings.append(f"scope.amendments: dropped the {entry.get('action')} entry for "
+                            f"{entry.get('path')}: scope.{field} does not hold that change")
+    if kept:
+        scope["amendments"] = kept
+    else:
+        scope.pop("amendments", None)
+    return warnings
+
+
 def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]:
     """Build the final brief dict that will be YAML-dumped, in canonical key order."""
     source_type = ctx.get("source_type", "source")
@@ -814,7 +887,8 @@ def base_context(base_brief: Path, doc_urls_file: Path | None, patch_file: Path 
 
 
 def cmd_write(target: Path, from_flat: bool = False, base_brief: Path | None = None,
-              doc_urls_file: Path | None = None, patch_file: Path | None = None) -> int:
+              doc_urls_file: Path | None = None, patch_file: Path | None = None,
+              held_amendments_only: bool = False) -> int:
     if base_brief is not None:
         if from_flat:
             _die("write: --from-flat and --base-brief exclude each other")
@@ -836,6 +910,8 @@ def cmd_write(target: Path, from_flat: bool = False, base_brief: Path | None = N
             ctx = flat_to_nested(ctx)
 
     warnings = validate_context(ctx)
+    if held_amendments_only:
+        warnings += keep_held_amendments(ctx["scope"])
     resolved_version = resolve_version(ctx)
     if not SEMVER_RE.match(resolved_version):
         _die(
@@ -1001,6 +1077,9 @@ def main() -> int:
     p_write.add_argument("--patch-file", type=Path, metavar="FILE",
                          help="with --base-brief: lay the JSON object in FILE over the brief "
                               "(objects merge, null removes, other values replace)")
+    p_write.add_argument("--held-amendments-only", action="store_true",
+                         help="drop each scope.amendments entry whose scope change the written scope "
+                              "does not hold, with a warning for each")
 
     p_amend = sub.add_parser(
         "amend",
@@ -1015,7 +1094,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.cmd == "write":
         return cmd_write(args.target, from_flat=args.from_flat, base_brief=args.base_brief,
-                         doc_urls_file=args.doc_urls_file, patch_file=args.patch_file)
+                         doc_urls_file=args.doc_urls_file, patch_file=args.patch_file,
+                         held_amendments_only=args.held_amendments_only)
     if args.cmd == "amend":
         return cmd_amend(args.target)
     return 2

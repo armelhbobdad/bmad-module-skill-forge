@@ -177,6 +177,7 @@ scope:
 - `skf-update-skill` gap-driven rescope (gap-driven.md §1 rule R1): `category: "scope-expansion"`, `action: "excluded"`
 - `skf-create-skill` step 3d (component-library demo exclusion and registry detection): `category: "demo-and-registry"`, `action: "demo-excluded"` or `"registry-confirmed"`, only for an answer a user gave
 - Manual edits by the brief author are permitted but should include all required fields above (and `category` when the entry is not an auth-doc decision).
+- `skf-brief-skill` step 5 adds no entry: when it writes a new or revised scope over an amended brief, it keeps each entry whose change that scope still holds and drops the rest with a warning (`skf-write-skill-brief.py write --held-amendments-only`), so the log never names a promotion `scope.include` does not carry.
 
 ## YAML Template
 

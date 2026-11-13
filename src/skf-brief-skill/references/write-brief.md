@@ -57,7 +57,7 @@ SKF_PATHS
 uv run {validateBriefSchemaHelper} "{resolved-target-path}" > "{run_dir}/existing-brief.json"
 ```
 
-Bind `existing_amendments` to the `brief.scope.amendments` it writes when that is a non-empty list, whatever `valid` says; a `brief` that is null leaves it unset. §3 passes it as `scope_amendments` whenever the run overwrites the file, on `[Y]` below or on a headless `force`.
+Bind `existing_amendments` to the `brief.scope.amendments` it writes when that is a non-empty list, whatever `valid` says; a `brief` that is null leaves it unset. §3 passes it as `scope_amendments` whenever the run overwrites the file, on `[Y]` below or on a headless `force`, and the writer's `--held-amendments-only` keeps only the entries whose change the new scope still holds: a `promoted` path the new `scope.include` does not list, for one, is dropped with a warning, so update-skill offers that path again instead of reading it as in scope.
 
 **Interactive (`{headless_mode}` is false), unless the ratify check printed `same`:**
 
@@ -65,7 +65,7 @@ If the file exists, present:
 
 "**An existing brief was found at `{path}`.**
 {If existing_amendments is set:}
-It holds {count} scope amendments (create-skill's log of scope changes); the new brief keeps them.
+It holds {count} scope amendments (create-skill's log of scope changes); the new brief keeps each one whose change its scope still holds.
 Overwrite it with the brief you just approved? [Y/N]"
 
 - **[Y]** Overwrite: proceed to §3.
@@ -120,7 +120,7 @@ Stage it in the run folder, then run the writer on the file with the `--from-fla
 cat > "{run_dir}/brief-context.json" <<'SKF_JSON'
 <the brief context above, as one JSON object>
 SKF_JSON
-uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat < "{run_dir}/brief-context.json" > "{run_dir}/brief-write.json"
+uv run {writeSkillBriefHelper} write --target {resolved-target-path} --held-amendments-only --from-flat < "{run_dir}/brief-context.json" > "{run_dir}/brief-write.json"
 ```
 
 Pass every key, `null` when unset: the writer decides what reaches the YAML.
@@ -133,8 +133,10 @@ cat > "{run_dir}/ratify-patch.json" <<'SKF_JSON'
  "scope": {"type": <scope.type>, "include": <scope.include>, "exclude": <scope.exclude>, "notes": <scope.notes>, "rationale": <scope.rationale>, "tier_a_include": <scope.tier_a_include>, "registry_path": <scope.registry_path>, "ui_variants": <scope.ui_variants>, "demo_patterns": <scope.demo_patterns>},
  "scripts_intent": <scripts_intent>, "assets_intent": <assets_intent>, "doc_urls": <doc_urls>}
 SKF_JSON
-uv run {writeSkillBriefHelper} write --target {resolved-target-path} --base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json" > "{run_dir}/brief-write.json"
+uv run {writeSkillBriefHelper} write --target {resolved-target-path} --held-amendments-only --base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json" > "{run_dir}/brief-write.json"
 ```
+
+`--held-amendments-only` drops a `scope.amendments` entry whose change the patched scope no longer holds, as on the derive route.
 
 Either way, on success the writer prints `{status, brief_path, version, bytes, warnings}`, which the call saves in `{run_dir}/brief-write.json`.
 

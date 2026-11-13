@@ -559,7 +559,8 @@ def test_a_derive_run_carries_the_scope_fields_step_three_set():
         assert gone not in section, gone
     overwrite = _section(_read(REFERENCES / "write-brief.md"), "### 2b. Existing Brief")
     assert "§3 passes it as `scope_amendments` whenever the run overwrites the file, on `[Y]` below or on a " \
-           "headless `force`." in overwrite
+           "headless `force`, and the writer's `--held-amendments-only` keeps only the entries whose change the " \
+           "new scope still holds" in overwrite
 
 
 # --------------------------------------------------------------------------

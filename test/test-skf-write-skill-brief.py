@@ -1512,8 +1512,8 @@ def _derive_payload_keys() -> set[str]:
     return set(re.findall(r'^  "([a-z_]+)":', section[start:section.index("```", start)], re.M))
 
 
-def _write_flat(target: Path, flat: dict) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--from-flat"],
+def _write_flat(target: Path, flat: dict, *flags: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--from-flat", *flags],
                           input=json.dumps(flat), capture_output=True, text=True, timeout=60)
 
 
@@ -1539,3 +1539,81 @@ def test_a_derive_overwrite_keeps_the_amendments_of_the_brief_it_replaces(tmp_ta
     brief = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
     assert brief["description"] == flat["description"]
     assert brief["scope"]["amendments"] == log
+
+
+def _scope_expansion(path: str, action: str) -> dict:
+    return {"path": path, "action": action, "category": "scope-expansion", "reason": "drift report",
+            "evidence": "a new public export", "date": "2026-10-02", "workflow": "skf-update-skill"}
+
+
+def _amendment_warnings(proc: subprocess.CompletedProcess) -> list[str]:
+    return [w for w in json.loads(proc.stdout)["warnings"] if w.startswith("scope.amendments:")]
+
+
+def test_held_amendments_only_drops_each_entry_whose_change_the_scope_does_not_hold(tmp_target):
+    """#1137 review: a promoted or excluded path the new scope does not list, a demotion it undoes, and a
+    registry it no longer names leave the log with a warning each, so update-skill, which reads a `promoted`
+    path as already in scope, offers it again; a skipped entry changes no field and stays."""
+    held_promotion = {**_amendment(), "path": "docs/llms.txt"}
+    skipped = {**_amendment(), "path": "AGENTS.md", "action": "skipped", "heuristic": "AGENTS.md"}
+    held_demotion = _scope_expansion("src/legacy/**", "demoted-include")
+    log = [held_promotion, _amendment(), skipped, _scope_expansion("src/internal.ts", "excluded"),
+           held_demotion, _scope_expansion("src/**/*.ts", "demoted-include"), _write_back_amendment()]
+    flat = {**_baseline_flat(), "scope_include": ["src/**/*.ts", "docs/llms.txt"], "scope_amendments": log}
+    proc = _write_flat(tmp_target, flat, "--held-amendments-only")
+    assert proc.returncode == 0, proc.stderr
+    assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["amendments"] == \
+        [held_promotion, skipped, held_demotion]
+    assert _amendment_warnings(proc) == [
+        "scope.amendments: dropped the promoted entry for apps/docs/public/llms.txt: "
+        "scope.include does not hold that change",
+        "scope.amendments: dropped the excluded entry for src/internal.ts: scope.exclude does not hold that change",
+        "scope.amendments: dropped the demoted-include entry for src/**/*.ts: "
+        "scope.include does not hold that change",
+        "scope.amendments: dropped the registry-confirmed entry for registry/index.ts: "
+        "scope.registry_path does not hold that change",
+    ]
+    # Without the flag the log is written as given.
+    proc = _write_flat(tmp_target, flat)
+    assert proc.returncode == 0, proc.stderr
+    assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["amendments"] == log
+
+
+def test_held_amendments_only_keeps_a_promotion_an_empty_include_covers_and_removes_an_emptied_log(tmp_target):
+    """An empty scope.include covers every file (the amend subcommand leaves it empty), so a promotion
+    holds there; a log whose every entry is dropped leaves no `amendments` key."""
+    flat = {**_baseline_flat(), "scope_include": [], "scope_amendments": [_amendment()]}
+    proc = _write_flat(tmp_target, flat, "--held-amendments-only")
+    assert proc.returncode == 0, proc.stderr
+    assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["amendments"] == [_amendment()]
+    flat = {**_baseline_flat(), "scope_amendments": [_amendment()]}
+    proc = _write_flat(tmp_target, flat, "--held-amendments-only")
+    assert proc.returncode == 0, proc.stderr
+    assert "amendments" not in yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+    assert len(_amendment_warnings(proc)) == 1
+
+
+def test_a_revised_scope_drops_the_promotion_it_no_longer_includes(tmp_path):
+    """The ratify form: a patch whose scope.include leaves out a promoted path drops that entry."""
+    base = tmp_path / "upstream" / "skill-brief.yaml"
+    ctx = _baseline_ctx()
+    ctx["scope"]["include"] = ["src/**/*.ts", "apps/docs/public/llms.txt"]
+    ctx["scope"]["amendments"] = [_amendment()]
+    proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "write", "--target", str(base)],
+                          input=json.dumps(ctx), capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    patch = tmp_path / "patch.json"
+    patch.write_text(json.dumps({"scope": {"include": ["src/**/*.ts"]}}), encoding="utf-8")
+    target = tmp_path / "out" / "skill-brief.yaml"
+    proc = _base_write(target, base, "--patch-file", str(patch), "--held-amendments-only")
+    assert proc.returncode == 0, proc.stderr
+    assert "amendments" not in _loaded(target)["scope"]
+
+
+def test_brief_skill_writes_only_the_held_amendments_on_both_routes():
+    """Step 5 passes the flag on its derive and its ratify write, and the overwrite question says so."""
+    text = BRIEF_SKILL_WRITE_STEP.read_text(encoding="utf-8")
+    section = text[text.index("### 3. Write the Brief"):text.index("**On script failure")]
+    calls = [line for line in section.splitlines() if line.startswith("uv run {writeSkillBriefHelper} write")]
+    assert len(calls) == 2 and all("--held-amendments-only" in call for call in calls), calls
+    assert "the new brief keeps each one whose change its scope still holds" in text

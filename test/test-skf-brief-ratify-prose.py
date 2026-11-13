@@ -200,7 +200,8 @@ def test_a_derive_run_that_overwrites_a_brief_keeps_its_amendments():
     assert ("Bind `existing_amendments` to the `brief.scope.amendments` it writes when that is a non-empty "
             "list") in derive
     question = derive[derive.index('"**An existing brief was found at `{path}`.**'):]
-    count = "It holds {count} scope amendments (create-skill's log of scope changes); the new brief keeps them.\n"
+    count = ("It holds {count} scope amendments (create-skill's log of scope changes); the new brief keeps each one "
+             "whose change its scope still holds.\n")
     assert question.index("{If existing_amendments is set:}\n" + count) < question.index(
         "Overwrite it with the brief you just approved? [Y/N]")
     assert "- **[Y]** Overwrite: proceed to §3.\n" in derive
