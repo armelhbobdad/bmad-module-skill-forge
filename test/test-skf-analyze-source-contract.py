@@ -1205,6 +1205,10 @@ def test_each_boundary_is_classified_by_one_documented_call(tmp_path):
         assert gone not in _read(SPLIT), gone
     assert section.index(SPLIT_CALL) < section.index("derive-name"), "only the kept boundaries are named"
     assert "`scope.type` ← its §4a `{scope_type}`" in _section(_read(SPLIT), "### 6a.", "### 7.")
+    # The contract names the split's halt beside step 1a §3's (#1128 lane review).
+    [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
+    assert ("step 1a §3 (shape detection script error, exit code 2), and its split branch §4a (shape detection "
+            "fails on a package whose files git tracks);") in row3
     front = _read(SPLIT).split("\n---\n", 1)[0]
     assert "shapeDetectProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-shape-detect.py'" in front
     assert "**`{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`" in _read(SPLIT)
