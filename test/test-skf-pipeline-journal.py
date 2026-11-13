@@ -411,6 +411,7 @@ def test_a_critical_audit_keeps_the_new_ref_for_the_repaired_update(chain):
     assert out["data"] == {"target_ref": "v1.3.0"}
     reopened = chain.reopen()
     assert reopened["run"][0]["code"] == "US" and reopened["data"] == {"target_ref": "v1.3.0"}
+    assert reopened["next"]["inputs"] == {"target": "cocoindex", "target_ref": "v1.3.0"}
 
 
 def test_an_audit_that_found_no_move_hands_on_no_ref(chain):
@@ -453,6 +454,144 @@ def test_a_journal_that_is_not_one_is_refused(chain, tmp_path):
     bad.write_bytes(b'{"steps": "no"}')
     out = chain.cli("step", "--journal", bad, "--code", "QS", "--status", "completed", code=1)
     assert out["error"] == "journal-unreadable"
+
+
+# --------------------------------------------------------------------------
+# The entry to run next: its skill, description and inputs (#1167)
+# --------------------------------------------------------------------------
+
+PARSER = _load("skf_parse_pipeline_for_journal", SCRIPT.parent / "parse-pipeline.py")
+
+
+def _named(code: str) -> dict:
+    skill, description = PARSER.SKILLS[code]
+    return {"skill": skill, "description": description}
+
+
+def _kept_the_step_shape(chain: Chain) -> None:
+    """Only the printed entries carry `skill`, `description` and `inputs`: the journal keeps its shape."""
+    journal = chain.data()
+    assert journal["journal_version"] == 1
+    assert all(list(s) == STEP_KEYS for s in journal["steps"]), journal["steps"]
+
+
+def test_start_prints_the_first_entry_with_its_inputs(chain):
+    out = chain.start(FORGE_AUTO)
+    assert out["next"] == {"index": 0, **mod._step_entry("AN", mode="auto"), **_named("AN"),
+                           "inputs": {"project_path": HONO, "pin": "v4.6.0", "auto": True}}
+    assert out["next"]["skill"] == "skf-analyze-source"
+    assert [list(s) for s in out["steps"]] == [[*STEP_KEYS, "skill", "description"]] * 5
+    assert [(s["code"], s["skill"], s["description"]) for s in out["steps"]] == [
+        (code, *PARSER.SKILLS[code]) for code in ("AN", "BS", "CS", "TS", "EX")]
+    _kept_the_step_shape(chain)
+
+
+def test_each_step_hands_the_next_entry_its_inputs(chain):
+    """forge-auto: BS takes AN's brief as `data` holds it, CS takes BS's one brief as its `brief_path`,
+    and TS takes CS's skill with the recorded threshold."""
+    chain.start(FORGE_AUTO)
+    out = chain.gate("AN", "continue", "--set", "brief_path=/fd/hono/skill-brief.yaml")
+    assert (out["next"]["code"], out["next"]["inputs"]) == (
+        "BS", {"brief_path": "/fd/hono/skill-brief.yaml", "auto": True})
+    out = chain.step("BS", "completed", "--set", "brief_path=/fd/hono/skill-brief.yaml")
+    assert out["next"] == {"index": 2, **mod._step_entry("CS"), **_named("CS"),
+                           "inputs": {"brief_path": "/fd/hono/skill-brief.yaml"}}
+    out = chain.step("CS", "completed", "--set", "skill_name=hono")
+    assert out["next"] == {
+        "index": 3, "code": "TS", "min": 90, "mode": None, "target": None, "flags": [], "status": "pending",
+        "reason": None, "skill": "skf-test-skill",
+        "description": "Cognitive completeness verification: quality gate before export",
+        "inputs": {"skill_name": "hono", "threshold": 90}}
+    assert chain.ran("TS")["next"]["inputs"] == {"skill_name": "hono"}
+    assert chain.step("EX")["next"] is None
+    _kept_the_step_shape(chain)
+
+
+def test_the_briefs_an_hands_straight_to_cs_go_as_one_batch(chain):
+    """AN[<repo>] CS TS EX: the several briefs AN wrote reach CS as one `batch`."""
+    chain.start(f"AN[{HONO}] CS TS EX")
+    out = chain.gate("AN", "continue", "--set", "brief_path=/fd/core/skill-brief.yaml",
+                     "--set", "brief_path=/fd/cli/skill-brief.yaml")
+    assert out["next"] == {"index": 1, **mod._step_entry("CS"), **_named("CS"),
+                           "inputs": {"batch": ["/fd/core/skill-brief.yaml", "/fd/cli/skill-brief.yaml"]}}
+    _kept_the_step_shape(chain)
+
+
+def test_a_brief_list_reaching_bs_passes_as_data_holds_it(chain):
+    chain.start(FORGE_AUTO)
+    out = chain.gate("AN", "continue", "--set", "brief_path=/fd/a.yaml", "--set", "brief_path=/fd/b.yaml")
+    assert out["next"]["inputs"] == {"brief_path": ["/fd/a.yaml", "/fd/b.yaml"], "auto": True}
+
+
+def test_us_after_an_audit_takes_the_skill_and_the_new_ref(chain):
+    """maintain: no step of the run named the skill, so US takes the alias argument, and the gate's
+    `target_ref` beside it."""
+    chain.start("maintain cocoindex")
+    assert chain.data()["args"] == {"skill_name": "cocoindex"}
+    out = _gate_as(chain, _as_gate_json("CLEAN", upstream_moved=True, upstream_ref="v2.0.0"))
+    assert (out["next"]["code"], out["next"]["skill"]) == ("US", "skf-update-skill")
+    assert out["next"]["inputs"] == {"skill_name": "cocoindex", "target_ref": "v2.0.0"}
+    _kept_the_step_shape(chain)
+
+
+def test_a_repaired_fail_runs_the_update_with_its_flag(chain):
+    _halt_forge_auto_at_ts(chain, "FAIL")
+    out = chain.reopen()
+    assert out["next"] == {"index": 3, **mod._step_entry("US", target="hono", flags=("--from-test-report",)),
+                           **_named("US"), "inputs": {"target": "hono", "flags": ["--from-test-report"]}}
+    assert [list(r) for r in out["run"]] == [["index", *STEP_KEYS, "skill", "description"]] * 3
+    assert [(r["code"], r["skill"]) for r in out["run"]] == [
+        ("US", "skf-update-skill"), ("TS", "skf-test-skill"), ("EX", "skf-export-skill")]
+    _kept_the_step_shape(chain)
+
+
+def test_a_bracket_target_is_the_first_entrys_input(chain):
+    out = chain.start("QS[cocoindex] TS EX")
+    assert (out["next"]["code"], out["next"]["inputs"]) == ("QS", {"target": "cocoindex"})
+    assert chain.step("QS", "completed", "--set", "skill_name=cocoindex")["next"]["inputs"] == {
+        "skill_name": "cocoindex"}
+
+
+def test_ra_takes_the_document_vs_was_given(chain):
+    out = chain.start("VS[docs/arch.md] RA")
+    assert out["next"]["inputs"] == {"target": "docs/arch.md"}
+    out = chain.gate("VS", "continue")
+    assert (out["next"]["code"], out["next"]["skill"]) == ("RA", "skf-refine-architecture")
+    assert out["next"]["inputs"] == {"architecture_doc_path": "docs/arch.md"}
+
+
+def test_a_leading_sf_leaves_the_args_to_the_first_workflow(chain):
+    out = chain.start("SF QS[x] TS EX --pin 1.2")
+    assert (out["next"]["code"], out["next"]["skill"], out["next"]["inputs"]) == ("SF", "skf-setup", {})
+    out = chain.step("SF")
+    assert (out["next"]["code"], out["next"]["inputs"]) == ("QS", {"target": "x", "pin": "1.2"})
+
+
+def test_a_halt_prints_no_next_entry(chain):
+    chain.start("forge-quick cognee")
+    out = chain.halt("QS", "target-inaccessible")
+    assert out["next"] is None
+    reopened = chain.reopen()
+    assert reopened["next"]["inputs"] == {"target": "cognee"}  # the first workflow takes the alias argument
+
+
+def test_a_step_saved_before_the_parser_went_missing_is_kept(chain, monkeypatch, tmp_path):
+    chain.start("QS TS EX")
+    monkeypatch.setattr(mod, "PARSER", tmp_path / "parse-pipeline.py")
+    out = chain.step("QS", "completed", "--set", "skill_name=cognee", rc=1)
+    assert (out["status"], out["error"], out["retry"]) == ("error", "parser-missing", False)
+    journal = chain.data()
+    assert journal["steps"][0]["status"] == "completed" and journal["data"] == {"skill_name": "cognee"}
+    _kept_the_step_shape(chain)
+
+
+def test_a_reopen_with_no_parser_changes_nothing(chain, monkeypatch, tmp_path):
+    _halt_forge_auto_at_ts(chain, "FAIL")
+    before = chain.journal.read_bytes()
+    monkeypatch.setattr(mod, "PARSER", tmp_path / "parse-pipeline.py")
+    out = chain.reopen(code=1)
+    assert (out["status"], out["error"]) == ("error", "parser-missing")
+    assert chain.journal.read_bytes() == before
 
 
 # --------------------------------------------------------------------------
@@ -936,7 +1075,7 @@ def test_an_error_halt_reruns_the_step(chain):
     chain.start("forge-quick cognee")
     chain.halt("QS", "target-inaccessible")
     out = chain.reopen()
-    assert out["run"][0] == {"index": 0, **mod._step_entry("QS")}
+    assert out["run"][0] == {"index": 0, **mod._step_entry("QS"), **_named("QS")}
     assert out["args"] == {"target": "cognee"}
     assert chain.data()["history"][0]["repair"] is None
 
@@ -1032,6 +1171,21 @@ def test_the_handoffs_are_data_flow_values_step_4e_names():
         assert re.search(rf"\b{code}\b", rule) and f"`{name}=<" in rule, (code, name)
 
 
+def test_the_data_flow_map_is_the_data_flow_table():
+    """#1167: DATA_FLOW has one key per Data Flow row, each value an input the row names, and every
+    handoff a code records reaches each code its rows hand it to."""
+    rows = _table(_section(_read(CONTRACTS), "## Data Flow"))
+    pairs = [(row[0], row[1]) for row in rows]
+    assert list(mod.DATA_FLOW) == pairs and len(pairs) == 11
+    for row in rows:
+        text = " ".join(row[2:])
+        for name in mod.DATA_FLOW[(row[0], row[1])]:
+            assert name in text or name.replace("_", " ") in text, (row[:2], name)
+    for code, name in mod.HANDOFFS.items():
+        taken = [names for (source, _), names in mod.DATA_FLOW.items() if source == code]
+        assert taken and all(name in names for names in taken), (code, name)
+
+
 def test_step_4e_leaves_the_audits_ref_to_the_gate():
     """No --set copies AS's upstream_ref by hand: `step --gate` records the gate's handoff."""
     text = _read(PIPELINE_MODE)
@@ -1040,8 +1194,7 @@ def test_step_4e_leaves_the_audits_ref_to_the_gate():
     assert ("AS's `target_ref` takes no `--set`: when upstream moved, the gate prints it in its `handoff`, and "
             "`step --gate` records it.") in record
     resolve = text.split("   - b. **Resolve inputs**", 1)[1].split("   - c. **", 1)[0]
-    assert "A `target_ref` in `data` (AS hands it on when upstream moved) goes to US as `--target-ref <target_ref>`." \
-        in resolve
+    assert "a `target_ref` (AS hands it on when upstream moved) goes to US as `--target-ref <target_ref>`" in resolve
 
 
 def test_the_pipeline_state_table_names_every_journal_field(chain):
@@ -1327,6 +1480,19 @@ def test_the_persona_rule_is_stated_once():
     text = _read(FORGER_SKILL)
     assert text.count("Maintain this persona across all skill invocations") == 1
     assert "applying your persona" not in text and "holding one persona" not in text
+
+
+def test_a_chain_loads_the_run_procedure_alone():
+    """#1167: the journal prints each entry's skill and inputs, so neither SKILL.md nor the run
+    procedure sends a chain into pipeline-contracts.md."""
+    text = _read(PIPELINE_MODE)
+    assert "pipeline-contracts" not in text and "Data Flow" not in text
+    skill = _read(FORGER_SKILL)
+    section = _section(skill, "## Pipeline Mode")
+    assert "load `references/pipeline-mode.md` (the run procedure), then follow it" in section
+    assert "pipeline-contracts.md" not in section
+    conventions = _section(skill, "## Conventions")
+    assert skill.count("pipeline-contracts.md") == conventions.count("pipeline-contracts.md") == 1
 
 
 def test_pipeline_mode_leaves_the_contracts_to_the_contracts_file():

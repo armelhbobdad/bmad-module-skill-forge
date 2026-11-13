@@ -49,7 +49,7 @@ Output (stdout, one object):
     "deprecated_alias": "deepwiki" | null,
     "removed_alias": "onboard" | null,
     "expanded": ["BS", "CS", "TS", "EX"],   # normalized tokens (post-expansion)
-    "plan": [{"code","min","mode","target"}, ...],
+    "plan": [{"code","min","mode","target","skill","description"}, ...],
     "codes": ["BS", "CS", "TS", "EX"],
     "args": {"<input>": "<value>", "pin": "<version>"},  # for the first workflow
     "unknown_codes": [],
@@ -61,6 +61,10 @@ Output (stdout, one object):
     "valid": <bool>                   # runnable: real codes, nothing unknown,
   }                                   # unexpected, missing or malformed, not
                                       # removed
+
+A plan entry's `min`, `mode` and `target` are its bracket values, and its
+`skill` and `description` are its code's Capabilities row in SKILL.md
+(SKILLS).
 
 `args` holds only what the invocation gave: `project_path` (forge-auto),
 `target_repo` and `skill_name` (forge), `target` (forge-quick), `skill_name`
@@ -99,6 +103,29 @@ import sys
 KNOWN_CODES = frozenset(
     {"SF", "AN", "BS", "CS", "QS", "SS", "US", "AS", "VS", "RA", "TS", "EX", "RS", "DS"}
 )
+
+# The skill each code runs and its description, as the Capabilities rows in
+# the forger's SKILL.md give them (the dash that joins two clauses there
+# reads ": " here). Every plan entry carries both: Pipeline Mode reports the
+# description and invokes the skill by that exact name.
+SKILLS = {
+    "SF": ("skf-setup", "Initialize forge environment, detect tools, set tier"),
+    "AN": ("skf-analyze-source", "Discover what to skill in a large repo: produces recommended skill briefs"),
+    "BS": ("skf-brief-skill", "Design a skill scope through guided discovery"),
+    "CS": ("skf-create-skill", "Compile a skill from brief (supports --batch)"),
+    "QS": ("skf-quick-skill", "Fast skill from a package name or GitHub URL: no brief needed"),
+    "SS": ("skf-create-stack-skill", "Consolidated project stack skill with integration patterns"),
+    "US": ("skf-update-skill", "Smart regeneration preserving [MANUAL] sections after source changes"),
+    "AS": ("skf-audit-skill", "Drift detection between skill and current source code"),
+    "VS": ("skf-verify-stack", "Pre-code stack feasibility verification against architecture and PRD"),
+    "RA": ("skf-refine-architecture",
+           "Refine an architecture document against generated skills and a Verify Stack report"),
+    "TS": ("skf-test-skill", "Cognitive completeness verification: quality gate before export"),
+    "EX": ("skf-export-skill", "Validate a skill's package, write its context snippet and update the managed "
+                               "section in CLAUDE.md, AGENTS.md or .cursorrules"),
+    "RS": ("skf-rename-skill", "Rename a skill across all its versions (transactional)"),
+    "DS": ("skf-drop-skill", "Drop a skill: deprecate (soft) or purge (hard)"),
+}
 
 # Only these take a `min:N`: AN as the fewest units it must confirm (the
 # pipeline gate's --min) and TS as its test threshold (--threshold). CS, AS and
@@ -459,8 +486,10 @@ def parse_pipeline(raw):
         elif value and _MIN_RE.fullmatch(value) and code not in THRESHOLD_CODES:
             ignored_min.append(_normalized_token(code, value))
         result["codes"].append(code)
+        skill, description = SKILLS[code]
         result["plan"].append(
-            {"code": code, "min": min_n, "mode": mode, "target": target}
+            {"code": code, "min": min_n, "mode": mode, "target": target,
+             "skill": skill, "description": description}
         )
 
     result["anti_patterns"] = _detect_anti_patterns(result["codes"])

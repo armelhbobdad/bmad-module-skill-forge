@@ -131,4 +131,4 @@ These menu codes resolve to a handler here, not a registered skill:
 
 ## Pipeline Mode
 
-For a chain or a pipeline alias, the legacy `deepwiki` and `onboard` included, and for an accepted resume or repair offer, load `references/pipeline-mode.md` (the run procedure) and `shared/references/pipeline-contracts.md` (its tables), then follow the procedure. It owns parsing, alias expansion, the legacy-alias notices, validation, the execute loop and its circuit breakers, the pipeline journal, resume and the result contract.
+For a chain or a pipeline alias, the legacy `deepwiki` and `onboard` included, and for an accepted resume or repair offer, load `references/pipeline-mode.md` (the run procedure), then follow it. It owns parsing, alias expansion, the legacy-alias notices, validation, the execute loop and its circuit breakers, the pipeline journal, resume and the result contract.

@@ -635,6 +635,7 @@ def test_ferris_conventions_state_the_module_level_and_sibling_rules():
 
 def test_pipeline_mode_says_how_its_paths_resolve():
     note = _read(PIPELINE_MODE).split("## Activation", 1)[0]
-    for token in ("SKILL.md **Conventions**", "each `uv run scripts/...` call runs from the skf-forger skill root",
-                  "`shared/references/pipeline-contracts.md`", "`{project-root}/_bmad/skf/` installed, `src/` in dev"):
+    for token in ("SKILL.md **Conventions**", "each `uv run scripts/...` call runs from the skf-forger skill root"):
         assert token in note, token
+    # #1167: the run procedure loads no contract file, so the note keeps only the skill-root rule.
+    assert "pipeline-contracts" not in note and "_bmad/skf/" not in note

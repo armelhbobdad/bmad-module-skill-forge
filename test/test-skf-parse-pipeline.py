@@ -686,17 +686,61 @@ def test_legacy_alias_texts_live_in_step_1_not_in_skill_md():
     assert "TS[min:90]" not in _read(FORGER_SKILL)
 
 
-def test_first_workflow_takes_args_and_ts_takes_the_threshold():
+def test_each_entry_runs_with_the_skill_and_inputs_the_journal_prints():
+    """#1167: steps 4a to 4c and Resume take the entry's `description`, `skill` and `inputs`, and state
+    the facts pipeline-contracts.md held: `auto` as CODE[auto], a `batch` as one --batch run, RA's
+    document, where `pin` and `target_ref` go, and `threshold` as --threshold."""
     text = _read(PIPELINE_MODE)
+    report = next(line for line in text.splitlines() if "**Report start:**" in line)
+    assert "with the entry's `code` and `description`" in report
     resolve = next(line for line in text.splitlines() if "**Resolve inputs**" in line)
-    # A bracket target is the entry's input, the one step 1's ask writes (`args` stays {} for a chain).
-    assert ("A plan entry's bracket `target`, when it has one, is its input (`QS[cocoindex]` hands QS `cocoindex`); "
-            "otherwise the first workflow takes the parse's `args`") in resolve
+    for token in ("from the entry's `inputs`, which the journal already resolved",
+                  # A bracket target is the entry's input, the one step 1's ask writes (`args` stays {} for a chain).
+                  "the entry's bracket `target` (`QS[cocoindex]` hands QS `cocoindex`), else the handoff values "
+                  "earlier steps recorded, else, for the plan's first workflow, the parse's `args`",
+                  "Work out no input by hand.",
+                  "a `batch` list names several briefs, which go to CS as one `--batch` run",
+                  "a `target_ref` (AS hands it on when upstream moved) goes to US as `--target-ref <target_ref>`",
+                  "RA's `architecture_doc_path` is the document VS was given",
+                  "`pin` goes to the workflow's data context"):
+        assert token in resolve, token
     assert mod.parse_pipeline("QS[cocoindex] TS EX")["args"] == {}
-    assert "the first entry takes its `target` when it has one" in text.split("## Resume", 1)[1]
     invoke = next(line for line in text.splitlines() if "**Invoke the workflow**" in line)
-    assert "`{pipeline_alias}` set to the parse's `alias`" in invoke
-    assert "When TS's plan entry has a `min`, invoke TS with `--threshold=<min>`" in invoke
+    for token in ("invoke the entry's `skill`, by that exact name",
+                  "`{pipeline_alias}` set to the parse's `alias`",
+                  "An `auto` in `inputs` invokes the workflow as `<code>[auto]` (`AN[auto]`, `BS[auto]`)",
+                  "A `threshold` in `inputs` is TS's plan `min`, so invoke TS with `--threshold=<min>`"):
+        assert token in invoke, token
+    resume = text.split("## Resume", 1)[1].split("\n## ", 1)[0]
+    assert "then step 4 from that `next` entry" in resume
+    assert "each entry runs with its `inputs`, as the `next` entry prints them" in resume
+    assert "the first entry takes its `target`" not in resume
+
+
+def _capabilities():
+    """SKILL.md's Capabilities rows: code -> (skill, description)."""
+    section = _read(FORGER_SKILL).split("## Capabilities", 1)[1].split("\n## ", 1)[0]
+    rows = re.findall(r"^\| \d+ \| ([A-Z]{2}) \| (.+?) \| (.+?) \|$", section, re.M)
+    return {code: (skill, description) for code, description, skill in rows}
+
+
+def test_skills_are_the_capabilities_rows():
+    """#1167: every pipeline code's skill and description, as the menu shows them (its dash read as ": ")."""
+    rows = _capabilities()
+    assert set(mod.SKILLS) == mod.KNOWN_CODES
+    assert mod.SKILLS == {code: (skill, description.replace(" \u2014 ", ": "))
+                          for code, (skill, description) in rows.items() if code in mod.KNOWN_CODES}
+    for skill, _ in mod.SKILLS.values():
+        assert (REPO / "src" / skill / "SKILL.md").is_file(), skill
+
+
+def test_plan_entries_name_their_skill_and_description():
+    r = mod.parse_pipeline("forge-auto https://github.com/honojs/hono")
+    assert all(list(p) == ["code", "min", "mode", "target", "skill", "description"] for p in r["plan"])
+    assert [(p["code"], p["skill"], p["mode"]) for p in r["plan"]] == [
+        ("AN", "skf-analyze-source", "auto"), ("BS", "skf-brief-skill", "auto"), ("CS", "skf-create-skill", None),
+        ("TS", "skf-test-skill", None), ("EX", "skf-export-skill", None)]
+    assert all(p["description"] == mod.SKILLS[p["code"]][1] for p in r["plan"])
 
 
 def test_alias_forms_match_the_inputs_the_parser_binds():

@@ -32,7 +32,8 @@ Subcommands:
   start    Read the whole invocation on stdin, parse it with
            parse-pipeline.py (beside this script), and create the run folder
            and its journal: every step pending, the alias, the first
-           workflow's args.
+           workflow's args. Prints the `steps`, each with its `skill` and
+           `description`, and the `next` entry to run (below).
   step     Record the step the chain just finished: the first pending step,
            whose code must be --code. After AN, TS, AS or VS, --gate reads
            the JSON pipeline-gate.py printed on stdin: `continue` records
@@ -47,7 +48,8 @@ Subcommands:
            name (a name given twice in one call holds a list): a completed
            CS, QS or US must hand on `skill_name`, a completed AN or BS
            `brief_path`. --output records a result or report path the
-           step's envelope names.
+           step's envelope names. Prints the `next` entry, null after a
+           halt or the last step.
   finish   Write the pipeline result from the journal to --result-dir:
            `pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; -2, -3 ... when a
            run already took that second's name), then its copy
@@ -71,8 +73,28 @@ Subcommands:
            is a workflow of its own joins the plan right before the step it
            repairs, and the first step to run takes the journal's skill as
            its target when it takes a skill and names none. The journal runs
-           again. Prints the steps still to run.
+           again. Prints the steps still to `run`, each with its `skill` and
+           `description`, and the `next` entry, the first of them.
   discard  Delete a stopped chain's run folder, so its offer is made no more.
+
+The next entry. `start`, `step` and `reopen` print the plan entry to run
+next as `next`: its `index`, the step's fields, its code's `skill` and
+`description` (parse-pipeline.py's SKILLS), and the `inputs` its workflow
+runs with (resolve_inputs, from DATA_FLOW). Only the printed entry carries
+these: the journal keeps the step shape above.
+
+  {"index": 3, "code": "TS", "min": 90, "mode": null, "target": null,
+   "flags": [], "status": "pending", "reason": null, "skill": "skf-test-skill",
+   "description": "Cognitive completeness verification: quality gate before export",
+   "inputs": {"skill_name": "hono", "threshold": 90}}
+
+`inputs` holds the entry's bracket `target`; else each input DATA_FLOW
+gives its code, from the run's `data` (several briefs reach CS as one
+`batch` list), the journal's skill for `skill_name`, or the target of the
+VS before it for RA's `architecture_doc_path`; else, for the plan's first
+workflow, the parse's `args`. Then `target_ref` (US), `pin` (the first
+workflow), `threshold` (TS's `min`), `auto` (mode `auto`) and `flags`,
+each only when it has a value.
 
 Next action. A chain interrupted mid-step (its journal still `running`),
 or halted by anything but a quality verdict, gets the offer `resume` at the
@@ -192,6 +214,22 @@ GATED = frozenset({"AN", "TS", "AS", "VS"})
 # in pipeline-contracts.md. A resumed chain passes it on, and the offer's
 # later-test and later-export checks look the skill up by it.
 HANDOFFS = {"AN": "brief_path", "BS": "brief_path", "CS": "skill_name", "QS": "skill_name", "US": "skill_name"}
+# What a workflow takes from the one before it, keyed (from, to): one key per
+# row of the Data Flow table in pipeline-contracts.md, each value the inputs
+# the receiving code takes. resolve_inputs reads it for the entry to run next.
+DATA_FLOW = {
+    ("AN", "BS"): ("brief_path",),
+    ("AN", "CS"): ("brief_path",),
+    ("BS", "CS"): ("brief_path",),
+    ("CS", "TS"): ("skill_name",),
+    ("CS", "EX"): ("skill_name",),
+    ("TS", "EX"): ("skill_name",),
+    ("QS", "TS"): ("skill_name",),
+    ("QS", "EX"): ("skill_name",),
+    ("AS", "US"): ("skill_name", "target_ref"),
+    ("US", "TS"): ("skill_name",),
+    ("VS", "RA"): ("architecture_doc_path",),
+}
 
 # A quality halt, keyed by the halted code and its reason (lower case, `-`
 # for `_`): the repair the offer names, and where the chain picks up again
@@ -385,6 +423,24 @@ def _indexed(steps: list, index: int) -> dict:
     return {"index": index, **steps[index]}
 
 
+def _named(step: dict, skills: dict) -> dict:
+    """A step as printed: the persisted shape, then its code's `skill` and `description` (SKILLS)."""
+    skill, description = skills.get(step["code"], (None, None))
+    return {**step, "skill": skill, "description": description}
+
+
+def _entry(journal: dict, index: int, *, skills: dict, inputs: bool = False) -> dict:
+    """The plan entry at `index` as `start`, `step` and `reopen` print it; with `inputs`, the ones it runs with.
+
+    Only the printed entry carries `skill`, `description` and `inputs`: the
+    journal keeps each step in the persisted shape.
+    """
+    entry = {"index": index, **_named(journal["steps"][index], skills)}
+    if inputs:
+        entry["inputs"] = resolve_inputs(journal, index)
+    return entry
+
+
 def _reason_key(reason) -> str:
     return str(reason or "").strip().lower().replace("_", "-")
 
@@ -435,6 +491,68 @@ def _skill_name(journal: dict) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _takes(code: str) -> list[str]:
+    """The inputs DATA_FLOW gives `code`, in table order, each once."""
+    names: list[str] = []
+    for (_, to), taken in DATA_FLOW.items():
+        names += [n for n in taken if to == code and n not in names]
+    return names
+
+
+def _handed(journal: dict, index: int, name: str):
+    """The value an earlier step left for the input `name` of the entry at `index`, or None."""
+    if name == "architecture_doc_path":
+        vs = next((s for s in reversed(journal["steps"][:index]) if s["code"] == "VS"), None)
+        return None if vs is None else vs.get("target")
+    held = journal["data"].get(name)
+    if name == "skill_name" and held in (None, "", []):
+        return _skill_name(journal)
+    return held
+
+
+def resolve_inputs(journal: dict, index: int) -> dict:
+    """The inputs the workflow of the entry at `index` runs with, resolved from the journal.
+
+    Its bracket `target`; else each input DATA_FLOW gives its code, from the
+    run's `data` (a `brief_path` list goes to CS as one `batch`), the
+    journal's skill, or VS's document for RA; else, for the plan's first
+    workflow (the first entry other than SF), the parse's `args` but `pin`.
+    Then `target_ref` (US), `pin` (the first workflow), `threshold` (TS's
+    `min`), `auto` (mode `auto`) and `flags`. A key with no value is left out.
+    """
+    steps = journal["steps"]
+    step, args = steps[index], journal["args"]
+    first = next((i for i, s in enumerate(steps) if s["code"] != "SF"), None) == index
+    takes = _takes(step["code"])
+    inputs: dict = {}
+    if step.get("target") is not None:
+        inputs["target"] = step["target"]
+    else:
+        for name in takes:
+            if name == "target_ref":
+                continue
+            value = _handed(journal, index, name)
+            if value in (None, "", []):
+                continue
+            if name == "brief_path" and step["code"] == "CS" and isinstance(value, list):
+                inputs["batch"] = value
+            else:
+                inputs[name] = value
+        if not inputs and first:
+            inputs.update((k, v) for k, v in args.items() if k != "pin")
+    if "target_ref" in takes and journal["data"].get("target_ref"):
+        inputs["target_ref"] = journal["data"]["target_ref"]
+    if first and args.get("pin"):
+        inputs["pin"] = args["pin"]
+    if step["code"] == "TS" and step.get("min") is not None:
+        inputs["threshold"] = step["min"]
+    if step.get("mode") == "auto":
+        inputs["auto"] = True
+    if step.get("flags"):
+        inputs["flags"] = list(step["flags"])
+    return inputs
 
 
 def _threshold(steps: list, start: int) -> int | None:
@@ -616,7 +734,8 @@ def cmd_start(args) -> dict:
     raw = _read_stdin().strip()
     if not raw:
         raise JournalError("no-invocation", "No invocation on stdin: pass the whole pipeline invocation.")
-    parsed = _load_parser().parse_pipeline(raw)
+    parser = _load_parser()
+    parsed = parser.parse_pipeline(raw)
     if parsed["removed_alias"] or not parsed["valid"]:
         raise JournalError("not-runnable", "The invocation does not parse to a runnable plan: "
                                            "step 1 halts on it before any journal starts.")
@@ -644,7 +763,9 @@ def cmd_start(args) -> dict:
     path = run_dir / JOURNAL
     _save(path, journal)
     return {"status": "ok", "run_id": run_id, "run_dir": str(run_dir), "journal": str(path),
-            "alias": journal["alias"], "args": journal["args"], "steps": journal["steps"]}
+            "alias": journal["alias"], "args": journal["args"],
+            "steps": [_named(s, parser.SKILLS) for s in journal["steps"]],
+            "next": _entry(journal, 0, skills=parser.SKILLS, inputs=True)}
 
 
 def _set_values(pairs: list[str]) -> dict:
@@ -745,9 +866,11 @@ def cmd_step(args) -> dict:
     journal["updated_at"] = _stamp(_now())
     _save(path, journal)
     following = None if status == "halted" else _first(steps, "pending")
+    # The step is saved: a parser that no longer loads loses nothing the chain ran.
+    nxt = None if following is None else _entry(journal, following, skills=_load_parser().SKILLS, inputs=True)
     return {"status": "ok", "journal": str(path), "recorded": _indexed(steps, index),
             "skipped": None if skipped is None else _indexed(steps, skipped),
-            "next": None if following is None else _indexed(steps, following), "data": journal["data"]}
+            "next": nxt, "data": journal["data"]}
 
 
 def _claim_result_path(result_dir: Path, stamp: str) -> Path:
@@ -926,6 +1049,7 @@ def cmd_reopen(args) -> dict:
     offer = offer_for(journal)
     if offer is None:
         raise JournalError("nothing-to-resume", "The journal's chain has nothing left to resume.")
+    skills = _load_parser().SKILLS  # before anything changes: a reopen that fails leaves the offer as it was
     steps = journal["steps"]
     now = _stamp(_now())
     halted, at = offer["halted_on"], offer["resume_at"]
@@ -946,9 +1070,11 @@ def cmd_reopen(args) -> dict:
     journal["status"] = "running"
     journal["updated_at"] = now
     _save(path, journal)
+    run = [i for i in range(at, len(steps)) if steps[i]["status"] == "pending"]
     return {"status": "ok", "journal": str(path), "offer": offer["offer"], "repair": offer["repair"],
             "alias": journal.get("alias"), "skill_name": skill,
-            "run": [_indexed(steps, i) for i in range(at, len(steps)) if steps[i]["status"] == "pending"],
+            "run": [_entry(journal, i, skills=skills) for i in run],
+            "next": _entry(journal, run[0], skills=skills, inputs=True) if run else None,
             "args": journal["args"], "data": journal["data"]}
 
 
