@@ -36,7 +36,7 @@ skf-extraction-snapshot.py loads it beside itself; `baseline` loads
 skf-resolve-authoritative-files.py (and with it PyYAML, which the PEP 723
 header above declares) only to read a brief that exists.
 
-Subcommands:
+Subcommand:
   normalize <map.json> [--now <ISO-8601>]
       Emit JSON:
         {

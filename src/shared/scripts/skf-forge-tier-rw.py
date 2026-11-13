@@ -36,7 +36,9 @@ Subcommands:
                 `preferences_error`. A valid --tier-override wins over a
                 valid preferences override (`tier_source` "invocation");
                 a rejected one is ignored and the preferences override,
-                else the file's tier, applies. No forge-tier.yaml: `exists` false,
+                else the file's tier, applies. skf-audit-skill init.md §2
+                passes its `tier_override` input as --tier-override.
+                No forge-tier.yaml: `exists` false,
                 the three tier keys null and `tools` {}. A forge-tier.yaml
                 that cannot be read or parsed, is not a mapping, holds no
                 `tier` or one that is not one of the four, holds a
@@ -51,8 +53,8 @@ Subcommands:
                 that is not there means no override; one that cannot be
                 read or is not a mapping sets `preferences_error` to why
                 and applies no override. Takes no lock: it writes
-                nothing. Used by skf-brief-skill step 1 §1,
-                skf-test-skill init.md §4 and skf-audit-skill init.md §2.
+                nothing. Used by skf-brief-skill step 1 §1 and
+                skf-test-skill init.md §4.
 
   write-tools   Write a fresh forge-tier.yaml from a JSON context payload
                 on stdin, or, with --detect-from, from the outputs a
