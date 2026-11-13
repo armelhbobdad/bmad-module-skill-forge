@@ -39,7 +39,7 @@ A campaign needs a `campaign_name` and its target libraries. Each target has:
 Two paths are optional:
 
 - `directive_path`: a `_campaign-directive.md` file with operator directives (contract: `references/campaign-directive-spec.md`)
-- `architecture_doc_path`: the architecture document the verify (Stage 7) and refine (Stage 8) stages consume. When no source gives one (a `--manifest`, a brief without `architecture_doc_path`, an answer that names none), look for it, in both modes: `{project-root}/docs/architecture.md`, then `{project-root}/_bmad-output/planning-artifacts/architecture.md`. Pass the path given or found to `init` with `--architecture-doc-path` (§2); with none, those stages skip and log it.
+- `architecture_doc_path`: the architecture document the capstone (Stage 6), verify (Stage 7) and refine (Stage 8) stages consume. When no source gives one (a `--manifest`, a brief without `architecture_doc_path`, an answer that names none), look for it, in both modes: `{project-root}/docs/architecture.md`, then `{project-root}/_bmad-output/planning-artifacts/architecture.md`. Pass the path given or found to `init` with `--architecture-doc-path` (§2); with none, the capstone composes without it, and verification and refinement skip and log it.
 
 A field no source gives takes its default: `tier` `"A"`, `pin` `null`, `depends_on` empty, and `campaign_name` the brief's `campaign_name`, else `{project_name}`. A Tier A target may not depend on a Tier B target: Tier B skills are built after the skill loop, so Strategy rejects that plan.
 

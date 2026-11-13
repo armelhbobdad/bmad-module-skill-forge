@@ -47,7 +47,7 @@ Invoke `skf-create-stack-skill` with `--headless` and these inputs, so it asks n
 - `mode`: `compose`
 - `skills`: the §2 `export_name` values, comma-separated (compose mode takes them as its constituent skill folders)
 - `stack_name`: the `stack_name` that `uv run {manifestScript} --stack-name {stateFile}` prints, the campaign name as a skill name cut to leave room for the `-stack` SS appends; when it prints null, leave the input out and SS names the stack `{project_name}-stack`
-- `architecture_doc_path`: `campaign.architecture_doc_path`, only when state sets it
+- `architecture_doc_path`: `campaign.architecture_doc_path`, the document Setup was given or found, only when state sets it and that file exists (SS halts on a path that names no readable file)
 
 Keep the `SKF_STACK_RESULT_JSON` line it prints for §4, which records it: on stdout, or on stderr when SS halts. On `status` `error`, log its `halt_reason` (type `event`); a run with that line on neither stream is recorded in §4. Verification and the campaign report still run either way.
 

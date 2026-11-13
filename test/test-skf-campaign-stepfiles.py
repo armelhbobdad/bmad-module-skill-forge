@@ -1168,6 +1168,25 @@ def test_verify_and_refine_never_ask_for_the_architecture_document(name: str, st
     _parse(_state_call(persist, "uv run {stateScript} set-campaign"))
 
 
+def test_the_capstone_gets_the_architecture_document_setup_recorded() -> None:
+    """Setup records a document it found as one given, and the capstone hands it to SS compose mode, so the docs
+    and the fragment name the capstone; a recorded path whose file is gone is left out, since SS halts on it."""
+    [line] = [line for line in _section(_step("step-07-capstone.md"), 3).splitlines()
+              if line.startswith("- `architecture_doc_path`:")]
+    assert "the document Setup was given or found, only when state sets it and that file exists" in line
+    intake = _section(_step("step-01-setup.md"), 1)
+    for token in ("the capstone (Stage 6), verify (Stage 7) and refine (Stage 8) stages consume",
+                  "with none, the capstone composes without it, and verification and refinement skip and log it"):
+        assert token in intake, token
+    doc = (REPO_ROOT / "docs" / "campaign.md").read_text(encoding="utf-8")
+    for token in ("Only the Capstone, Verification and Refinement stages use it",
+                  "The Capstone, Verification and Refinement stages use the architecture document Setup recorded",
+                  "and composes without it when the state holds none or its file is gone"):
+        assert token in doc, token
+    fragment = (REPO_ROOT / "changes" / "campaign-architecture-doc-found-at-setup.yaml").read_text(encoding="utf-8")
+    assert "The Capstone now passes a found document to `skf-create-stack-skill` as well" in fragment
+
+
 def test_the_plan_gate_offers_unattended() -> None:
     text = _step("step-02-strategy.md")
     gate = _section(text, 6)

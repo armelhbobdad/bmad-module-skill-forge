@@ -13,7 +13,7 @@ When your project depends on many libraries, building one skill at a time is slo
 
 - Run `skf-setup` first, so SKF knows your tools and folders.
 - Install the GitHub CLI (`gh`) and sign in. Pin Validation and Provenance use it to check every repository, and without it the campaign stops before any skill is built. Each library's repository must be on GitHub.
-- An architecture document is optional. Only the Verification and Refinement stages use it (see [Stages](#stages)).
+- An architecture document is optional. Only the Capstone, Verification and Refinement stages use it (see [Stages](#stages)).
 
 ---
 
@@ -88,7 +88,7 @@ Campaign runs through 11 stages, numbered 0 to 10. Most run on their own. Setup 
 | 9 | Export | Lists each completed skill with its quality-gate verdict, names the ones the gate leaves out and, once you approve, runs `skf-export-skill` on each `pass` and `fallback` skill to package it and update your context files | Yes: `[E]xport all` or `[C]ancel` |
 | 10 | Maintenance | Writes `campaign-report.md`, runs your `on_complete` hook if you set one, then runs the end-of-workflow health check | No |
 
-Verification and Refinement use the architecture document Setup recorded: the path you gave, else the first of `docs/architecture.md` and `_bmad-output/planning-artifacts/architecture.md` that exists. When the state holds none, or the file it names is gone, they look in those two places again, and with no architecture document they skip themselves and log it, in every run. If either stage fails, the failure is logged and the campaign carries on.
+The Capstone, Verification and Refinement stages use the architecture document Setup recorded: the path you gave, else the first of `docs/architecture.md` and `_bmad-output/planning-artifacts/architecture.md` that exists. The Capstone passes it to `skf-create-stack-skill`, which maps the integrations between the skills and orders the stack's layers from it, and composes without it when the state holds none or its file is gone. Verification and Refinement need it. When the state holds none, or the file it names is gone, they look in those two places again, and with no architecture document they skip themselves and log it, in every run. If one of these stages fails, the failure is logged and the campaign carries on.
 
 ---
 
