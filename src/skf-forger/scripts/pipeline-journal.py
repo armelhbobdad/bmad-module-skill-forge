@@ -35,20 +35,43 @@ Subcommands:
            workflow's args. Prints the `steps`, each with its `skill` and
            `description`, and the `next` entry to run (below).
   step     Record the step the chain just finished: the first pending step,
-           whose code must be --code. After AN, TS, AS or VS, --gate reads
-           the JSON pipeline-gate.py printed on stdin: `continue` records
-           the step `completed`, `skip` also records the next step, the one
-           the gate passes over, `skipped`, and `halt` records the step
-           `halted` with the gate's reason (the journal is then `halted`).
-           The gate's `handoff` is recorded too, on a halt as well: AS's
-           `target_ref` when upstream moved, which a value given with --set
-           does not replace. Any other workflow, or a gate that printed no
-           JSON, takes --status `completed`, or `halted` with --reason.
+           whose code must be --code. --envelope reads the envelope line the
+           workflow printed on stdin, as pipeline-gate.py reads a result: the
+           last line of the code's own envelope (ENVELOPES) wins and a
+           byte-order mark is dropped; an empty stdin halts the step
+           `no-result`, only other workflows' lines `wrong-result`, and text
+           it cannot read `result-unreadable`. After AN, TS, AS or VS it runs
+           pipeline-gate.py's rules in process, with the next plan code and
+           AN's plan `min`, and records the decision as --gate does. After
+           any other workflow it reads the line's `status` (SF's
+           `skf_setup.status`, US's `skf_update.status`): a status
+           COMPLETED_STATUSES lists completes the step, one HALT_REASONS
+           names halts with its reason (CS `partial`: `zero-exports`, EX
+           `dry-run`: `dry-run`), and any other status halts with the
+           envelope's `halt_reason`, else the status and `: <error.reason>`
+           when the envelope names one (no status: `no-status`). Whatever
+           the step's status it records the value HANDOFF_FIELDS finds for
+           the code's HANDOFFS name, which wins over a --set one, and the
+           line's `result_path` and `report_path` as outputs; a completed
+           step whose line names no such value halts `handoff-missing`.
+           --gate reads the JSON pipeline-gate.py printed on stdin:
+           `continue` records the step `completed`, `skip` also records the
+           next step, the one the gate passes over, `skipped`, and `halt`
+           records the step `halted` with the gate's reason (the journal is
+           then `halted`). The gate's `handoff` is recorded too, on a halt
+           as well: AS's `target_ref` when upstream moved, which a value
+           given with --set does not replace. --status records a step with
+           no envelope line to read: `completed`, or `halted` with --reason
+           (`-` reads it on stdin; --gate and --envelope read stdin, so
+           `--reason -` with them is a usage error).
            --set records a value the step hands the next, by its Data Flow
-           name (a name given twice in one call holds a list): a completed
-           CS, QS or US must hand on `skill_name`, a completed AN or BS
-           `brief_path`. --output records a result or report path the
-           step's envelope names. Prints the `next` entry, null after a
+           name (a name given twice in one call holds a list): a CS, QS, SS
+           or US that --gate or --status records completed must hand on
+           `skill_name`, an AN or BS `brief_path`, an RA
+           `architecture_doc_path`. --output records a result or report
+           path the step's envelope names. Prints the step it `recorded`,
+           the step a gate `skipped`, the `gate` decision it recorded (null
+           for a code with no gate), and the `next` entry, null after a
            halt or the last step.
   finish   Write the pipeline result from the journal to --result-dir:
            `pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; -2, -3 ... when a
@@ -57,7 +80,9 @@ Subcommands:
            stop leaves (below). The run folder is deleted when nothing is
            left to resume (every step completed or skipped, or a halt no
            resume fixes) and kept otherwise. A --halt-reason with no halted
-           step halts the first pending one. A journal that cannot be saved
+           step halts the first pending one; `--halt-reason -` reads the
+           reason on stdin, and an empty one counts as no --halt-reason.
+           A journal that cannot be saved
            or read still gets its result, with a warning, unless its run
            already has one. Without --journal it records a chain that
            stopped before its journal started (at its parse, or a `start`
@@ -145,13 +170,20 @@ CLI usage (from the skf-forger skill root):
   uv run scripts/pipeline-journal.py start --run-root <dir> <<'SKF_PIPELINE'
   forge-auto https://github.com/honojs/hono --pin v4.6.0
   SKF_PIPELINE
+  uv run scripts/pipeline-journal.py step --journal <file> --code CS --envelope <<'SKF_RESULT'
+  SKF_CREATE_SKILL_RESULT_JSON: {"status": "success", "summary": {"skill_name": "hono"}, ...}
+  SKF_RESULT
+  uv run scripts/pipeline-journal.py step --journal <file> --code SF --status halted --reason - <<'SKF_REASON'
+  <the line SF displayed>
+  SKF_REASON
   uv run scripts/pipeline-journal.py step --journal <file> --code CS \\
       --status completed --set skill_name=hono
   uv run scripts/pipeline-journal.py step --journal <file> --code TS --gate <<'SKF_GATE'
   {"code": "TS", "decision": "halt", "reason": "FAIL", "skip": null, "message": "..."}
   SKF_GATE
-  uv run scripts/pipeline-journal.py finish --journal <file> --result-dir <dir> \\
-      [--halt-reason <reason>]
+  uv run scripts/pipeline-journal.py finish --journal <file> --result-dir <dir> --halt-reason - <<'SKF_REASON'
+  <the reason the chain stopped with, or nothing>
+  SKF_REASON
   uv run scripts/pipeline-journal.py finish --result-dir <dir> --halt-reason <reason>
   uv run scripts/pipeline-journal.py resume --run-root <dir> --result-dir <dir> \\
       [--forge-data-folder <dir>] [--skills-output-folder <dir>]
@@ -169,7 +201,8 @@ Exit codes:
   1  error: the journal or a folder cannot be read or written, the
      invocation does not parse to a runnable plan, a step out of order or
      without the value it hands on, a gate decision that does not fit the
-     step, a halt with no reason, nothing to resume
+     step, a gate that cannot load (`gate-missing`), a halt with no
+     reason, nothing to resume
   2  usage error (argparse: usage on stderr, no JSON)
 """
 
@@ -187,6 +220,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PARSER = Path(__file__).resolve().parent / "parse-pipeline.py"
+GATE = Path(__file__).resolve().parent / "pipeline-gate.py"
 
 JOURNAL = "pipeline-journal.json"
 RUN_PREFIX = "skf-forger-"
@@ -208,12 +242,71 @@ _FILE_STAMP_RE = re.compile(r"^\d{8}-\d{6}$")
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 # The codes pipeline-gate.py decides for: their step records the gate's
-# decision (--gate), not a status given by hand.
+# decision (--envelope runs the gate, --gate reads what it printed), not a
+# status given by hand.
 GATED = frozenset({"AN", "TS", "AS", "VS"})
 # The value a completed step hands the next workflow, by its Data Flow name
 # in pipeline-contracts.md. A resumed chain passes it on, and the offer's
 # later-test and later-export checks look the skill up by it.
-HANDOFFS = {"AN": "brief_path", "BS": "brief_path", "CS": "skill_name", "QS": "skill_name", "US": "skill_name"}
+HANDOFFS = {"AN": "brief_path", "BS": "brief_path", "CS": "skill_name", "QS": "skill_name", "US": "skill_name",
+            "SS": "skill_name", "RA": "architecture_doc_path"}
+# Where each code's envelope holds the value HANDOFFS names, as keys from the
+# envelope's top: the code's schema in src/shared/scripts/schemas/. AN's list
+# records one brief as a string and several as a list, as --set records them.
+HANDOFF_FIELDS = {
+    "AN": ("brief_paths",),
+    "BS": ("brief_path",),
+    "CS": ("summary", "skill_name"),
+    "QS": ("summary", "skill_name"),
+    "US": ("skf_update", "skill_name"),
+    "SS": ("skill_name",),
+    "RA": ("refined_path",),
+}
+# The envelope's top-level paths a step records as its outputs.
+OUTPUT_FIELDS = ("result_path", "report_path")
+# The envelope line each workflow prints in headless mode, by code: each
+# schema's title in src/shared/scripts/schemas/ (pipeline-gate.py's
+# ENVELOPES for the gated codes).
+ENVELOPES = {
+    "SF": "SKF_SETUP_RESULT_JSON",
+    "AN": "SKF_ANALYZE_RESULT_JSON",
+    "BS": "SKF_BRIEF_RESULT_JSON",
+    "CS": "SKF_CREATE_SKILL_RESULT_JSON",
+    "QS": "SKF_QUICK_SKILL_RESULT_JSON",
+    "SS": "SKF_STACK_RESULT_JSON",
+    "US": "SKF_UPDATE_RESULT_JSON",
+    "AS": "SKF_AUDIT_RESULT_JSON",
+    "VS": "SKF_VERIFY_STACK_RESULT_JSON",
+    "RA": "SKF_REFINE_ARCHITECTURE_RESULT_JSON",
+    "TS": "SKF_TEST_RESULT_JSON",
+    "EX": "SKF_EXPORT_RESULT_JSON",
+    "RS": "SKF_RENAME_SKILL_RESULT_JSON",
+    "DS": "SKF_DROP_SKILL_RESULT_JSON",
+}
+# The object an envelope holds its fields in, as SF's and US's schemas wrap
+# them; every other envelope holds them at its top.
+PAYLOADS = {"SF": "skf_setup", "US": "skf_update"}
+# The `status` values that complete a step with no gate, by code: `success`,
+# and the successful exits the US schema names. Mirrors the Circuit Breakers
+# intro in pipeline-contracts.md.
+COMPLETED_STATUSES = {
+    "SF": ("success",),
+    "BS": ("success",),
+    "CS": ("success",),
+    "QS": ("success",),
+    "SS": ("success",),
+    "US": ("success", "no-changes", "detect-only", "dry-run"),
+    "RA": ("success",),
+    "EX": ("success",),
+    "RS": ("success",),
+    "DS": ("success",),
+}
+# A status that halts with a reason of its own, keyed (code, status): the CS
+# and EX rows of the Circuit Breakers table in pipeline-contracts.md. Any
+# other status halts with the envelope's halt_reason, else the status.
+HALT_REASONS = {("CS", "partial"): "zero-exports", ("EX", "dry-run"): "dry-run"}
+# An envelope line, as pipeline-gate.py finds one.
+_ENVELOPE_RE = re.compile(r"(SKF_[A-Z0-9_]+_RESULT_JSON):\s*(\{.*\})\s*$")
 # What a workflow takes from the one before it, keyed (from, to): one key per
 # row of the Data Flow table in pipeline-contracts.md, each value the inputs
 # the receiving code takes. resolve_inputs reads it for the entry to run next.
@@ -229,6 +322,9 @@ DATA_FLOW = {
     ("AS", "US"): ("skill_name", "target_ref"),
     ("US", "TS"): ("skill_name",),
     ("VS", "RA"): ("architecture_doc_path",),
+    ("RA", "SS"): ("architecture_doc_path",),
+    ("SS", "TS"): ("skill_name",),
+    ("SS", "EX"): ("skill_name",),
 }
 
 # A quality halt, keyed by the halted code and its reason (lower case, `-`
@@ -502,8 +598,12 @@ def _takes(code: str) -> list[str]:
 
 
 def _handed(journal: dict, index: int, name: str):
-    """The value an earlier step left for the input `name` of the entry at `index`, or None."""
-    if name == "architecture_doc_path":
+    """The value an earlier step left for the input `name` of the entry at `index`, or None.
+
+    RA's `architecture_doc_path` is the document the VS before it was given;
+    SS's is the refined one RA handed on, in `data`.
+    """
+    if name == "architecture_doc_path" and journal["steps"][index]["code"] == "RA":
         vs = next((s for s in reversed(journal["steps"][:index]) if s["code"] == "VS"), None)
         return None if vs is None else vs.get("target")
     held = journal["data"].get(name)
@@ -710,17 +810,27 @@ def _newest_journal(run_root: Path, warnings: list) -> tuple[Path, dict] | None:
 # --------------------------------------------------------------------------
 
 
-def _load_parser():
-    """Load parse-pipeline.py, which ships in this script's folder."""
+def _load_sibling(name: str, path: Path, error: str):
+    """Load a script that ships in this script's folder, when a call needs it (never at import)."""
     try:
-        spec = importlib.util.spec_from_file_location("skf_parse_pipeline", PARSER)
+        spec = importlib.util.spec_from_file_location(name, path)
         if spec is None or spec.loader is None:
             raise ImportError("no import spec")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
     except (OSError, ImportError) as e:
-        raise JournalError("parser-missing", f"parse-pipeline.py cannot be loaded from {PARSER.parent}: {e}") from None
+        raise JournalError(error, f"{path.name} cannot be loaded from {path.parent}: {e}") from None
     return module
+
+
+def _load_parser():
+    """Load parse-pipeline.py, which ships in this script's folder."""
+    return _load_sibling("skf_parse_pipeline", PARSER, "parser-missing")
+
+
+def _load_gate():
+    """Load pipeline-gate.py, which ships in this script's folder: `step --envelope` runs its rules."""
+    return _load_sibling("skf_pipeline_gate", GATE, "gate-missing")
 
 
 def _read_stdin() -> str:
@@ -728,6 +838,17 @@ def _read_stdin() -> str:
     if hasattr(sys.stdin, "reconfigure"):
         sys.stdin.reconfigure(encoding="utf-8")
     return sys.stdin.read()
+
+
+def _read_result_text() -> str | None:
+    """The envelope text on stdin, a byte-order mark dropped, or None when it is not UTF-8."""
+    try:
+        if hasattr(sys.stdin, "reconfigure"):
+            sys.stdin.reconfigure(encoding="utf-8-sig", errors="strict")
+        text = sys.stdin.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text[1:] if text.startswith("\ufeff") else text
 
 
 def cmd_start(args) -> dict:
@@ -795,6 +916,11 @@ def _gate_decision(text: str, code: str) -> dict:
             value = json.loads(text[start:end + 1]) if 0 <= start < end else None
         except ValueError:
             value = None
+    return _checked_decision(value, code)
+
+
+def _checked_decision(value, code: str) -> dict:
+    """`value` when it is a gate decision for `code` that names what its decision needs."""
     if not isinstance(value, dict) or value.get("decision") not in DECISIONS:
         raise JournalError("gate-unreadable", "--gate reads the JSON object pipeline-gate.py printed, with its "
                                               "`decision`, on stdin.")
@@ -816,6 +942,89 @@ def _gate_handoff(decision: dict) -> dict:
             if isinstance(name, str) and _NAME_RE.match(name) and isinstance(value, str) and value.strip()}
 
 
+def _text(value) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _at(value, keys: tuple):
+    """The value under `keys`, one object key after another, or None."""
+    for key in keys:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+def read_envelope(code: str, text: str | None) -> tuple[dict | None, str | None]:
+    """(result, problem) for the text a step printed, as pipeline-gate.py's read_result reads it.
+
+    The last envelope line of `code`'s own workflow wins. Envelope lines of
+    other workflows alone are `wrong-result`; with no envelope line at all,
+    the whole text must be one JSON object. Empty text is `no-result`, and
+    text that is not UTF-8 (None) or not that object `result-unreadable`.
+    """
+    if text is None:
+        return None, "result-unreadable"
+    if not text.strip():
+        return None, "no-result"
+    found = [m for m in map(_ENVELOPE_RE.search, text.splitlines()) if m]
+    own = [m.group(2) for m in found if m.group(1) == ENVELOPES.get(code)]
+    if found and not own:
+        return None, "wrong-result"
+    try:
+        value = json.loads(own[-1] if own else text)
+    except ValueError:
+        return None, "result-unreadable"
+    return (value, None) if isinstance(value, dict) else (None, "result-unreadable")
+
+
+def envelope_outcome(code: str, result: dict) -> tuple[str, str | None]:
+    """The status a step with no gate records from its envelope, and its halt reason (None when it completed)."""
+    payload = result.get(PAYLOADS[code]) if code in PAYLOADS else result
+    payload = payload if isinstance(payload, dict) else {}
+    status = _text(payload.get("status"))
+    if status is None:
+        return "halted", "no-status"
+    key = status.lower()
+    if key in COMPLETED_STATUSES.get(code, ("success",)):
+        return "completed", None
+    if (code, key) in HALT_REASONS:
+        return "halted", HALT_REASONS[(code, key)]
+    named = _text(payload.get("halt_reason"))
+    if named:
+        return "halted", named
+    detail = _text(_at(payload, ("error", "reason")))
+    return "halted", f"{status}: {detail}" if detail else status
+
+
+def envelope_values(code: str, result: dict) -> tuple[dict, list[str]]:
+    """The handoff value the envelope names, by its HANDOFFS name, and its output paths."""
+    values: dict = {}
+    if code in HANDOFF_FIELDS:
+        value = _at(result, HANDOFF_FIELDS[code])
+        if isinstance(value, list):
+            items = [v.strip() for v in value if isinstance(v, str) and v.strip()]
+            value = items[0] if len(items) == 1 else items or None
+        else:
+            value = _text(value)
+        if value:
+            values[HANDOFFS[code]] = value
+    outputs = [p for p in (_text(result.get(name)) for name in OUTPUT_FIELDS) if p]
+    return values, outputs
+
+
+def _decided(decision: dict, steps: list, index: int, code: str) -> tuple[str, str | None, int | None, str | None]:
+    """The status and reason a gate decision records, and the step a skip passes over with its reason."""
+    status = "halted" if decision["decision"] == "halt" else "completed"
+    reason = decision["reason"].strip() if status == "halted" else None
+    if decision["decision"] != "skip":
+        return status, reason, None, None
+    skipped = index + 1
+    following = steps[skipped]["code"] if skipped < len(steps) else None
+    if following != decision["skip"].strip().upper():
+        raise JournalError("skip-mismatch", f"The gate passes over {decision['skip']}, but the step after "
+                                            f"{code} is {following or 'none'}.")
+    return status, reason, skipped, decision["reason"].strip()
+
+
 def cmd_step(args) -> dict:
     path = Path(args.journal)
     journal = load_journal(path)
@@ -829,38 +1038,52 @@ def cmd_step(args) -> dict:
     if steps[index]["code"] != args.code:
         raise JournalError("out-of-order", f"The next step in the journal is {steps[index]['code']} "
                                            f"(step {index + 1}), not {args.code}.")
-    skipped = skip_reason = None
-    gate_handoff: dict = {}
-    if args.gate:
+    skipped = skip_reason = decision = None
+    found: dict = {}
+    outputs: list[str] = []
+    if args.envelope:
+        text = _read_result_text()
+        result, problem = read_envelope(args.code, text)
+        if args.code in GATED:
+            gate = _load_gate()  # before anything is recorded: a gate that cannot load records nothing
+            plan_min = steps[index]["min"]
+            minimum = plan_min if args.code == "AN" and isinstance(plan_min, int) else 1
+            next_code = steps[index + 1]["code"] if index + 1 < len(steps) else None
+            decision = _checked_decision(gate.gate(args.code, text, next_code=next_code, minimum=minimum), args.code)
+        else:
+            status, reason = ("halted", problem) if problem else envelope_outcome(args.code, result)
+        if result is not None:
+            found, outputs = envelope_values(args.code, result)
+    elif args.gate:
         decision = _gate_decision(_read_stdin(), args.code)
-        gate_handoff = _gate_handoff(decision)
-        status = "halted" if decision["decision"] == "halt" else "completed"
-        reason = decision["reason"].strip() if status == "halted" else None
-        if decision["decision"] == "skip":
-            skipped, skip_reason = index + 1, decision["reason"].strip()
-            following = steps[skipped]["code"] if skipped < len(steps) else None
-            if following != decision["skip"].strip().upper():
-                raise JournalError("skip-mismatch", f"The gate passes over {decision['skip']}, but the step after "
-                                                    f"{args.code} is {following or 'none'}.")
     else:
         status = args.status
-        reason = ((args.reason or "").strip() or None) if status == "halted" else None
+        given = _read_stdin() if args.reason == "-" else args.reason
+        reason = ((given or "").strip() or None) if status == "halted" else None
         if status == "completed" and args.code in GATED:
-            raise JournalError("gate-required", f"{args.code} has a gate: record its decision with --gate and the "
-                                                "JSON pipeline-gate.py printed on stdin.")
+            raise JournalError("gate-required", f"{args.code} has a gate: record it with --envelope and the "
+                                                "envelope line it printed on stdin.")
         if status == "halted" and reason is None:
             raise JournalError("reason-missing", "A halted step needs --reason: the workflow's halt reason.")
-    # The gate read the envelope the step printed, so its value wins over one typed with --set.
-    values = {**_set_values(args.set or []), **gate_handoff}
+    gate_handoff: dict = {}
+    if decision is not None:
+        status, reason, skipped, skip_reason = _decided(decision, steps, index, args.code)
+        gate_handoff = _gate_handoff(decision)
+    # The envelope is the step's own record, so its values win over one typed with --set.
+    values = {**_set_values(args.set or []), **found, **gate_handoff}
     need = HANDOFFS.get(args.code)
     if status == "completed" and need and need not in values:
-        raise JournalError("handoff-missing", f"A completed {args.code} hands `{need}` to the next workflow: "
-                                              f"pass --set \"{need}=<value>\".")
+        if not args.envelope:
+            raise JournalError("handoff-missing", f"A completed {args.code} hands `{need}` to the next workflow: "
+                                                  f"pass --set \"{need}=<value>\".")
+        # The next workflow would start without its input.
+        status, reason, skipped, skip_reason = "halted", "handoff-missing", None, None
     steps[index].update(status=status, reason=reason)
     if skipped is not None:
         steps[skipped].update(status="skipped", reason=skip_reason)
     journal["data"].update(values)
-    journal["outputs"].extend({"code": args.code, "path": p} for p in args.output or [])
+    paths = list(dict.fromkeys([*outputs, *(args.output or [])]))
+    journal["outputs"].extend({"code": args.code, "path": p} for p in paths)
     if status == "halted":
         journal["status"] = "halted"
     journal["updated_at"] = _stamp(_now())
@@ -870,7 +1093,7 @@ def cmd_step(args) -> dict:
     nxt = None if following is None else _entry(journal, following, skills=_load_parser().SKILLS, inputs=True)
     return {"status": "ok", "journal": str(path), "recorded": _indexed(steps, index),
             "skipped": None if skipped is None else _indexed(steps, skipped),
-            "next": nxt, "data": journal["data"]}
+            "gate": decision, "next": nxt, "data": journal["data"]}
 
 
 def _claim_result_path(result_dir: Path, stamp: str) -> Path:
@@ -946,7 +1169,8 @@ def _finish_with_no_step(result_dir: Path, run_id: str, now: datetime, reason: s
 def cmd_finish(args) -> dict:
     now = _now()
     result_dir = Path(args.result_dir)
-    halt_reason = (args.halt_reason or "").strip() or None
+    given = _read_stdin() if args.halt_reason == "-" else args.halt_reason
+    halt_reason = (given or "").strip() or None  # an empty heredoc is no --halt-reason
     if args.journal is None:
         if halt_reason is None:
             raise JournalError("reason-missing", "Without --journal, finish records a chain that stopped before its "
@@ -1117,20 +1341,25 @@ def _build_parser() -> argparse.ArgumentParser:
     step.add_argument("--journal", required=True, help="The journal `start` created.")
     step.add_argument("--code", required=True, type=str.upper, help="The code of the step that finished.")
     how = step.add_mutually_exclusive_group(required=True)
+    how.add_argument("--envelope", action="store_true",
+                     help="Read the envelope line the workflow printed on stdin and record the step from it: the "
+                          "gate's rules for AN, TS, AS and VS, the envelope's status for the others.")
     how.add_argument("--gate", action="store_true",
                      help="Read the JSON pipeline-gate.py printed for the step on stdin and record its decision.")
-    how.add_argument("--status", choices=STATUS_CHOICES, help="How a step with no gate decision ended.")
-    step.add_argument("--reason", help="The halt reason, with --status halted.")
+    how.add_argument("--status", choices=STATUS_CHOICES, help="How a step with no envelope line to read ended.")
+    step.add_argument("--reason", help="The halt reason, with --status halted; '-' reads it on stdin.")
     step.add_argument("--set", action="append", metavar="NAME=VALUE",
-                      help="A value the step hands the next, by its Data Flow name (skill_name, brief_path).")
+                      help="A value the step hands the next, by its Data Flow name (skill_name, brief_path, "
+                           "architecture_doc_path); an envelope's value wins over it.")
     step.add_argument("--output", action="append", metavar="PATH",
                       help="A result or report path the step's envelope names.")
-    step.set_defaults(func=cmd_step)
+    step.set_defaults(func=cmd_step, usage_error=step.error)
 
     finish = sub.add_parser("finish", help="Write the pipeline result; delete the run folder when nothing is left.")
     finish.add_argument("--result-dir", required=True, help="The folder of the pipeline result files (the sidecar).")
     finish.add_argument("--journal", help="The run's journal; omitted for a chain that stopped before it started.")
-    finish.add_argument("--halt-reason", help="Why the chain stopped, when no step call recorded it.")
+    finish.add_argument("--halt-reason", help="Why the chain stopped, when no step call recorded it; '-' reads it on "
+                                              "stdin, where an empty text is no reason.")
     finish.set_defaults(func=cmd_finish)
 
     resume = sub.add_parser("resume", help="The resume or repair offer the newest journal leaves.")
@@ -1163,6 +1392,9 @@ def _force_utf8(*streams) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.command == "step" and args.reason == "-" and args.status is None:
+        args.usage_error("argument --reason: '-' reads the reason on stdin, which --envelope and --gate read too: "
+                         "give it with --status halted")
     try:
         result = args.func(args)
     except JournalError as e:

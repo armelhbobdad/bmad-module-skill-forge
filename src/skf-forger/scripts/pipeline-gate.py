@@ -5,9 +5,10 @@
 # ///
 """Deterministic circuit-breaker decision for one finished pipeline step.
 
-Pipeline Mode (references/pipeline-mode.md step 4d) runs this after AN, TS, AS
-or VS finishes, instead of reading the step's result and comparing it by
-hand. Which field carries the verdict, and which verdicts go on, skip or stop,
+Pipeline Mode (references/pipeline-mode.md step 4d) records each finished step
+with `pipeline-journal.py step --envelope`, which runs these rules in process
+after AN, TS, AS or VS, instead of reading the step's result and comparing it
+by hand. Which field carries the verdict, and which verdicts go on, skip or stop,
 has one correct answer per result, so it runs here, not in the prompt. The
 gate never compares a TS score with a threshold: the forger hands a `[min:N]`
 to TS as `--threshold=N`, and TS settles its own verdict, caps and 80% floor
@@ -85,7 +86,7 @@ Output (stdout, one object):
 `handoff` is set only after an AS whose result says upstream moved
 (`upstream_moved` true) and names the new ref (`upstream_ref`): a continue,
 or a CRITICAL halt, whose review-drift-report repair picks the chain up at
-US. `pipeline-journal.py step --gate` records it, and US takes it as
+US. `pipeline-journal.py step --envelope` records it, and US takes it as
 `--target-ref`, so the update reads the ref the audit found.
 
 Exit codes:
@@ -355,9 +356,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pipeline-gate",
         description=(
-            "Circuit-breaker decision for one finished pipeline step "
-            "(pipeline-mode.md step 4d): read the step's result envelope line "
-            "or result record and print continue, skip or halt with a reason."
+            "Circuit-breaker decision for one finished pipeline step, whose "
+            "rules pipeline-journal.py step --envelope runs in process: read the "
+            "step's result envelope line or result record and print continue, "
+            "skip or halt with a reason."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

@@ -2,7 +2,8 @@
 """Tests for src/skf-forger/scripts/pipeline-gate.py.
 
 The circuit breaker Pipeline Mode (pipeline-mode.md step 4d) runs after AN,
-TS, AS or VS instead of reading the result by hand:
+TS, AS or VS instead of reading the result by hand, through
+`pipeline-journal.py step --envelope`, which loads these rules in process:
   - every verdict of each gated workflow: TS continues only on PASS routed to
     export (a capped FAIL whose score clears the threshold halts, a fallback
     PASS below the threshold continues, a PASS with an error status halts),
@@ -12,11 +13,11 @@ TS, AS or VS instead of reading the result by hand:
     continue and on a CRITICAL halt alike; every other decision hands on none
   - the envelope line and the result record, errored results, and input the
     gate cannot read, UTF-8 with a byte-order mark included (it halts)
-  - step 4d gates the envelope the step just printed, never a -latest.json
+  - step 4d records the envelope the step just printed, never a -latest.json
     record, which may be an earlier run's
   - the gate's fields and value sets match the workflows' own result
     contracts (their envelope schemas once they have them) and the Circuit
-    Breakers table, and the documented call runs as written
+    Breakers table, and the call step 4d documents runs as written
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ SCRIPT = SRC / "skf-forger" / "scripts" / "pipeline-gate.py"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 SCHEMAS = SRC / "shared" / "scripts" / "schemas"
+JOURNAL = SRC / "skf-forger" / "scripts" / "pipeline-journal.py"
 
 spec = importlib.util.spec_from_file_location("skf_pipeline_gate", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -620,7 +622,8 @@ def test_the_circuit_breaker_table_names_what_the_gate_decides():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 4 and re.fullmatch(r"[A-Z]{2}", cells[0]):
             rows[cells[0]] = " ".join(cells[1:])
-    assert set(rows) - {"CS"} == set(mod.GATED_CODES)
+    # CS and EX halt on a status of their own, which the journal reads (#1168).
+    assert set(rows) - {"CS", "EX"} == set(mod.GATED_CODES)
     for code, tokens in {"TS": ("PASS", "FAIL", "INCONCLUSIVE", "pass-with-drift", "`verdict`",
                                 "`summary.result`", "next_workflow"),
                          "AN": ("unit_counts.confirmed", "min: 1"),
@@ -637,31 +640,38 @@ def test_the_circuit_breaker_table_names_what_the_gate_decides():
 
 def _step_4d() -> str:
     text = _read(PIPELINE_MODE)
-    start = text.index("   - d. **Check the circuit breaker.**")
+    start = text.index("   - d. **Record the step**")
     return text[start:text.index("   - e. **", start)]
 
 
-def _documented_gate_call() -> tuple[list[str], str]:
-    """The call step 4d documents: its arguments and its heredoc delimiter."""
-    m = re.search(r"```bash\n\s*uv run scripts/pipeline-gate\.py (.+?) <<'(\w+)'\n.*?\n\s*\2\n\s*```",
+def _documented_step_call() -> tuple[str, str]:
+    """The call step 4d documents: its words after the script and its heredoc delimiter."""
+    m = re.search(r"```bash\n\s*uv run scripts/pipeline-journal\.py (step .+?--envelope) <<'(\w+)'\n.*?\n\s*\2\n\s*```",
                   _step_4d(), re.S)
-    assert m, "step 4d must show the gate call with a quoted heredoc"
+    assert m, "step 4d must show the journal's step --envelope call with a quoted heredoc"
     return m.group(1), m.group(2)
 
 
-@pytest.mark.parametrize("keep_optional", [True, False], ids=["with-options", "required-only"])
-def test_step_4d_gate_call_runs_as_written(keep_optional):
-    synopsis, _ = _documented_gate_call()
-    if keep_optional:
-        synopsis = re.sub(r"\[(--[^\]]+)\]", r"\1", synopsis)
-    else:
-        synopsis = re.sub(r"\s*\[--[^\]]+\]", "", synopsis)
-    values = {"<code>": "AS", "<next-code>": "US", "<N>": "1"}
+def _journal(*args, stdin=""):
+    p = subprocess.run([sys.executable, str(JOURNAL), *args], input=stdin, capture_output=True, text=True,
+                       encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stdout + p.stderr
+    return json.loads(p.stdout)
+
+
+@pytest.mark.parametrize(("severity", "decision"), [("CLEAN", "skip"), ("MINOR", "continue")])
+def test_step_4d_call_runs_the_gate_as_written(tmp_path, severity, decision):
+    """`maintain`: the journal hands the gate the next plan code, so a CLEAN audit passes over US."""
+    synopsis, _ = _documented_step_call()
+    started = _journal("start", "--run-root", str(tmp_path), stdin="maintain demo\n")
+    values = {"<journal>": started["journal"], "<code>": "AS"}
     argv = [values.get(word, word) for word in shlex.split(synopsis)]
     assert not [w for w in argv if w.startswith("<")], argv
-    p = _run(*argv, stdin=as_envelope("CLEAN"))
-    assert p.returncode == 0, p.stderr
-    assert json.loads(p.stdout)["decision"] == ("skip" if keep_optional else "continue")
+    out = _journal(*argv, stdin=as_envelope(severity) + "\n")
+    assert out["gate"] == decide("AS", as_envelope(severity), next_code="US")
+    assert out["gate"]["decision"] == decision
+    expected = ("TS", True) if decision == "skip" else ("US", False)
+    assert (out["next"]["code"], out["skipped"] is not None) == expected
 
 
 def test_step_4d_gates_the_envelope_the_step_just_printed():
@@ -683,10 +693,15 @@ def test_step_4d_gates_the_envelope_the_step_just_printed():
     assert (decide("TS", "", next_code="EX")["decision"], decide("TS", "")["reason"]) == ("halt", "no-result")
 
 
-def test_step_4d_passes_an_min_only_when_the_plan_has_one():
-    """forge-auto's AN entry has min null, and `--min null` is a usage error."""
-    assert "for AN with a `min` in its plan entry, `--min` that value" in _step_4d()
+def test_step_4d_passes_an_min_only_when_the_plan_has_one(tmp_path):
+    """The journal hands the gate AN's plan `min`, and the default 1 for forge-auto's AN, whose `min` is
+    null (`--min null` is a usage error of the gate's own CLI)."""
+    assert "with the next code in the plan and AN's plan `min`" in _step_4d()
     assert _run("--code", "AN", "--min", "null", stdin=an_envelope(1)).returncode == 2
+    for invocation, decision in (("AN[min:2] CS TS EX", "halt"), ("forge-auto https://github.com/a/b", "continue")):
+        started = _journal("start", "--run-root", str(tmp_path), stdin=invocation + "\n")
+        out = _journal("step", "--journal", started["journal"], "--code", "AN", "--envelope", stdin=an_envelope(1))
+        assert out["gate"]["decision"] == decision, invocation
 
 
 def test_step_4d_acts_on_the_decision_and_compares_no_score():

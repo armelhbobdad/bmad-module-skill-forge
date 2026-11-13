@@ -654,19 +654,20 @@ def test_resume_offer_skips_a_record_with_no_workflow(tmp_path):
     import shlex
 
     journal_script = REPO / "src" / "skf-forger" / "scripts" / "pipeline-journal.py"
-    [halt] = re.findall(r"`(uv run scripts/pipeline-journal\.py finish --result-dir [^`]+)`", _step_1())
+    # #1168: the halt reason goes on stdin, through a quoted heredoc.
+    [(halt, _delimiter)] = re.findall(r"```bash\n\s*(uv run scripts/pipeline-journal\.py finish --result-dir "
+                                   r".+?--halt-reason -) <<'(\w+)'\n\s*<the halt reason>\n\s*\2\n", _step_1())
     [resume] = re.findall(r"^\s*(uv run scripts/pipeline-journal\.py resume .+)$", _read(FORGER_SKILL), re.M)
     values = {"{project-root}": str(tmp_path), "{sidecar_path}": str(tmp_path / "sidecar"),
-              "{forge_data_folder}": str(tmp_path / "forge-data"), "{skills_output_folder}": str(tmp_path / "skills"),
-              "<the halt reason>": "unknown code TX"}
+              "{forge_data_folder}": str(tmp_path / "forge-data"), "{skills_output_folder}": str(tmp_path / "skills")}
     outputs = []
-    for call in (halt, resume):
+    for call, stdin in ((halt, "unknown code TX\n"), (resume, "")):
         words = shlex.split(call)
         assert words[:3] == ["uv", "run", "scripts/pipeline-journal.py"], words
         for placeholder, value in values.items():
             words = [w.replace(placeholder, value) for w in words]
-        p = subprocess.run([sys.executable, str(journal_script), *words[3:]], capture_output=True, text=True,
-                           encoding="utf-8", timeout=60)
+        p = subprocess.run([sys.executable, str(journal_script), *words[3:]], input=stdin, capture_output=True,
+                           text=True, encoding="utf-8", timeout=60)
         assert p.returncode == 0, p.stdout + p.stderr
         outputs.append(json.loads(p.stdout))
     assert (outputs[0]["pipeline_status"], outputs[0]["halt_reason"]) == ("failed", "unknown code TX")

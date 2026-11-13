@@ -58,18 +58,22 @@ How outputs from one workflow become inputs to the next:
 | TS | EX | skill name + settled verdict | EX runs only when TS settled PASS (`next_workflow` is `export-skill`); FAIL, INCONCLUSIVE and pass-with-drift halt the pipeline before EX, with the verdict as the halt reason |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --gate` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found |
+| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --envelope` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found |
 | US | TS | skill name | Forger passes the `skill_name` US updated to TS: the skill `maintain` names, or the one a repair updates |
 | VS | RA | architecture doc path | Already known from VS invocation |
+| RA | SS | refined architecture doc path | Forger passes the `refined_path` from `SKF_REFINE_ARCHITECTURE_RESULT_JSON` as SS's `architecture_doc_path`, which runs SS in compose mode |
+| SS | TS | skill name | Forger passes the `skill_name` from `SKF_STACK_RESULT_JSON` to TS |
+| SS | EX | skill name | Same: the `skill_name` from `SKF_STACK_RESULT_JSON` |
 
 ## Circuit Breakers
 
-Circuit breakers halt the pipeline when a workflow's output doesn't meet a quality threshold. The forger's `pipeline-gate.py` script applies the AN, TS, AS and VS rows to the result envelope a workflow printed (a field name after a slash is its spelling in the workflow's result record) and answers continue, skip or halt with a reason; CS's row is a hard halt, which stops the pipeline by itself.
+Circuit breakers halt the pipeline when a workflow's output doesn't meet a quality threshold. The forger records each step with `pipeline-journal.py step --envelope`, from the result envelope line the workflow printed. For AN, TS, AS and VS it runs the gate's rules (its `pipeline-gate.py`) on that line, which apply these rows (a field name after a slash is its spelling in the workflow's result record) and answer continue, skip or halt with a reason. For every other workflow it reads the line's `status` (`skf_setup.status` for SF, `skf_update.status` for US): `success` goes on, and for US so do `no-changes`, `detect-only` and `dry-run`; the CS and EX rows name the statuses that halt with a reason of their own; and any other status halts with the envelope's `halt_reason`, else the status followed by `: <error.reason>` when the envelope names one.
 
 | Workflow | Check | Default Threshold | Halt Condition |
 |----------|-------|-------------------|----------------|
 | AN | recommended units count (`unit_counts.confirmed`) | min: 1 | Fewer units than the minimum (by default, zero skillable units found) |
-| CS | compilation success | must complete | Hard error during compilation |
+| CS | compilation success (`status`) | `success` | Hard error during compilation (`failed`), or a skill compiled with no exports: `partial` halts with `zero-exports` |
+| EX | export (`status`) | `success` | Hard error during export (`error`), or a `--dry-run` that wrote nothing: `dry-run` halts with `dry-run` |
 | TS | settled verdict (`verdict` / `summary.result`, with `next_workflow`) | TS's own: `TS[min:N]` reaches TS as `--threshold=N`, else the per-pipeline defaults apply (see init.md §1b) | Any verdict but PASS, reported as the halt reason: FAIL (including a FAIL that a post-score cap forced although the score clears the threshold), INCONCLUSIVE or pass-with-drift. TS owns its score, caps and 80% floor: a score between 80% and a higher threshold that TS settles as a fallback PASS with an evidence report continues |
 | AS | drift severity (`drift_score` / `summary.severity`) with the route (`next_workflow` / `summary.next_workflow`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next, unless `next_workflow` is `update-skill`: upstream moved, so the update still runs) |
 | VS | coverage (`coverage_percentage` / `summary.coveragePercentage`) with the overall verdict (`overall_verdict` / `summary.overallVerdict`) | coverage above 0% | Zero coverage (`zero-coverage`): VS verified none of the architecture's technologies. Every verdict with coverage continues, NOT_FEASIBLE included, since RA takes each Blocked integration as a critical issue |
