@@ -5,3 +5,4 @@ summary: |
 migration: |
   Run `AN[auto]` once for each path, or analyze several paths together without `[auto]`. Pin an `[auto]` run on a GitHub repository with `--pin <tag-or-branch>` in place of `--target-ref` or `--target-refs`; to read another repository or a local path at a ref, analyze it without `[auto]`, where `--target-ref` and `--target-refs` still work.
 issues: [1123]
+prs: [1211]
