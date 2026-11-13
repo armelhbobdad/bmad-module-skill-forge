@@ -15,6 +15,12 @@ validateBriefInputsProbeOrder:
 briefDraftsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-brief-drafts.py'
   - '{project-root}/src/shared/scripts/skf-brief-drafts.py'
+checkUrlsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-urls.py'
+  - '{project-root}/src/shared/scripts/skf-check-urls.py'
+qmdPortfolioSimilarityProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-qmd-portfolio-similarity.py'
+  - '{project-root}/src/shared/scripts/skf-qmd-portfolio-similarity.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -117,11 +123,19 @@ Pass `--registry` when parse-target set `registry` (a registry page's, PyPI for 
 
 - Set `source_type: "docs-only"` in the brief data
 - Collect one or more doc URLs with optional labels
-- HEAD-check the collected URLs in parallel — do not loop sequentially. Issue all N `curl -sI {url}` (or equivalent) calls in a **single message with N parallel Bash calls**, then process the responses together. Each call must use a 5-second timeout (`curl -sI --max-time 5 {url}`) to bound worst-case wall-time on hung hosts. Per response:
-  - On 2xx/3xx: silently accept.
-  - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} ({status or error}). Confirm the URL is correct, or proceed anyway."` and re-prompt for a corrected URL or `[K] Keep anyway`.
+- Check the collected URLs with the one call below. A URL that is `ok` passes silently. For any other, warn `"Could not reach {url} ({status or error}). Confirm the URL is correct, or proceed anyway."`, with `{status or error}` from its entry, and re-prompt for a corrected URL, checked the same way, or `[K] Keep anyway`.
 - Set `source_authority: "community"` (forced for docs-only: T3 external documentation)
 - Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
+
+Resolve `{checkUrlsHelper}` from `{checkUrlsProbeOrder}` (first existing path wins) and pass the URLs one per line, without their labels:
+
+```bash
+uv run {checkUrlsHelper} --timeout 5 --urls-file - <<'SKF_URLS'
+<the URLs, one per line>
+SKF_URLS
+```
+
+It prints `[{url, ok, status, error}]` in input order: each URL is asked with HEAD, redirects followed, and again with GET when the server answers 403, 405 or 501. When `{checkUrlsHelper}` has no path, run `curl -sIL --max-time 5 "{url}"` for each URL instead and take a 2xx or 3xx on its last status line as `ok`.
 
 Skip §3.3 and continue at the draft-resume check below.
 

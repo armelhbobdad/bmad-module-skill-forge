@@ -88,6 +88,7 @@ FLAG_ONLY = frozenset({
     # Quick Skill's validation summary and Test Skill's external score read the saved validator outputs (#1120).
     SRC / "shared" / "scripts" / "skf-summarize-validation.py",
     SRC / "skf-test-skill" / "scripts" / "combine-external-scores.py",
+    SRC / "shared" / "scripts" / "skf-check-urls.py",  # Brief Skill's three doc-URL checks (#1139)
 })
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)

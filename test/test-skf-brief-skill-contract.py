@@ -99,6 +99,14 @@ and the headless boundary defaults are files of their own, loaded only for a
 monorepo subpackage with coarse globs and a headless run with no `include`,
 and SKILL.md names the one recipe-runner exception to its cheap signals.
 
+#1139: step 1 §3.2, step 3 §2b and the headless input gate check doc URLs
+with one skf-check-urls.py call, which follows redirects and asks again
+with GET when a server refuses HEAD, and run curl only when the helper is
+missing. The [auto] route skips doc detection for a source that is not a
+GitHub repository URL, and every `{name}` step-auto-brief.md uses is bound.
+The portfolio check and the QMD embed verification are each one
+skf-qmd-portfolio-similarity.py call.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -106,12 +114,16 @@ against the schema.
 
 from __future__ import annotations
 
+import http.server
+import importlib.util
 import json
+import os
 import re
 import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -1277,7 +1289,7 @@ def test_step_four_is_the_one_scope_confirmation():
     assert "For [C], run the component library detection below first" in boundaries
     supplemental = _section(scope, "### 2b. Confirm Supplemental Documentation (if doc_urls collected)")
     assert "Wait for" not in supplemental and "change them at step 4" in supplemental
-    assert "**GATE [default: keep them]**" in supplemental and "HEAD-check the URLs in parallel" in supplemental
+    assert "**GATE [default: keep them]**" in supplemental and "Check the URLs with one call" in supplemental
     assert ("a URL the check below fails joins that message with its correct/keep choice, and an answer that does not "
             "take the choice up keeps the URL") in supplemental
     assert "Which pages should be included in the skill?" in scope  # a docs-only scope still picks its pages
@@ -1563,3 +1575,192 @@ def test_skill_md_names_the_one_recipe_runner_exception():
             "glob cannot express (`scope.tier_a_include` and the headless `public-api` include).") in line
     assert "\u2014" not in line
     assert len(_read(SKILL_MD)) // 4 < 2500
+
+
+# --------------------------------------------------------------------------
+# #1139: the doc-URL, portfolio and embed checks are helper calls, and doc detection reads only GitHub sources
+# --------------------------------------------------------------------------
+
+CHECK_URLS = REPO / "src" / "shared" / "scripts" / "skf-check-urls.py"
+DETECT_DOCS = REPO / "src" / "shared" / "scripts" / "skf-detect-docs.py"
+CHECK_URLS_CALL = "uv run {checkUrlsHelper} --timeout 5 --urls-file - <<'SKF_URLS'"
+CHECK_URLS_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-check-urls.py",
+                    "{project-root}/src/shared/scripts/skf-check-urls.py"]
+PORTFOLIO_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-qmd-portfolio-similarity.py",
+                   "{project-root}/src/shared/scripts/skf-qmd-portfolio-similarity.py"]
+CURL_FALLBACK = ("When `{checkUrlsHelper}` has no path, run `curl -sIL --max-time 5 \"{url}\"` for each URL instead and take "
+                 "a 2xx or 3xx on its last status line as `ok`.")
+DOCS_BRANCH = "#### 3.2 Branch \u2014 Documentation URLs (docs-only)"
+SUPPLEMENTAL = "### 2b. Confirm Supplemental Documentation (if doc_urls collected)"
+DERIVE = "### 5. Derive the Brief Fields"
+# Each site that checks doc URLs, the section that holds its check, and the outcome a URL that is not `ok` keeps.
+URL_CHECK_SITES = (
+    (GATHER_INTENT, DOCS_BRANCH,
+     'warn `"Could not reach {url} ({status or error}). Confirm the URL is correct, or proceed anyway."`'),
+    (SCOPE_DEFINITION, SUPPLEMENTAL, 'warn `"Could not reach {url} ({status or error})."`'),
+    (HEADLESS_ARGS, DERIVE, 'log `"warn: could not reach {url} ({status or error})"`'),
+)
+# A `{name}` placeholder: prose with spaces (`{first error message}`) and JSON (`{"interactive": ...}`) are not one.
+PLACEHOLDER_NAME_RE = re.compile(r"\{([A-Za-z][A-Za-z0-9_-]*)\}")
+
+
+@pytest.mark.parametrize("path,heading,outcome", [pytest.param(*site, id=site[0].stem) for site in URL_CHECK_SITES])
+def test_each_doc_url_check_is_one_helper_call(path, heading, outcome):
+    """determinism-5: the three sites hold the same call and probe order, branch on `ok`, and run curl only when the
+    helper is missing."""
+    text = _read(path)
+    section = _section(text, heading)
+    command, body = _heredoc(section, "SKF_URLS")
+    assert command == CHECK_URLS_CALL and "one per line" in body
+    assert _frontmatter(path)["checkUrlsProbeOrder"] == CHECK_URLS_PROBE
+    assert re.search(r"[Rr]esolve `\{checkUrlsHelper\}` from `\{checkUrlsProbeOrder\}` \(first existing path wins\)",
+                     section)
+    assert "A URL that is `ok` passes silently." in section
+    assert outcome in section and "with `{status or error}` from its entry" in section
+    # No header dump is read by hand: the one curl is the clause for a missing helper.
+    for gone in ("curl -sI ", "HEAD-check", "parallel Bash calls"):
+        assert gone not in text, gone
+    assert text.count("curl ") == 1 and CURL_FALLBACK in section
+    for line in section.splitlines():
+        if "{checkUrlsHelper}" in line or "could not reach" in line.lower():
+            assert "\u2014" not in line, line
+
+
+def test_a_url_that_fails_keeps_each_sites_outcome():
+    """Step 1 and step 3 re-prompt with a correct/keep choice and check a corrected URL the same way; the input gate
+    keeps the URL and records one warning per failure; step 3 does not check again what the input gate checked."""
+    scope = _section(_read(SCOPE_DEFINITION), SUPPLEMENTAL)
+    assert "step 1's input gate has checked them, so skip the check below." in scope
+    assert "offer step 1 §3.2's correct/keep choice, a corrected URL checked the same way" in scope
+    gather = _section(_read(GATHER_INTENT), DOCS_BRANCH)
+    assert "re-prompt for a corrected URL, checked the same way, or `[K] Keep anyway`" in gather
+    [doc_urls] = [line for line in _section(_read(HEADLESS_ARGS), DERIVE).splitlines()
+                  if line.startswith("- **Doc URLs:**")]
+    assert "Keep any other" in doc_urls and RECORD_FILE in doc_urls
+    assert "Record the failures one at a time" in doc_urls
+
+
+class _RefusesHead(http.server.BaseHTTPRequestHandler):
+    """A docs server that answers HEAD with 405 and GET with 200 at /docs, and 404 anywhere else."""
+
+    def _answer(self):
+        status = 404 if self.path != "/docs" else 405 if self.command == "HEAD" else 200
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    do_HEAD = _answer  # noqa: N815 - http.server's names
+    do_GET = _answer  # noqa: N815
+
+    def log_message(self, *args):
+        pass
+
+
+def test_the_headless_call_takes_a_url_that_refuses_head():
+    """The input gate's documented call, run on a local server URL whose HEAD answers 405 and GET 200: its entry is
+    `ok`, so §5 records nothing for it, while a missing page is not."""
+    command, _ = _heredoc(_section(_read(HEADLESS_ARGS), DERIVE), "SKF_URLS")
+    words = shlex.split(command.split(" <<", 1)[0])
+    assert words[:3] == ["uv", "run", "{checkUrlsHelper}"]
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RefusesHead)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        env = {key: value for key, value in os.environ.items() if "proxy" not in key.lower()}
+        proc = subprocess.run([sys.executable, str(CHECK_URLS), *words[3:]], input=f"{base}/docs\n{base}/gone\n",
+                              capture_output=True, text=True, encoding="utf-8", timeout=60, check=False, env=env)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == [{"url": f"{base}/docs", "ok": True, "status": 200, "error": None},
+                                       {"url": f"{base}/gone", "ok": False, "status": 404, "error": None}]
+
+
+def _auto_brief_bound_names() -> set[str]:
+    """The names step-auto-brief.md may use: its frontmatter keys and the helpers their probe orders resolve, the
+    names it binds itself, and the run names whose binders are checked here."""
+    front = _frontmatter(AUTO_BRIEF)
+    body = _read(AUTO_BRIEF).split("\n---\n", 1)[1]
+    bound = set(front) | {key[:-len("ProbeOrder")] + "Helper" for key in front if key.endswith("ProbeOrder")}
+    bound |= set(re.findall(r"`([A-Za-z][\w-]*)` \u2190", body))
+    bound |= set(re.findall(r"bind `\{([A-Za-z][\w-]*)\}`", body))
+    preflight, skill = _read(PREFLIGHT), _read(SKILL_MD)
+    assert "Bind `{run_dir}` \u2190 the path the last command prints." in preflight
+    assert "read `brief_path` from the pipeline data context" in _section(preflight, "### 1b. Route by Mode")
+    assert "`{emitEnvelopeHelper}` \u2190 `{project-root}/_bmad/skf/shared/scripts/" in skill
+    [config] = [line for line in skill.splitlines() if line.strip().startswith("- `project_name`")]
+    assert "`forge_data_folder`" in config and "`communication_language`" in config
+    return bound | {"run_dir", "brief_path", "emitEnvelopeHelper", "forge_data_folder", "communication_language"}
+
+
+def test_every_placeholder_the_auto_brief_uses_is_bound():
+    """architecture-8: a `{name}` the [auto] route never binds, as `{local_clone_path}` was, reaches a command as
+    text. A `suppressed` entry's line logs the entry's own `{url}` and `{reason}`."""
+    bound = _auto_brief_bound_names()
+    body = _read(AUTO_BRIEF).split("\n---\n", 1)[1]
+    unbound = [(number, name) for number, line in enumerate(body.splitlines(), 1)
+               for name in PLACEHOLDER_NAME_RE.findall(line)
+               if name not in bound and not ("`suppressed`" in line and name in ("url", "reason"))]
+    assert not unbound, unbound
+    assert "local_clone_path" not in _read(AUTO_BRIEF) and "--local-path" not in _read(AUTO_BRIEF)
+
+
+def test_a_source_that_is_not_a_github_repository_skips_doc_detection():
+    """architecture-8: the detector reads only a GitHub repository URL and exits 2 on a local path, so the [auto]
+    route skips §2 and §3 for any other source, with an info line and nothing recorded."""
+    text = _read(AUTO_BRIEF)
+    [check] = [part for part in text.split("\n\n") if part.startswith("**Local-source check:**")]
+    assert text.index("**Docs-only check:**") < text.index(check) < text.index("### 2. ")
+    assert "record" not in check and "warn" not in check
+    for needle in ("If `source_repo` is not a GitHub repository URL of the form skf-detect-docs.py reads "
+                   "(`https://github.com/<owner>/<repo>`, `http://` or a `www.` host too, optionally ending in `.git` or `/`)",
+                   "skip §2 and §3", 'Log: "Local or non-GitHub source: skipping repo-based doc detection."',
+                   "Proceed directly to §4 (Write Enriched Brief), which leaves `--doc-urls-file` out."):
+        assert needle in check, needle
+    assert "Leave `--doc-urls-file` out when §2 and §3 were skipped" in _section(text, "### 4. Write Enriched Brief")
+    # The form the check names is the one the detector accepts.
+    spec = importlib.util.spec_from_file_location("skf_detect_docs_1139", DETECT_DOCS)
+    detector = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(detector)
+    for url in ("https://github.com/acme/lib", "https://github.com/acme/lib.git", "https://github.com/acme/lib/",
+                "http://github.com/acme/lib", "https://www.github.com/acme/lib"):
+        assert detector._GITHUB_URL_RE.match(url), url
+    for source in ("/home/u/proj", "./proj", "C:\\work\\proj", "https://gitlab.com/acme/lib", "acme/lib"):
+        assert not detector._GITHUB_URL_RE.match(source), source
+
+
+def test_the_portfolio_and_embed_checks_are_helper_calls():
+    """determinism-8: no qmd command is run, capped or merged by hand; the [auto] route resolves the helper from the
+    registration file it loads, and the embed check branches on `documents`."""
+    for path in (PORTFOLIO_CHECK, QMD_REGISTRATION):
+        text = _read(path)
+        for gone in ("awk", "qmd query", "qmd collection list", "qmd status", "\u2014"):
+            assert gone not in text, (path.name, gone)
+        assert not re.search(r"(?<![-\w])timeout 20", text), path.name  # the shell's `timeout`, not the flag
+    assert _frontmatter(GATHER_INTENT)["qmdPortfolioSimilarityProbeOrder"] == PORTFOLIO_PROBE
+    assert _frontmatter(QMD_REGISTRATION)["qmdPortfolioSimilarityProbeOrder"] == PORTFOLIO_PROBE
+    assert "qmdPortfolioSimilarityProbeOrder" not in _read(WRITE_BRIEF)
+    portfolio = _read(PORTFOLIO_CHECK)
+    command, body = _heredoc(portfolio, "SKF_QUERY")
+    assert command == ('uv run {qmdPortfolioSimilarityHelper} similar --name "{name}" --text-file - --cap 12 '
+                       "--concurrency 4 --timeout 20 --min-score 0.6 --top 3 <<'SKF_QUERY'")
+    assert body == "<the §4 intent>"
+    procedure = _section(portfolio, "## Procedure")
+    assert "**Heads up: these existing briefs look semantically close to `{name}`:**\n" in procedure
+    assert "- {hit-name} (similarity: {score}): {description}\n" in procedure
+    assert "`{hit-name}` is its `name`" in procedure  # not the proposed `{name}` of the heading
+    assert "whether to rename stays the user's call at §8" in procedure
+    failure = _section(portfolio, "## Failure modes")
+    [warn] = [line for line in failure.splitlines() if '"warn: portfolio-similarity check skipped: {reason}"' in line]
+    assert RECORD_FILE in warn and "when `skipped` is not empty" in warn and "The hits still show." in warn
+    assert "No `-brief` collection is no failure" in warn and "nothing is recorded" in warn
+    verify = _section(_read(QMD_REGISTRATION), "## Embed Verification")
+    [call] = [line for line in verify.splitlines() if line.startswith("uv run {qmdPortfolioSimilarityHelper}")]
+    assert call == 'uv run {qmdPortfolioSimilarityHelper} verify-collection "{skill-name}-brief"'
+    [above] = [line for line in verify.splitlines() if line.startswith("- `documents` above 0:")]
+    assert "proceed to registry update with no `status` field" in above
+    [pending] = [line for line in verify.splitlines() if line.startswith("- `documents` 0 or null")]
+    for needle in ("a non-zero exit, no JSON, or no helper path", 'include `status: "pending"` in the entry', RECORD):
+        assert needle in pending, needle
+    assert "HALT" not in verify

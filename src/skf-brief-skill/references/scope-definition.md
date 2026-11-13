@@ -9,6 +9,9 @@ detectRegistryProbeOrder:
 githubFetchProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py'
   - '{project-root}/src/shared/scripts/skf-github-fetch.py'
+checkUrlsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-urls.py'
+  - '{project-root}/src/shared/scripts/skf-check-urls.py'
 analyzeStepFile: 'analyze-target.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
 tierASurfaceFile: 'references/tier-a-surface.md'
@@ -83,9 +86,17 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 
 These will be included as T3 external references in the skill brief: change them at step 4."
 
-Show them in the §2c message, with no wait of their own: a URL the check below fails joins that message with its correct/keep choice, and an answer that does not take the choice up keeps the URL. **GATE [default: keep them]**: headless keeps them as given; step 1's input gate has HEAD-checked them, so skip the check below.
+Show them in the §2c message, with no wait of their own: a URL the check below fails joins that message with its correct/keep choice, and an answer that does not take the choice up keeps the URL. **GATE [default: keep them]**: headless keeps them as given; step 1's input gate has checked them, so skip the check below.
 
-HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` calls in a **single message with N parallel Bash calls**, then process the responses together. On a 4xx/5xx, DNS failure, or timeout per URL, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step 1 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
+Check the URLs with one call: resolve `{checkUrlsHelper}` from `{checkUrlsProbeOrder}` (first existing path wins) and pass them one per line, without their labels:
+
+```bash
+uv run {checkUrlsHelper} --timeout 5 --urls-file - <<'SKF_URLS'
+<the URLs, one per line>
+SKF_URLS
+```
+
+It prints `[{url, ok, status, error}]` in input order, each URL asked with HEAD, redirects followed, and again with GET on a 403, 405 or 501. A URL that is `ok` passes silently. For any other, warn `"Could not reach {url} ({status or error})."`, with `{status or error}` from its entry, and offer step 1 §3.2's correct/keep choice, a corrected URL checked the same way. When `{checkUrlsHelper}` has no path, run `curl -sIL --max-time 5 "{url}"` for each URL instead and take a 2xx or 3xx on its last status line as `ok`. The check is best-effort, so a URL it fails never halts the run, but the failure surfaces here instead of during compilation.
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
 

@@ -3,6 +3,9 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
+qmdPortfolioSimilarityProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-qmd-portfolio-similarity.py'
+  - '{project-root}/src/shared/scripts/skf-qmd-portfolio-similarity.py'
 ---
 
 # QMD Collection Registration (Deep Tier)
@@ -30,11 +33,16 @@ qmd embed
 
 ## Embed Verification
 
-After `qmd embed` completes, verify the collection was embedded:
+After `qmd embed` completes, check that the collection holds the brief: resolve `{qmdPortfolioSimilarityHelper}` from `{qmdPortfolioSimilarityProbeOrder}` (first existing path wins) and run
 
-- Run `qmd status` or `qmd collection list` and confirm `{skill-name}-brief` shows document count > 0
-- If verification succeeds: proceed to registry update with no `status` field
-- If verification fails: log the warning `QMD embed verification failed for {skill-name}-brief: collection may not be searchable yet`, record it with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "QMD embed verification failed for {skill-name}-brief: collection may not be searchable yet"`, then proceed to registry update but include `status: "pending"` in the entry
+```bash
+uv run {qmdPortfolioSimilarityHelper} verify-collection "{skill-name}-brief"
+```
+
+It prints `{name, documents}`, the number of files QMD lists for the collection: 0 when it is not listed, null when QMD gives no count.
+
+- `documents` above 0: proceed to registry update with no `status` field
+- `documents` 0 or null, a non-zero exit, no JSON, or no helper path: log the warning `QMD embed verification failed for {skill-name}-brief: collection may not be searchable yet`, record it with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "QMD embed verification failed for {skill-name}-brief: collection may not be searchable yet"`, then proceed to registry update but include `status: "pending"` in the entry
 
 ## Registry Update (Delegated to Script)
 

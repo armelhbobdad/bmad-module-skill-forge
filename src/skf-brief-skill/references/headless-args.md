@@ -4,6 +4,9 @@ ratifyFile: 'references/gather-intent-ratify.md'
 validateBriefInputsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
+checkUrlsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-urls.py'
+  - '{project-root}/src/shared/scripts/skf-check-urls.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -87,12 +90,22 @@ Compare it with `<owner>`, both lower-cased (GitHub owners match case-insensitiv
 From `normalized`, before step 2 runs:
 
 - **Version:** a `target_version` sets `version` too; without one, step 2 detects the version.
-- **Doc URLs:** HEAD-check every `doc_urls` entry in parallel, all calls in one message, each `curl -sI --max-time 5 {url}`. Keep a URL that fails, log `"warn: could not reach {url} ({status or error})"` and write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`: the failure shows now instead of in skf-create-skill. Record the failures one at a time, each record before the next write, since they share that file.
+- **Doc URLs:** check every `doc_urls` entry with the one call below. A URL that is `ok` passes silently. Keep any other, log `"warn: could not reach {url} ({status or error})"`, with `{status or error}` from its entry, and write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`: the failure shows now instead of in skf-create-skill. Record the failures one at a time, each record before the next write, since they share that file.
 - **Name collision:** when `{forge_data_folder}/{skill_name}/skill-brief.yaml` exists, log `"warn: skill name '{skill_name}' collides with existing brief at {path}"`, write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and proceed: step 5 §2b halts with `overwrite-cancelled` unless `force` was supplied.
 - **Description:** compose 1-3 sentences in `{document_output_language}` that say what the skill is and contain a literal `Use when` clause, in the spirit of `{descriptionVoiceExamplesPath}` (load it), from the first seed available:
   1. `intent`.
   2. The repository's own description, when `target_repo` is a GitHub URL: `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). When it is not empty, log `"info: description seeded from GitHub repo description"`.
   3. None (a local path, an empty description, a failed call): write `"Use the {skill_name} skill to work with code or content from {target_repo}."`, log `"warn: description synthesized without intent or repo description: narrow registry text."` and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "warn: description synthesized without intent or repo description: narrow registry text."`.
+
+Resolve `{checkUrlsHelper}` from `{checkUrlsProbeOrder}` (first existing path wins) and pass the `doc_urls` URLs one per line, without their labels:
+
+```bash
+uv run {checkUrlsHelper} --timeout 5 --urls-file - <<'SKF_URLS'
+<the doc_urls URLs, one per line>
+SKF_URLS
+```
+
+It prints `[{url, ok, status, error}]` in input order: each URL is asked with HEAD, redirects followed, and again with GET when the server answers 403, 405 or 501. When `{checkUrlsHelper}` has no path, run `curl -sIL --max-time 5 "{url}"` for each URL instead and take a 2xx or 3xx on its last status line as `ok`.
 
 ### 6. Continue
 

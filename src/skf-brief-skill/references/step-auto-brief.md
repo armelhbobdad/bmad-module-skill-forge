@@ -64,6 +64,8 @@ Nothing the upstream brief carries is rebuilt or dropped: §4's writer starts fr
 
 **Docs-only check:** If `source_type` is `docs-only` in the parsed brief, skip §2 (Run Doc Detection) and §3 (Enrich Brief with Detected Docs): the doc URL is already in the brief's `doc_urls`. Log: "Docs-only brief: skipping repo-based doc detection. Doc URLs provided by upstream." Proceed directly to §4 (Write Enriched Brief). All brief fields (`source_type`, `source_authority`, `doc_urls`, `scope_type`) must pass through unmodified.
 
+**Local-source check:** If `source_repo` is not a GitHub repository URL of the form skf-detect-docs.py reads (`https://github.com/<owner>/<repo>`, `http://` or a `www.` host too, optionally ending in `.git` or `/`), such as the local project path Analyze Source sets or a URL on another host, skip §2 and §3: the detector reads only GitHub repositories, and fails on any other source. Log: "Local or non-GitHub source: skipping repo-based doc detection." Proceed directly to §4 (Write Enriched Brief), which leaves `--doc-urls-file` out.
+
 ### 2. Run Doc Detection
 
 **Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists.
@@ -73,8 +75,6 @@ Invoke doc detection to discover documentation URLs for the source repo, keeping
 ```bash
 uv run {detectDocsHelper} --repo-url "{source_repo}" > "{run_dir}/detected.json"
 ```
-
-`--repo-url` is always required (the script uses it for GitHub API calls). If a local clone is also available at `{local_clone_path}`, add `--local-path "{local_clone_path}"` to enable docs-folder scanning in addition to API-based detection.
 
 **Handle exit codes:**
 
