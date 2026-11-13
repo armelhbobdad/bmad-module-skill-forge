@@ -1337,6 +1337,17 @@ class TestPredict:
         assert rc == 0 and _found(out["hard_matches"]) == [("metadata-json", 3, f'"description": "From {old}."')]
         assert (package / "metadata.json").read_bytes().count(b"\n") == 0, "the file itself stays one line"
 
+    def test_the_text_is_the_rewritten_line_with_its_escapes(self, tmp_path):
+        """select.md §7b says a non-ASCII letter shows as a `\\u` escape: the rewrite writes JSON that way."""
+        old, new = self.OLD, self.NEW
+        package = tmp_path / "skills" / old / "1.4.0" / old
+        package.mkdir(parents=True)
+        (package / "metadata.json").write_bytes(
+            json.dumps({"name": old, "description": f"Café {old}."}, ensure_ascii=False, indent=2).encode("utf-8"))
+        rc, out = run_cli("--predict", "--skill-group", tmp_path / "skills" / old, "--versions", "1.4.0",
+                          "--old-name", old, "--new-name", new)[:2]
+        assert rc == 0 and _found(out["hard_matches"]) == [("metadata-json", 3, f'"description": "Caf\\u00e9 {old}."')]
+
     def test_it_writes_and_moves_nothing(self, tmp_path):
         old, new = self.OLD, self.NEW
         metadata, provenance = _create_skill_json(old)

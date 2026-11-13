@@ -868,6 +868,10 @@ def test_select_predicts_the_verification_before_the_confirmation():
     assert verify.endswith('HALT (exit code 5, `halt_reason: "verify-failed"`, `emit-halt` phase '
                            "`select:predict-verify`), in a dry run too.")
     for token in ("{each `hard_matches` entry as `{file}` line {line}: `{text}`}. Nothing was changed.",
+                  # `file` is the old skill's, while `line` and `text` come from the rewritten content.
+                  "Each line number and text is from the file as the rename would write it, which in a JSON file "
+                  "can differ from the old file: the rename writes it indented, with a non-ASCII letter as a `\\u` "
+                  "escape, so look for that line by its key.",
                   "Where a line is a note an earlier run wrote, or a `context-snippet.md` line such as `|gotchas:`, "
                   "edit it in that file, then re-run.",
                   "Where it names the library or repository the skill is named after (a `description`, an export, a "
