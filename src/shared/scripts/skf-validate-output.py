@@ -75,12 +75,37 @@ run:
     field but references_count is null when metadata.json is missing, does
     not parse or is not a JSON object.
 
+The --snippet-check flag selects a fourth mode, which skf-export-skill's
+generate-snippet.md §4 runs on each context snippet draft before step 3
+lists it in a managed section and copies it into the package. The
+positional argument is then the draft folder, which holds
+context-snippet.md, and --package names the skill package the draft is
+for. It reports `issues`, each {severity, field, message}: first those of
+validate_context_snippet (content high for an empty draft, line 1 and
+line 2 medium, length low), then these high ones:
+  - content:   context-snippet.md is missing, a folder or not UTF-8 text;
+  - header:    line 1's `[name vX]` is not the package folder's basename at
+               metadata.json's `version`, or metadata.json gives no version;
+  - separator: a blank or bare `|` line between the first and last
+               non-blank lines (the managed section reads it as the end of
+               the row), naming its line;
+  - marker:    an SKF marker (`<!-- SKF:BEGIN` or `<!-- SKF:END`);
+  - anchor:    a `SKILL.md#slug` or `references/<file>.md#slug` anchor whose
+               file is not in the package, whose path has `..`, or whose
+               file has no heading with that slug (heading_slugs gives
+               GitHub's slugs).
+`result` is FAIL on any high or medium issue: exit 0 on PASS, 1 on FAIL.
+No --package value, or one that names no folder, prints `error: ...` on
+stderr and exits 2. The other modes ignore the flag's absence: their
+output is unchanged.
+
 CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --generated-by quick-skill
      python3 skf-validate-output.py <skill-package-dir> --skip-frontmatter
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack --forge-tier Deep
      python3 skf-validate-output.py <skill-package-dir> --export-gate
+     python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>
 """
 
 from __future__ import annotations
@@ -1398,17 +1423,168 @@ def _validate_export_gate(skill_dir):
     return result
 
 
+# --- Snippet-check mode (skf-export-skill generate-snippet.md §4) ----------
+#
+# Additive like --export-gate: nothing above calls these helpers.
+
+SNIPPET_FILE = "context-snippet.md"
+# A snippet's row header, as skf-rebuild-managed-sections.py reads it: `[name vX]`
+# at the start of line 1, optionally after the managed section's leading `|`.
+_SNIPPET_HEADER_RE = re.compile(r"^\|?\[(?P<name>[^\]]+?) v(?P<version>[^\]\s]+)\]")
+# Any SKF marker variant the managed-section writer refuses in a body.
+_SNIPPET_MARKER_RE = re.compile(r"<!--\s*SKF:(BEGIN|END)")
+# A section anchor of the snippet format: `SKILL.md#slug` or `references/<file>.md#slug`.
+# A slug holds only letters, digits, `-` and `_`, so the `}` of the template's
+# `{SKILL.md#quick-start}` or a sentence's closing `.` is not part of it.
+_SNIPPET_ANCHOR_RE = re.compile(r"(?<![\w./-])(SKILL\.md|references/[^\s#|,;()\[\]`'\"]+?\.md)#([\w-]+)")
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)", re.DOTALL)
+
+
+def heading_slugs(text):
+    """GitHub's anchor slug of each ATX heading outside fenced code and frontmatter, in order.
+
+    The heading text lowercased, each character that is not a letter, digit,
+    space, `-` or `_` dropped, each space made `-`; the second heading with
+    the same slug takes `-1`, the third `-2`.
+    """
+    m = _FRONTMATTER_RE.match(text)
+    if m:
+        text = "\n" * m.group(0).count("\n") + text[m.end():]
+    seen, slugs = {}, []
+    for _, heading, _ in _headings(text):
+        base = "".join(ch for ch in heading.lower() if ch.isalnum() or ch in " -_").replace(" ", "-")
+        n = seen.get(base, 0)
+        slugs.append(base if n == 0 else f"{base}-{n}")
+        seen[base] = n + 1
+    return slugs
+
+
+def _package_version(package_dir):
+    """metadata.json's `version` when it is a non-empty string, else None."""
+    try:
+        meta = json.loads((Path(package_dir) / "metadata.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = meta.get("version") if isinstance(meta, dict) else None
+    return version if isinstance(version, str) and version.strip() else None
+
+
+def _anchor_issue(package_dir, rel, slug, cache):
+    """The message of an anchor that does not resolve in the package, or None."""
+    if ".." in rel.split("/"):
+        return f"{rel}#{slug}: the path leaves the package (`..`)"
+    target = Path(package_dir) / rel
+    if rel not in cache:
+        try:
+            cache[rel] = heading_slugs(target.read_text(encoding="utf-8")) if target.is_file() else None
+        except (OSError, UnicodeDecodeError):
+            cache[rel] = None
+    if cache[rel] is None:
+        return f"{rel}#{slug}: {rel} is not a file of the package"
+    if slug not in cache[rel]:
+        return f"{rel}#{slug}: {rel} has no heading whose slug is {slug}"
+    return None
+
+
+def check_snippet_draft(draft_dir, package_dir):
+    """Check a staged context-snippet.md draft against the package it is for.
+
+    See the module docstring (--snippet-check) for each check. Returns the
+    result object; `result` is FAIL on any high or medium issue.
+    """
+    draft_dir, package_dir = Path(draft_dir), Path(package_dir)
+    skill_name = package_dir.name
+    version = _package_version(package_dir)
+    issues = []
+
+    snippet = draft_dir / SNIPPET_FILE
+    content = None
+    if not snippet.is_file():
+        what = "a folder" if snippet.is_dir() else "missing"
+        issues.append({"severity": "high", "field": "content", "message": f"{snippet.as_posix()} is {what}"})
+    else:
+        try:
+            content = snippet.read_bytes().decode("utf-8")
+        except UnicodeDecodeError as e:
+            issues.append({"severity": "high", "field": "content",
+                           "message": f"{snippet.as_posix()} is not UTF-8 text ({e})"})
+        except OSError as e:
+            issues.append({"severity": "high", "field": "content", "message": f"cannot read {snippet.as_posix()}: {e}"})
+
+    if content is not None:
+        issues += validate_context_snippet(content)
+    if content is not None and content.strip():
+        lines = content.split("\n")
+        filled = [i for i, line in enumerate(lines) if line.strip()]
+        first, last = filled[0], filled[-1]
+        header = _SNIPPET_HEADER_RE.match(lines[first].strip())
+        if version is None:
+            issues.append({"severity": "high", "field": "header",
+                           "message": f"metadata.json of {skill_name} gives no version, so line 1 cannot be checked"})
+        elif not header or (header.group("name"), header.group("version")) != (skill_name, version):
+            issues.append({"severity": "high", "field": "header",
+                           "message": f"line 1 must start with [{skill_name} v{version}], got: {lines[first].strip()[:60]}"})
+        for i in range(first + 1, last):
+            if lines[i].strip() in ("", "|"):
+                issues.append({"severity": "high", "field": "separator",
+                               "message": f"line {i + 1} is blank or a bare `|`: remove it, since the managed "
+                                          "section reads it as the end of the row"})
+        if _SNIPPET_MARKER_RE.search(content):
+            issues.append({"severity": "high", "field": "marker",
+                           "message": "the snippet holds an SKF marker (<!-- SKF:BEGIN or <!-- SKF:END)"})
+        cache = {}
+        for m in _SNIPPET_ANCHOR_RE.finditer(content):
+            message = _anchor_issue(package_dir, m.group(1), m.group(2), cache)
+            if message:
+                issues.append({"severity": "high", "field": "anchor", "message": message})
+
+    by_severity = {"high": 0, "medium": 0, "low": 0}
+    for issue in issues:
+        by_severity[issue["severity"]] += 1
+    return {
+        "status": "ok",
+        "mode": "snippet-check",
+        "draft": str(draft_dir),
+        "package": str(package_dir),
+        "skill_name": skill_name,
+        "version": version,
+        "issues": issues,
+        "summary": {"total_issues": len(issues), "by_severity": by_severity},
+        "result": "FAIL" if by_severity["high"] or by_severity["medium"] else "PASS",
+    }
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(
             "Usage: python3 skf-validate-output.py <skill-package-dir> "
             "[--generated-by <generator>] [--skip-frontmatter] "
-            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--export-gate]",
+            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--export-gate]\n"
+            "       python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>",
             file=sys.stderr,
         )
         sys.exit(1)
 
     pkg_dir = sys.argv[1]
+
+    # --snippet-check reads a snippet draft folder and the package it is for
+    # (skf-export-skill's generate-snippet.md §4); --package is read by index,
+    # as --generated-by is.
+    if "--snippet-check" in sys.argv:
+        package = None
+        if "--package" in sys.argv:
+            idx = sys.argv.index("--package")
+            if idx + 1 < len(sys.argv):
+                package = sys.argv[idx + 1]
+        if package is None:
+            print("error: --snippet-check needs --package <skill-package-dir>", file=sys.stderr)
+            sys.exit(2)
+        if not Path(package).is_dir():
+            print(f"error: --package {package} is not a folder", file=sys.stderr)
+            sys.exit(2)
+        result = check_snippet_draft(pkg_dir, package)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if result["result"] == "PASS" else 1)
 
     # --export-gate is a distinct, self-contained mode (skf-export-skill's
     # publishing gate). It ignores the individual/stack flags below.

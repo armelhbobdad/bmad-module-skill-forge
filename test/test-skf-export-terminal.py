@@ -61,6 +61,11 @@ commands it documents:
   snippet format holds only its title, the parse-critical note and the two
   templates, so each snippet rule lives in generate-snippet.md alone. The
   documented calls run here on a fixture skill.
+- #1166: the headless-only run folder lives in result-envelope.md's Run
+  Folder section, behind one On Activation line; a headless run's envelope
+  carries each warning a step displayed and the confirmation's
+  `evidence.test_results`, when it ends and when it halts; update-context
+  §4c halts on a batch skill whose draft `assemble` refuses.
 """
 
 from __future__ import annotations
@@ -190,6 +195,11 @@ def _envelope(proc: subprocess.CompletedProcess, stream: str = "stdout") -> dict
     return envelope
 
 
+def _run_folder() -> str:
+    """result-envelope.md's Run Folder section, which On Activation §4 points at (#1166)."""
+    return _section(_read(ENVELOPE), "## Run Folder", "## Emission rule")
+
+
 def _call(rel: str, verb: str) -> tuple[str, str]:
     """The one documented emitter call of `rel` whose subcommand is `verb`."""
     found = [(c, b) for c, b in _heredoc_calls(_read(rel)) if c.split()[3:4] == [verb]]
@@ -225,7 +235,11 @@ def test_no_export_file_types_the_envelope_or_a_timestamp():
     assert ("`{emitEnvelopeHelper}` ← the first existing path of "
             "`{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and "
             "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`") in activation
-    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"' in activation
+    # #1166 architecture-7: the headless-only run folder lives in the envelope contract, behind one line.
+    assert "mktemp -d" not in activation
+    assert ("When `{headless_mode}` is true, create the run folder (`references/result-envelope.md`, Run Folder)."
+            in activation)
+    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"' in _run_folder()
     envelope = _read(ENVELOPE)
     assert "`shared/scripts/schemas/skf-export-result-envelope.v1.json` describes each field" in envelope
     for stale in ("stands alone", "back-references no other file", "## Fields"):
@@ -292,7 +306,13 @@ def _decision_values(body: str) -> str:
                 .replace("{reference_root}", ".claude/skills/")
                 .replace("{choice}", "d").replace("{disk_root}", "my-skills/")
                 .replace("{file_path}", "/project/CLAUDE.md")
-                .replace("{skill_name} v{version}", "zod v1.4.0"))
+                .replace("{skill_name} v{version}", "zod v1.4.0")
+                .replace("{test_results}", json.dumps(TEST_RESULTS)))
+
+
+# #1166: the confirmation decision's evidence, one entry per skill of the batch from load-skill §4b.
+TEST_RESULTS = [{"skill": "zod", "verdict": "fail", "score": 62, "report": "test-report-zod-20261101T120000Z.md"},
+                {"skill": "yup", "verdict": "not-found", "score": None, "report": None}]
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_FILES), ids=sorted(GATE_FILES))
@@ -305,6 +325,121 @@ def test_the_documented_decision_passes_the_schema(tmp_path, gate):
     assert proc.returncode == 0, proc.stderr
     [line] = (run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(line)["gate"] == gate
+
+
+def _record_warning(run_dir: Path, code: str, skill: str, detail: str) -> None:
+    """SKILL.md's Run log rule, as an argv: one displayed warning, recorded under its code."""
+    proc = _run([sys.executable, str(EMITTER), "record", "--run-dir", run_dir.as_posix(), "--warning",
+                 f"{code}: {skill}: {detail}"])
+    assert proc.returncode == 0, proc.stderr
+
+
+def _record_confirmation(run_dir: Path) -> None:
+    """load-skill §6's documented decision, `{test_results}` filled."""
+    [(command, body)] = [(c, b) for c, b in _heredoc_calls(_read(LOAD)) if '"gate":"load-skill.confirmation"' in b]
+    proc = _run(_argv(command, {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix()}),
+                _decision_values(body))
+    assert proc.returncode == 0, proc.stderr
+
+
+RUN_WARNINGS = [("test_report_fail", "zod", "This skill failed its last test (score: 62%)."),
+                ("gotchas_carried", "zod", "Gotchas preserved from prior export: `parse()` throws on an unknown key.")]
+
+
+@pytest.mark.parametrize("end", ["success", "halt"])
+def test_a_headless_envelope_carries_the_displayed_warnings_and_the_test_results(tmp_path, end):
+    """#1166 enhancement-1: the warnings a run displayed and the test verdicts its confirmation saw."""
+    run_dir = tmp_path / ".skf-run" / "skf-export-skill-abcd1234"
+    _record_confirmation(run_dir)
+    for code, skill, detail in RUN_WARNINGS:
+        _record_warning(run_dir, code, skill, detail)
+    if end == "success":
+        command, _ = _call(SUMMARY, "emit")
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        manifest = (skills / ".export-manifest.json").as_posix()
+        values = {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix(),
+                  "skills_output_folder": skills.as_posix()}
+        proc = _run(_argv(command, values, keep=("--result-dir", "--run-dir")), _success_payload(skills, manifest))
+        envelope = _envelope(proc)
+    else:
+        command, body = _call(ENVELOPE, "emit-halt")
+        payload = (body.replace("<phase>", "update-context §4c")
+                       .replace("<the halt message>", "The snippet draft of zod cannot go in the managed section")
+                       .replace("<halt_reason>", "context-rebuild-failed").replace("<name>", "zod"))
+        values = {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix()}
+        proc = _run(_argv(command, values, keep=("--run-dir",)), payload)
+        envelope = _envelope(proc, "stderr")
+    assert proc.returncode == 0, proc.stderr
+    assert envelope["warnings"] == [f"{code}: {skill}: {detail}" for code, skill, detail in RUN_WARNINGS]
+    [decision] = envelope["headless_decisions"]
+    assert decision["gate"] == "load-skill.confirmation"
+    assert decision["evidence"] == {"test_results": TEST_RESULTS}
+
+
+def test_the_confirmation_evidence_is_described_and_checked(tmp_path):
+    """The schema describes test_results and refuses an entry with no verdict."""
+    evidence = SCHEMA["properties"]["headless_decisions"]["items"]["properties"]["evidence"]
+    item = evidence["properties"]["test_results"]["items"]
+    assert sorted(item["required"]) == ["skill", "verdict"]
+    assert "The load-skill.confirmation decision holds test_results" in evidence["description"]
+    assert "'<code>: <skill>: <detail>'" in SCHEMA["properties"]["warnings"]["description"]
+    gate = _section(_read(LOAD), "### 6. Confirmation Gate", None)
+    for token in ('"evidence":{"test_results":{test_results}}',
+                  "`{test_results}` is a JSON array with one `{\"skill\", \"verdict\", \"score\", \"report\"}` "
+                  "object per skill of the batch, from §4b",
+                  "`no-verdict` for a report that records none, `not-found` or `not-checked`"):
+        assert token in gate, token
+    decision = {"gate": "load-skill.confirmation", "default_action": "C", "taken_action": "C", "reason": "x",
+                "evidence": {"test_results": [{"skill": "zod", "score": 62}]}}
+    proc = _run([sys.executable, str(EMITTER), "record", "--workflow", "skf-export-skill", "--run-dir",
+                 tmp_path.as_posix(), "--decision"], json.dumps(decision))
+    assert proc.returncode == 1 and "verdict" in proc.stderr, proc.stderr
+    assert not (tmp_path / "headless-decisions.jsonl").exists()
+
+
+def test_the_run_folder_holds_what_on_activation_created():
+    """#1166 architecture-7: the folder's command, its binding and lifetime, its halt and the resolver record."""
+    run_folder = _run_folder()
+    for token in ('mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d '
+                  '"{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"',
+                  "Bind `{run_dir}` ← the path it prints. Step 5 deletes it once the run's envelope is built; a HARD "
+                  "HALT leaves it in place.",
+                  'If it cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`) at phase '
+                  '`on-activation §4`.',
+                  "(a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument)"):
+        assert token in run_folder, token
+    envelope = _read(ENVELOPE)
+    assert envelope.index("## Run Folder") < envelope.index("## Emission rule") < envelope.index("## Exit Codes")
+    skill = _read(SKILL_MD)
+    item = _section(skill, "4. **Resolve the helpers and create the run folder.**", "5. **Pre-flight write check.**")
+    assert item.rstrip().endswith("When `{headless_mode}` is true, create the run folder "
+                                  "(`references/result-envelope.md`, Run Folder).")
+    assert "{run_dir}" not in skill.replace('--run-dir "{run_dir}"', "")
+
+
+def test_a_refused_batch_draft_halts_at_4c(tmp_path):
+    """determinism-1: a batch skill whose staged draft `assemble` refuses stops the run before it is recorded."""
+    section = _section(_read(UPDATE), "#### 4c. Report What Was Left Out", "#### 4c.1 ")
+    halt = next(line for line in section.splitlines()
+                if line.startswith("When a `skipped_malformed_snippet[]` entry names a skill in `skill_batch`"))
+    assert ('delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, '
+            'phase `update-context §4c`)') in halt
+    assert section.index(halt) < section.index("Otherwise report each as a warning under its code:")
+    assert ("- each other `skipped_malformed_snippet[]` entry (code `managed_section_skipped_malformed_snippet`): "
+            '"Snippet of {skill_name} v{version} skipped: {reason}"') in section
+    # assemble lists the batch skill's refused draft, the entry the halt acts on.
+    drafts = tmp_path / "stage" / "drafts"
+    (drafts / "zod").mkdir(parents=True)
+    (drafts / "zod" / "context-snippet.md").write_text(
+        "[zod v1.4.0]|root: .claude/skills/zod/\n|IMPORTANT: <!-- SKF:END -->\n", encoding="utf-8")
+    (tmp_path / "skills").mkdir()
+    out = rms.cmd_assemble(str(tmp_path / "CLAUDE.md"), str(tmp_path / "skills"), ".claude/skills/",
+                           includes=[("zod", "1.4.0")], snippet_dir=str(drafts),
+                           out=str(tmp_path / "stage" / "previews" / "CLAUDE.md.skf-content"))
+    skill_batch = ["zod"]
+    assert out["status"] == "ok" and out["included"] == []
+    assert [e["skill_name"] for e in out["skipped_malformed_snippet"] if e["skill_name"] in skill_batch] == ["zod"]
 
 
 def test_record_refuses_a_gate_the_schema_does_not_list(tmp_path):
@@ -502,10 +637,13 @@ def test_activation_halts_name_their_phase_and_leave_the_envelope_to_the_contrac
     activation = _section(skill, "## On Activation", None)
     assert "envelope per" not in activation and "`skills: []`" not in activation
     assert "context_files_updated: []" not in activation and "manifest_path: null" not in activation
-    sites = re.findall(r'HALT \(exit code (\d), `halt_reason: "([a-z-]+)"`\) at phase `([^`]+)`', activation)
-    assert sites == [("4", "context-rebuild-failed", "on-activation §4"), ("4", "write-failed", "on-activation §4"),
-                     ("4", "write-failed", "on-activation §5")]
-    for code, reason, _ in sites:
+    site_re = r'HALT \(exit code (\d), `halt_reason: "([a-z-]+)"`\) at phase `([^`]+)`'
+    sites = re.findall(site_re, activation)
+    assert sites == [("4", "context-rebuild-failed", "on-activation §4"), ("4", "write-failed", "on-activation §5")]
+    # #1166: the run folder's write-failed halt moved with the run folder, and keeps its On Activation phase.
+    moved = re.findall(site_re, _run_folder())
+    assert moved == [("4", "write-failed", "on-activation §4")]
+    for code, reason, _ in sites + moved:
         assert META["exit_codes"][reason] == int(code), reason
     # The contract covers what the cut sites stated: no --run-dir and `skills: []` before step 1.
     envelope = _read(ENVELOPE)
@@ -535,15 +673,18 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): a "
                   "headless run records it once step 4 creates its run folder, and an interactive run only "
                   "prints it.",
-                  'write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
-                  'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
-                  '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`',
                   "(the bundled default loads every `project-context.md` under `{project-root}`, none in "
                   "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` "
                   "entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names "
                   "one file)",
                   "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
         assert token in activation, token
+    # #1166: step 4's run folder records the reason; the folder and that record live in the Run Folder section.
+    run_folder = " ".join(_run_folder().split())
+    for token in ('write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
+                  'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                  '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`'):
+        assert token in run_folder and token not in activation, token
     assert "\u2014" not in _section(_read(SKILL_MD), "3. **Resolve workflow customization.**", "4. **Resolve")
     # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
     assert re.search(r"(?<!\{project-root\}/)_bmad/", activation) is None
@@ -765,9 +906,9 @@ def test_each_orphan_rule_has_one_home():
 
 def test_the_exit_4_row_names_the_preview_and_the_clear():
     exit_4 = next(line for line in _read(ENVELOPE).splitlines() if line.startswith("| 4 "))
-    assert ("step 3 §4b (the body cannot be built, for example a context file that is not UTF-8 text), §6 (the "
-            "change preview cannot be built) or §9 (a write fails its check, or an orphaned file's clear fails) → "
-            "`context-rebuild-failed`") in exit_4
+    assert ("step 3 §4b (the body cannot be built, for example a context file that is not UTF-8 text), §4c "
+            "(`assemble` refuses the snippet draft of a skill of the batch), §6 (the change preview cannot be built) "
+            "or §9 (a write fails its check, or an orphaned file's clear fails) → `context-rebuild-failed`") in exit_4
     assert "§3b" not in exit_4, "§3b runs nothing that can fail on a clear"
 
 
@@ -1713,7 +1854,8 @@ def test_a_failed_gotchas_call_halts(workflow):
                          'code 4, `halt_reason: "context-rebuild-failed"`, phase `generate-snippet §3a`)')
         exit_4 = next(line for line in _read(ENVELOPE).splitlines() if line.startswith("| 4 "))
         assert "step 2 §2.5 (the prior snippet or the export manifest cannot be read), §3a (the gotchas cannot be " \
-               "placed, after one corrected retry) or §4 (the token counter fails)" in exit_4
+               "placed, after one corrected retry) or §4 (the token counter fails, or the snippet draft fails its " \
+               "check after one corrected retry)" in exit_4
     else:
         five = _regeneration()
         assert "When `resolve` exits non-zero, correct the judgments file as its `error` says and run it once more." \

@@ -1386,7 +1386,9 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert "`{countTokensHelper}` ←" in _read(EXPORT_SKILL), "On Activation resolves the counter before any prompt"
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
     assert "so a dry run leaves nothing beside a skill package or a context file" in stage
-    assert "Step 3 deletes the folder on every exit, cancels and halts included." in stage
+    # #1166: a dry run keeps the folder for step 4's token report, which measures the drafts and previews.
+    assert ("Step 3 deletes the folder on every exit, cancels and halts included, except its §8 dry run, which "
+            "keeps it: step 4 measures the drafts and previews, then deletes it.") in stage
     assert 'print(tempfile.mkdtemp(prefix=\'skf-export-\'))' in text, "the stage folder lies outside the project"
     copy = ('cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" '
             '"{resolved_skill_package}/context-snippet.md"')
@@ -1398,8 +1400,16 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
 def test_export_step_4_deletes_the_stage_folder_on_every_exit():
     """A halted or cancelled export leaves no skf-export-* folder behind in the OS temp folder."""
     helpers = _section(_read(EXPORT_UPDATE), "### 2. Stage Folder", "### 3. ")
-    assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) "
-            "Cancel and every HALT in this step") in helpers
+    assert ("deletes the folder on every exit: the §8 cancel, the end of §9c, the orphan-row (c) "
+            "Cancel and every HALT in this step. The §8 dry run keeps it: step 4 measures its drafts and previews, "
+            "then deletes it.") in helpers
+    # #1166: the dry run hands the folder to step 4, whose §3 deletes it once the report is shown.
+    menu = _section(_read(EXPORT_UPDATE), "### 8. Present MENU OPTIONS", "**If NOT dry-run:**")
+    assert ("§9 to §9c do not run: keep the `{export_stage_dir}` folder, whose drafts and previews step 4 measures, "
+            "and auto-proceed to {nextStepFile}.") in menu
+    report = _read("src/skf-export-skill/references/token-report.md")
+    assert "On a dry run with passive context on, delete the `{export_stage_dir}` folder." in _section(
+        report, "### 3. Proceed to Summary", None)
     cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel", None)
     assert "- Delete the `{export_stage_dir}` folder" in cancel
 

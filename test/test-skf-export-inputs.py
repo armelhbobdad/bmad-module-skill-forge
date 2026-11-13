@@ -29,6 +29,9 @@ commands it documents:
   inventory's `exportable` action, the snippet-root probe builds its paths
   from the manifest, and a run with `passive_context: false`, which On
   Activation binds once, takes no snippet-root question.
+- #1166: SKILL.md stays under its 2,500-token budget with the Run log rule,
+  its run folder moved to references/result-envelope.md, and step 2 runs
+  `{validateOutputHelper}` too.
 """
 
 from __future__ import annotations
@@ -199,6 +202,18 @@ def test_each_helper_lists_the_steps_that_run_it():
         assert set(files) <= set(REFERENCE_STEPS), (name, files)
         assert {int(step) for step in re.findall(r"\d+", listed.group(1))} == \
             {REFERENCE_STEPS[file] for file in files}, (name, files)
+
+
+def test_skill_md_stays_under_its_token_budget():
+    """#1166 architecture-7: SKILL.md measured 2,715 cl100k tokens at 11,006 characters, over the 2,500-token prepass
+    guideline. With the headless-only run folder moved to the Run Folder section of references/result-envelope.md,
+    the Run log rule added and the trims the issue names, it measures 2,474 cl100k tokens at 10,049 characters.
+    10,050 characters holds it there without a tokenizer."""
+    assert len(_read(SKILL_MD)) < 10_050, len(_read(SKILL_MD))
+    resolve = _section(_read(SKILL_MD), "4. **Resolve the helpers and create the run folder.**",
+                       "5. **Pre-flight write check.**")
+    [line] = [line for line in resolve.splitlines() if line.lstrip().startswith("- `{validateOutputHelper}` ←")]
+    assert line.endswith("(steps 1 and 2)."), "generate-snippet §4 checks each draft with it"
 
 
 def test_the_append_entries_run_after_the_pre_flight_halts():

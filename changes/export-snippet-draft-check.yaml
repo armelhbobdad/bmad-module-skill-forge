@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill
+summary: |
+  Export Skill now checks each context snippet draft before it lists or publishes it. `skf-validate-output.py` gains `<draft-dir> --snippet-check --package <skill-package-dir>`, which reads the draft's `context-snippet.md` and reports, beside the line 1 and line 2 checks it already ran, a header that does not name the package's skill at its `metadata.json` version, a blank or bare `|` line inside the snippet (the managed section reads it as the end of the row), an SKF marker, and a `SKILL.md#slug` or `references/<file>.md#slug` anchor whose file or heading the package does not hold, the slug read as GitHub writes it. It prints JSON and exits `0` on PASS, `1` on FAIL and `2` when `--package` names no folder. Step 2 runs it on each draft, corrects the draft once when it fails, and stops the run with exit `4` (`context-rebuild-failed`) when it still fails. Step 3 also stops with exit `4` when `assemble` refuses the draft of a skill the run exports, where it used to print a skipped row and still record and copy that snippet.
+issues: [1166]

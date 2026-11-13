@@ -67,7 +67,7 @@ Map the `ides` list of `config.yaml` (an absent key is an empty list) to the con
 python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"
 ```
 
-`{ides}` is the comma-joined `ides` list. Store `targets` as `target_context_files` (each entry `{context_file, skill_root, ides}`), bind `{other_context_files}` ← `other_context_files` (the known context files no configured IDE maps to, which step 3 §3b checks for a stale section), and display each `warnings[]` and `notes[]` line.
+`{ides}` is the comma-joined `ides` list. Store `targets` as `target_context_files` (each entry `{context_file, skill_root, ides}`), bind `{other_context_files}` ← `other_context_files` (the known context files no configured IDE maps to, which step 3 §3b checks for a stale section), and display each `warnings[]` and `notes[]` line (a `warnings[]` line under code `unknown_ide`).
 
 If `--context-file` was passed (CLAUDE.md, .cursorrules or AGENTS.md), run the call again with `--context-file {context-file}` added and store its `targets` as `target_context_files` instead: that file alone, with the skill root of the first configured IDE that maps to it, else the one the mapping gives that file. Drop that file from `{other_context_files}`, and display the call's `notes[]` (it names the configured IDEs this run leaves out).
 
@@ -155,17 +155,17 @@ The shared helper finds the newest finished test report of the version §2 chose
 uv run {findTestReportHelper} find --forge-data-folder "{forge_data_folder}" --skill-name {skill-name} [--version {resolved_version}]
 ```
 
-Pass `--version` with the `{resolved_version}` §2 chose, never the manifest's `active_version`, which lags a version created or updated since the last export; leave it out when `{resolved_version}` is null (a flat skill in a dry run). Build the message from its JSON (`{score}` reads `n/a` when it is null), and display each `warnings[]` line as it is:
+Pass `--version` with the `{resolved_version}` §2 chose, never the manifest's `active_version`, which lags a version created or updated since the last export; leave it out when `{resolved_version}` is null (a flat skill in a dry run). Build the message from its JSON (`{score}` reads `n/a` when it is null), and display each `warnings[]` line as it is (code `test_report_warning`):
 
 - `status: "found"`: name the report the helper picked, the file name of its `path` (for example `test-report-my-base-ui-20260507T050917Z-487606-9b2f.md`), so an operator can open it from the log, with its verdict by `testResult`:
   - `pass`: note "Last test: **PASS** ({score}%)"
-  - `fail`: warn "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
-  - `pass-with-drift`: warn "**Warning:** This skill passed its last test only with `--allow-workspace-drift` (score: {score}%), against source that differs from its pinned commit. Re-test it against the pinned commit before export."
-  - `inconclusive`: warn "**Warning:** This skill's last test was inconclusive (score: {score}%). Review the report before export."
+  - `fail`: warn (code `test_report_fail`) "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
+  - `pass-with-drift`: warn (code `test_report_pass_with_drift`) "**Warning:** This skill passed its last test only with `--allow-workspace-drift` (score: {score}%), against source that differs from its pinned commit. Re-test it against the pinned commit before export."
+  - `inconclusive`: warn (code `test_report_inconclusive`) "**Warning:** This skill's last test was inconclusive (score: {score}%). Review the report before export."
   - no `testResult` (a result file that records no verdict): note "Last test report: no verdict recorded."
-- `status: "not-found"`: warn "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
+- `status: "not-found"`: warn (code `test_report_not_found`) "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
 
-If no helper candidate resolves, or the helper exits non-zero, note "**Note:** SKF could not check this skill's test report: {reason}." instead.
+If no helper candidate resolves, or the helper exits non-zero, warn (code `test_report_unchecked`) "**Note:** SKF could not check this skill's test report: {reason}." instead.
 
 Continue to §5 regardless: this is advisory, not blocking.
 
@@ -202,7 +202,7 @@ Fill the capitalized cells of each skill's row from its §2 to §4b results:
 - **Exports:** `{exports_count}`, then `{top_exports}`, comma-joined, in parentheses when it names one, as in `42 (z, ZodType, parse, safeParse, infer)`.
 - **References:** `{references_count}`, or `none` when it is 0.
 - **Test:** §4b's verdict: `{testResult} ({score}%)` for a report with a verdict, `{testResult}` alone when its score is null, `no verdict` for one that records none, `none` when no report was found, or `not checked` when §4b could not check.
-- **Warnings:** the `field` of each `validation.metadata.recommended_missing` entry, each path in `validation.crossref_7b.orphans`, and the message of each low issue in `validation.metadata.issues`, such as an empty `exports` array or a forge tier in an older stack's `confidence_tier`.
+- **Warnings:** the `field` of each `validation.metadata.recommended_missing` entry, each path in `validation.crossref_7b.orphans`, and the message of each low issue in `validation.metadata.issues`, such as an empty `exports` array or a forge tier in an older stack's `confidence_tier`. Each **Warnings for {name}** line is a warning (code `export_gate_warnings`).
 
 ### 6. Confirmation Gate
 
@@ -215,7 +215,9 @@ Display: "**Select:** [C] Continue to snippet generation | [X] Cancel and exit (
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
-{"gate":"load-skill.confirmation","default_action":"C","taken_action":"C","reason":"headless: auto-continue past skill confirmation"}
+{"gate":"load-skill.confirmation","default_action":"C","taken_action":"C","reason":"headless: auto-continue past skill confirmation","evidence":{"test_results":{test_results}}}
 SKF_JSON
 ```
+
+`{test_results}` is a JSON array with one `{"skill", "verdict", "score", "report"}` object per skill of the batch, from §4b: `verdict` is its `testResult` (`pass`, `fail`, `pass-with-drift` or `inconclusive`), `no-verdict` for a report that records none, `not-found` or `not-checked`; `score` its score as a number, else null; `report` the file name of its `path`, else null.
 

@@ -32,7 +32,7 @@ Run §9b, then auto-proceed to {nextStepFile}.
 
 ### 2. Stage Folder
 
-Step 2 bound `{export_stage_dir}`, the run's folder outside the project that holds each skill's snippet draft under `drafts/`. This step stages each target's new section body under its `previews/` folder, so nothing lands beside a context file before the §8 gate, and deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) Cancel and every HALT in this step.
+Step 2 bound `{export_stage_dir}`, the run's folder outside the project that holds each skill's snippet draft under `drafts/`. This step stages each target's new section body under its `previews/` folder, so nothing lands beside a context file before the §8 gate, and deletes the folder on every exit: the §8 cancel, the end of §9c, the orphan-row (c) Cancel and every HALT in this step. The §8 dry run keeps it: step 4 measures its drafts and previews, then deletes it.
 
 ### 3. Determine Target Files
 
@@ -48,7 +48,7 @@ Run `check` on each file of step 1's `{other_context_files}`, the known context 
 python3 {rebuildManagedSectionsHelper} "{context_path}" check
 ```
 
-A file whose `case` is `regenerate` holds a managed section: add `{context_file, file_path}` to `orphaned_context_files`, with its `{context_path}` as `file_path`. A `malformed` one is left as it is, with the warning "`{context_file}` has malformed SKF markers, so it was left as it is: {error}". Any other case is not orphaned.
+A file whose `case` is `regenerate` holds a managed section: add `{context_file, file_path}` to `orphaned_context_files`, with its `{context_path}` as `file_path`. A `malformed` one is left as it is, with the warning (code `orphan_context_malformed`) "`{context_file}` has malformed SKF markers, so it was left as it is: {error}". Any other case is not orphaned.
 
 **If `orphaned_context_files` is non-empty:** load `references/orphan-context-detection.md` and follow its (a) clear / (b) keep gate, whose headless default is keep. It writes nothing: (a) lists each file in `orphans_to_clear`, which §7 and §8 show and §9 clears only after [C], so a cancel or a halt before §9 leaves the file as it is.
 
@@ -79,13 +79,17 @@ When the first result's `malformed_context_files` is not empty, run the §5 `che
 
 #### 4c. Report What Was Left Out
 
-Every call reads the same manifest and snippets, so report these once, from the first result:
+Every call reads the same manifest and snippets, so act on these once, from the first result.
 
-- each `skipped_integrity[]` entry: "**Manifest integrity warning:** `{skill_name}`: {reason}. Skipping. Re-run `[EX] Export Skill` on `{skill_name}` to repair the manifest entry."
-- each `skipped_deprecated[]` entry: "Skipping {skill_name}: active version v{version} is deprecated"
-- each `skipped_missing_snippet[]` entry: "Snippet missing for {skill_name} v{version}: skipping from managed section"
-- each `skipped_malformed_snippet[]` entry: "Snippet of {skill_name} v{version} skipped: {reason}"
-- each `warnings[]` line as it is
+When a `skipped_malformed_snippet[]` entry names a skill in `skill_batch`, `assemble` refused the draft step 2 checked, and this export would record and copy a snippet no section lists: delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `update-context §4c`): "The snippet draft of {skill_name} cannot go in the managed section: {reason}. Nothing was written. Re-run the export."
+
+Otherwise report each as a warning under its code:
+
+- each `skipped_integrity[]` entry (code `managed_section_skipped_integrity`): "**Manifest integrity warning:** `{skill_name}`: {reason}. Skipping. Re-run `[EX] Export Skill` on `{skill_name}` to repair the manifest entry."
+- each `skipped_deprecated[]` entry (code `managed_section_skipped_deprecated`): "Skipping {skill_name}: active version v{version} is deprecated"
+- each `skipped_missing_snippet[]` entry (code `managed_section_skipped_missing_snippet`): "Snippet missing for {skill_name} v{version}: skipping from managed section"
+- each other `skipped_malformed_snippet[]` entry (code `managed_section_skipped_malformed_snippet`): "Snippet of {skill_name} v{version} skipped: {reason}"
+- each `warnings[]` line as it is (code `managed_section_warning`)
 
 With no skill to list, each body holds the header alone (`0 skills|0 stack`).
 
@@ -157,7 +161,7 @@ Its managed section and both markers are removed; the content outside them stays
 
 **Proceeding to token report...**"
 
-List every skill in `skill_batch`, and give `{ides_written}` as §9b defines it, over the targets above, or `none` when it is empty. §9 to §9c do not run: delete the `{export_stage_dir}` folder, then auto-proceed to {nextStepFile}.
+List every skill in `skill_batch`, and give `{ides_written}` as §9b defines it, over the targets above, or `none` when it is empty. §9 to §9c do not run: keep the `{export_stage_dir}` folder, whose drafts and previews step 4 measures, and auto-proceed to {nextStepFile}.
 
 **If NOT dry-run:**
 

@@ -7,7 +7,7 @@ description: Exports an SKF skill, validating its package, writing its context s
 
 ## Overview
 
-Checks a completed skill against the agentskills.io export gate, writes its context snippet and updates the managed section in CLAUDE.md, AGENTS.md or .cursorrules. It is the sole publishing gate: create-skill and update-skill produce drafts, and only export writes the context files and records the skill in `.export-manifest.json`.
+The sole publishing gate: create-skill and update-skill produce drafts, and only export checks a skill against the agentskills.io export gate, writes its context snippet and managed sections, and records it in `.export-manifest.json`.
 
 ## Conventions
 
@@ -32,6 +32,7 @@ You are Ferris in Delivery mode, a packaging specialist: you check a developer's
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and record each auto-decision in the run sink (`references/result-envelope.md`)
 - Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
+- **Run log:** in a headless run, record each warning a step displays, under the code the step names: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<code>: <skill>: <detail>'` (`references/result-envelope.md`, Run Folder). A failed `record` never stops the run.
 - **Snippet timing:** step 2 only stages each `context-snippet.md` outside the project; step 3 §9c copies it into the skill package after its [C] gate, as step 3's last write. A cancel, a dry run or a halt before §9c leaves every snippet, and a carried gotchas line's one `[CARRIED]` cycle, as it was.
 
 ## Stages
@@ -47,16 +48,16 @@ You are Ferris in Delivery mode, a packaging specialist: you check a developer's
 
 ## Invocation Contract
 
-Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes are in `references/invocation-contract.md`, and the `SKF_EXPORT_RESULT_JSON` envelope in `references/result-envelope.md`. Interactive runs do not need them.
+Headless callers: `references/invocation-contract.md` holds the inputs, flags, gates, outputs and exit codes, and `references/result-envelope.md` the `SKF_EXPORT_RESULT_JSON` envelope and the run folder.
 
 ## On Activation
 
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional): the `root:` prefix of every snippet and managed-section row in place of the IDE skill folder, for an authoring repo that keeps its skills in one folder such as `skills/`; step 1's snippet-root option (d) sets it for one run without changing `config.yaml`.
+   - `snippet_skill_root_override` (optional): the `root:` prefix of every snippet and managed-section row in place of the IDE skill folder (such as `skills/` in an authoring repo); step 1's snippet-root option (d) sets it for one run.
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false. From the same file, bind `{passive_context}` ← its `passive_context`, true when the file or the key is absent. A false value means this run writes no snippet and no managed-section row (step 1 asks no snippet-root question), while step 3 still records the export in the manifest.
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false. From the same file, bind `{passive_context}` ← its `passive_context`, true when the file or the key is absent. A false value means this run writes no snippet and no managed-section row.
 
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
@@ -73,26 +74,20 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
 
    Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
-4. **Resolve the helpers and create the run folder.** Resolve each helper to the first of its two paths that exists, the installed module first, all in parallel:
+4. **Resolve the helpers and create the run folder.** Resolve each helper to the first path that exists, all in parallel:
 
-   - `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (every envelope, result file and headless record).
+   - `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`.
    - `{manifestOpsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py`, else `{project-root}/src/shared/scripts/skf-manifest-ops.py` (steps 1 and 3).
    - `{skillInventoryHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py`, else `{project-root}/src/shared/scripts/skf-skill-inventory.py` (step 1).
    - `{rebuildManagedSectionsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py`, else `{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py` (steps 1, 2 and 3).
-   - `{validateOutputHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py`, else `{project-root}/src/shared/scripts/skf-validate-output.py` (step 1).
+   - `{validateOutputHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py`, else `{project-root}/src/shared/scripts/skf-validate-output.py` (steps 1 and 2).
    - `{countTokensHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py`, else `{project-root}/src/shared/scripts/skf-count-tokens.py` (steps 2 and 4).
 
-   No step has a fallback for them, so check them all here, before any prompt or write. If one has no existing path, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) at phase `on-activation §4`: "`{the missing helper's file name}` is missing. Nothing was changed. Re-install SKF."
+   No step has a fallback, so check them all here, before any prompt or write. If one has no existing path, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) at phase `on-activation §4`: "`{the missing helper's file name}` is missing. Nothing was changed. Re-install SKF."
 
-   When `{headless_mode}` is true, create the run folder, whose sink holds the headless auto-decisions:
+   When `{headless_mode}` is true, create the run folder (`references/result-envelope.md`, Run Folder).
 
-   ```bash
-   mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"
-   ```
-
-   Bind `{run_dir}` ← the path it prints. Step 5 deletes it once the run's envelope is built; a HARD HALT leaves it in place. If it cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation §4`. When `{customization_resolver_unavailable}` is set, record it there: write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a file write (a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`.
-
-5. **Pre-flight write check.** Verify `{skills_output_folder}` is writable, so a read-only mount, a full disk or a denied path stops the run before the user confirms a batch. Without `--dry-run`, probe it with a write:
+5. **Pre-flight write check.** Verify `{skills_output_folder}` is writable before the user confirms a batch. Without `--dry-run`, probe it with a write:
 
    ```bash
    mkdir -p "{skills_output_folder}" && \

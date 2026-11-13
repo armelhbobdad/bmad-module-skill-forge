@@ -41,13 +41,32 @@ context_budget gives the token report's Context Budget Impact values, in tokens:
                      neither the snippet nor metadata.json, so it is not package_total
   - snippet:         context-snippet.md (this skill's share of the managed section)
 
+What a run has staged but not written, the token report of an export dry run measures
+with these flags (without them the output is unchanged):
+  - --snippet PATH:      PATH is the context-snippet row: its `path` is PATH, and it is
+                         reported with exists false and zero metrics when PATH is absent.
+  - --no-snippet:        no context-snippet row (a run with passive context off writes
+                         none): package_total leaves it out and context_budget.snippet is
+                         null. It cannot be combined with --snippet (exit 2).
+  - --section-file PATH: PATH holds a managed-section body as `assemble --out` stages it;
+                         the managed section is measured as the block `insert` and
+                         `replace` would write around it, `<!-- SKF:BEGIN updated:{today} -->`,
+                         the body and `<!-- SKF:END -->` on lines of their own, today being
+                         the UTC date, so its numbers equal the written block's. Then
+                         `present` is true, `source_file` is PATH and `target_files` lists
+                         each --target-file once, in order, without reading it. A PATH that
+                         is missing, a folder or not UTF-8 text exits 2.
+
 CLI:
   python3 skf-count-tokens.py <skill-package-dir>
   python3 skf-count-tokens.py <skill-package-dir> --target-file CLAUDE.md
   python3 skf-count-tokens.py <skill-package-dir> --target-file CLAUDE.md --target-file AGENTS.md
   python3 skf-count-tokens.py <skill-package-dir> -o report.json
+  python3 skf-count-tokens.py <skill-package-dir> --snippet <draft> --section-file <body> --target-file CLAUDE.md
+  python3 skf-count-tokens.py <skill-package-dir> --no-snippet
 
-Exit codes: 0 = metrics emitted, 2 = error (skill package dir missing / not a directory).
+Exit codes: 0 = metrics emitted, 2 = error (skill package dir missing / not a directory,
+--snippet with --no-snippet, or a --section-file it cannot read).
 """
 
 from __future__ import annotations
@@ -56,6 +75,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Mirrors skf-rebuild-managed-sections.py: a BEGIN marker may carry attributes
@@ -107,6 +127,12 @@ def extract_managed_section(text: str) -> str | None:
     return m.group(0) if m else None
 
 
+def wrap_section(body: str, today: str | None = None) -> str:
+    """The block skf-rebuild-managed-sections.py's insert and replace write around a staged body."""
+    today = today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"<!-- SKF:BEGIN updated:{today} -->\n{body}\n<!-- SKF:END -->"
+
+
 def count_managed_skills(section: str) -> int:
     """The number of skill rows (`[name v...]` row headers) in a managed section."""
     return len(MANAGED_ROW_RE.findall(section))
@@ -137,12 +163,23 @@ def measure_reference_files(references_dir: Path) -> tuple[list[dict], dict]:
     return rows, total
 
 
-def count_package(skill_dir: Path, target_files: list[Path] | None = None) -> dict:
+def count_package(
+    skill_dir: Path,
+    target_files: list[Path] | None = None,
+    *,
+    snippet: Path | None = None,
+    no_snippet: bool = False,
+    section: str | None = None,
+    section_source: Path | None = None,
+) -> dict:
     """Measure a skill package's artifacts and the shared managed section.
 
     Returns the metrics dict (see module docstring for the shape). Missing core
     artifacts are reported with exists=False and zero metrics so package_total is
     always well-defined and callers can render 'N/A' rows without guessing.
+    `snippet` measures that file as the context-snippet row, `no_snippet` leaves
+    the row out, and `section` (a block wrap_section built, read from
+    `section_source`) is measured in place of the target files' blocks.
     """
     skill_dir = Path(skill_dir)
     target_files = target_files or []
@@ -151,12 +188,18 @@ def count_package(skill_dir: Path, target_files: list[Path] | None = None) -> di
 
     # Core per-skill artifacts.
     for name, role in CORE_ARTIFACTS:
-        path = skill_dir / name
+        path, shown = skill_dir / name, name
+        if role == "context-snippet":
+            if no_snippet:
+                continue
+            if snippet is not None:
+                path = Path(snippet)
+                shown = path.as_posix()
         if path.is_file():
             metrics = measure(_read_text(path))
-            files.append({"path": name, "role": role, "exists": True, **metrics})
+            files.append({"path": shown, "role": role, "exists": True, **metrics})
         else:
-            files.append({"path": name, "role": role, "exists": False, "words": 0, "tokens": 0})
+            files.append({"path": shown, "role": role, "exists": False, "words": 0, "tokens": 0})
 
     # references/ — per-file rows + summed total.
     ref_rows, references_total = measure_reference_files(skill_dir / "references")
@@ -174,6 +217,20 @@ def count_package(skill_dir: Path, target_files: list[Path] | None = None) -> di
     managed_section = {"present": False, "source_file": None, "target_files": [], "skills": 0,
                        "words": 0, "tokens": 0}
     seen: set[Path] = set()
+    if section is not None:
+        # The staged section is measured; the target files are only listed, unread.
+        for tf in target_files:
+            tf = Path(tf)
+            if tf.resolve() not in seen:
+                seen.add(tf.resolve())
+                managed_section["target_files"].append(tf.as_posix())
+        managed_section.update(
+            present=True,
+            source_file=Path(section_source).as_posix() if section_source is not None else None,
+            skills=count_managed_skills(section),
+            **measure(section),
+        )
+        target_files = []
     for tf in target_files:
         tf = Path(tf)
         if tf.resolve() in seen or not tf.is_file():
@@ -199,7 +256,7 @@ def count_package(skill_dir: Path, target_files: list[Path] | None = None) -> di
         "always_on": managed_section["tokens"] if managed_section["present"] else None,
         "on_trigger": core_by_role["skill-md"]["tokens"],
         "full_disclosure": core_by_role["skill-md"]["tokens"] + references_total["tokens"],
-        "snippet": core_by_role["context-snippet"]["tokens"],
+        "snippet": core_by_role["context-snippet"]["tokens"] if "context-snippet" in core_by_role else None,
     }
 
     return {
@@ -235,6 +292,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Context file (CLAUDE.md / AGENTS.md / .cursorrules) to extract the managed "
         "section from; repeatable — the first file with a BEGIN..END block is measured.",
     )
+    snippet_group = parser.add_mutually_exclusive_group()
+    snippet_group.add_argument(
+        "--snippet",
+        metavar="PATH",
+        help="Measure this file as the context-snippet row (a staged draft) instead of the package's.",
+    )
+    snippet_group.add_argument(
+        "--no-snippet",
+        action="store_true",
+        help="Leave the context-snippet row out (a run with passive context off writes none).",
+    )
+    parser.add_argument(
+        "--section-file",
+        metavar="PATH",
+        help="A managed-section body as `assemble --out` stages it: measure the block insert or "
+        "replace would write around it; --target-file is then listed, not read.",
+    )
     parser.add_argument("-o", "--output", metavar="PATH", help="Write JSON here (default: stdout)")
     parser.add_argument("--verbose", action="store_true", help="Emit diagnostics to stderr")
     args = parser.parse_args(argv)
@@ -244,12 +318,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: skill package directory not found: {skill_dir}", file=sys.stderr)
         return 2
 
+    section = None
+    if args.section_file is not None:
+        section_path = Path(args.section_file)
+        if not section_path.is_file():
+            what = "a folder" if section_path.is_dir() else "missing"
+            print(f"error: --section-file {section_path.as_posix()} is {what}", file=sys.stderr)
+            return 2
+        try:
+            # Read as the written context file is read back to measure it (newlines
+            # translated), so even a CRLF body measures as the block written from it.
+            section = wrap_section(section_path.read_text(encoding="utf-8"))
+        except UnicodeDecodeError as e:
+            print(f"error: --section-file {section_path.as_posix()} is not UTF-8 text ({e})", file=sys.stderr)
+            return 2
+        except OSError as e:
+            print(f"error: cannot read --section-file {section_path.as_posix()}: {e}", file=sys.stderr)
+            return 2
+
     if args.verbose:
         print(f"measuring skill package: {skill_dir}", file=sys.stderr)
         if args.target_file:
             print(f"managed-section candidates: {args.target_file}", file=sys.stderr)
 
-    result = count_package(skill_dir, [Path(p) for p in args.target_file])
+    result = count_package(
+        skill_dir,
+        [Path(p) for p in args.target_file],
+        snippet=Path(args.snippet) if args.snippet is not None else None,
+        no_snippet=args.no_snippet,
+        section=section,
+        section_source=Path(args.section_file) if section is not None else None,
+    )
 
     payload = json.dumps(result, indent=2)
     if args.output:

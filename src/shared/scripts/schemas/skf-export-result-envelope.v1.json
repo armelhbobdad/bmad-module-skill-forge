@@ -98,7 +98,20 @@
           "evidence": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Optional gate-specific data: the observed snippet-root prefixes, the orphaned context files, or the orphaned rows' skills."
+            "properties": {
+              "test_results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["skill", "verdict"],
+                  "properties": {
+                    "skill": { "type": "string", "minLength": 1 },
+                    "verdict": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            },
+            "description": "Optional gate-specific data: the observed snippet-root prefixes, the orphaned context files, or the orphaned rows' skills. The load-skill.confirmation decision holds test_results, one {skill, verdict, score, report} per skill of the batch from step 1's test-report check: verdict is the report's testResult (pass, fail, pass-with-drift, inconclusive), no-verdict, not-found or not-checked; score a number or null; report the report's file name or null."
           }
         }
       },
@@ -132,7 +145,7 @@
     "warnings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each (for example result_file_write_failed). Present only when there is at least one."
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each (for example result_file_write_failed). A warning a step displayed reads '<code>: <skill>: <detail>', with the codes the Run Folder section of the skill's references/result-envelope.md lists. Present only when there is at least one."
     },
     "error": {
       "type": "object",

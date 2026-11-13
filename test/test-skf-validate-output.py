@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1727,3 +1728,211 @@ class TestSnippetLengthBounds:
         assert "drop api names from the end of the §3b ranking" in text
         fmt = SNIPPET_FORMAT_MD.read_text(encoding="utf-8")
         assert not re.search(r"\btokens?\b|\b\d+-token\b", fmt), "the snippet format states no token budget"
+
+
+# --- #1166 determinism-1: --snippet-check, the draft check generate-snippet §4 runs ---------
+
+REBUILD_SCRIPT = SCRIPT.parent / "skf-rebuild-managed-sections.py"
+EM_DASH = chr(0x2014)  # the snippet format's IMPORTANT and key-types lines carry one
+CHECK_SKILL_MD = """---
+name: zod
+description: Zod schemas
+# a YAML comment is no heading
+---
+
+# zod
+
+## Quick Start
+
+```ts
+## Not A Heading
+```
+
+## Usage
+
+## Usage
+
+## Key Types (Quick Start Essentials)
+"""
+CHECK_DRAFT = (
+    "[zod v4.1.0]|root: .claude/skills/zod/\n"
+    "|IMPORTANT: zod v4.1.0 " + EM_DASH + " read SKILL.md before writing zod code. Do NOT rely on training data.\n"
+    "|quick-start:SKILL.md#quick-start\n"
+    "|api: parse(), safeParse(), z\n"
+    "|key-types:SKILL.md#key-types-quick-start-essentials " + EM_DASH + " ZodType, infer, ZodError\n"
+    "|gotchas: `parse()` throws on an unknown key since v4\n"
+)
+# Each bad draft of the matrix: the change, and the high issue it raises.
+BAD_DRAFTS = {
+    "version": (("[zod v4.1.0]", "[zod v4.0.0]"), "header"),
+    "name": (("[zod v4.1.0]", "[yup v4.1.0]"), "header"),
+    "blank": (("|quick-start:", "\n|quick-start:"), "separator"),
+    "bare-pipe": (("|quick-start:", "|\n|quick-start:"), "separator"),
+    "marker": (("|api: ", "|api: <!--SKF:END--> "), "marker"),
+    "no-heading": (("SKILL.md#quick-start", "SKILL.md#getting-started"), "anchor"),
+    "no-file": (("SKILL.md#quick-start", "references/full.md#quick-start"), "anchor"),
+    "dot-dot": (("SKILL.md#quick-start", "references/../SKILL.md#quick-start"), "anchor"),
+}
+
+
+def make_snippet_case(tmpdir, draft=CHECK_DRAFT, *, meta=None, full=None):
+    """A `zod` package and a draft folder holding `draft` as context-snippet.md."""
+    pkg = Path(tmpdir) / "skills" / "zod" / "4.1.0" / "zod"
+    pkg.mkdir(parents=True)
+    (pkg / "SKILL.md").write_text(CHECK_SKILL_MD, encoding="utf-8")
+    (pkg / "metadata.json").write_text(json.dumps(meta or {"name": "zod", "version": "4.1.0"}), encoding="utf-8")
+    if full is not None:
+        (pkg / "references").mkdir()
+        (pkg / "references" / "full.md").write_text(full, encoding="utf-8")
+    drafts = Path(tmpdir) / "stage" / "drafts"
+    (drafts / "zod").mkdir(parents=True)
+    if draft is not None:
+        (drafts / "zod" / "context-snippet.md").write_bytes(draft.encode("utf-8") if isinstance(draft, str) else draft)
+    return drafts / "zod", pkg
+
+
+def run_snippet_check(*args):
+    return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True,
+                          encoding="utf-8", timeout=60)
+
+
+def high_fields(result):
+    return [i["field"] for i in result["issues"] if i["severity"] == "high"]
+
+
+class TestSnippetCheck:
+    def test_heading_slugs_are_githubs(self):
+        text = ("---\nname: x\n# not a heading\n---\n# A B\n## A B\n## A-B!\n```\n# fenced\n```\n"
+                "### Key Types (Quick Start Essentials)\n#### Ünïcode_x `code`\n")
+        assert mod.heading_slugs(text) == ["a-b", "a-b-1", "a-b-2", "key-types-quick-start-essentials",
+                                           "ünïcode_x-code"]
+
+    def test_a_good_draft_passes_in_process_and_through_the_cli(self, tmp_path):
+        draft, pkg = make_snippet_case(tmp_path)
+        result = mod.check_snippet_draft(draft, pkg)
+        assert (result["result"], result["issues"]) == ("PASS", [])
+        assert (result["mode"], result["skill_name"], result["version"]) == ("snippet-check", "zod", "4.1.0")
+        proc = run_snippet_check(draft, "--snippet-check", "--package", pkg)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        out = json.loads(proc.stdout)
+        assert (Path(out["draft"]), Path(out["package"])) == (draft, pkg)
+        assert out["summary"] == {"total_issues": 0, "by_severity": {"high": 0, "medium": 0, "low": 0}}
+
+    @pytest.mark.parametrize("case", sorted(BAD_DRAFTS))
+    def test_a_bad_draft_fails_with_a_high_issue(self, tmp_path, case):
+        (old, new), field = BAD_DRAFTS[case]
+        assert CHECK_DRAFT.count(old) == 1
+        draft, pkg = make_snippet_case(tmp_path, CHECK_DRAFT.replace(old, new))
+        result = mod.check_snippet_draft(draft, pkg)
+        assert result["result"] == "FAIL" and field in high_fields(result), result["issues"]
+        proc = run_snippet_check(draft, "--snippet-check", "--package", pkg)
+        assert proc.returncode == 1, proc.stdout + proc.stderr
+        assert json.loads(proc.stdout)["issues"] == result["issues"]
+        if field == "separator":
+            [issue] = [i for i in result["issues"] if i["field"] == "separator"]
+            assert issue["message"].startswith("line 3 is blank or a bare `|`"), issue
+
+    def test_a_split_body_anchor_and_a_repeated_heading_resolve(self, tmp_path):
+        draft = CHECK_DRAFT.replace("SKILL.md#quick-start", "references/full.md#quick-start") \
+            + "|usage:SKILL.md#usage-1\n"
+        draft_dir, pkg = make_snippet_case(tmp_path, draft, full="# Full\n\n## Quick Start\n")
+        assert mod.check_snippet_draft(draft_dir, pkg)["result"] == "PASS"
+        # A third Usage heading does not exist.
+        (draft_dir / "context-snippet.md").write_text(draft.replace("#usage-1", "#usage-2"), encoding="utf-8")
+        result = mod.check_snippet_draft(draft_dir, pkg)
+        assert high_fields(result) == ["anchor"] and "usage-2" in result["issues"][0]["message"]
+
+    def test_an_anchor_ends_at_its_slug(self, tmp_path):
+        """The template's `{SKILL.md#quick-start}` braces and a sentence's closing `.` are not part of the slug,
+        and generate-snippet §3b states the slug rule the check uses."""
+        draft = (CHECK_DRAFT.replace("SKILL.md#quick-start", "{SKILL.md#quick-start}")
+                 .replace("since v4\n", "since v4, see SKILL.md#usage.\n"))
+        draft_dir, pkg = make_snippet_case(tmp_path, draft)
+        assert mod.check_snippet_draft(draft_dir, pkg)["result"] == "PASS"
+        (draft_dir / "context-snippet.md").write_text(draft.replace("#quick-start}", "#getting-started}"),
+                                                      encoding="utf-8")
+        result = mod.check_snippet_draft(draft_dir, pkg)
+        assert high_fields(result) == ["anchor"]
+        assert result["issues"][0]["message"].endswith("has no heading whose slug is getting-started")
+        text = GENERATE_SNIPPET_MD.read_text(encoding="utf-8")
+        assert ("heading slugs for `#quick-start` and `#key-types` (GitHub's slug, which §4's check uses: the heading "
+                "text lowercased, each character that is not a letter, digit, space, `-` or `_` dropped, each space "
+                "made `-`, and `-1` or `-2` added for the second or third heading with the same slug)") in text
+
+    def test_the_format_checks_of_validate_context_snippet_come_first(self, tmp_path):
+        """A medium line-2 issue fails the draft; a low length note alone does not."""
+        draft, pkg = make_snippet_case(tmp_path, CHECK_DRAFT.replace("|IMPORTANT:", "|NOTE:"))
+        result = mod.check_snippet_draft(draft, pkg)
+        assert [(i["severity"], i["field"]) for i in result["issues"]] == [("medium", "line2")]
+        assert result["result"] == "FAIL"
+        short = "[zod v4.1.0]|root: .claude/skills/zod/\n|IMPORTANT: zod v4.1.0\n"
+        (draft / "context-snippet.md").write_text(short, encoding="utf-8")
+        result = mod.check_snippet_draft(draft, pkg)
+        assert [(i["severity"], i["field"]) for i in result["issues"]] == [("low", "length")]
+        assert result["result"] == "PASS"
+
+    @pytest.mark.parametrize("state", ["missing", "folder", "not-utf8"])
+    def test_a_draft_it_cannot_read_is_a_content_issue(self, tmp_path, state):
+        draft, pkg = make_snippet_case(tmp_path, None if state != "not-utf8" else b"[zod v4.1.0]\xff\xfe\n")
+        if state == "folder":
+            (draft / "context-snippet.md").mkdir()
+        result = mod.check_snippet_draft(draft, pkg)
+        assert high_fields(result) == ["content"] and result["result"] == "FAIL"
+        assert run_snippet_check(draft, "--snippet-check", "--package", pkg).returncode == 1
+
+    def test_a_package_with_no_version_fails_the_header(self, tmp_path):
+        draft, pkg = make_snippet_case(tmp_path, meta={"name": "zod"})
+        result = mod.check_snippet_draft(draft, pkg)
+        assert high_fields(result) == ["header"] and result["version"] is None
+
+    @pytest.mark.parametrize("package", ["none", "no-value", "a-file", "missing"])
+    def test_a_package_that_is_no_folder_is_a_usage_error(self, tmp_path, package):
+        draft, pkg = make_snippet_case(tmp_path)
+        tail = {"none": [], "no-value": ["--package"], "a-file": ["--package", pkg / "metadata.json"],
+                "missing": ["--package", tmp_path / "nowhere"]}[package]
+        proc = run_snippet_check(draft, "--snippet-check", *tail)
+        assert proc.returncode == 2 and proc.stdout == ""
+        assert proc.stderr.startswith("error: "), proc.stderr
+
+    @pytest.mark.parametrize("case", ["good", "marker"])
+    def test_the_documented_section_4_call(self, tmp_path, case):
+        """generate-snippet §4's command, its placeholders filled, checks the staged draft."""
+        section = GENERATE_SNIPPET_MD.read_text(encoding="utf-8")
+        section = section[section.index("### 4. Verify Token Count"):section.index("### 5. ")]
+        [command] = [line for line in section.splitlines() if "--snippet-check" in line and line.startswith("python3")]
+        draft = CHECK_DRAFT if case == "good" else CHECK_DRAFT.replace(*BAD_DRAFTS["marker"][0])
+        draft_dir, pkg = make_snippet_case(tmp_path, draft)
+        values = {"validateOutputHelper": SCRIPT.as_posix(), "export_stage_dir": (tmp_path / "stage").as_posix(),
+                  "skill-name": "zod", "resolved_skill_package": pkg.as_posix()}
+        filled = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], command)
+        words = shlex.split(filled)
+        assert words[0] == "python3"
+        proc = subprocess.run([sys.executable, *words[1:]], capture_output=True, text=True, encoding="utf-8",
+                              timeout=60)
+        assert proc.returncode == (0 if case == "good" else 1), proc.stdout + proc.stderr
+        assert json.loads(proc.stdout)["result"] == ("PASS" if case == "good" else "FAIL")
+        # One corrected retry, then the §4 halt, which takes no new halt reason.
+        assert "When it exits non-zero, correct the draft as each high or medium issue says" in section
+        assert ('When it fails again, delete the `{export_stage_dir}` folder and HALT (exit code 4, '
+                '`halt_reason: "context-rebuild-failed"`, phase `generate-snippet §4`)') in section
+        assert "emit warning (code `snippet_trimmed`)" in section
+
+    @pytest.mark.parametrize("case", ["good", "marker", "name"])
+    def test_the_check_and_assemble_agree_on_a_draft(self, tmp_path, case):
+        """A draft the check passes is a row `assemble --snippet-dir` lists; one it fails, assemble refuses too."""
+        spec = importlib.util.spec_from_file_location("skf_rms_snippet_check", REBUILD_SCRIPT)
+        rms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rms)
+        draft = CHECK_DRAFT if case == "good" else CHECK_DRAFT.replace(*BAD_DRAFTS[case][0])
+        draft_dir, pkg = make_snippet_case(tmp_path, draft)
+        check = mod.check_snippet_draft(draft_dir, pkg)
+        out = rms.cmd_assemble(str(tmp_path / "CLAUDE.md"), str(tmp_path / "skills"), ".claude/skills/",
+                               includes=[("zod", "4.1.0")], snippet_dir=str(draft_dir.parent),
+                               out=str(tmp_path / "stage" / "previews" / "CLAUDE.md.skf-content"))
+        assert out["status"] == "ok", out
+        if case == "good":
+            assert check["result"] == "PASS"
+            assert [i["skill_name"] for i in out["included"]] == ["zod"] and out["skipped_malformed_snippet"] == []
+        else:
+            assert check["result"] == "FAIL"
+            assert [s["skill_name"] for s in out["skipped_malformed_snippet"]] == ["zod"]
