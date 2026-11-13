@@ -67,9 +67,11 @@ Otherwise fill the template's Integration Patterns section from `{bundleFile}`: 
 
 Order the libraries as §1's `{library_order}` lists them.
 
+**Citations.** Each summary's Usage pattern line cites what shows its pattern: in code mode `({file}:{line})`, from the library's `usage_patterns`, several of them comma-separated in one pair of parentheses; in compose mode `[from skill: {name}]`, the constituent the entry came from. A library with no usage pattern writes `none extracted`, uncited. When the entry's `temporal` holds T2-future items, the `**Deprecations:**` pointer after that line gives their count; otherwise the summary has none.
+
 ### 5. Compile Project Conventions
 
-The conventions the extractions show recurring across libraries.
+The conventions the extractions show recurring across libraries, each cited as §4 does, from the `usage_patterns` or an integration's `key_files` that show it (in compose mode, one `[from skill: {name}, {name}]` names each constituent that shows it). Drop a convention no record cites; when none is left, keep `## Conventions` with one plain line, no bullet, saying no convention could be cited.
 
 ### 6. Compile Library Reference Index
 

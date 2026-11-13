@@ -55,7 +55,7 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 }
 ```
 
-`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations` and `cross_cutting`. Each entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
+`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations` and `cross_cutting`. Each entry also holds `file_count`, the library's step 3 import count, and keeps its record's `temporal` (§2), `{}` below Deep tier, which step 7 writes into the library's reference file; its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
 
 ### 1. Prepare Extraction Plan
 
@@ -65,10 +65,6 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 - An export read by eye, for any reason (Quick tier, ast-grep unavailable, a file ast-grep could not parse, a rule that matched nothing, or a file read instead of running a rule): `extraction_method: "source_reading"`, `confidence: "T1-low"`, `signature_source: "T1-low"`.
 
 Deep-tier temporal findings are T2 annotations, never export labels.
-
-**AST Tool Availability Check (Forge/Deep only):**
-
-This workflow operates on local project files and installed library packages. Remote source resolution does not apply — libraries are analyzed as they exist within the project's dependency tree.
 
 **If AST tool is unavailable at Forge/Deep tier:**
 
@@ -80,30 +76,18 @@ Degrade to Quick tier extraction, and append a `workflow_warnings[]` entry (`ste
 
 If ast-grep fails on an individual file (parse error, unsupported syntax), fall back to source reading for that file only, and log a warning noting which file degraded and why.
 
-For each library in `confirmed_dependencies`, determine extraction strategy based on forge tier:
-
-**Quick Tier:**
-- Read source files that import the library
-- Extract usage patterns from import statements and function calls
-- Identify key exports used in this project
-
-**Forge Tier (adds to Quick):**
-- Use ast_bridge to analyze structural exports from library source
-- Extract function signatures, type definitions, class hierarchies
-- Map parameter types and return types
+**Extraction by tier:** read each library's exports with ast-grep (`ast_bridge`) rules at Forge tier and above, and with file reads at Quick tier or where a rule fails.
 
 **Deep Tier (adds to Forge):**
-- Perform all Forge tier extractions
-- Additionally: query existing QMD temporal collections for each library
+- Query existing QMD temporal collections for each library
 - Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`
 - For each library in `confirmed_dependencies`, search for a registry entry where `skill_name` matches the library name AND `type` is `"temporal"`
 - **If a matching temporal collection exists:**
   - Query `qmd_bridge.search("{library_name} deprecated OR removed OR breaking change")` for deprecation context
   - Query `qmd_bridge.search("{library_name} migration OR upgrade")` for migration patterns
   - Query `qmd_bridge.search("{library_name} version issue OR bug OR workaround")` for version-specific warnings
-  - **Tool resolution for qmd_bridge:** Use QMD MCP tools — `mcp__plugin_qmd-plugin_qmd__search` (Claude Code), qmd MCP server (Cursor), `qmd search "{query}"` (CLI). See `knowledge/tool-resolution.md`
-  - Classify each result as T2-past (historical) or T2-future (planned changes) per confidence-tiers.md
-  - Append temporal findings to the library's extraction as T2 annotations with `[QMD:{collection}:{doc}]` citations
+  - Classify each result as T2-past (historical) or T2-future (planned changes) per `knowledge/confidence-tiers.md`
+  - Add each finding to the library record's `temporal` (§2) as a T2 annotation, its label and `[QMD:{collection}:{doc}]` citation in its text
 - **If no matching temporal collection found:**
   - Log: "No temporal collection for {library_name}. T2 enrichment skipped."
   - Continue with T1/T1-low extraction only
@@ -112,12 +96,7 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 
 **Launch subprocesses in parallel** (max_parallel_generation: 3–5 concurrent Agent tool calls in Claude Code, IDE-dependent in Cursor, CPU core count in CLI) — one per confirmed library:
 
-Each subprocess:
-1. Reads all files importing the library (its `files[]` in `{importCountsFile}`, step 3's import counts, whose paths are relative to `{project_root}`, as `source_file` is)
-2. Extracts key exports used in this project (functions, classes, types, constants)
-3. Identifies usage patterns (initialization, configuration, common call patterns)
-4. Labels each export by the tool that read it (§1)
-5. Returns structured extraction to parent, one record per export:
+Each subprocess reads the files that import its library (its `files[]` in `{importCountsFile}`, step 3's import counts, whose paths are relative to `{project_root}`, as `source_file` is) and returns the library's usage patterns and one record per export the project uses, labeled by the tool that read it (§1); at Deep tier it also runs §1's QMD queries for its library and returns their findings in `temporal`:
 
 ```
 {
@@ -140,9 +119,9 @@ Each subprocess:
   files_analyzed: count,
   warnings: [],
   temporal: {
-    deprecated_exports: ["export_name — reason [QMD:collection:doc]"],
-    migration_notes: ["note [QMD:collection:doc]"],
-    version_warnings: ["warning [QMD:collection:doc]"],
+    deprecated_exports: ["export_name: reason (T2-past|T2-future) [QMD:collection:doc]"],
+    migration_notes: ["note (T2-past|T2-future) [QMD:collection:doc]"],
+    version_warnings: ["warning (T2-past|T2-future) [QMD:collection:doc]"],
     t2_annotation_count: count
   }
 }
@@ -156,17 +135,7 @@ Each subprocess:
 
 ### 3. Handle Extraction Failures
 
-For each library extraction:
-
-**Success:** Store the extraction result as the library's `per_library_extractions[]` entry.
-
-**Partial failure:** Store partial result with warnings, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-partial"`, `message`: the library and its warnings, `extraction budget reached` among them when it stopped on its budget), and continue with other libraries.
-
-**Complete failure:** Log failure reason, exclude from stack skill, note in report.
-
-"**Warning:** Extraction failed for {library}: {reason}. Excluding from stack skill."
-
-Record each excluded library in the bundle's `failed[]` and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-failed"`, `message`: the library and the reason).
+Store each returned extraction as its library's `per_library_extractions[]` entry, and for a partial one append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-partial"`, `message`: the library and its warnings, `extraction budget reached` among them when it stopped on its budget). A library with no usable data stays out of the stack: record it in the bundle's `failed[]` and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-failed"`, `message`: the library and the reason).
 
 **If ALL extractions fail:** HALT (exit 2, `halt_reason: "all-extractions-failed"`, phase `parallel-extract:all-failed`, `stack_libraries` the confirmed library names that failed): nothing remains to build a stack from. The run folder stays, as after every halt but a cancel: its `warnings.jsonl` holds the `extraction-failed` entry that says why each library failed.
 

@@ -138,11 +138,7 @@ Extract:
 
 ### 2. Validate Available Tools
 
-**Required for all tiers:**
-- File I/O capability (read project files)
-
 **Tier-dependent tools:**
-- **Quick:** gh_bridge (source reading) — graceful degradation to local file reading if unavailable
 - **Forge:** ast_bridge (ast-grep structural analysis) — required for Forge tier
 - **Forge+:** ast_bridge + ccc_bridge (CCC semantic search, which step 5 uses to pick the files that best show each integration)
 - **Deep:** qmd_bridge (QMD temporal enrichment) — required for Deep tier

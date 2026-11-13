@@ -40,15 +40,16 @@ description: >
 ### {library_name}
 **Role in stack:** {one-line description of what this library does in this project}
 **Key exports used:** {comma-separated list}
-**Usage pattern:** {brief pattern description}
+**Usage pattern:** {brief pattern description} ({file}:{line}) *(compose-mode: [from skill: {name}] in place of ({file}:{line}))*
+**Deprecations:** {count} T2-future item(s), under Migration & Deprecation in its reference file *(only when {count}, the T2-future items of its `temporal`, is above 0)*
 **Confidence:** {T1/T1-low/T2/T3}
 **Reference:** [ref](references/{name}.md)
 
 ## Conventions
 
-[Project-specific conventions for library usage:]
-- {convention_1}
-- {convention_2}
+[Project-specific conventions for library usage, each citing what shows it; when none can be cited, one plain line saying so in place of the list:]
+- {convention_1} ({file}:{line}) *(compose-mode: [from skill: {name}] in place of ({file}:{line}))*
+- {convention_2} ({file}:{line}, {file}:{line})
 ```
 
 ## Sizing Guidance for Large Stacks
@@ -124,7 +125,8 @@ from here.
 ### {library_name}
 **Role in stack:** {one-line description of what this library does in this project}
 **Key exports used:** {comma-separated list}
-**Usage pattern:** {brief pattern description}
+**Usage pattern:** {brief pattern description} ({file}:{line}) *(compose-mode: [from skill: {name}] in place of ({file}:{line}))*
+**Deprecations:** {count} T2-future item(s), under Migration & Deprecation in its reference file *(only when {count}, the T2-future items of its `temporal`, is above 0)*
 **Confidence:** {T1/T1-low/T2/T3}
 **Reference:** [ref]({name}.md)
 ```
@@ -143,6 +145,9 @@ from here.
 
 ## Usage Patterns
 [How this library is typically used in this codebase]
+
+## Migration & Deprecation
+[Only when its `temporal` holds an item: each `deprecated_exports`, `migration_notes` and `version_warnings` item as written, with its T2-past or T2-future label and `[QMD:{collection}:{doc}]` citation]
 
 ## Common Imports
 [Most frequent import statements]

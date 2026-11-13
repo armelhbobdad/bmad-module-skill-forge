@@ -437,7 +437,7 @@ per-library summaries.
 
 FULL_STACK_CONVENTIONS = """## Conventions
 
-- Call `a()` before `b()`.
+- Call `a()` before `b()` (src/app.ts:12).
 """
 
 LIBRARY_REFERENCE = """# {name} Reference
@@ -677,6 +677,77 @@ class TestStackStructure:
                         + "```markdown\n## Conventions\n```\n")
             messages = [i["message"] for i in issues_by(structure(make_full_stack(tmp, skill_md=skill_md)), "skill_md")]
             assert messages == ["SKILL.md has no `## Conventions` section"]
+
+    # -- §4: each Conventions bullet cites what shows it (#1155) -----------------
+
+    @staticmethod
+    def _with_conventions(tmp, conventions):
+        return make_full_stack(tmp, skill_md=FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                               + conventions)
+
+    @pytest.mark.parametrize("bullet", [
+        "- Call `a()` before `b()` (src/app.ts:12).",
+        "- Call `a()` before `b()` (src/app.ts:12, src/b.ts:4).",
+        "1. Call `a()` before `b()` (app/(auth)/page.tsx:3-9).",
+        "- Call `a()` before `b()` [from skill: lib-a].",
+        "- Call `a()` before `b()`,\n  as the entry point does (src/app.ts:12).",
+        "- Call `a()` before `b()` (src/app.ts:12):\n  - in each handler\n  - in each job",
+        "- Call `a()` before `b()`.\n\n  The entry point does (src/app.ts:12).",
+    ], ids=["code", "comma-separated", "ordered-route-group-range", "compose", "continuation-line", "nested-bullets",
+            "loose-item"])
+    def test_a_cited_convention_is_no_issue(self, bullet):
+        with tempfile.TemporaryDirectory() as tmp:
+            assert structure(self._with_conventions(tmp, f"## Conventions\n\n{bullet}\n"))["issues"] == []
+
+    def test_an_uncited_convention_is_a_low_issue(self):
+        conventions = ("## Conventions\n\n- Call `a()` before `b()` (src/app.ts:12).\n- Call a() first.\n"
+                       "- Keep `b()` last ({file}:{line}).\n- Keep `b()` last [from skill: {name}].\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._with_conventions(tmp, conventions)
+            issues = issues_by(structure(pkg), "skill_md")
+            assert [(i["severity"], i["field"]) for i in issues] == [("low", "conventions")] * 3, issues
+            assert '"- Call a() first."' in issues[0]["message"]
+            # A template placeholder left unfilled is no citation.
+            assert '"- Keep `b()` last ({file}:{line})."' in issues[1]["message"]
+            assert '"- Keep `b()` last [from skill: {name}]."' in issues[2]["message"]
+            assert "`({file}:{line})` or `[from skill: {name}]`" in issues[0]["message"]
+            r = validate_skill_package(str(pkg), skill_type="stack")
+            cited = [i for i in r["validation"]["stack_structure"]["issues"] if i["field"] == "conventions"]
+            # They count as low issues, and none fails the package.
+            assert len(cited) == 3 and r["summary"]["by_severity"]["low"] >= 3 and r["result"] == "PASS"
+
+    @pytest.mark.parametrize("bullet", [
+        "* Call a() first.", "+ Call a() first.", "1. Call a() first.", "1) Call a() first.",
+        "- Call `fn(x:1)` first.", "- Keep `b()` last ({file}:12).",
+    ], ids=["star", "plus", "ordered-dot", "ordered-paren", "code-span", "placeholder-file"])
+    def test_each_list_marker_and_a_look_alike_is_checked(self, bullet):
+        """An uncited item is flagged whatever its marker, and a `(x:1)` in a code span or a placeholder path is no
+        citation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = issues_by(structure(self._with_conventions(tmp, f"## Conventions\n\n{bullet}\n")), "skill_md")
+            assert [(i["severity"], i["field"]) for i in issues] == [("low", "conventions")], issues
+            assert f'"{bullet}"' in issues[0]["message"]
+
+    def test_a_nested_bullet_belongs_to_its_parent(self):
+        """A sub-bullet is part of its parent's item, so an uncited parent and its sub-bullets are one issue."""
+        conventions = "## Conventions\n\n- Call a() first:\n  - in each handler\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = issues_by(structure(self._with_conventions(tmp, conventions)), "skill_md")
+            assert [i["field"] for i in issues] == ["conventions"], issues
+            assert '"- Call a() first: - in each handler"' in issues[0]["message"]
+
+    def test_a_fenced_bullet_and_a_plain_line_are_no_conventions(self):
+        """A section whose conventions were all dropped keeps one plain line, which cites nothing (compile-stack
+        §5), and a bullet inside fenced code is an example, not a convention."""
+        conventions = ("## Conventions\n\nNo convention could be cited from the extractions.\n\n"
+                       "```markdown\n- Call a() first.\n```\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            assert structure(self._with_conventions(tmp, conventions))["issues"] == []
+
+    def test_only_the_conventions_section_is_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._with_conventions(tmp, FULL_STACK_CONVENTIONS + "\n## Notes\n\n- An uncited note.\n")
+            assert structure(pkg)["issues"] == []
 
     # -- §5: metadata.json ------------------------------------------------------
 

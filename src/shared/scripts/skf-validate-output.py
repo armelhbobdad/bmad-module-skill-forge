@@ -19,7 +19,8 @@ Two package shapes are supported via --skill-type (default: individual):
                library_count), emitted under validation.stack_counts, and the
                stack structure, emitted under validation.stack_structure (see
                validate_stack_structure): the SKILL.md headings of the stack
-               template with the catalog inline or behind a pointer, every
+               template with the catalog inline or behind a pointer, a
+               citation on each `## Conventions` bullet (low), every
                relative link in SKILL.md and references/stack-catalog.md, the
                metadata.json keys and values with the dominant tier recomputed
                by skf-render-stack-metadata.py beside this script, the headings
@@ -731,6 +732,15 @@ _REFERENCE_INDEX = "Library Reference Index"
 _PER_LIBRARY = "Per-Library Summaries"
 _CATALOG_POINTER = "Library Catalog"
 _CONVENTIONS = "Conventions"
+# A Conventions bullet's citation: code mode's `(src/app.ts:12)`, several of
+# them comma-separated in one pair of parentheses (`(src/app.ts:12, src/b.ts:4)`),
+# or compose mode's `[from skill: react]`; the template's `{file}:{line}` and
+# `{name}` placeholders are none, nor is text in a code span.
+_CITED_LINE = r"[^\s,:{}]+:\d+(?:-\d+)?"
+_CONVENTION_CITATION_RE = re.compile(
+    rf"\({_CITED_LINE}(?:[ \t]*,[ \t]*{_CITED_LINE})*\)|\[from skill:[ \t]*[^\]\s{{}}][^\]{{}}]*\]")
+# A list item's first line: `- `, `* ` or `+ `, or `1. ` or `1) `.
+_LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\S")
 # The headings of a per-library file and of an integration pair file.
 _LIBRARY_FILE_HEADINGS = ("Key Exports", "Usage Patterns")
 _PAIR_FILE_HEADINGS = ("Integration Pattern", "Key Files")
@@ -836,6 +846,32 @@ def _entries(text, headings, parent, level):
     ]
 
 
+def _list_items(text):
+    """Each list item outside fenced code, as its first line joined to the lines
+    that continue it: a line indented past its marker (a nested bullet, or a
+    paragraph after a blank line) or an unindented line before any blank line.
+    A fence, a heading, or an unindented line after a blank line ends an item."""
+    items, current, indent, blank = [], None, 0, False
+    for line, code in _markdown_lines(text):
+        if not line.strip() and not code:
+            blank = True
+            continue
+        depth = len(line) - len(line.lstrip(" \t"))
+        if code or _ATX_HEADING_RE.match(line):
+            current = None
+        elif current is not None and depth > indent:
+            current.append(line.strip())
+        elif _LIST_ITEM_RE.match(line):
+            current, indent = [line.strip()], depth
+            items.append(current)
+        elif current is not None and not blank:
+            current.append(line.strip())
+        else:
+            current = None
+        blank = False
+    return [" ".join(item) for item in items]
+
+
 def _header_region(text):
     """A reference file's header: the text before its first `## ` heading."""
     for level, _, index in _headings(text):
@@ -870,7 +906,10 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         patterns | Forge tier: T` line under it, its numbers and tier equal
         to metadata.json's; `## Integration Patterns` (unless
         integration_count is 0) ahead of the per-library summaries;
-        `## Conventions`; the catalog inline (`## Library Reference Index`
+        `## Conventions`, each of its list items outside fenced code citing
+        `({file}:{line})` (several comma-separated in one pair of
+        parentheses) or `[from skill: {name}]` (low, field `conventions`);
+        the catalog inline (`## Library Reference Index`
         and `## Per-Library Summaries`) or behind a `## Library Catalog`
         pointer that links references/stack-catalog.md, which holds both
         sections; every relative link in SKILL.md and stack-catalog.md
@@ -900,7 +939,8 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         reference and pair file.
 
     Returns (issues, observed). Every issue is medium, except a generated_by
-    mismatch and a dominant tier that could not be recomputed (low).
+    mismatch, a dominant tier that could not be recomputed and an uncited
+    Conventions bullet (low).
     """
     skill_dir = Path(skill_dir)
     references = skill_dir / "references"
@@ -972,8 +1012,14 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         patterns = _find_heading(headings, 2, _INTEGRATION_PATTERNS)
         if patterns is None and count("integration_count") != 0:
             add("skill_md", "heading", f"SKILL.md has no `## {_INTEGRATION_PATTERNS}` section")
-        if _find_heading(headings, 2, _CONVENTIONS) is None:
+        conventions = _find_heading(headings, 2, _CONVENTIONS)
+        if conventions is None:
             add("skill_md", "heading", f"SKILL.md has no `## {_CONVENTIONS}` section")
+        else:
+            for item in _list_items(_block(skill_md, headings, conventions)):
+                if not _CONVENTION_CITATION_RE.search(_INLINE_CODE_RE.sub("", item)):
+                    add("skill_md", "conventions", f'the `## {_CONVENTIONS}` bullet "{item}" cites no '
+                        "`({file}:{line})` or `[from skill: {name}]`", severity="low")
 
         index = _find_heading(headings, 2, _REFERENCE_INDEX)
         summaries = _find_heading(headings, 2, _PER_LIBRARY)

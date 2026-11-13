@@ -125,7 +125,7 @@ cp "{draftFolder}/SKILL.md" "{skill_staging}/SKILL.md"
 
 ### 3. Stage Per-Library Reference Files
 
-For each library of `{bundleFile}`'s `per_library_extractions[]`, write `{skill_staging}/references/{library_name}.md` in the references structure of `{stackSkillTemplatePath}` from its bundle entry (its Import count is its `file_count`; compose mode: its export count, and its `version`), with its records in `{exportRecordsFile}` as its key exports (compose mode: its `exports`).
+For each library of `{bundleFile}`'s `per_library_extractions[]`, write `{skill_staging}/references/{library_name}.md` in the references structure of `{stackSkillTemplatePath}` from its bundle entry (its Import count is its `file_count`; compose mode: its export count, and its `version`), with its records in `{exportRecordsFile}` as its key exports (compose mode: its `exports`). When the entry's `temporal` holds an item, its `## Migration & Deprecation` section lists each `deprecated_exports`, `migration_notes` and `version_warnings` item as written, label and citation included; with none, the file has no such section.
 
 If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skill_staging}/references/stack-catalog.md` too; its per-library links stay file-relative, `[ref]({name}.md)`.
 
@@ -206,7 +206,7 @@ If the validator does not resolve or cannot run, the gate is advisory (`pre-comm
 uv run {namesPresentHelper} --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}
 ```
 
-When its `absent[]` is empty, go on to §8b. Otherwise, when `{headless_mode}` is false, rename each absent entry whose contract a staged file names by a literal identifier to that identifier in `{composeEntriesFile}` and run the §7 compose-mode `provenance` call again; then, in both modes, run the call above with `--drop-absent` to drop every entry still absent. Record a `workflow_warnings[]` entry (`message`: its `source_library` and `export_name`, old and new for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). The check is advisory (`compose-export-names-unchecked`).
+When its `absent[]` is empty, go on to §8b. Otherwise rename each absent entry whose contract a staged file names by a literal identifier to that identifier in `{composeEntriesFile}` and run the §7 compose-mode `provenance` call again; then run the call above with `--drop-absent` to drop every entry still absent. Record a `workflow_warnings[]` entry (`message`: its `source_library` and `export_name`, old and new for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). The check is advisory (`compose-export-names-unchecked`).
 
 ### 8b. Write the Evidence Report (Workspace)
 

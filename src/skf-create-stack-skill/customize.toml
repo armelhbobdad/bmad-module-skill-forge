@@ -82,9 +82,9 @@ on_complete = ""
 #   - what skf-validate-output.py checks at step 8 and Test Skill counts:
 #     the `> N libraries | M integration patterns | Forge tier: T` line,
 #     `## Integration Patterns` with `### Cross-Cutting Patterns` and
-#     `### Library Pair Integrations`, `## Conventions`,
-#     `## Library Reference Index` and `## Per-Library Summaries` (or the
-#     `## Library Catalog` pointer), the `**Confidence:**` labels, a
+#     `### Library Pair Integrations`, `## Conventions` with each bullet's
+#     citation, `## Library Reference Index` and `## Per-Library Summaries`
+#     (or the `## Library Catalog` pointer), the `**Confidence:**` labels, a
 #     reference file's `**Version:**`, `## Key Exports` and
 #     `## Usage Patterns`, a pair file's `**Type:**`, `## Integration Pattern`
 #     and `## Key Files`, and the snippet's `[name vX]|root:` and

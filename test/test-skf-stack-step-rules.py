@@ -160,6 +160,16 @@ compose branch of the sections they govern.
   `bundle_entries[]` skeleton and halts on `bundle_entries_missing[]`, and
   step 2 takes each constituent's name, version and authority from its
   `kept[]` entry, never reopening metadata.json (#1154).
+- Step 4 keeps each Deep-tier finding in its record's `temporal`, labeled
+  T2-past or T2-future with its QMD citation as `knowledge/confidence-tiers.md`
+  sorts them; the bundle keeps it, step 7 §3 writes it as the reference
+  file's `## Migration & Deprecation` section and step 6 §4 points at its
+  T2-future items from each summary. Step 4 §1 states extraction by tier in
+  one line, §2 as one goal and §3 in two sentences. Every compose run, a
+  headless one too, renames its absent export entries before it drops the
+  rest. Each Conventions bullet and Usage pattern line cites its file and
+  line, or its constituent in compose mode, and the validator flags an
+  uncited Conventions bullet `low` (#1155).
 
 The step calls run as written, on small fixtures.
 
@@ -1930,9 +1940,13 @@ def test_compose_export_names_are_checked_before_the_commit():
     names = _names_check()
     call = _call(names, "namesPresentHelper")
     assert "--provenance {forge_version}/provenance-map.json" in call and "--skill-dir {skill_staging}" in call, call
-    for needle in ("`absent[]`", "`--drop-absent`", "`{headless_mode}`", "compose-export-name-renamed",
+    for needle in ("`absent[]`", "`--drop-absent`", "compose-export-name-renamed",
                    "compose-export-name-dropped", "`workflow_warnings[]`"):
         assert needle in names, needle
+    # #1155: every run renames, then drops what is still absent, so a headless compose run (the campaign
+    # capstone's) keeps the entries an interactive run keeps; the warnings record each rename and drop.
+    for gate_word in ("{headless_mode}", "headless", "interactive", "in both modes"):
+        assert gate_word not in names, f"the rename still depends on the run mode ({gate_word})"
     # A rename edits the entries file and runs the §7 helper again, which copies each metadata_hash:
     # the model never writes the map, so the schema's only-copier claim holds (step 5b review).
     assert "in `{composeEntriesFile}`" in names and "§7 compose-mode `provenance` call again" in names
@@ -1969,7 +1983,7 @@ def test_the_names_check_calls_run_as_written(tmp_path):
     code, out = run()
     assert code == 1
     assert [(a["entry_index"], a["export_name"]) for a in out["absent"]] == [(1, "client factory"), (2, "toStream")]
-    # An interactive run renames the label to the identifier SKILL.md writes;
+    # Every run, a headless one too, renames the label to the identifier SKILL.md writes;
     # the --drop-absent run then drops what is still absent.
     entries[1]["export_name"] = "createClient"
     provenance.write_text(json.dumps({"skill_type": "stack", "entries": entries}), encoding="utf-8")
@@ -4105,3 +4119,117 @@ def test_compose_layers_come_from_the_mentions_helper(tmp_path):
     argv = _argv(MENTIONS_CALL, "comentionHelper", {"{architecture_doc_path}": str(tmp_path / "missing.md")})
     failed = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react"]', capture_output=True, text=True)
     assert failed.returncode == 1 and failed.stdout == ""
+
+
+# --- #1155: Deep-tier findings, a lean step 4 and cited conventions ------------------
+
+TEMPORAL_LISTS = ("deprecated_exports", "migration_notes", "version_warnings")
+# A line of a numbered list.
+NUMBERED_ITEM_RE = re.compile(r"^\d+\. ", re.MULTILINE)
+
+
+def _summary_forms() -> dict[str, str]:
+    """The per-library summary of both catalog forms: inline in SKILL.md and in stack-catalog.md."""
+    template = _read(TEMPLATE)
+    return {
+        "inline": _slice(_first_fence(_h2_section(template, "## SKILL.md Section Structure")),
+                         "## Per-Library Summaries", "\n## Conventions"),
+        "catalog": _from(_first_fence(_catalog_section()), "## Per-Library Summaries"),
+    }
+
+
+def test_deep_findings_reach_the_reference_files():
+    """architecture-4: step 4 labels each `temporal` item, the bundle keeps it, step 7 §3 writes it into the library's
+    reference file after Usage Patterns, and both summary forms point at its T2-future items (#1155)."""
+    extract = _read(EXTRACT)
+    shape = _first_fence(_sections(_body(extract))["2"])
+    temporal = shape[shape.index("temporal: {"):]
+    for name in TEMPORAL_LISTS:
+        (item,) = re.findall(rf"^\s+{name}: \[\"([^\"]+)\"\]", temporal, re.MULTILINE)
+        assert item.endswith("(T2-past|T2-future) [QMD:collection:doc]"), (name, item)
+    assert re.search(r"deprecated_exports: \[\"export_name: ", temporal), "a deprecation names its export first"
+    note = _slice(_body(extract), "`scope` is step 3's", "\n")
+    assert "keeps its record's `temporal`" in note and "`{}` below Deep tier" in note
+    three = _sections(_body(_read(GENERATE)))["3"]
+    assert "`temporal`" in three and "`## Migration & Deprecation`" in three
+    for name in TEMPORAL_LISTS:
+        assert f"`{name}`" in three, name
+    assert "item as written, label and citation included" in three
+    # Below Deep tier, and in compose mode, `temporal` holds nothing: no section and no pointer.
+    assert "with none, the file has no such section" in three
+    library = _first_fence(_h2_section(_read(TEMPLATE), "## references/{library}.md Structure"))
+    order = [library.index(f"\n{heading}\n") for heading in
+             ("## Usage Patterns", "## Migration & Deprecation", "## Common Imports")]
+    assert order == sorted(order), "Migration & Deprecation sits between Usage Patterns and Common Imports"
+    for form, summary in _summary_forms().items():
+        lines = summary.splitlines()
+        (usage,) = [k for k, line in enumerate(lines) if line.startswith("**Usage pattern:**")]
+        pointer = lines[usage + 1]
+        assert pointer.startswith("**Deprecations:** {count} T2-future item(s)"), (form, pointer)
+        assert "Migration & Deprecation" in pointer and not LINK_RE.findall(pointer), (form, pointer)
+    four = _sections(_body(_read(COMPILE)))["4"]
+    assert "`temporal` holds T2-future items" in four and "`**Deprecations:**` pointer" in four
+    assert "otherwise the summary has none" in four, "a library with only T2-past items gets no pointer"
+
+
+def test_step_4_states_its_extraction_once():
+    """leanness-3 and architecture-7: one line per tier choice, the Deep classification names the knowledge file,
+    §2 is one goal, §3 two sentences, and init.md §2 lists only the tools a tier needs (#1155)."""
+    assert TIERS.is_file()
+    sections = _sections(_body(_read(EXTRACT)))
+    one = sections["1"]
+    assert "per `knowledge/confidence-tiers.md`" in one
+    assert "per confidence-tiers.md" not in one
+    for stale in ("**Quick Tier:**", "**Forge Tier", "Remote source resolution", "mcp__plugin_qmd",
+                  "Perform all Forge tier extractions", "Additionally:", "**AST Tool Availability Check"):
+        assert stale not in one, stale
+    (tiers,) = [line for line in one.splitlines() if line.startswith("**Extraction by tier:**")]
+    assert "ast-grep (`ast_bridge`) rules at Forge tier and above" in tiers
+    assert "file reads at Quick tier or where a rule fails" in tiers
+    assert "to the library record's `temporal` (§2)" in one, "a Deep finding goes to the record step 7 reads"
+    two = sections["2"]
+    assert not NUMBERED_ITEM_RE.search(two), "§2 still numbers one pass as steps"
+    assert "Each subprocess reads the files that import its library" in two
+    # The subprocess that returns the record runs the Deep queries, so their findings reach the bundle.
+    assert "at Deep tier it also runs §1's QMD queries for its library and returns their findings in `temporal`" in two
+    three = sections["3"]
+    for code in ("extraction-partial", "extraction-failed"):
+        assert three.count(f'`code: "{code}"`') == 1, code
+    for stale in ("**Success:**", "**Partial failure:**", "**Complete failure:**", "Excluding from stack skill"):
+        assert stale not in three, stale
+    init_two = _sections(_body(_read(INIT)))["2"]
+    assert "gh_bridge" not in init_two and "File I/O" not in init_two
+    assert "Required for all tiers" not in init_two
+
+
+def test_conventions_and_usage_patterns_are_cited():
+    """architecture-5: the template gives each Conventions bullet and both Usage pattern lines a citation slot, step 6
+    fills it from the records and drops a convention none cites, and a filled bullet passes the validator's check
+    while an unfilled one does not (#1155)."""
+    code_form, compose_form = "({file}:{line})", "[from skill: {name}]"
+    structure = _first_fence(_h2_section(_read(TEMPLATE), "## SKILL.md Section Structure"))
+    conventions = _from(structure, "## Conventions")
+    for where, text in [("conventions", conventions), *_summary_forms().items()]:
+        assert code_form in text and compose_form in text, where
+    for form, summary in _summary_forms().items():
+        (usage,) = [line for line in summary.splitlines() if line.startswith("**Usage pattern:**")]
+        assert code_form in usage and compose_form in usage, (form, usage)
+    sections = _sections(_body(_read(COMPILE)))
+    four = sections["4"]
+    assert f"`{code_form}`" in four and f"`{compose_form}`" in four and "`usage_patterns`" in four
+    assert "comma-separated in one pair of parentheses" in four and "`none extracted`, uncited" in four
+    five = sections["5"]
+    for needle in ("as §4 does", "`usage_patterns`", "`key_files`", "Drop a convention no record cites",
+                   "one plain line, no bullet", "`[from skill: {name}, {name}]` names each constituent"):
+        assert needle in five, needle
+    validator = _load(VALIDATOR, "skf_validate_output_cited_conventions")
+    bullets = [line for line in conventions.splitlines() if line.startswith("- ")]
+    assert bullets, "the template's Conventions holds no bullet"
+    for bullet in bullets:
+        assert not validator._CONVENTION_CITATION_RE.search(bullet), f"an unfilled slot reads as a citation: {bullet}"
+        filled = bullet.replace("{file}", "src/app.ts").replace("{line}", "12").replace("{name}", "react")
+        assert validator._CONVENTION_CITATION_RE.search(filled), filled
+    # The validator's low `skill_md` issue is a WARNING finding at step 8, whatever its severity.
+    assert "whose `check` is `skill_md` as a **WARNING** finding" in _sections(_body(_read(VALIDATE)))["4"]
+    comment =" ".join(line.lstrip("#").strip() for line in _customize_comment("stack_skill_template_path").splitlines())
+    assert "`## Conventions` with each bullet's citation" in comment
