@@ -380,8 +380,12 @@ def test_report_1b_builds_the_payload_and_binds_the_route():
 def test_the_stages_read_the_route_and_state_no_rule():
     report = _read(REPORT)
     recommendation = _slice(report, "### Workflow Recommendation", "### 3.")
-    assert ("{IF {next_workflow} is update-skill:}\n**Recommended:** Run `[US] Update Skill`{ to apply the Priority "
-            "Actions above, when that table has rows}.") in recommendation
+    # The route recommends Update Skill with the ref upstream moved to, and minor drift is
+    # optional only when no route was set, so one report never calls one update both.
+    assert ("{IF {next_workflow} is update-skill:}\n**Recommended:** Run `[US] Update Skill`{ with `--target-ref "
+            "{upstream_ref}`, when the frontmatter's `upstream_moved` is true}{ to apply the Priority Actions above, "
+            "when that table has rows}.") in recommendation
+    assert "{IF only MEDIUM or LOW findings, and {next_workflow} is null:}\n**Optional:**" in recommendation
     assert "{IF any CRITICAL or HIGH findings:}" not in report
     assert "- Set `nextWorkflow` to `{next_workflow}`, the route §1b bound (empty when it is null)" in report
     for path in sorted((AUDIT / "references").glob("*.md")) + [SKILL]:

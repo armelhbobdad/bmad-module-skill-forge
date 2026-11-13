@@ -103,7 +103,7 @@ Append to {outputFile}:
 ### Workflow Recommendation
 
 {IF {next_workflow} is update-skill:}
-**Recommended:** Run `[US] Update Skill`{ to apply the Priority Actions above, when that table has rows}.
+**Recommended:** Run `[US] Update Skill`{ with `--target-ref {upstream_ref}`, when the frontmatter's `upstream_moved` is true}{ to apply the Priority Actions above, when that table has rows}.
 
 {IF the frontmatter's `upstream_moved` is true:}
 **Upstream moved.** The skill is built from `{baseline_ref}` and upstream is now at `{upstream_ref}`{; this audit read `{upstream_ref}`, when `audit_ref_source` is `checkout-latest`; this audit read the baseline, otherwise}. Run `[US] Update Skill` with `--target-ref {upstream_ref}`, so the update compares the ref upstream moved to rather than the one the skill is pinned to.
@@ -114,7 +114,7 @@ Append to {outputFile}:
 {IF the Out-of-Scope New Public API table above has rows:}
 **New public API outside the scope.** update-skill's scope reconciliation offers each path to bring into the brief's scope; review them there, or refine the scope with `skf-brief-skill` before running update-skill.
 
-{IF only MEDIUM or LOW findings:}
+{IF only MEDIUM or LOW findings, and {next_workflow} is null:}
 **Optional:** Minor drift detected. Manual updates sufficient, or run `[US] Update Skill` for automated remediation.
 
 {IF CLEAN:}
