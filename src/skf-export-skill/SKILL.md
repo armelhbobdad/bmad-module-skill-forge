@@ -70,7 +70,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
    Bind each scalar to its bundled default when the merged value is empty or absent:
 
    - `{snippetFormatPath}` ← `workflow.snippet_format_path`, else `assets/snippet-format.md`
-   - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 then runs no hook)
+   - `{onCompleteCommand}` ← `workflow.on_complete` with `{project-root}` replaced by the project root, else empty (step 6 then runs no hook)
 
    Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 

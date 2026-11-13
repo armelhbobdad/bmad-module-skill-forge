@@ -1304,6 +1304,10 @@ def test_campaign_doc_follows_the_state_helper_and_the_result_line():
     assert "run `{onComplete}` without `--report-path`" in maintenance
     [hook] = [line for line in doc.splitlines() if line.startswith("- **`on_complete`**")]
     assert "after its final state write" in hook and "only when the report was written" in hook
+    # #1109: the Campaign page says what step-11 and customize.toml say: a shell command, from the project root.
+    assert "a shell command, run from your project root" in hook and "run it from `{project-root}`." in maintenance
+    assert ("Unlike BMad core, where `on_complete` is an instruction, Campaign hands the value to the shell, so an "
+            'instruction such as "run Test Skill" fails.') in hook
     schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
     assert {"exit_code", "halt_reason", "export_verdicts", "skills_excluded"} <= set(schema["required"])
     for token in ("`skf-campaign-result-envelope.v1.json`", "`export_verdicts`", "`skills_excluded`", "`stage_outcomes`",

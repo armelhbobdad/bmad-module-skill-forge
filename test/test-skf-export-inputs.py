@@ -382,6 +382,9 @@ def test_on_complete_says_it_runs_a_shell_command():
     example = "\n".join(line.removeprefix("#").strip() for line in example.splitlines() if line.startswith("#   "))
     assert tomllib.loads(example) == {"workflow": {"on_complete": "{project-root}/scripts/publish-skill.sh"}}
     assert 'on_complete = "scripts/publish-skill.sh"' not in flat
+    # Nothing between the resolver and the shell replaces the example's placeholder but the binding itself.
+    [binding] = [line for line in _read("SKILL.md").splitlines() if "`{onCompleteCommand}` ←" in line]
+    assert "`workflow.on_complete` with `{project-root}` replaced by the project root, else empty" in binding
     hook = _section(_read("references/summary.md"), "### 6b. Post-Export Hook (Optional)", "### 7. ")
     assert '{onCompleteCommand} --result-path="{result_path}"' in hook
     assert "Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record:" in hook
