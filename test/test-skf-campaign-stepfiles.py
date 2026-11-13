@@ -236,11 +236,11 @@ class TestHealthCheckChain:
         text = _step("step-11-maintenance.md")
         chain = _section(text, 6)
         assert (
-            'When `{headless_mode}` is false, display, from the §2 result: "**Campaign complete.** '
+            'When `{headless_mode}` is false, display, from the §2 result: "**Campaign summary:** '
             '{skills_completed} completed, {skills_failed} failed in {duration}. Report at `{reportFile}`."'
         ) in chain
         assert "In headless mode display nothing: the envelope is the run's last line." in chain
-        assert text.count("**Campaign complete.**") == 1
+        assert text.count("**Campaign summary:**") == 1
         assert text.count("Chain to `{nextStepFile}`") == 1
 
     def test_step_11_chain_line_names_the_true_terminal_step(self) -> None:

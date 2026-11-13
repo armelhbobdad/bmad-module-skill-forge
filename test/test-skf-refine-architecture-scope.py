@@ -1280,7 +1280,7 @@ def test_the_review_gate_offers_the_walkthrough():
     assert "It changes nothing; then redisplay this menu." in branches[0]
     report = _read(REPORT)
     assert "[R]" not in report and "Present Menu" not in report and "EXECUTION RULES" not in report
-    assert "### 6. Finish the Run" in report
+    assert "### 6. Hand Off to the Health Check" in report
     skill = _read(SKILL)
     [gates] = [line for line in skill.splitlines() if line.startswith("| **Gates** |")]
     assert "step 5: Review Gate [R] review each refinement / [C] approve" in gates and "step 6" not in gates

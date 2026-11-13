@@ -27,7 +27,7 @@ nextStepFile: 'health-check.md'
 
 ## STEP GOAL:
 
-Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, write the result contract, and finish.
+Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, write the result contract, then chain to the health check.
 
 ## Rules
 
@@ -143,14 +143,14 @@ mkdir -p "{forge_data_folder}" || uv run {emitEnvelopeHelper} record --run-dir "
 uv run {emitEnvelopeHelper} emit --workflow skf-verify-stack --run-dir "{run_dir}" --result-dir "{forge_data_folder}" < "{run_dir}/result-context.json"
 ```
 
-It writes `{forge_data_folder}/verify-stack-result-{timestamp}.json`, named after the run's own `{timestamp}` (the one the timestamped report carries), and its `verify-stack-result-latest.json` copy, and prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, display the line verbatim before chaining to step 7. A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`, adding `"report_latest_path": "{outputFileLatest}"` to the halt payload: the run's result contract could not be written.
+It writes `{forge_data_folder}/verify-stack-result-{timestamp}.json`, named after the run's own `{timestamp}` (the one the timestamped report carries), and its `verify-stack-result-latest.json` copy, and prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, bind `{verify_stack_result_line}` ← the line and do not display it here: §5 hands it to the shared health check, which displays it verbatim as the run's last line (the line the retry below prints when the first run printed none). A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`, adding `"report_latest_path": "{outputFileLatest}"` to the halt payload: the run's result contract could not be written.
 
 ### 5. Finish
 
+When `{headless_mode}` is false, display:
+
 "**Feasibility report saved to:** `{outputFile}` (a copy at `{outputFileLatest}`). Ask me to walk through any section of it.
 
-Re-run **[VS] Verify Stack** anytime after making changes to your skills or architecture document.
+Re-run **[VS] Verify Stack** anytime after making changes to your skills or architecture document."
 
-**Verification workflow complete.**"
-
-If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then delete the run folder, whose inventory, summaries and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.
+If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. When `{headless_mode}` is true, then bind `{result_envelope_line}` ← `{verify_stack_result_line}`: a headless workflow the instruction started binds its own result line to `{result_envelope_line}`, so binding it only now keeps this run's line the one the health check displays last. Then delete the run folder, whose inventory, summaries and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.

@@ -456,6 +456,38 @@ def test_a_failed_latest_copy_leaves_result_path_and_names_the_copy(tmp_path):
         assert "warning names `analyze-source-result-latest.json`" in _section(_read(path), start, end), path.name
 
 
+ENDINGS = ((GENERATE, "### 9. End the Run", "### 9b."), (AUTO, "### 9. End the Run", None),
+           (DOCS, "### 5. End the run", "### 6."))
+HEADLESS_BIND = ("When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: "
+                 "the shared health check displays it verbatim as the run's last line (the line the retry below "
+                 "prints when the first run printed none, and empty when neither run printed one).")
+
+
+def test_a_headless_run_hands_its_line_to_the_health_check():
+    """#1113: each of the three endings binds `{result_envelope_line}` to the line it prints instead of displaying
+    it, so the shared health check (step 7) displays it as the run's last line, the final message `claude -p`
+    prints; the contract and the relay say so."""
+    for path, start, end in ENDINGS:
+        text = _read(path)
+        ending = _section(text, start, end)
+        assert HEADLESS_BIND in ending, path.name
+        assert ending.index("prints the `SKF_ANALYZE_RESULT_JSON:` line on stdout") < ending.index(HEADLESS_BIND)
+        # An emitter that fails twice still halts there, on its own line, and never reaches the health check.
+        halt = 'if it fails again, HARD HALT (exit code 4, `halt_reason: "write-failed"`'
+        assert ending.index(HEADLESS_BIND) < ending.index(halt), path.name
+        assert "display the line verbatim" not in text, path.name
+        assert "leave it empty" not in text, path.name
+    contract = _section(_read(HEADLESS), "## Result Envelope", "```")
+    assert "before chaining to step 7" not in contract
+    assert ("prints the envelope on **stdout**; when `{headless_mode}` is true it binds `{result_envelope_line}` to it "
+            "instead of displaying it, and the shared health check (step 7) displays it as the run's last line.") in (
+        contract)
+    relay = _read(REFS / "health-check.md")
+    assert ("In a headless run the step that ended it (generate-briefs.md §9, step-auto-scope.md §9 or "
+            "auto-docs-only.md §5) bound `{result_envelope_line}` to the `SKF_ANALYZE_RESULT_JSON` line without "
+            "displaying it") in relay
+
+
 @pytest.mark.parametrize("gate, marker", [("auto-scope.cohesion", "**Record the decision**"),
                                           ("auto-scope.shape", "**An app or a library on a framework.**"),
                                           ("auto-scope.language", "**Otherwise** (several languages")],

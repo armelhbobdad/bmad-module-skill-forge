@@ -1,0 +1,6 @@
+type: changed
+scope: skf-analyze-source, skf-create-skill, skf-create-stack-skill, skf-refine-architecture, skf-rename-skill, skf-verify-stack, skf-quick-skill
+summary: |
+  A headless Analyze Source, Create Skill (one brief, not `--batch`), Stack Skill, Refine Architecture, Rename Skill or Verify Stack run now ends on its result line: the run hands its `SKF_*_RESULT_JSON` line to the shared health check, which displays it after everything else, so `claude -p` prints the envelope as the final message instead of the health check's closing `Workflow complete.` line. A headless Verify Stack run also drops its closing "Feasibility report saved to" message, and displays the line after `health-check unavailable at <path>` when its health check cannot be loaded. A headless Rename Skill `--dry-run` now displays its line after it deletes its run folder, so it ends on that line too. Interactive runs are unchanged, and a halt still ends on its own line. A Create Skill or Quick Skill `--batch` run now clears any result line an earlier workflow of the session bound before its one health check, so the batch never ends on that line.
+issues: [1113]
+prs: [1206]

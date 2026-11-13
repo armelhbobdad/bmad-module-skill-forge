@@ -5,6 +5,9 @@ description: 'Workflow self-improvement health check — captures real friction 
 healthCheckRepo: '{health_check_repo}'
 localFallbackFolder: '{forge_data_folder}/improvement-queue'  # forge workspace artifact — use forge_data_folder (single, unambiguous SKF var), NOT output_folder (a Core Config var that resolves differently across co-installed BMad modules)
 seenCachePath: '$HOME/.skf/health-check-seen.json'
+seenCacheProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-health-check-seen.py'
+  - '{project-root}/src/shared/scripts/skf-health-check-seen.py'
 liveSubmitSeverities: ['bug']  # friction/gap go local-queue-default with explicit opt-in
 ---
 
@@ -92,7 +95,7 @@ For each genuine finding, present it in this format:
 | **Step File** | `src/skf-{workflow}/references/{step-file-path}` |
 | **Section** | {the specific section or instruction number — use a stable section heading slug, not line numbers} |
 | **Defect Key** | `{defect-key}`: one to four lower-case words naming the thing the fix would change (§5a sub-step 1) |
-| **Fingerprint** | `fp-{7-hex}`: first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")` |
+| **Fingerprint** | `fp-{7-hex}`: first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, from §5a sub-step 1's `fingerprint` call (`N/A` when SKF's health-check helper is missing) |
 
 **What happened:**
 {Description of the actual issue encountered during execution}
@@ -141,16 +144,21 @@ Before any submission, route each confirmed finding by severity:
 - **`bug`** → live-submit path (step 5a below). High signal, priority for maintainers.
 - **`friction`** / **`gap`** → local-queue by default (step 5c below). These are the most subjective categories and produce the most near-duplicates. Ask the user once per session: *"Also submit the {N} friction/gap finding(s) as GitHub issues? \[y/N]"* — only if the user affirms explicitly, route them through 5a.
 
+A friction or gap finding that stays local still gets its fingerprint: compute it as §5a sub-step 1 describes, as **IF Q** does, then write it to the local queue per §5c.
+
 ### 5a. Live-Submit Path: Compute Fingerprint and Dedup
 
 For each finding routed to live-submit:
 
-**1. Compute the fingerprint**, a deterministic 7-hex dedup key, and the legacy fingerprint that sub-steps 2 and 4 fall back on:
+**1. Compute the fingerprint**, a deterministic 7-hex dedup key, and the legacy fingerprint that sub-steps 2 and 4 fall back on, with SKF's health-check helper. Resolve `{seenCacheHelper}` from `{seenCacheProbeOrder}`; first existing path wins. The helper computes both fingerprints, looks them up in the seen-cache (sub-step 2) and records each outcome there (§5a-i, §5b), so neither fingerprint is hashed by hand and `{seenCachePath}` is never read or written by hand. If no candidate exists, give each finding the fingerprint `N/A`, and send every finding that §4 does not discard to the local queue (§5c) with the missing-helper reason instead of submitting it: there is no fallback.
+
+Run it once per finding, with that finding's values:
 
 ```
-fp="fp-$(printf '%s|%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{section-slug}" "{defect-key}" | sha1sum | cut -c1-7)"
-legacy_fp="fp-$(printf '%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{section-slug}" | sha1sum | cut -c1-7)"
+uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" --step-file "{step_file}" --section "{section-slug}" --defect-key "{defect-key}"
 ```
+
+It prints `{"fp": "fp-XXXXXXX", "legacy_fp": "fp-XXXXXXX"}`. `{fp}` is `fp-` and the first 7 hex characters of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, and `{legacy_fp}` the same hash without `|{defect-key}`.
 
 The `section-slug` is a kebab-case normalized section heading (e.g. `missing-staging-path`). Never include line numbers — they drift when files are edited.
 
@@ -158,34 +166,23 @@ The `defect-key` names the defect itself, so two different defects in one sectio
 
 `legacy_fp` is the section fingerprint, the fingerprint without the key, which every defect of one severity in one section shares. Issues and seen-cache records made by an SKF version without the key carry it as their fingerprint, and every issue this step files records it in its body (§5a-ii), so a match on it is only ever a possible match (sub-steps 2 and 4).
 
-`sha1sum` is not on stock macOS or Windows. On macOS, use `shasum -a 1` in its place. Anywhere neither exists, this prints the same 7 hex characters, to prefix the same way (for `legacy_fp`, leave `|{defect-key}` out of its last argument):
-
-```
-uv run python -c "import hashlib,sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:7])" "{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}"
-```
+A value that breaks its rule makes the call exit 2 and print one `{"status": "error", "message": ...}` line on stderr that names the rule: a severity other than `bug`, `friction` or `gap`, a section slug that is not kebab-case, a defect key that is not one to four such words, or a workflow or step file that is empty or holds `|` or a line break. Fix that value by its rule and run the call again. A call that prints no JSON on stdout and no such line on stderr did not run the helper (uv or Python could not start it, and uv's own errors exit 2 as well): treat it as a missing helper, so the finding gets the fingerprint `N/A` and goes to the local queue (§5c) with the missing-helper reason.
 
 **2. Check the local seen-cache** at `{seenCachePath}`:
 
-Read `{seenCachePath}`. A missing file, an empty file, or one that does not parse as JSON is an empty cache — never an error, never a reason to halt.
+```
+uv run {seenCacheHelper} lookup --fp "{fp}" --legacy-fp "{legacy_fp}"
+```
 
-**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT suppress: a fresh sighting of a fixed defect is a *regression*, and it is the single most valuable report this loop can produce. Look up `{fp}`, and only when the cache has no record for it, `{legacy_fp}` (see **Legacy records** below). Work these branches on the record found, in order, stopping at the first that matches:
+It prints `{"verdict": ..., "record": ..., "matched_on": ...}`: the verdict, the record it came from, which the treatments below read, and whether that record sits under `{fp}` or `{legacy_fp}` (`record` and `matched_on` are null when there is none). The helper reads the file itself, and a missing, empty or corrupt cache is an empty one. If the call fails or prints no JSON, continue as `unseen`: this check never halts a run.
 
-1. **No record under either fingerprint** → `unseen`. Go to sub-step 3.
-2. **Record with `"action": "resolved"`** → `regression`. Recorded by hand when the defect was fixed. Go to sub-step 3 and apply the regression treatment below.
-3. **Record with `"action"` of `created`, `reacted`, or `commented`, and a non-empty `issue_url`** → you must decide whether that issue is still live before you may suppress. The cache is machine-local and records only what *this* user did; the issue's own state is shared, so it is the better authority. Run exactly this, and give it a hard time bound so a hung network can never strand the run:
+**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT suppress: a fresh sighting of a fixed defect is a *regression*, and it is the single most valuable report this loop can produce. The helper looks up `{fp}`, and only when the cache has no record for it, `{legacy_fp}`, then works its branches on the record found. For a record with the action `created`, `reacted` or `commented` and an issue URL, it asks the issue itself through `gh issue view`, stopped after 10 seconds: the cache is machine-local and records only what *this* user did, while the issue's state is shared, so it is the better authority. Act on the `verdict` it prints:
 
-   ```
-   timeout 10 gh issue view {issue_url} --json state,stateReason --jq '.state + "/" + (.stateReason // "")'
-   ```
-
-   - `CLOSED/COMPLETED`, or `MERGED` (the record points at a resolving PR) → `regression`. It was fixed and closed out.
-   - `CLOSED/NOT_PLANNED` → `handled`. **Not** a fix: this is how the dedup Action closes a duplicate, and how a maintainer closes a wontfix. Treating it as a regression would file a REGRESSION issue against a defect nobody ever fixed, every session, forever.
-   - `OPEN` → `handled`. Already filed and still being tracked.
-   - Any failure at all (offline, timeout, no auth, deleted issue, unparseable output) → `handled`. This refinement never blocks a run and never halts on error.
-4. **Record with one of those actions but an empty `issue_url`** → `handled`. There is no issue to consult, so the local record stands.
-5. **Record with no `action`, or any other value** → `unrecognized`. Hand-edited, or written by a newer version of this file, so it cannot be confirmed handled. Go to sub-step 3 as an ordinary submission.
-
-**Legacy records.** A record found only under `{legacy_fp}` was written by an SKF version without the defect key. It is a possible match, never a certain one: every defect of this severity in this section shares that fingerprint, so the record may be another defect's. Work the same branches on it, then change two verdicts. `handled` does not suppress: continue as `unseen` and log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. `regression` becomes `possible-regression`, which takes the possible form of the regression treatment below. Leave the legacy record itself untouched.
+- `unseen`: no record under either fingerprint, or a record found only under `{legacy_fp}` (`matched_on` is `legacy_fp`) that would have suppressed. That record was written by an SKF version without the defect key, and every defect of this severity in this section shares its fingerprint, so it may be another defect's: log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. Go to sub-step 3.
+- `handled`: a record under `{fp}` whose issue is open, was closed as not planned (how the dedup Action closes a duplicate and a maintainer closes a wontfix, neither of them a fix) or could not be checked (offline, no `gh`, the time limit, a deleted issue), or one with no issue URL. Skip the finding, as the next paragraph says.
+- `regression`: a record under `{fp}` marked `resolved` by hand when the defect was fixed, or whose issue was closed as completed (or whose pull request was merged). Go to sub-step 3 and apply the regression treatment below.
+- `possible-regression`: the same, found only under `{legacy_fp}`, so what was fixed may be another defect in this section. Go to sub-step 3 and apply the possible-regression treatment below.
+- `unrecognized`: a record with no `action` or one this file does not write, hand-edited or written by a newer version of this file, so it cannot be confirmed handled. Go to sub-step 3 as an ordinary submission.
 
 **`handled` is the only verdict that suppresses.** Skip submission silently and log: `"fp-{hash}: already handled on {date}, issue {url} — skipping"`. Every other verdict proceeds to sub-step 3.
 
@@ -239,12 +236,26 @@ Only the user decides a possible match. A headless run never reaches this choice
 
 Execute the chosen action:
 
-- **R:** `gh api -X POST /repos/{repo}/issues/{N}/reactions -f content='+1'`
-- **C:** Same reaction call, then `gh issue comment {N} --body "{minimal env+delta body}"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative.
+- **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`
+- **C:** Same reaction call, then `gh issue comment {N} --repo {healthCheckRepo} --body-file "{localFallbackFolder}/bodies/{fp}-{timestamp}.md"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative. Write it to that file with the Write tool before the reaction, as **Pass each body as a file** in §5a-ii says.
 - **N:** After a match found by `{fp}`: the open issue carries this same fingerprint, so a new issue under it would be closed as its duplicate. Choose a more specific defect key that names what sets this defect apart (the more specific name the fix edits, or the case it covers, still in the source's words), recompute `{fp}` with it, then proceed to step 5a-ii. After a possible match, proceed to step 5a-ii as is: that issue's `fp-*` label differs from `{fp}`.
 - **S:** Record nothing.
 
-Record the outcome to the seen-cache under `{fp}` with fields `{action, issue_url, date}`, also when the match was found by `{legacy_fp}`.
+The **R** and **C** calls name `{healthCheckRepo}`, as the step's other issue calls do: without it, `gh` reacts or comments on the repository of the folder the workflow ran in, usually the user's own project. If one of them exits non-zero, log its stderr message and make no further call for this finding: **C** posts no comment after a failed reaction, and a reaction it already added stays. Record nothing (run neither record call below) and write the finding to the local queue (§5c) with the failed-submission reason. When **C** fails, its body file stays in `{localFallbackFolder}/bodies/`, its name starting with the `fingerprint` the queued finding records.
+
+When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**, with the matched issue's `url` and today's date as YYYY-MM-DD:
+
+```
+uv run {seenCacheHelper} record --fp "{fp}" --action {reacted|commented} --issue-url "{url}" --date "{today}"
+```
+
+When sub-step 2 returned `regression`, run this one instead: **R** or **C** says this open issue reports the defect, so it now tracks the recurrence and replaces the `resolved` record the fix left under `{fp}`.
+
+```
+uv run {seenCacheHelper} record --fp "{fp}" --action {reacted|commented} --issue-url "{url}" --date "{today}" --regression
+```
+
+**S** records nothing, and **N** records its new issue in §5b. Read what the call prints as §5b says; if it fails, log its stderr message and go on.
 
 **5a-ii. If no matching open issue exists** — create a new issue:
 
@@ -266,8 +277,10 @@ gh issue create \
   --repo {healthCheckRepo} \
   --title "[health-check][{severity}][{fp}] {workflow}: {short description}" \
   --label "health-check,workflow-improvement,{severity},{fp}" \
-  --body "{formatted body using issue template structure}"
+  --body-file "{localFallbackFolder}/bodies/{fp}-{timestamp}.md"
 ```
+
+**Pass each body as a file.** Before the label call above, write the issue body (the format below) with the Write tool to a file of its own, `{localFallbackFolder}/bodies/{fp}-{timestamp}.md`, `{timestamp}` being the time of the write as YYYYMMDD-HHmmss; **C** writes its comment body the same way. The body quotes paths, evidence and its `Section fingerprint:` line in backticks: on the command line, inside double quotes, the shell would run each backticked span or `$(...)` as a command and put its output in its place, and a double quote in it would end the argument. So a body never goes on the command line, and the file is never written through the shell (`echo`, `printf` or a heredoc), which can expand it the same way. If the Write fails, make no call for this finding: log the error and write the finding to the local queue (§5c) with the failed-submission reason. The title does stay on the command line, so write `{short description}` with no backtick, `$`, double quote or backslash. The file stays after the call, in `bodies/` apart from the findings the queue holds, as the record of what was sent or tried; a later post writes a new one.
 
 When sub-step 2 returned `regression`, append ` — REGRESSION` to that `--title` value, after `{short description}`, and include the `## Regression` backlink section in the body. The command above is the literal one you run, so the marker has to be in it: an instruction that the title should say REGRESSION loses to a copied command that does not.
 
@@ -277,7 +290,9 @@ The fingerprint `{fp}` appears in both title (human-readable) and label (server-
 
 The dedup Action reads the body's `Section fingerprint:` line too. When the new issue matches no open issue's fingerprint but another open health-check issue records the same section fingerprint under a different defect key, or was filed without a key and carries it as its label, the Action comments with a link to each such issue and adds the `possible-duplicate` label. It closes nothing on that match: two reports of one defect can name it by different keys, and every defect of one severity in one section shares the section fingerprint, so a maintainer decides.
 
-After the issue is created, write the `{fp}` → issue-url mapping to the seen-cache at `{seenCachePath}` so this user does not re-report it while that issue stays open.
+After the issue is created, record it under `{fp}` as §5b says, so this user does not re-report it while that issue stays open.
+
+If `gh issue create` exits non-zero, log its stderr message and record nothing: §5b runs only after a create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its queue file holds the text of its body file under the §5c frontmatter, so what failed to post is what waits to be submitted.
 
 **Writing rules — non-negotiable:**
 
@@ -358,44 +373,42 @@ Section fingerprint: `{legacy_fp}`
 | SKF Version | {from `{project-root}/_bmad/skf/VERSION`, else N/A} |
 ```
 
-After creating all issues, display:
+After creating all issues, display those that were created, `{N}` counting only them, unless none was (a create that failed is listed by §5c):
 
 "**{N} issue(s) created on {healthCheckRepo}:**
-{list each issue URL}
+{list each issue URL}"
 
-Workflow complete."
+**Closing line.** The step displays "Workflow complete." once, after everything else it displays but a bound `{result_envelope_line}` (§0). When any finding of this run goes to the local queue (§5c), display nothing more here: §5c writes its files, then ends its block with that line. Otherwise display "Workflow complete." now, after the block above, or alone when no issue was created because every finding was a reaction or a comment that posted (§5a-i).
 
 ### 5b. On success, update the seen-cache
 
-After each successful `gh issue create`, append to `{seenCachePath}`:
+After each successful `gh issue create`, record the new issue under `{fp}`, with the URL `gh issue create` printed and today's date as YYYY-MM-DD:
 
-```json
-{
-  "fp-XXXXXXX": {
-    "issue_url": "https://github.com/.../issues/123",
-    "action": "created",
-    "date": "YYYY-MM-DD"
-  }
-}
+```
+uv run {seenCacheHelper} record --fp "{fp}" --action created --issue-url "{new_issue_url}" --date "{today}"
 ```
 
-Ensure the parent directory exists. This file is global across the user's machine — not per-project — so the same defect is not re-reported across different repos the user works in while its issue stays open.
+This file is global across the user's machine, not per-project, so the same defect is not re-reported across different repos the user works in while its issue stays open.
 
-**Merge, never replace.** Read the existing file, set this one key, write the whole object back. A write that emits only the new key silently discards every other fingerprint the user has ever recorded.
+When sub-step 2 returned `regression`, run this one instead: the new issue tracks the recurrence, so it replaces the `resolved` record the fix left under `{fp}`.
 
-**Write under `{fp}` only.** A record under `{legacy_fp}` stays exactly as it is, whatever its action: it may be another defect's.
+```
+uv run {seenCacheHelper} record --fp "{fp}" --action created --issue-url "{new_issue_url}" --date "{today}" --regression
+```
 
-**Read before you write, and never downgrade a `resolved` record.** Before setting the key, check whether one already exists with `"action": "resolved"`. If it does, and you are here because that resolved defect just recurred, you are recording the regression's new issue: overwrite it with `created` and the new URL, which is correct because a live issue now tracks the recurrence. In every other case leave a `resolved` record alone. The record must never move from `resolved` back to a suppressing action without a new open issue to justify it, or the next run silently re-arms the suppression the fix removed.
+It prints `{"written": ..., "fp": ..., "record": ..., "set_aside": ...}`, `record` being what the cache now holds under `{fp}`: `{"issue_url": ..., "action": "created", "date": "YYYY-MM-DD"}`. If the call fails, log its stderr message and go on: a lost record costs at most a duplicate report, which the dedup Action closes. When `set_aside` is not null, after this call or §5a-i's, tell the user that `{seenCachePath}` did not parse, so it was renamed to that path and a new cache was started, and that they keep its records by fixing that file and copying its entries into `{seenCachePath}`.
+
+**What the helper guarantees.** It merges, never replaces: it sets the `{fp}` key alone and keeps every other fingerprint the user has recorded. It writes under `{fp}` only: a record under `{legacy_fp}` stays exactly as it is, whatever its action, since it may be another defect's. It never downgrades a `resolved` record: without `--regression` it leaves one alone and prints `"written": false`, so a fixed defect's suppression never comes back without a new open issue to justify it. It holds `{seenCachePath}.lock` while it reads and writes, so parallel SKF sessions keep each other's records, and it renames a cache that does not parse to `{seenCachePath}.corrupt-<UTC time>` (its `set_aside`) instead of discarding the records in it.
 
 **The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow. `resolved` is written by hand when the defect is fixed, and it is the only one that does not suppress. See the health-check section of `CONTRIBUTING.md` for when to record it.
 
 ### 5c. Local-Queue Path (gh unavailable, friction/gap default, or Queue locally)
 
-For findings that didn't go live (gh unavailable, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
+For findings that didn't go live (gh unavailable, SKF's health-check helper missing, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, a reaction or comment at the dedup gate failed, a new issue failed to post, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
 
 **Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss; when findings share a timestamp, append `-2`, `-3`, … to the later names so no file is overwritten)
 
-**File content:** Same structured format as the issue body above, with YAML frontmatter:
+**File content:** Same structured format as the issue body above, with YAML frontmatter (for a create that failed, that body is the text of its body file in `{localFallbackFolder}/bodies/`, unchanged):
 
 ```yaml
 ---
@@ -408,7 +421,9 @@ date: {ISO date}
 ---
 ```
 
-After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason) or "The review gate queued these locally."
+When SKF's health-check helper is missing (§5a sub-step 1), write `N/A` as the `fingerprint` here and in the body's `## Fingerprint` and `Section fingerprint:` lines.
+
+After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason), "Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these locally."
 
 "**{N} finding(s) saved locally:**
 {list each file path}

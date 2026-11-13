@@ -44,7 +44,7 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 
 ### 2. Display Completion Summary
 
-"**Quick Skill complete.**
+"**Quick Skill summary**
 
 **Skill:** {repo_name} v{version}
 **Language:** {language}

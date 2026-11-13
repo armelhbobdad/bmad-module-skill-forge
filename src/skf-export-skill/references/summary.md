@@ -13,14 +13,13 @@ To present a complete export summary showing all files written, token counts, an
 ## Rules
 
 - Focus only on summarizing what was done and providing next steps: the only files this step writes are the result files the emitter writes in §6 (none on a dry run)
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
 - **Multi-skill mode:** emit ONE consolidated summary and ONE result contract for the whole batch. The files-written table lists every skill in `skill_batch` (one row per skill's `context-snippet.md` + one row per target managed-section file, shared across the batch). The result contract's `outputs` enumerates every context-snippet file, every target context file and the manifest. Distribution instructions (§2) key off `source_authority` per skill: present one block per distinct authority value observed in the batch, listing the skills it applies to. See step 1 §1c.
 
 ## MANDATORY SEQUENCE
 
 ### 1. Compile Export Summary
 
-"**Export Complete{if dry-run: ' (Dry Run)'}**
+"**Export summary{if dry-run: ' (Dry Run)'}**
 
 ---
 
@@ -109,7 +108,7 @@ If the installed skill's commands are not available in the same IDE session, rel
 
 **If dry-run mode was active:**
 
-"### Dry Run Complete
+"### Dry Run: Nothing Written
 
 No context file, snippet, export manifest or result file was written, and no `on_complete` hook ran. To run the export for real:
 
@@ -193,4 +192,4 @@ Run it with a bounded timeout. On success, continue. On a non-zero exit, a timeo
 
 ### 7. Chain to Health Check
 
-When `{headless_mode}` is true, delete the `{run_dir}` folder: the run's envelope is built. ONLY WHEN the export summary, distribution instructions, result contract and envelope, and on-complete hook (or its skip) are complete will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not stop here even though the summary reads as final.
+When `{headless_mode}` is true, delete the `{run_dir}` folder: the run's envelope is built. Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not stop here even though the summary reads as final.

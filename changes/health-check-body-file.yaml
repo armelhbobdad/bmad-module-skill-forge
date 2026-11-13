@@ -1,0 +1,6 @@
+type: changed
+scope: all workflows
+summary: |
+  Text from a finding no longer runs as a shell command on your machine when the health check files an issue or a comment. The body went on the command line inside double quotes, so the shell ran each span in backticks (the paths and evidence a body quotes) as a command and put its output in its place: the `Section fingerprint:` line the dedup Action reads could come out empty, and a double quote in the body broke the command. Now each body goes to `gh` as a file with `--body-file`, one file for each post in the `bodies/` subfolder of the local queue folder (`{forge_data_folder}/improvement-queue`), kept there as the record of what was sent or tried, so backticks, `$` and quotes in it no longer run or break the command, and the `Section fingerprint:` line reaches the issue as written. A new issue that fails to post is now saved to the local queue with the reason "Posting these to GitHub failed." instead of being lost, its file holding the body that failed to post. A run that files some findings and saves others to the local queue now says `Workflow complete.` once, after the saved files, instead of after its new issues and again after the saved files, and a run whose findings all went to open issues as reactions or comments now ends with it too.
+issues: [1203]
+prs: [1206]

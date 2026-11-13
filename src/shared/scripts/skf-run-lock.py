@@ -111,11 +111,13 @@ release never deletes a lock another run just took. The guard file is
 removed when the call ends. Every name this helper creates beside the lock
 carries `.skf-`, which skf-skill-inventory.py counts as SKF's own.
 
-Library use: skf-forge-tier-rw.py loads this file by its path and calls
-acquire_within() and release() around one read-modify-write. It passes
-empty_is_stale=True: an empty lock file is what an `flock` on the same
-path leaves (this helper never writes one), so it is replaced at once
-instead of when it goes stale.
+Library use: skf-forge-tier-rw.py and skf-health-check-seen.py load this
+file by its path and call new_run_id(), acquire_within() and release()
+around one read-modify-write. They pass empty_is_stale=True: this helper
+never writes an empty lock, so an empty one is replaced at once instead of
+when it goes stale. For skf-forge-tier-rw.py it is what an `flock` on the
+same path leaves; nothing else writes the seen cache's lock, so an empty
+one there holds no call.
 
 Exit codes (1 and 2 print one JSON line on stderr, {"status": "error",
 "message": ...}, and nothing on stdout):

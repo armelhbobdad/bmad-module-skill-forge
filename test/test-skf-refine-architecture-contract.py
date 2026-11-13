@@ -647,7 +647,7 @@ def test_report_writes_the_contract_then_the_hook_then_finishes():
     text = _read(REPORT)
     contract = text.index("### 4. Result Contract")
     hook = text.index("### 5. Post-Completion Hook")
-    finish = text.index("### 6. Finish the Run")
+    finish = text.index("### 6. Hand Off to the Health Check")
     assert contract < hook < finish
     emit = ('uv run {emitEnvelopeHelper} emit --workflow skf-refine-architecture --run-dir "{run_dir}" '
             '--result-dir "{outputFolderPath}" < "{run_dir}/result-context.json"')
@@ -670,10 +670,38 @@ def test_the_hook_gets_the_emitters_result_path_and_its_failure_is_shown():
     assert "Bind `{result_path}` ← the line's `result_path`" in _read(REPORT)
 
 
+def test_a_headless_run_hands_its_line_to_the_health_check():
+    """#1113: §4 binds `{result_envelope_line}` to the emitter's line instead of displaying it, so the shared health
+    check displays it as the run's last line, and still binds `{result_path}` from the same line for the hook."""
+    report = _read(REPORT)
+    contract = _section(report, "### 4. Result Contract", "### 5.")
+    bind = ("When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the "
+            "shared health check displays it verbatim as the run's last line (the line the retry below prints when the "
+            "first run printed none).")
+    assert bind in contract
+    assert (contract.index("prints the `SKF_REFINE_ARCHITECTURE_RESULT_JSON:` line on stdout") < contract.index(bind)
+            < contract.index("Bind `{result_path}` ← the line's `result_path`"))
+    # An emitter that fails twice still halts here, on its own line, and never reaches the health check.
+    assert contract.index(bind) < contract.index(
+        'if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`')
+    assert "display the line verbatim" not in report
+    relay = _read(REFERENCES / "health-check.md")
+    assert ("In a headless run report.md §4 bound `{result_envelope_line}` to the "
+            "`SKF_REFINE_ARCHITECTURE_RESULT_JSON` line without displaying it: the shared health check displays that "
+            "line verbatim as the run's last line") in relay
+    result = _section(_read(SKILL_MD), "## Result Contract (Headless)", "## On Activation")
+    # Said at no cost to the SKILL.md budget: "a run ends on one" replaces "step 6 prints one".
+    assert ("When `{headless_mode}` is true, a run ends on one `SKF_REFINE_ARCHITECTURE_RESULT_JSON: {...}` line on "
+            "**stdout**, and every HARD HALT one on **stderr**") in result
+    envelope = _section(_read(REFERENCES / "exit-codes.md"), "## Result Envelope", "## Emitting a Halt")
+    assert ("line on **stdout** when it writes the result contract, which the shared health check (step 7) displays "
+            "as the run's last line, and every HARD HALT prints one on **stderr**") in envelope
+
+
 def test_the_report_finishes_the_run_without_a_menu():
     # A menu after the approval could not act on the document, so step 6
     # asks nothing: the walkthrough is [R] at step 5's review gate.
-    finish = _section(_read(REPORT), "### 6. Finish the Run", "the true terminal step")
+    finish = _section(_read(REPORT), "### 6. Hand Off to the Health Check", "the true terminal step")
     assert "**Select:**" not in finish and "[X]" not in finish and "GATE" not in finish
     assert 'rm -rf "{run_dir}"' in finish
     assert "Headless auto-selects" not in _read(REPORT)

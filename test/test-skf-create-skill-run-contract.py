@@ -454,11 +454,42 @@ def test_report_orders_contract_then_batch_then_health_check():
     batch = _read(REFS / "batch-mode.md")
     assert "the health check runs once per batch, here" in batch
     # the health check step names the same loop: batch-mode.md §4, never a loop back to load-brief
-    health = _section(_read(REFS / "health-check.md"), "## Rules", "## MANDATORY SEQUENCE")
+    health = _read(REFS / "health-check.md")
     assert "Under `--batch`, `references/batch-mode.md` §4 loads this step once, after the batch summary" in health
     assert "loops back to load-brief" not in health
     toml = _read(CS / "customize.toml")
     assert "Under --batch it runs once per brief" in toml and "workflow_warnings" not in toml
+
+
+def test_a_headless_brief_hands_its_line_to_the_health_check():
+    """#1113: a headless run that is not --batch binds `{result_envelope_line}` to the brief's line instead of
+    displaying it, so the shared health check displays it as the run's last line; an interactive run and each
+    brief of a --batch run still display it here. An emit that never succeeded, and an install with no emitter,
+    bind it empty, and a batch binds it empty before its one health check, so no line an earlier workflow of the
+    session bound (Analyze Source's, which hands its briefs to a batch) shows as this run's result."""
+    five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
+    bind = ("When `{headless_mode}` is true and the run is not `--batch`, bind `{result_envelope_line}` ← the line "
+            "and do not display it here: the shared health check displays it verbatim as the run's last line (empty "
+            "when no `emit` succeeded, the incomplete-install branch below included).")
+    otherwise = "Otherwise display the line the emitter prints."
+    assert bind in five and otherwise in five
+    assert five.index(bind) < five.index(otherwise) < five.index("When it fails again, display its `message`")
+    assert "Display the line the emitter prints." not in five
+    assert ("When it fails again, display its `message` and, in a headless run that is not `--batch`, bind "
+            "`{result_envelope_line}` empty: this brief has no result contract.") in five
+    assert ("write no result contract and, in a headless run that is not `--batch`, bind `{result_envelope_line}` "
+            "empty: append") in five
+    summary = _section(_read(REFS / "batch-mode.md"), "### 4. Batch Summary", "**Reading a batch.**")
+    empty = "Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow"
+    assert summary.index(empty) < summary.index("load, read in full and execute `{healthCheckStepFile}`")
+    row = _section(_read(SKILL), "| **Headless** |", "\n")
+    assert ("A caller reads the run's own `SKF_CREATE_SKILL_RESULT_JSON` line. Outside `--batch` it is the run's "
+            "last line: the shared health check displays it after everything else.") in row
+    health = _read(REFS / "health-check.md")
+    assert ("In a headless run that is not `--batch`, report.md §5 bound `{result_envelope_line}` to the brief's "
+            "`SKF_CREATE_SKILL_RESULT_JSON` line without displaying it: the shared health check displays that line "
+            "verbatim as the run's last line") in health
+    assert health.index("Under `--batch`") < health.index("In a headless run that is not `--batch`")
 
 
 def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():

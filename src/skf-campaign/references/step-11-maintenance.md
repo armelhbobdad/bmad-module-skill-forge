@@ -76,6 +76,6 @@ When not in headless mode, skip this section.
 
 ### §6: Chain to Health Check
 
-When `{headless_mode}` is false, display, from the §2 result: "**Campaign complete.** {skills_completed} completed, {skills_failed} failed in {duration}. Report at `{reportFile}`." When §2 degraded, display "**Campaign finished, but the report could not be generated** (see the decision log); state is intact." instead. In headless mode display nothing: the envelope is the run's last line.
+When `{headless_mode}` is false, display, from the §2 result: "**Campaign summary:** {skills_completed} completed, {skills_failed} failed in {duration}. Report at `{reportFile}`." When §2 degraded, display "**The campaign report could not be generated** (see the decision log); state is intact." instead. In headless mode display nothing: the envelope is the run's last line.
 
 Chain to `{nextStepFile}`: the health-check step is the true terminal step, so do not stop here even though the summary reads as final.

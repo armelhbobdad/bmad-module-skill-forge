@@ -12,19 +12,18 @@ the section (legacy) fingerprint, the same hash without it, and every new
 issue records that one in its body: the seen-cache check and the remote
 search still look it up, but only as a possible match, which never
 suppresses a finding or posts on an issue without the user's pick. No test
-runs the step prose, so these checks pin it.
+runs the step prose, so these checks pin it. The hashes, the seen-cache
+verdicts and its merge are skf-health-check-seen.py's (#1122), whose
+behaviour test-skf-health-check-seen.py pins.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import pathlib
 import re
 import shutil
 import subprocess
-import sys
 
 import pytest
 
@@ -40,13 +39,8 @@ SUB_STEP_3 = "**3. Check GitHub CLI availability**"
 SUB_STEP_4 = "**4. Remote dedup search**"
 SUB_STEP_5A_II = "**5a-ii. If no matching open issue exists**"
 
-# A sample finding: two different defects in the only section of one step file.
-SAMPLE = {
-    "{severity}": "gap",
-    "{workflow}": "skf-test-skill",
-    "{step_file}": "src/skf-test-skill/references/inventory-contract.md",
-    "{section-slug}": "documented-inventory-contract",
-}
+# The keys of two different defects in the only section of one step file
+# (test-skf-health-check-seen.py hashes them through the step's own call).
 KEYS = ("const-holding-function", "shared-text")
 
 
@@ -67,22 +61,6 @@ def _flow(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
-def _sha7(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:7]
-
-
-def _hash_input(key: str | None) -> str:
-    fields = [SAMPLE["{severity}"], SAMPLE["{workflow}"], SAMPLE["{step_file}"], SAMPLE["{section-slug}"]]
-    return "|".join(fields + ([key] if key else []))
-
-
-def _fill(template: str, key: str) -> str:
-    for placeholder, value in {**SAMPLE, "{defect-key}": key}.items():
-        template = template.replace(placeholder, value)
-    assert "{" not in template, template
-    return template
-
-
 def _headings(markdown: str) -> list[str]:
     return [line for line in markdown.splitlines() if line.startswith("## ")]
 
@@ -94,15 +72,18 @@ def test_the_fingerprint_hashes_the_defect_key():
     text = _read(SHARED_HEALTH_CHECK)
     table = _slice(text, "### 3. Present Findings", "**What happened:**")
     assert ('| **Fingerprint** | `fp-{7-hex}`: first 7 hex chars of '
-            '`sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")` |') in table
+            '`sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, ') in table
     assert "| **Defect Key** | `{defect-key}`:" in table
+    assert "from §5a sub-step 1's `fingerprint` call (`N/A` when SKF's health-check helper is missing)" in table
     step = _slice(text, SUB_STEP_1, SUB_STEP_2)
-    assert ('fp="fp-$(printf \'%s|%s|%s|%s|%s\' "{severity}" "{workflow}" "{step_file}" "{section-slug}" '
-            '"{defect-key}" | sha1sum | cut -c1-7)"') in step
-    assert ('legacy_fp="fp-$(printf \'%s|%s|%s|%s\' "{severity}" "{workflow}" "{step_file}" "{section-slug}" '
-            '| sha1sum | cut -c1-7)"') in step
-    # No formula anywhere in the file still leaves the key out, but the legacy one.
-    assert text.count("{section-slug}\" | sha1sum") == 1
+    # The helper hashes both (test-skf-health-check-seen.py runs this call); the step only names its inputs.
+    assert ('uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" '
+            '--step-file "{step_file}" --section "{section-slug}" --defect-key "{defect-key}"') in step
+    flow = _flow(step)
+    assert ("`{fp}` is `fp-` and the first 7 hex characters of "
+            "`sha1(\"{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}\")`, and `{legacy_fp}` the same "
+            "hash without `|{defect-key}`.") in flow
+    # No formula anywhere in the file leaves the key out.
     assert "|{section-slug}\")" not in text and "section-slug)[:7]" not in text
 
 
@@ -168,64 +149,72 @@ def test_the_defect_key_examples_name_real_things():
     assert "shared text" in contract
 
 
-def test_a_worked_example_through_the_portable_command():
-    """Two different defects in inventory-contract.md's only section shared one
-    fingerprint before the key; the key keeps them apart, and the doc's
-    command gives the same 7 hex characters as hashlib, with and without it."""
-    step = _slice(_read(SHARED_HEALTH_CHECK), SUB_STEP_1, SUB_STEP_2)
-    m = re.search(r'^uv run python -c "(.+?)" '
-                  r'"\{severity\}\|\{workflow\}\|\{step_file\}\|\{section-slug\}\|\{defect-key\}"$',
-                  step, re.MULTILINE)
-    assert m, "portable fingerprint snippet not found"
-    assert "for `legacy_fp`, leave `|{defect-key}` out of its last argument" in step
-
-    def run(arg: str) -> str:
-        return subprocess.run([sys.executable, "-c", m.group(1), arg], capture_output=True, text=True,
-                              encoding="utf-8", check=True).stdout.strip()
-
-    keyed = {key: run(_hash_input(key)) for key in KEYS}
-    legacy = run(_hash_input(None))
-    assert keyed == {key: _sha7(_hash_input(key)) for key in KEYS}
-    assert legacy == _sha7(_hash_input(None))
-    assert keyed[KEYS[0]] != keyed[KEYS[1]], "two defects in one section must not share a fingerprint"
-    assert legacy not in keyed.values()
-    # The sample's own numbers, so a change to either formula or to the field order shows here.
-    assert _hash_input(KEYS[0]) == ("gap|skf-test-skill|src/skf-test-skill/references/inventory-contract.md|"
-                                    "documented-inventory-contract|const-holding-function")
-    assert (keyed[KEYS[0]], keyed[KEYS[1]], legacy) == ("a54e7a6", "ed2bb67", "eb2d6f2")
-
-
-@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None or shutil.which("sha1sum") is None,
-                    reason="needs bash and sha1sum")
-def test_a_worked_example_through_the_sha1sum_commands():
-    step = _slice(_read(SHARED_HEALTH_CHECK), SUB_STEP_1, SUB_STEP_2)
-    lines = [line for line in step.splitlines() if line.startswith(("fp=", "legacy_fp="))]
-    assert [line.split("=", 1)[0] for line in lines] == ["fp", "legacy_fp"]
-    for key in KEYS:
-        script = "\n".join(_fill(line, key) for line in lines) + '\nprintf "%s %s" "$fp" "$legacy_fp"'
-        out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True).stdout
-        assert out == f"fp-{_sha7(_hash_input(key))} fp-{_sha7(_hash_input(None))}"
+def test_the_step_hashes_nothing_and_works_no_cache_by_hand():
+    """#1122: every fingerprint and seen-cache read and write is a {seenCacheHelper} call, which
+    test-skf-health-check-seen.py pins, and test-skf-helper-call-contract.py checks against its parser."""
+    text = _read(SHARED_HEALTH_CHECK)
+    for gone in ("sha1sum", "shasum", "python -c", "timeout 10", "Read `{seenCachePath}`", "append to `{seenCachePath}`",
+                 "Read the existing file", "**Legacy records.**"):
+        assert gone not in text, gone
+    calls = re.findall(r"^uv run \{seenCacheHelper\} (\w+) ", text, re.MULTILINE)
+    # §5a-i and §5b each have a plain record call and one with --regression.
+    assert calls == ["fingerprint", "lookup", "record", "record", "record", "record"], calls
+    frontmatter = text.split("\n---\n", 1)[0]
+    assert ("seenCacheProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-health-check-seen.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-health-check-seen.py'\n") in frontmatter + "\n"
+    assert "seenCachePath: '$HOME/.skf/health-check-seen.json'" in frontmatter
+    step = _flow(_slice(text, SUB_STEP_1, SUB_STEP_2))
+    assert "Resolve `{seenCacheHelper}` from `{seenCacheProbeOrder}`; first existing path wins." in step
+    # No helper, no hand-rolled fallback: the findings stay local, with their own reason.
+    assert ("If no candidate exists, give each finding the fingerprint `N/A`, and send every finding that §4 does not "
+            "discard to the local queue (§5c) with the missing-helper reason instead of submitting it: there is no "
+            "fallback.") in step
+    assert ("so neither fingerprint is hashed by hand and `{seenCachePath}` is never read or written by hand."
+            in step)
+    assert ("makes the call exit 2 and print one `{\"status\": \"error\", \"message\": ...}` line on stderr that names "
+            "the rule") in step
+    assert "Fix that value by its rule and run the call again." in step
+    # A call the helper never answered (uv or Python could not start it) is a missing helper, not a value to fix.
+    assert ("A call that prints no JSON on stdout and no such line on stderr did not run the helper (uv or Python could "
+            "not start it, and uv's own errors exit 2 as well): treat it as a missing helper, so the finding gets the "
+            "fingerprint `N/A` and goes to the local queue (§5c) with the missing-helper reason.") in step
+    queue = _flow(_slice(text, "### 5c.", "**{N} finding(s) saved locally:**"))
+    assert "gh unavailable, SKF's health-check helper missing," in queue
+    assert "write `N/A` as the `fingerprint` here" in queue
+    assert '"SKF\'s health-check helper is missing; re-install SKF to submit these."' in queue
 
 
 # ---------------------------------------------------------------- the legacy fallback
 
 
 def test_the_seen_cache_falls_back_to_the_legacy_fingerprint():
-    step = _flow(_slice(_read(SHARED_HEALTH_CHECK), SUB_STEP_2, SUB_STEP_3))
-    assert ("Look up `{fp}`, and only when the cache has no record for it, `{legacy_fp}` (see **Legacy records** "
-            "below). Work these branches on the record found") in step
-    assert "1. **No record under either fingerprint** → `unseen`." in step
-    legacy = step[step.index("**Legacy records.**"):step.index("**`handled` is the only verdict that suppresses.**")]
+    text = _read(SHARED_HEALTH_CHECK)
+    raw = _slice(text, SUB_STEP_2, SUB_STEP_3)
+    assert 'uv run {seenCacheHelper} lookup --fp "{fp}" --legacy-fp "{legacy_fp}"' in raw
+    step = _flow(raw)
+    assert "If the call fails or prints no JSON, continue as `unseen`: this check never halts a run." in step
+    assert ("The helper looks up `{fp}`, and only when the cache has no record for it, `{legacy_fp}`, then works its "
+            "branches on the record found.") in step
+    # One line per verdict the helper prints, in its branch order, each saying what comes next.
+    verdicts = re.findall(r"^- `([a-z-]+)`: ", raw, re.MULTILINE)
+    assert verdicts == ["unseen", "handled", "regression", "possible-regression", "unrecognized"]
     for needle in (
-        "A record found only under `{legacy_fp}` was written by an SKF version without the defect key. It is a "
-        "possible match, never a certain one",
-        "Work the same branches on it, then change two verdicts.",
-        "`handled` does not suppress: continue as `unseen`",
-        "sub-step 4 still offers its issue while that issue is open",
-        "`regression` becomes `possible-regression`",
-        "Leave the legacy record itself untouched.",
+        "- `unseen`: no record under either fingerprint, or a record found only under `{legacy_fp}` (`matched_on` is "
+        "`legacy_fp`) that would have suppressed. That record was written by an SKF version without the defect key",
+        "so it may be another defect's: log `\"{fp}: legacy record {legacy_fp} may be another defect, reporting\"`",
+        "sub-step 4 still offers its issue while that issue is open. Go to sub-step 3.",
+        "- `possible-regression`: the same, found only under `{legacy_fp}`, so what was fixed may be another defect "
+        "in this section. Go to sub-step 3 and apply the possible-regression treatment below.",
+        "- `regression`: a record under `{fp}` marked `resolved` by hand when the defect was fixed, or whose issue was "
+        "closed as completed",
+        "was closed as not planned (how the dedup Action closes a duplicate and a maintainer closes a wontfix, neither "
+        "of them a fix)",
     ):
-        assert needle in legacy, needle
+        assert needle in step, needle
+    # What the old prose said around the branches stays.
+    assert ("**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT "
+            "suppress: a fresh sighting of a fixed defect is a *regression*") in step
+    assert "**`handled` is the only verdict that suppresses.**" in step
 
 
 def test_a_legacy_regression_is_only_a_possible_one():
@@ -281,8 +270,20 @@ def test_a_legacy_match_goes_to_the_users_choice():
     assert "A headless run never reaches this choice, because §4 queues its findings locally" in choice
     assert ("A run that reaches it with no user to ask takes **\\[S]**, so the finding goes to the local queue (§5c) "
             "with the possible-match reason") in choice
-    assert ("Record the outcome to the seen-cache under `{fp}` with fields `{action, issue_url, date}`, also when the "
-            "match was found by `{legacy_fp}`.") in choice
+    # #1202: only a reaction or comment that posted is recorded (test-skf-health-check-gh-calls.py pins the rest).
+    assert ("When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was "
+            "found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**") in choice
+    raw = _slice(_read(SHARED_HEALTH_CHECK), "**5a-i. If a matching open issue exists:**", SUB_STEP_5A_II)
+    reaction = ('uv run {seenCacheHelper} record --fp "{fp}" --action {reacted|commented} --issue-url "{url}" '
+                '--date "{today}"')
+    assert f"{reaction}\n" in raw and f"{reaction} --regression\n" in raw
+    # After a regression verdict, a plain call leaves the hand-written `resolved` record in place, so every later
+    # session would get `regression` again and ask about the same open issue (#1122, review loop 1).
+    assert ("When sub-step 2 returned `regression`, run this one instead: **R** or **C** says this open issue reports "
+            "the defect, so it now tracks the recurrence and replaces the `resolved` record the fix left under "
+            "`{fp}`.") in choice
+    assert "**S** records nothing, and **N** records its new issue in §5b." in choice
+    assert "Read what the call prints as §5b says; if it fails, log its stderr message and go on." in choice
 
 
 def test_new_at_an_exact_match_names_the_defect_more_specifically():
@@ -326,10 +327,26 @@ def test_the_step_says_the_action_flags_a_shared_section_fingerprint():
 
 def test_the_seen_cache_is_written_under_the_new_fingerprint():
     text = _read(SHARED_HEALTH_CHECK)
-    assert "write the `{fp}` → issue-url mapping to the seen-cache" in text
-    cache = _flow(_slice(text, "### 5b.", "### 5c."))
-    assert ("**Write under `{fp}` only.** A record under `{legacy_fp}` stays exactly as it is, whatever its action"
+    assert "After the issue is created, record it under `{fp}` as §5b says" in _flow(text)
+    raw = _slice(text, "### 5b.", "### 5c.")
+    created = 'uv run {seenCacheHelper} record --fp "{fp}" --action created --issue-url "{new_issue_url}" --date "{today}"'
+    assert f"{created}\n" in raw and f"{created} --regression\n" in raw
+    cache = _flow(raw)
+    assert ("When sub-step 2 returned `regression`, run this one instead: the new issue tracks the recurrence, so it "
+            "replaces the `resolved` record the fix left under `{fp}`.") in cache
+    assert ("It writes under `{fp}` only: a record under `{legacy_fp}` stays exactly as it is, whatever its action"
             in cache)
+    assert "It never downgrades a `resolved` record: without `--regression` it leaves one alone" in cache
+    assert "It merges, never replaces: it sets the `{fp}` key alone and keeps every other fingerprint" in cache
+    # A cache the helper set aside is named to the user, who can still copy its records back.
+    assert ("When `set_aside` is not null, after this call or §5a-i's, tell the user that `{seenCachePath}` did not "
+            "parse, so it was renamed to that path and a new cache was started, and that they keep its records by "
+            "fixing that file and copying its entries into `{seenCachePath}`.") in cache
+    # The vocabulary and the global-file note stay; the helper makes the folder, so the step does not.
+    assert "**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.**" in cache
+    assert ("This file is global across the user's machine, not per-project, so the same defect is not re-reported "
+            "across different repos the user works in while its issue stays open.") in cache
+    assert "Ensure the parent directory exists." not in text
 
 
 # ---------------------------------------------------------------- the issue body

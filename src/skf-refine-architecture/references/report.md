@@ -57,7 +57,7 @@ uv run {preservationScript} context --inspect "{inspectResult}" --apply "{applyR
 
 Show no count table: the step 5 review showed every count, and a headless run's result line (§4) carries `gap_count`, `issue_count`, `improvement_count` and `unverified_count`.
 
-"**Refine Architecture: Refinement Complete**
+"**Refine Architecture: Refined Document Ready**
 
 ---
 
@@ -80,7 +80,7 @@ Show no count table: the step 5 review showed every count, and a headless run's 
 {IF unverified_count > 0:}
 **Generate the missing skills first:** no skill covers {unverified_technologies}, so nothing checked what the architecture says about them. Create their skills with **[CS] Create Skill** or **[QS] Quick Skill**, then re-run **[RA]** before moving on to **[SS] Stack Skill**.
 
-1. **Review the refined document:** to accept a refinement, move what you keep into your own prose, outside its `<!-- RA:BEGIN ... -->` and `<!-- RA:END -->` markers. Anything still between RA markers is replaced the next time you run [RA] on this document. A finding you dropped at the review stays out of later [RA] runs on this document, while a block you delete by hand, markers included, is gone from this copy only: a later [RA] run that finds the same thing again adds it back
+1. **Review the refined document:** to accept a refinement, move what you keep into your own prose, outside its `<!-- RA:BEGIN ... -->` and `<!-- RA:END -->` markers. Anything still between RA markers is replaced the next time you run [RA] on this document: re-run it anytime after updating your skills or architecture document. A finding you dropped at the review stays out of later [RA] runs on this document, while a block you delete by hand, markers included, is gone from this copy only: a later [RA] run that finds the same thing again adds it back
 2. **[SS] Stack Skill**: compose-mode activates automatically when SS detects existing individual skills without a codebase; provide this refined architecture doc as the architecture document when prompted
 3. **Re-run [VS] Verify Stack** if you made changes based on issue corrections, to confirm resolution
 
@@ -95,7 +95,7 @@ The shared emitter writes the result contract (per `shared/references/output-con
 uv run {emitEnvelopeHelper} emit --workflow skf-refine-architecture --run-dir "{run_dir}" --result-dir "{outputFolderPath}" < "{run_dir}/result-context.json"
 ```
 
-It writes `{outputFolderPath}/refine-architecture-result-{YYYYMMDD-HHmmss}.json` and its `refine-architecture-result-latest.json` copy (a copy, not a symlink: the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line), stamping the time, the run id, the run's warnings and the auto-decisions the gates recorded, and prints the `SKF_REFINE_ARCHITECTURE_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, display the line verbatim. Bind `{result_path}` ← the line's `result_path`: a per-run record that could not be written leaves it null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, run §1's `context` command and the emitter once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`: the run's result contract could not be written.
+It writes `{outputFolderPath}/refine-architecture-result-{YYYYMMDD-HHmmss}.json` and its `refine-architecture-result-latest.json` copy (a copy, not a symlink: the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line), stamping the time, the run id, the run's warnings and the auto-decisions the gates recorded, and prints the `SKF_REFINE_ARCHITECTURE_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line (the line the retry below prints when the first run printed none). Bind `{result_path}` ← the line's `result_path`: a per-run record that could not be written leaves it null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, run §1's `context` command and the emitter once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`: the run's result contract could not be written.
 
 ### 5. Post-Completion Hook (optional)
 
@@ -107,14 +107,6 @@ Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation
 
 Run it with a bounded timeout. On success, continue. On a non-zero exit, a timeout or any other failure, display "**Warning:** on_complete failed: {reason}" (for example `exit {N}: {stderr_first_line}`) on its own line of this report, in headless too, and continue: the hook never fails the workflow, since the refined document and its result contract are already written. The warning is in neither the envelope nor the result file: the hook reads the result file, so both are written before it runs.
 
-### 6. Finish the Run
+### 6. Hand Off to the Health Check
 
-The walkthrough of each refinement belongs to step 5's review, where feedback can still change the draft, so this step asks nothing. Display:
-
-"**Refined architecture saved to:** `{outputFile}`
-
-Re-run **[RA] Refine Architecture** anytime after updating your skills or architecture document: run on this refined document, it replaces the blocks between RA markers with a current set and keeps everything else.
-
-**Architecture refinement complete.**"
-
-Then delete the run folder, whose analysis copy, plan and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow, so do not stop here even though the message above reads as final.
+Delete the run folder, whose analysis copy, plan and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.

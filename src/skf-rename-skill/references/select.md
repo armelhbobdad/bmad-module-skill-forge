@@ -335,13 +335,13 @@ SKF_RESULT
 uv run {emitEnvelopeHelper} emit --workflow skf-rename-skill --run-dir "{run_dir}" < "{run_dir}/result-context.json"
 ```
 
-Without `--result-dir` it writes no result file. It prints the complete line, `SKF_RENAME_SKILL_RESULT_JSON: {"status":"dry-run","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":[<affected_versions>],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[<the §6 source-authority decision, when it fired>],"run_id":"{run_id}","result_path":null}` (with `warnings` after `headless_decisions` when the run recorded one): display it verbatim. When it exits non-zero or prints no line, display its error, keep `{run_dir}` and say in one line that it holds the run's decisions, its warnings and the payload the emitter refused. Otherwise, in both modes, delete the run folder:
+Without `--result-dir` it writes no result file. It prints the complete line, `SKF_RENAME_SKILL_RESULT_JSON: {"status":"dry-run","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":[<affected_versions>],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[<the §6 source-authority decision, when it fired>],"run_id":"{run_id}","result_path":null}` (with `warnings` after `headless_decisions` when the run recorded one). When it exits non-zero or prints no line, display its error, keep `{run_dir}` and say in one line that it holds the run's decisions, its warnings and the payload the emitter refused. Otherwise, in both modes, delete the run folder:
 
 ```bash
 rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" "{run_dir}/call.err" && rmdir "{run_dir}"
 ```
 
-Then end the run with exit code 0: no copy, no manifest re-key, no delete.
+Then, in a headless run, display the line the emitter printed verbatim, after the delete and with nothing after it, so a `claude -p` caller reads it as the final message. In both modes, and whether or not the emitter printed a line, the dry run then ends with exit code 0: no copy, no manifest re-key, no delete.
 
 - **If `Y`** → proceed to section 9
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → display "**Cancelled.** No changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`, `emit-halt` phase `select:confirm`).

@@ -50,9 +50,10 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Instruction executed when the workflow reaches its terminal stage (after the
-# feasibility report + result JSON are written). Empty = no-op. Use to route
-# the verdict onward or trigger a downstream step without forking the skill.
+# Instruction executed at the end of step 6, before the health check (after
+# the feasibility report + result JSON are written). Empty = no-op. Use to
+# route the verdict onward or trigger a downstream step without forking the
+# skill.
 
 on_complete = ""
 

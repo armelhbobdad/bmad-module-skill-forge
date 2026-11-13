@@ -19,7 +19,6 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 
 - Focus only on writing the file — all decisions have been made
 - Do not change any field values without user request — the brief was already approved
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing success summary is NOT the terminal step
 - All user-facing output in `{communication_language}`; written artifact (`description`, `notes`) in `{document_output_language}`
 - **Determinism delegation:** YAML rendering, version-precedence, atomic write, the headless result envelope, and the QMD-collection registry mutation are all delegated to shared SKF scripts. The LLM's job in this step is to assemble inputs, branch on script results, and surface user-facing prose — not to render YAML, JSON envelopes, or YAML-mutation diffs in the model.
 
@@ -191,15 +190,11 @@ When `{headless_mode}` is true, skip this section: the envelope §4b bound is th
 
 Your skill brief is ready. To compile the actual skill from this brief, run:
 
-**create-skill** — Reads your skill-brief.yaml and compiles a complete SKILL.md with AST-backed analysis.
+**create-skill**: Reads your skill-brief.yaml and compiles a complete SKILL.md with AST-backed analysis.
 
 After compilation, you can:
-- **test-skill** — Validate the compiled skill
-- **export-skill** — Package the skill for distribution
-
----
-
-**Brief-skill workflow complete.**"
+- **test-skill**: Validate the compiled skill
+- **export-skill**: Package the skill for distribution"
 
 ### 6b. On-Complete Hook (pipeline integration)
 
@@ -224,4 +219,4 @@ Once the brief file has been written (and, outside headless mode, the success su
 case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac
 ```
 
-Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not stop here even though the summary reads as final.
+Then load, read the full file, and execute `{nextStepFile}`.
