@@ -1029,8 +1029,9 @@ def test_the_skill_path_and_corrections_are_recorded_before_the_test() -> None:
             "writes nothing and stops nothing, since this record gates no stage: log \"doc-rot corrections not "
             "recorded: <error>\" (type `event`) and go on to TS.") in before_ts
     # The step's state rule stays the shared one: the State Contract it points to names the exception.
-    assert ("HALT with the same code, except where the step names another route for that call: step-05 logs a "
-            "doc-rot file `append-workarounds` cannot read and goes on.") in _step("campaign-contracts.md")
+    contracts = _step("campaign-contracts.md")
+    assert "HALT with the same code, except where the step names another route for that call: " in contracts
+    assert "step-05 logs a doc-rot file `append-workarounds` cannot read and goes on." in contracts
     # Nothing after the test reads what CS left in context.
     after_ts = body[body.index(ts) + len(ts):]
     for gone in ("skill_package", "--skill-path", "correction_matches", "Doc-rot", "--entry"):
@@ -1227,7 +1228,14 @@ def test_an_interactive_run_corrects_an_invalid_pin() -> None:
                   "a Tier A pin that is no X.Y.Z version: ask for that pin again", "then run §3 again"):
         assert token in first, token
     pin = _parse(_state_call(first, "uv run {stateScript} set-skill"), **{"<skill>": "core", "<pin>": "1.2.0"})
-    assert (pin.op, pin.skill, pin.pin) == ("set-skill", ["core"], "1.2.0")
+    assert (pin.op, pin.skill, pin.pin, pin.brief_file) == ("set-skill", ["core"], "1.2.0", "{briefFile}")
+    # The brief takes the corrected pin too, so the kickoff's brief summary never shows the refused one.
+    assert ("which writes it to the skill and to its target in `{briefFile}`, so the kickoff's brief summary and a "
+            "campaign seeded from the brief again hold it too") in first
+    # The state rule HALTs on a non-zero exit; the State Contract it points to names this exit 2 as the exception.
+    assert ("HALT with the same code, except where the step names another route for that call: step-03 asks again "
+            "for a corrected pin `set-skill --pin` refuses as no X.Y.Z version") in _step("campaign-contracts.md")
+    assert STATE_RULE in rules.splitlines()
     # A pin is free text the operator typed: quoted as a log entry is.
     assert ("the pin single-quoted as a log entry is, per the Decision Log in `references/campaign-contracts.md`"
             in first)

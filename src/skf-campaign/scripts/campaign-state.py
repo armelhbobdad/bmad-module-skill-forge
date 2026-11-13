@@ -65,6 +65,11 @@ Operations:
                     the pin step-03 corrects (empty: null, the latest
                     release); a Tier A pin must be an X.Y.Z version, as
                     campaign-parse-manifest.py checks it (exit 2 otherwise).
+                    With --brief-file it also writes that pin to the
+                    skill's target in campaign-brief.yaml (its leading
+                    comment block kept), after the state write, so the
+                    kickoff's brief summary and a campaign seeded from the
+                    brief again hold the corrected pin.
                     --export records the Export stage's outcome (step-10) as
                     `export`: `exported`, or `failed` with
                     --export-halt-reason and --export-exit-code from the
@@ -171,7 +176,7 @@ CLI:
   uv run campaign-state.py set-stage --state-file <p> --stage <N>
   uv run campaign-state.py set-skill --state-file <p> --skill <name> [--skill <name> ...] \\
       [--status <status> [--halt-reason <text>]] [--quality-score <N>] [--skill-path <p>] \\
-      [--brief-path <p>] [--pin <ref>] \\
+      [--brief-path <p>] [--pin <ref> [--brief-file <p>]] \\
       [--export exported|failed [--export-halt-reason <r>] [--export-exit-code <N>]] [--stage <N>]
   uv run campaign-state.py apply-plan --state-file <p> [--unattended] [--stage <N>]
   uv run campaign-state.py apply-pins --state-file <p> --results-file <p|-> [--stage <N>]
@@ -222,7 +227,8 @@ Exit codes (each is the campaign's HALT code for the same class):
      rejects, a state that init would overwrite, a brief template that is
      no YAML mapping, export flags or set-campaign flags that do not go
      together, a --halt-reason without --status failed or skipped, a
-     Tier A pin that is no X.Y.Z version, a doc-rot file that is no array
+     Tier A pin that is no X.Y.Z version, a --brief-file without --pin or
+     a brief with no target for the skill, a doc-rot file that is no array
      of corrections, or an archive folder that exists
   3  invalid state: the state is missing, malformed or fails the schema, or
      the change would make it fail (nothing written)
@@ -524,6 +530,16 @@ def _known(state: dict, names: list[str]) -> dict[str, dict]:
 # --------------------------------------------------------------------------
 
 
+def _comment_header(text: str) -> str:
+    """The leading `#` lines of a YAML file, each ending in a newline."""
+    header = []
+    for line in text.splitlines():
+        if not line.startswith("#"):
+            break
+        header.append(line)
+    return "".join(f"{line}\n" for line in header)
+
+
 def _brief_template(source: str) -> tuple[str, dict]:
     """The template's leading comment block and its mapping (empty for an empty template)."""
     text = read_text(source, "Brief template")
@@ -535,12 +551,7 @@ def _brief_template(source: str) -> tuple[str, dict]:
         mapping = {}
     if not isinstance(mapping, dict):
         raise StateError(EXIT_INPUT, "brief-template-invalid", "Brief template is not a YAML mapping")
-    header = []
-    for line in text.splitlines():
-        if not line.startswith("#"):
-            break
-        header.append(line)
-    return "".join(f"{line}\n" for line in header), mapping
+    return _comment_header(text), mapping
 
 
 def render_brief(template: tuple[str, dict], fields: dict) -> bytes:
@@ -687,11 +698,34 @@ def _checked_pin(skill: dict, pin: str | None) -> None:
                      "or leave it empty for the latest release). Nothing was written.")
 
 
+def _brief_with_pin(source: str, names: list[str], pin: str | None) -> bytes:
+    """campaign-brief.yaml with each named target's pin set to `pin`, its leading comment block kept."""
+    text = read_text(source, "Brief")
+    try:
+        brief = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise StateError(EXIT_INPUT, "input-unreadable", f"Brief is not YAML: {exc}") from exc
+    targets = brief.get("targets") if isinstance(brief, dict) else None
+    if not isinstance(targets, list):
+        raise StateError(EXIT_INPUT, "input-unreadable", "Brief is no YAML mapping with a targets list")
+    for name in names:
+        found = [target for target in targets if isinstance(target, dict) and target.get("name") == name]
+        if not found:
+            raise StateError(EXIT_INPUT, "input-invalid", f"The brief has no target `{name}`: nothing was written.")
+        for target in found:
+            target["pin"] = pin
+    return render_brief((_comment_header(text), {}), brief)
+
+
 def op_set_skill(args: argparse.Namespace) -> dict:
     outcome = _export_outcome(args)
     reason = _halt_reason(args)
     # An empty pin is the latest release, as in a manifest: null.
     pin = (args.pin.strip() or None) if args.pin is not None else None
+    if args.brief_file is not None and args.pin is None:
+        raise StateError(EXIT_INPUT, "input-invalid", "--brief-file goes with --pin")
+    # Read before the state write, written after it: a pin the state refuses reaches neither file.
+    brief = _brief_with_pin(args.brief_file, args.skill, pin) if args.brief_file is not None else None
 
     def change(state: dict, stamp: str, changed: list[str]) -> None:
         skills = _known(state, args.skill)
@@ -729,7 +763,11 @@ def op_set_skill(args: argparse.Namespace) -> dict:
                 skill["export"] = dict(outcome)
                 changed.append(f"{name}.export={outcome['status']}")
 
-    return mutate(args.state_file, "set-skill", change, args.stage)
+    result = mutate(args.state_file, "set-skill", change, args.stage)
+    if brief is not None:
+        write_atomic(Path(args.brief_file), brief)
+        result["changed"].append("brief")
+    return result
 
 
 def computed_plan(state_file: str) -> list[str]:
@@ -1277,6 +1315,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skill-path")
     p.add_argument("--brief-path")
     p.add_argument("--pin", help="a corrected pin (step-03): empty for the latest release; Tier A takes X.Y.Z only")
+    p.add_argument("--brief-file", help="with --pin: also write the pin to the skill's target in this "
+                                        "campaign-brief.yaml")
     p.add_argument("--export", choices=EXPORT_STATUSES, help="the skill's skf-export-skill outcome (step-10)")
     p.add_argument("--export-halt-reason", help="with --export failed: the export envelope's halt_reason")
     p.add_argument("--export-exit-code", type=int, help="with --export failed: skf-export-skill's exit code")

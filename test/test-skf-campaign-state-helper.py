@@ -1613,6 +1613,52 @@ class TestSetSkillPin:
         core = _read(path)["skills"][0]
         assert core["pin"] is None and core["status"] == "pending"
 
+    def _brief(self, tmp_path, targets=None) -> pathlib.Path:
+        brief = tmp_path / "campaign-brief.yaml"
+        body = {"campaign_name": "demo", "targets": targets if targets is not None else [
+            {"name": "core", "repo_url": "https://github.com/acme/core", "tier": "A", "pin": "9.9.9",
+             "depends_on": [], "language_hint": "python"},
+            {"name": "util", "repo_url": "https://github.com/acme/util", "tier": "B", "pin": None, "depends_on": []}]}
+        brief.write_bytes(b"# Machine-generated campaign brief\n# Written by init\n\n"
+                          + yaml.safe_dump(body, sort_keys=False).encode("utf-8"))
+        return brief
+
+    def test_the_brief_target_takes_the_corrected_pin_too(self, tmp_path, capsys):
+        """#1143: the kickoff's brief summary and a campaign seeded from the brief again see the corrected pin."""
+        path, brief = self._pins(tmp_path), self._brief(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", "1.2.0",
+                       "--brief-file", str(brief))
+        assert rc == 0 and out["changed"] == ["core.pin=1.2.0", "brief"]
+        assert _read(path)["skills"][0]["pin"] == "1.2.0"
+        text = brief.read_text(encoding="utf-8")
+        assert text.startswith("# Machine-generated campaign brief\n# Written by init\n\ncampaign_name: demo\n")
+        core, util = yaml.safe_load(text)["targets"]
+        assert core == {"name": "core", "repo_url": "https://github.com/acme/core", "tier": "A", "pin": "1.2.0",
+                        "depends_on": [], "language_hint": "python"}
+        assert util["pin"] is None
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", "",
+                    "--brief-file", str(brief))[0] == 0
+        assert yaml.safe_load(brief.read_text(encoding="utf-8"))["targets"][0]["pin"] is None
+
+    @pytest.mark.parametrize("pin, targets, code", [
+        ("main", None, "input-invalid"),
+        ("1.2.0", [{"name": "util", "repo_url": "https://github.com/acme/util", "tier": "B"}], "input-invalid"),
+    ], ids=["refused-pin", "no-target"])
+    def test_a_refused_write_reaches_neither_file(self, tmp_path, capsys, pin, targets, code):
+        path, brief = self._pins(tmp_path), self._brief(tmp_path, targets)
+        before = (path.read_bytes(), brief.read_bytes())
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", pin,
+                       "--brief-file", str(brief))
+        assert (rc, err["code"]) == (2, code)
+        assert (path.read_bytes(), brief.read_bytes()) == before and not _bak(path).exists()
+
+    def test_a_brief_file_goes_with_a_pin(self, tmp_path, capsys):
+        path, brief = self._pins(tmp_path), self._brief(tmp_path)
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "active",
+                       "--brief-file", str(brief))
+        assert (rc, err["code"], err["error"]) == (2, "input-invalid", "--brief-file goes with --pin")
+        assert not _bak(path).exists()
+
     def test_the_check_is_the_manifest_parsers(self):
         manifest = _load("campaign-parse-manifest")
         assert mod._module(mod.MANIFEST_SCRIPT).VERSION_RE.pattern == manifest.VERSION_RE.pattern
