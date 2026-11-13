@@ -747,9 +747,13 @@ def test_facts_with_nothing_to_resolve_keep_core_s_crlf_line_endings(tmp_path, c
     root = _project(tmp_path, core)
     skill = _installed_skill(root)
     crlf = '{\r\n  "workflow": {\r\n    "persistent_facts": [\r\n      "Cite sources."\r\n    ]\r\n  }\r\n}\r\n'
-    proc = _run(skill, root, "workflow", env=_env(SKF_TEST_CORE_STDOUT=json.dumps(crlf)), facts=True)
+    env = _env(SKF_TEST_CORE_STDOUT=json.dumps(crlf))
+    proc = _run(skill, root, "workflow", env=env, facts=True)
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout == crlf.encode("utf-8")
+    # The fake core's own bytes (on Windows its text-mode stdout turns each `\r\n` into `\r\r\n`), unchanged.
+    printed = _core(root, "--skill", str(skill), "--key", "workflow", env=env).stdout
+    assert b"\r\n" in printed
+    assert proc.stdout == printed
 
 
 @pytest.mark.parametrize("core", sorted(CORES))
