@@ -3,3 +3,4 @@ scope: skf-brief-skill
 summary: |
   The Brief Skill review menu, shown before the brief is written, no longer offers `[A] Advanced Elicitation` or `[P] Party Mode`, whose results never reached the brief. It now reads `[R] Revise Scope`, `[C] Approve and Write` and `[X] Cancel and exit`, and you still change any field by saying what to change. Analyze Source's recommendation menu still offers both.
 issues: [1137]
+prs: [1213]
