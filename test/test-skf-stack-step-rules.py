@@ -143,6 +143,13 @@ compose branch of the sections they govern.
   published library the counts still find, marks each row kept or new,
   lists the published libraries it leaves out and records the keeps as
   `prior_kept`, and step 7 versions from step 1's read (#1152).
+- Step 3 takes the scope from skf-count-imports.py `scope` in both modes
+  and writes it to `{scopeFile}`, which the Left out table, a rerun's
+  Dropped line and the headless decision read; each unknown override
+  records `scope-override-unknown`. A known import name reruns the count
+  with `--module`, and compose-scope.md takes each skill's layer candidates
+  from skf-comention-pairs.py `mentions`, warning when it cannot run
+  (#1153).
 
 The step calls run as written, on small fixtures.
 
@@ -2126,20 +2133,34 @@ def test_step_3_counts_imports_with_the_helper():
     assert found is None, f"step 3 still counts by hand: {found.group(0)!r}"
     for stale in ("{manifestPatternsPath}", "Exclude from counting", "Use subprocess Pattern 1"):
         assert stale not in rank, stale
-    assert "`{importCountsFile}`" in code and "`unresolved[]`" in code and '"modules"' in code
-    # The rerun for a known import name must not replace the counts file.
-    assert "without the `>` redirect" in _from(code, "**Unresolved names.**")
+    assert "`{importCountsFile}`" in code and "`unresolved[]`" in code
     assert (3, "helper-missing", "rank-and-confirm:count") in _halts(code), "a missing import counter halts with no code"
     assert (3, "helper-missing", "init:mode") in _halts(_sections(_body(_read(INIT)))["3"])
     exit_codes = _slice(_read(CONTRACT), "## Exit Codes", "## Result Contract")
     (row,) = [line for line in exit_codes.splitlines() if line.startswith("| 3 ")]
-    assert "`skf-count-imports.py` (step 3 §1)" in row
+    assert "`skf-count-imports.py` (step 3 §1, `references/compose-scope.md` §1)" in row
     unresolved = _from(code, "**Unresolved names.**").split("\n\n")[0]
     assert "a guessed import name that matched no file, no import name, or an ecosystem with no import rules" \
         in unresolved
-    assert "drop the entry from `unresolved[]`" in unresolved and "keep `dependencies[]` sorted" in unresolved
+    # #1153 determinism-5: a known import name reruns the same count, whose output is the counts file; the
+    # model never splices an entry into it.
+    for token in ("run the command above again, unchanged, redirect included",
+                  "adding one `--module <name>=<import name>` per such entry (`--module acme-client=acme`)",
+                  "the helper counts and ranks it with the others",
+                  "§2 leaves every other unresolved entry out with its `reason`",
+                  # The redirect empties the counts before the helper runs, so a refused `--module` is rerun.
+                  "A later rerun keeps every `--module` an earlier one passed.",
+                  "on a non-zero exit fix or drop the `--module` its error names and run the command again before "
+                  "§2"):
+        assert token in unresolved, token
+    for stale in ("write the file back", "without the `>` redirect", "drop the entry from `unresolved[]`",
+                  "keep `dependencies[]` sorted", '"modules"'):
+        assert stale not in rank, stale
     two = _sections(_body(rank))["2"]
-    assert "`above_threshold`" in two and "dev-only" in two
+    # #1153 determinism-9: the scope, its reasons and the unknown overrides come from the helper.
+    assert _call(two, "countImportsHelper", "scope").endswith('> "{scopeFile}"')
+    for stale in ("**Include by default:**", "**Below threshold:**", "**Apply scope_overrides**", "Apply filtering"):
+        assert stale not in two, stale
     assert 'scope: "dev"' in _sections(_body(rank))["3"], "the Category column does not follow scope"
     gate = [line for line in _sections(_body(rank))["3"].splitlines() if line.startswith("- **GATE")]
     assert len(gate) == 1 and "the recommended libraries in code mode" in gate[0]
@@ -2293,7 +2314,7 @@ def test_in_file_anchor_links_name_a_heading(path):
 HELPER_MISSING_PHASES = {
     "init:emitter", "init:stack-name", "init:mode", "init:run-state", "compose-skills:enumerate",
     "detect-manifests:scan",
-    "rank-and-confirm:count", "compose-extract:enumerate", "parallel-extract:library-tiers",
+    "rank-and-confirm:count", "compose-scope:scope", "compose-extract:enumerate", "parallel-extract:library-tiers",
     "detect-integrations:pair-intersect", "compose-pairs:comention", "detect-integrations:pair-tiers",
     "compile-stack:stats", "generate-output:atomic-writer",
 }
@@ -2486,7 +2507,7 @@ def test_the_scope_is_confirmed_at_one_gate():
     assert guard.startswith("**If `compose_mode` is true:** `references/compose-scope.md` set `confirmed_dependencies`")
     assert guard.endswith("Skip to [Confirm the Scope](#3-confirm-the-scope).")
     scope = _sections(_body(_read(COMPOSE_SCOPE)))["1"]
-    assert scope.rstrip().endswith("Set `confirmed_dependencies` ← that scope, with the overrides applied.")
+    assert scope.rstrip().endswith("Set `confirmed_dependencies` ← `{scopeFile}`'s `scope`.")
     assert "**Select:**" not in _read(COMPOSE_SCOPE), "compose-scope.md holds a second scope gate"
 
 
@@ -3372,8 +3393,9 @@ def test_the_compose_halts_name_their_stage():
     assert _halts(_body(_read(COMPOSE_PAIRS))) == [
         (3, "helper-missing", "compose-pairs:comention"), (2, "schema-version-mismatch", "compose-pairs:vs-report"),
         (2, "unknown-verdict-token", "compose-pairs:vs-report")]
-    assert not _halts(_body(_read(COMPOSE_SCOPE)))
-    for path in (COMPOSE_SKILLS, COMPOSE_EXTRACT, COMPOSE_PAIRS):
+    # #1153: compose-scope.md takes the scope from the import counter, so a missing one halts there.
+    assert _halts(_body(_read(COMPOSE_SCOPE))) == [(3, "helper-missing", "compose-scope:scope")]
+    for path in (COMPOSE_SKILLS, COMPOSE_SCOPE, COMPOSE_EXTRACT, COMPOSE_PAIRS):
         assert '"mode": "compose"' in _from(_body(_read(path)), "**Halt envelope.**").split("###", 1)[0], path.name
     # The schema's example phase is one a step still raises.
     schema = ENVELOPE_SCHEMA.read_text(encoding="utf-8")
@@ -3448,10 +3470,10 @@ def test_an_empty_scope_offers_no_continue():
     assert three.index("**Empty scope.**") < three.index("**Select:**") < three.index("- **GATE")
     for token in ("before presenting the gate and after each scope change", "the gate offers no [C]",
                   '"**No library is in scope.**"',
-                  # The interactive view lists what the headless halt lists: every library left out.
-                  "shows each library left out with its reason (the below-threshold table, then each library "
-                  "`scope_overrides` or the user excluded; compose mode: the skills `scope_overrides` or the user "
-                  "excluded)",
+                  # The interactive view lists what the headless halt lists: every library left out (#1153: the
+                  # helper's `dropped[]`, in both modes).
+                  "shows each library left out with its reason (the Left out table: `{scopeFile}`'s `dropped[]`, "
+                  "then each library the user took out)",
                   "takes only names to add, a custom list or [X]", "a headless run records no scope decision",
                   "{each library left out, with its reason}",
                   "Pass `scope_overrides` with `<name>: include` for each library the stack should cover"):
@@ -3585,21 +3607,19 @@ def test_a_rerun_marks_the_scope_against_the_published_stack():
     new and lists each published library left out, and the decision records the keeps as `prior_kept`."""
     sections = _sections(_body(_read(RANK)))
     two, three = sections["2"], sections["3"]
-    (include,) = [line for line in two.splitlines() if line.startswith("- **Include by default:**")]
-    for token in ("`above_threshold` true", "`{prior_libraries}` set; read it from `{runFile}` if lost",
-                  "every `{prior_libraries}` entry whose `dependencies[]` entry has `file_count` 1 or more",
-                  "a dev-only one too"):
-        assert token in include, token
-    # The overrides apply after the rerun rule, so `<name>: exclude` still drops a published library.
-    assert two.index("- **Include by default:**") < two.index("- **Apply scope_overrides**")
+    # #1153: the helper holds the rerun rule; §2 passes the published stack only on a rerun, from `{runFile}`
+    # when lost (the rule itself runs in test_a_rerun_keeps_the_published_libraries_the_counts_find).
+    assert '[--prior-version "{prior_stack_version}" --prior-libraries "{prior_libraries}"]' in \
+        _call(two, "countImportsHelper", "scope")
+    assert "only on a rerun (`{prior_libraries}` set; read it and `{prior_stack_version}` from `{runFile}` if lost)" \
+        in two
     rerun = _paragraph(three, "**A rerun.**")
     for token in ("When `{prior_libraries}` is set (from `{runFile}` if lost)",
                   "Published column says `kept` for a library of `{prior_libraries}` and `new` for any other",
                   # A reason for each way a published library leaves the scope, and a line for none.
-                  "`no importing file` for one the counts hold at 0 files",
+                  "each `{scopeFile}` `dropped[]` entry whose `reason` starts `in v{prior_stack_version}: `, with "
+                  "the reason after that lead",
                   "`removed at the scope gate` for one the user took out",
-                  "`not among this run's dependencies` for one the counts no longer hold",
-                  "else its below-threshold reason or `excluded by scope_overrides`",
                   "the line reads `none` when it leaves none out",
                   "Each scope change recomputes the marks and the Dropped line.",
                   "A new stack shows no Published column and no Dropped line."):
@@ -3619,7 +3639,7 @@ def test_a_rerun_marks_the_scope_against_the_published_stack():
     assert three.index("**Total:**") < three.index("**Dropped from v{prior_stack_version}:** {name} ({its reason})") \
         < three.index("**Select:**")
     compose = _paragraph(three, "**In compose mode**")
-    assert "with its Published column on a rerun, followed by the same Dropped line" in compose
+    assert "with its Published column on a rerun, followed by the same Left out table and Dropped line" in compose
     lines = three.splitlines()
     (at,) = [k for k, line in enumerate(lines) if line.startswith("- **GATE")]
     gate = lines[at]
@@ -3644,41 +3664,49 @@ def test_a_rerun_marks_the_scope_against_the_published_stack():
     assert header == "| # | Skill | Language | Tier | Architecture Layer | Published |"
     assert "`kept` for a skill of `{prior_libraries}`, `new` for any other" in one
     assert "Published column only on a rerun (`{prior_libraries}` set; read it from `{runFile}` if lost)" in one
-    assert one.rstrip().endswith("Set `confirmed_dependencies` ← that scope, with the overrides applied.")
+    assert one.rstrip().endswith("Set `confirmed_dependencies` ← `{scopeFile}`'s `scope`.")
 
 
-def _rerun_scope(counts: dict, prior: list[str], version: str, overrides: dict[str, str]) -> dict:
-    """§2's include rule and §3's evidence, as the step states them, applied to the helper's counts."""
-    by_name = {d["name"]: d for d in counts["dependencies"]}
-    unresolved = {u["name"]: u["reason"] for u in counts["unresolved"]}
-    base = [d["name"] for d in counts["dependencies"] if d["above_threshold"] and d.get("scope") != "dev"]
-    kept = [name for name in prior if name not in base and by_name.get(name, {}).get("file_count", 0) >= 1]
-    scope = [d["name"] for d in counts["dependencies"]
-             if (d["name"] in base or d["name"] in kept or overrides.get(d["name"]) == "include")
-             and overrides.get(d["name"]) != "exclude"]
-
-    def why(name: str) -> str:
-        # A published library first takes the reasons **A rerun** gives it (a headless run removes none at the gate).
-        if name in prior and name not in by_name and name not in unresolved:
-            return "not among this run's dependencies"
-        if name in prior and by_name.get(name, {}).get("file_count") == 0:
-            return "no importing file"
-        if overrides.get(name) == "exclude":
-            return "excluded by scope_overrides"
-        if name in unresolved:
-            return unresolved[name]
-        return "dev only" if by_name[name].get("scope") == "dev" else "under 2 files"
-
-    left_out = [name for name in [*by_name, *unresolved, *prior] if name not in scope]
-    dropped = [{"library": name, "reason": (f"in v{version}: " if name in prior else "") + why(name)}
-               for name in dict.fromkeys(left_out)]
-    # `prior_kept` holds only what §2 kept because the published stack holds it: an include override keeps it anyway.
-    return {"scope": scope, "dropped": dropped,
-            "prior_kept": [name for name in kept if name in scope and overrides.get(name) != "include"]}
+# A `[--flag ...]` synopsis group of a documented call.
+BRACKET_GROUP_RE = re.compile(r" \[(--[^\[\]]*)\]")
 
 
-def _project_counts(project: Path, files: dict[str, bytes]) -> dict:
-    """Step 2's scan and step 3's count, run as the steps write them, on a project of `files`."""
+def _bracketed(call: str, keep: tuple[str, ...]) -> str:
+    """The call with each bracket group that holds one of the `keep` flags kept, its brackets off, and the rest
+    dropped, as a stage passes them."""
+    return BRACKET_GROUP_RE.sub(lambda m: " " + m.group(1) if m.group(1).split()[0] in keep else "", call)
+
+
+def _run_scope_call(path: Path, run_dir: Path, stdin: str, values: dict[str, str], keep: tuple[str, ...]) -> dict:
+    """A stage's own `skf-count-imports.py scope` call, run as written with the bracket groups `keep` names and
+    without the others; the result is the `{scopeFile}` its redirect writes."""
+    section = _sections(_body(_read(path)))["2" if path == RANK else "1"]
+    call, target = _call(section, "countImportsHelper", "scope").strip().split(" > ")
+    assert target == '"{scopeFile}"', f"{path.name} does not save the scope in the run folder"
+    assert "scopeFile: '{run_dir}/scope.json'" in _frontmatter(_read(path)), path.name
+    argv = _argv(_bracketed(call, keep), "countImportsHelper", {**values, "{run_dir}": str(run_dir)})
+    result = subprocess.run([sys.executable, str(COUNT_IMPORTS), *argv], input=stdin, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    scope = json.loads(result.stdout)
+    assert set(scope) == {"scope", "dropped", "prior_kept", "unknown_overrides"}
+    return scope
+
+
+def _code_scope(tmp_path: Path, counts: dict, prior: list[str], version: str, overrides: dict[str, str]) -> dict:
+    """§2's scope call on the helper's counts: `scope_overrides` piped, the published stack passed on a rerun."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(exist_ok=True)
+    counts_file = run_dir / "import-counts.json"
+    counts_file.write_text(json.dumps(counts), encoding="utf-8")
+    values = {"{importCountsFile}": str(counts_file), "{prior_stack_version}": version,
+              "{prior_libraries}": ",".join(prior)}
+    keep = ("--prior-version",) if prior else ()
+    return _run_scope_call(RANK, run_dir, json.dumps(overrides or None), values, keep)
+
+
+def _project_counts(project: Path, files: dict[str, bytes], *module: str) -> dict:
+    """Step 2's scan and step 3's count, run as the steps write them, on a project of `files`; each `module`
+    is a `--module` value §1 adds when it knows an unresolved entry's import name."""
     for rel, content in files.items():
         (project / rel).parent.mkdir(parents=True, exist_ok=True)
         (project / rel).write_bytes(content)
@@ -3689,6 +3717,7 @@ def _project_counts(project: Path, files: dict[str, bytes]) -> dict:
     assert scan.returncode == 0, scan.stderr
     count_call = _call(_sections(_body(_read(RANK)))["1"], "countImportsHelper", "count").split(" > ")[0].strip()
     argv = _argv(count_call, "countImportsHelper", {"{scan_root}": str(project), "{project_root}": str(project)})
+    argv += [arg for value in module for arg in ("--module", value)]
     result = subprocess.run([sys.executable, str(COUNT_IMPORTS), *argv], input=scan.stdout,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -3696,9 +3725,9 @@ def _project_counts(project: Path, files: dict[str, bytes]) -> dict:
 
 
 def test_a_rerun_keeps_the_published_libraries_the_counts_find(tmp_path):
-    """The rerun rows of the matrix, on the import counter's own output: a published library imported by one
-    file stays in by default, one the counts no longer hold or hold at 0 files drops with its published-stack
-    reason, and an exclude override still wins."""
+    """The rerun rows of the matrix, §2's scope call run on the import counter's own output: a published library
+    imported by one file stays in by default, one the counts no longer hold or hold at 0 files drops with its
+    published-stack reason, and an exclude override still wins (#1153: the helper, not the model, applies them)."""
     counts = _project_counts(tmp_path / "project", {
         "package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "zod": "^3.22.0",'
                         b' "express": "^4.19.0"}}\n',
@@ -3710,18 +3739,18 @@ def test_a_rerun_keeps_the_published_libraries_the_counts_find(tmp_path):
     assert {name: (d["file_count"], d["above_threshold"]) for name, d in by_name.items()} == {
         "react": (3, True), "express": (2, True), "zod": (1, False)}
     prior = ["react", "zod", "lodash"]
-    rerun = _rerun_scope(counts, prior, "1.2.0", {})
-    assert sorted(rerun["scope"]) == ["express", "react", "zod"]
+    rerun = _code_scope(tmp_path, counts, prior, "1.2.0", {})
+    assert rerun["scope"] == ["react", "express", "zod"], "the scope keeps the rank order"
     assert {name: ("kept" if name in prior else "new") for name in rerun["scope"]} == {
         "react": "kept", "express": "new", "zod": "kept"}
     assert rerun["prior_kept"] == ["zod"]
     assert rerun["dropped"] == [{"library": "lodash", "reason": "in v1.2.0: not among this run's dependencies"}]
-    excluded = _rerun_scope(counts, prior, "1.2.0", {"zod": "exclude"})
+    excluded = _code_scope(tmp_path, counts, prior, "1.2.0", {"zod": "exclude"})
     assert excluded["prior_kept"] == []
     assert {"library": "zod", "reason": "in v1.2.0: excluded by scope_overrides"} in excluded["dropped"]
-    included = _rerun_scope(counts, prior, "1.2.0", {"zod": "include"})
+    included = _code_scope(tmp_path, counts, prior, "1.2.0", {"zod": "include"})
     assert "zod" in included["scope"] and included["prior_kept"] == [], "the override, not the rerun, kept it"
-    assert _rerun_scope(counts, [], "1.2.0", {})["prior_kept"] == [], "a new stack keeps nothing that way"
+    assert _code_scope(tmp_path, counts, [], "1.2.0", {})["prior_kept"] == [], "a new stack keeps nothing that way"
     # A published library the manifest still declares but no file imports: the counts hold it at 0 files.
     declared = _project_counts(tmp_path / "declared", {
         "package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "lodash": "^4.17.0"}}\n',
@@ -3729,7 +3758,7 @@ def test_a_rerun_keeps_the_published_libraries_the_counts_find(tmp_path):
         "src/b.js": b'import React from "react";\n',
     })
     assert {d["name"]: d["file_count"] for d in declared["dependencies"]} == {"react": 2, "lodash": 0}
-    unimported = _rerun_scope(declared, prior, "1.2.0", {})
+    unimported = _code_scope(tmp_path, declared, prior, "1.2.0", {})
     assert unimported["scope"] == ["react"] and unimported["prior_kept"] == []
     assert unimported["dropped"] == [
         {"library": "lodash", "reason": "in v1.2.0: no importing file"},
@@ -3739,9 +3768,11 @@ def test_a_rerun_keeps_the_published_libraries_the_counts_find(tmp_path):
 
     template = _decision("rank-and-confirm.scope")
     item = _schema()["properties"]["headless_decisions"]["items"]
-    for k, evidence in enumerate((rerun, excluded, unimported)):
+    assert set(template["evidence"]) == {"scope", "dropped", "prior_kept"}
+    for k, scope in enumerate((rerun, excluded, unimported)):
+        # The gate copies `{scopeFile}`'s three keys as they stand.
+        evidence = {key: scope[key] for key in template["evidence"]}
         decision = {**template, "evidence": evidence}
-        assert set(evidence) == set(template["evidence"])
         assert not list(Draft202012Validator(item).iter_errors(decision)), decision
         run_dir = tmp_path / f"skf-create-stack-skill-run{k}"
         argv = _argv(RECORD_DECISION.split(" < ")[0], "emitEnvelopeHelper", {"{run_dir}": str(run_dir)})
@@ -3749,3 +3780,154 @@ def test_a_rerun_keeps_the_published_libraries_the_counts_find(tmp_path):
                                   capture_output=True, text=True)
         assert recorded.returncode == 0, recorded.stderr
         assert json.loads((run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8")) == decision
+
+
+# --- #1153: the scope, an unresolved re-count and the compose layers come from helpers ---
+
+UNKNOWN_OVERRIDE_WARNING = ("Append one `workflow_warnings[]` entry per `unknown_overrides[]` key (`step: \"step-03\"`, "
+                            "`severity: \"warn\"`, `code: \"scope-override-unknown\"`, `message`: \"scope_override: "
+                            "unknown dependency '{key}', skipped\"); an unknown key never halts the run.")
+MENTIONS_CALL = 'uv run {comentionHelper} mentions --doc "{architecture_doc_path}" --skills -'
+
+
+def _scope_paragraph(path: Path) -> str:
+    """The paragraph after a stage's scope call, which says what `{scopeFile}` holds."""
+    section = _sections(_body(_read(path)))["2" if path == RANK else "1"]
+    return _paragraph(section, "A non-zero exit means the call is malformed")
+
+
+def test_a_known_import_name_reruns_the_count(tmp_path):
+    """determinism-5: §1's own count call, run again with `--module`, ranks an unresolved entry with the others,
+    so `{importCountsFile}` stays the helper's output."""
+    files = {
+        "requirements.txt": b"acme-client==1.0\nrequests==2.31\n",
+        "app/a.py": b"import acme\nimport requests\n",
+        "app/b.py": b"from acme import client\nimport requests\n",
+        "app/c.py": b"import requests\n",
+    }
+    first = _project_counts(tmp_path / "first", files)
+    assert [u["name"] for u in first["unresolved"]] == ["acme-client"]
+    assert [d["name"] for d in first["dependencies"]] == ["requests"]
+    again = _project_counts(tmp_path / "again", files, "acme-client=acme")
+    assert again["unresolved"] == []
+    assert [(d["name"], d["file_count"], d["resolution"]) for d in again["dependencies"]] == [
+        ("requests", 3, "guessed"), ("acme-client", 2, "explicit")]
+    # §2 then ranks it like any other library.
+    assert _code_scope(tmp_path, again, [], "", {})["scope"] == ["requests", "acme-client"]
+
+
+def test_the_scope_calls_run_as_written(tmp_path):
+    """determinism-9: §2 and compose-scope.md §1 each run the scope helper into `{scopeFile}`, and each records one
+    `scope-override-unknown` warning per unknown override, never a halt."""
+    counts = _project_counts(tmp_path / "project", {
+        "package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "zod": "^3.22.0"},'
+                        b' "devDependencies": {"vitest": "^1.0.0"}}\n',
+        "src/a.js": b'import React from "react";\nimport { z } from "zod";\n',
+        "src/b.js": b'import React from "react";\nimport { test } from "vitest";\n',
+        "src/c.js": b'import { test } from "vitest";\n',
+    })
+    code = _code_scope(tmp_path, counts, [], "", {"zod": "include", "lodash": "include"})
+    assert code == {"scope": ["react", "zod"], "dropped": [{"library": "vitest", "reason": "dev only"}],
+                    "prior_kept": [], "unknown_overrides": ["lodash"]}
+    # Compose mode: the names step 2 stored, piped; the overrides written beside the run, as the stage says.
+    run_dir = tmp_path / "compose-run"
+    run_dir.mkdir()
+    one = _sections(_body(_read(COMPOSE_SCOPE)))["1"]
+    assert "after writing it as JSON to `{run_dir}/scope-overrides.json` with a file write" in one
+    (run_dir / "scope-overrides.json").write_text(json.dumps({"c": "exclude", "x": "include"}), encoding="utf-8")
+    raw_dependencies = [{"name": name, "language": "typescript", "source": "existing_skill"} for name in "abc"]
+    compose = _run_scope_call(COMPOSE_SCOPE, run_dir, json.dumps([d["name"] for d in raw_dependencies]),
+                              {"{prior_stack_version}": "2.0.0", "{prior_libraries}": "a,d"},
+                              ("--overrides", "--prior-version"))
+    assert compose == {"scope": ["a", "b"],
+                       "dropped": [{"library": "c", "reason": "excluded by scope_overrides"},
+                                   {"library": "d", "reason": "in v2.0.0: not among this run's dependencies"}],
+                       "prior_kept": [], "unknown_overrides": ["x"]}
+    # With no overrides and no published stack both bracket groups go, and every skill is in.
+    bare = _run_scope_call(COMPOSE_SCOPE, run_dir, json.dumps(["a", "b"]), {}, ())
+    assert bare == {"scope": ["a", "b"], "dropped": [], "prior_kept": [], "unknown_overrides": []}
+    for path in (RANK, COMPOSE_SCOPE):
+        held = _scope_paragraph(path)
+        assert UNKNOWN_OVERRIDE_WARNING in held, path.name
+        (entry,) = [e for e in WARNING_ENTRY_RE.findall(held) if '`code: "scope-override-unknown"`' in e]
+        assert '`step: "step-03"`' in entry and '`severity: "warn"`' in entry
+    assert "`--overrides -`" not in _read(COMPOSE_SCOPE) and '--overrides -' in _call(
+        _sections(_body(_read(RANK)))["2"], "countImportsHelper", "scope")
+    # The model sets the scope from the file the helper wrote, in both modes.
+    assert "Set `confirmed_dependencies` ← the recommended scope: `{scopeFile}`'s `scope`." in \
+        _sections(_body(_read(RANK)))["2"]
+    assert "Take every count and the recommended scope from `skf-count-imports.py`" in _rules(_read(RANK))
+    assert "Take the scope from `skf-count-imports.py scope`" in _rules(_read(COMPOSE_SCOPE))
+
+
+def test_the_gate_shows_and_records_the_scope_file():
+    """§3 shows the helper's `dropped[]` as the Left out table in both modes, lists a rerun's drops from it and
+    copies the three decision keys from `{scopeFile}`."""
+    rank = _read(RANK)
+    three = _scope_gate()
+    assert "Below threshold" not in rank and "below-threshold" not in rank
+    assert "**Left out:**" in three and "excluded by default" not in rank
+    assert [line for line in three.splitlines() if line.startswith("| Library |")] == ["| Library | Reason |"]
+    assert "| {library} | {reason} |" in three
+    shown = _paragraph(three, "Present the scope and the one gate")
+    assert ("The Left out table lists each `{scopeFile}` `dropped[]` entry, its `library` and `reason` as they "
+            "stand, then each library the user took out, as `removed at the scope gate`; one the user adds leaves "
+            "it.") in shown
+    assert "followed by the same Left out table and Dropped line" in _paragraph(three, "**In compose mode**")
+    assert "`{scopeFile}`'s `dropped[]`" in _paragraph(three, "**Empty scope.**")
+    assert "each `{scopeFile}` `dropped[]` entry whose `reason` starts `in v{prior_stack_version}: `" in \
+        _paragraph(three, "**A rerun.**")
+    (select,) = [line for line in three.splitlines() if "**Select:**" in line]
+    assert "type library names to **add** from the Left out table" in select
+    (gate,) = [line for line in three.splitlines() if line.startswith("- **GATE")]
+    assert "whose `evidence` copies `{scopeFile}`'s `scope`, `dropped` and `prior_kept` as they stand" in gate
+    assert gate.index("copies `{scopeFile}`'s") < gate.index('stage `{"gate"')
+
+
+def test_compose_layers_come_from_the_mentions_helper(tmp_path):
+    """determinism-11, leanness-7: compose-scope.md takes each skill's layer candidates from the co-mention
+    helper's `mentions`, warns when it cannot run, and states goals rather than a parse to emulate."""
+    text = _read(COMPOSE_SCOPE)
+    assert _probe_script(text, "comention") == COMENTION
+    assert _probe_script(text, "countImports") == COUNT_IMPORTS
+    one = _sections(_body(text))["1"]
+    assert _call(one, "comentionHelper", "mentions") == MENTIONS_CALL
+    # Every skill step 2 picked gets its candidates, so one the user adds at the gate has a layer too.
+    assert "pipe the `raw_dependencies` names on stdin as a JSON array, so a skill the user adds at the gate has " \
+        "its layer too" in one
+    layers = _paragraph(one, "A skill's layer candidates are")
+    for token in ("the non-null `paragraphs[].header` values of its `skills[]` entry", "`Unclassified`",
+                  "When no candidate path exists or the call exits non-zero, list the skills by name",
+                  "With no `architecture_doc_path`, or a document whose paragraphs have no header, list the skills "
+                  "by name, with no warning."):
+        assert token in layers, token
+    (entry,) = [e for e in WARNING_ENTRY_RE.findall(layers) if '`code: "architecture-doc-parse-failed"`' in e]
+    assert '`step: "step-03"`' in entry and '`severity: "warn"`' in entry
+    assert "the layers in the order the document first names them and `Unclassified` last, by name within a layer" \
+        in one
+    for stale in ("try/except", "MUST", "alphabetical", "Validate override keys", "Log any overrides applied"):
+        assert stale not in text, stale
+    # The call as written, on a document with two sections: one header candidate each, and none for zod. The
+    # path holds a space, which the quoted placeholder keeps in one argument.
+    doc = tmp_path / "docs dir" / "architecture.md"
+    doc.parent.mkdir()
+    doc.write_text("# Web Stack\n\n## Frontend\n\nThe pages render with react.\n\n## API\n\n"
+                   "The server runs express and returns JSON.\n", encoding="utf-8")
+    argv = _argv(MENTIONS_CALL, "comentionHelper", {"{architecture_doc_path}": str(doc)})
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input=json.dumps(["zod", "express", "react"]),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    skills = json.loads(result.stdout)["skills"]
+    candidates = {s["name"]: list(dict.fromkeys(p["header"] for p in s["paragraphs"] if p["header"])) for s in skills}
+    headed = [(p["header"], p["line"]) for s in skills for p in s["paragraphs"] if p["header"]]
+    first_line = {header: min(line for h, line in headed if h == header) for header, _ in headed}
+    # Among several candidates the model picks the one that names a layer; this document gives none several.
+    assert all(len(found) <= 1 for found in candidates.values()), candidates
+    layer = {name: found[0] if found else "Unclassified" for name, found in candidates.items()}
+    order = sorted(layer, key=lambda name: (layer[name] == "Unclassified", first_line.get(layer[name], 0), name))
+    assert [(name, layer[name]) for name in order] == [
+        ("react", "Frontend"), ("express", "API"), ("zod", "Unclassified")]
+    # A document the helper cannot read exits non-zero: the stage lists by name and records the warning.
+    argv = _argv(MENTIONS_CALL, "comentionHelper", {"{architecture_doc_path}": str(tmp_path / "missing.md")})
+    failed = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react"]', capture_output=True, text=True)
+    assert failed.returncode == 1 and failed.stdout == ""
