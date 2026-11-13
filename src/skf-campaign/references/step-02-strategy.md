@@ -58,16 +58,17 @@ Run `uv run {depsScript} --render --state-file {stateFile}` and show its output 
 Present a confirmation gate:
 
 - `[P]roceed`: write the plan (§7), then chain to `{nextStepFile}`.
+- `[U]nattended`: write the plan as `[P]` does, with `--unattended` (§7), log it with `uv run {stateScript} log --log-file {decisionLogFile} --type decision --text 'unattended: chosen at the plan gate'`, then chain to `{nextStepFile}`. The skill loop then takes each blocked skill's headless default, and Export still asks.
 - `[C]ancel`: log the cancel, then stop with exit code 12 (`user-cancelled`). Nothing of this stage is written, so the state is intact and a resume shows this plan again. To change targets, tiers, pins or dependencies, re-run `campaign` and choose overwrite: they live in the state that Setup wrote, and editing `campaign-brief.yaml` does not reach them.
 
 **HALT and wait for operator input.** **GATE [default: P]**: in headless mode, auto-proceed with `[P]` and log "headless: auto-proceed past plan-confirmation gate" (type `auto`).
 
 ### §7: Write State
 
-On `[P]roceed`, write the plan and the stage in one write:
+On `[P]roceed` or `[U]nattended`, write the plan and the stage in one write, with `--unattended` on `[U]nattended` only:
 
 ```
-uv run {stateScript} apply-plan --state-file {stateFile} --stage 1
+uv run {stateScript} apply-plan --state-file {stateFile} --stage 1 [--unattended]
 ```
 
 It sets `dependency_graph.execution_order` and `circular_deps_detected` from the same `campaign-deps.py --compute` the §3 view came from, so the order on disk is the order shown. On exit 4 (the graph can no longer be followed: the state changed since §3), HALT (exit code 4, `circular-deps`) with its `errors[]`; on exit 3, HALT (exit code 3, `invalid-state`).

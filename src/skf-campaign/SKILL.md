@@ -60,6 +60,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
    | `--brief <file>` | Seed step-01 targets from a `campaign-brief.yaml` instead of interactive prompts. Implies `--headless`. |
    | `--manifest <file>` | Seed step-01 targets from a plain-text `name,repo_url,tier,pin` manifest. Implies `--headless`. |
    | `--from <skill>` | Resume override — see Mode Routing. |
+   | `--unattended` | With `campaign resume`: from then on the skill loop takes each blocked skill's headless default and logs it (type `auto`), while every other gate, Export's included, still asks (step-resume §4). A new campaign chooses it at the plan gate, `[U]nattended`. |
 
    If `--brief` or `--manifest` is set, force `{headless_mode} = true` (log "headless: coerced by --brief/--manifest" if it was false). This is deliberate: a seeded run is an unattended run (CI), so it takes the default at every gate. To review the plan and the export, give the same file at the Setup question instead, which stays interactive. step-01 §1 documents the manifest format and validates every target.
 
@@ -87,7 +88,7 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|
 | 0 | Setup | references/step-01-setup.md | Yes |
 | 1 | Strategy | references/step-02-strategy.md | No (plan confirmation; headless takes [P]) |
-| 2 | Pin Validation | references/step-03-pins.md | Yes |
+| 2 | Pin Validation | references/step-03-pins.md | Conditional (an invalid pin; headless HALTs) |
 | 3 | Provenance | references/step-04-provenance.md | Yes |
 | 4 | Skill Loop | references/step-05-skill-loop.md | Conditional (a blocked dependency) |
 | 5 | Tier B Batch | references/step-06-batch.md | Yes |
@@ -103,7 +104,7 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | `campaign` to start a new campaign; `campaign resume [--from=<skill>]` to resume from last active or specified skill; `campaign status` for a read-only progress summary |
+| **Inputs** | `campaign` to start a new campaign; `campaign resume [--from=<skill>] [--unattended]` to resume from last active or specified skill; `campaign status` for a read-only progress summary |
 | **Outputs** | `_campaign-state.yaml` (state), `campaign-brief.yaml` (machine-generated brief), `campaign-report.md` (post-campaign summary), `_campaign-decision-log.md` (append-only rationale), all under `{campaignWorkspacePath}`; `SKF_CAMPAIGN_RESULT_JSON` (headless envelope) |
 
 ## Contracts
@@ -114,7 +115,7 @@ Exit codes, the HARD-HALT error envelope, the **State Contract** (`scripts/campa
 
 On invocation:
 
-1. **`campaign resume [--from=<skill>]`**: load `references/step-resume.md` (validates state, recovers from backup, chains to the stage `campaign-state.py resume` computes). `--from=<skill>` overrides the resume point to the named skill.
+1. **`campaign resume [--from=<skill>] [--unattended]`**: load `references/step-resume.md` (validates state, recovers from backup, chains to the stage `campaign-state.py resume` computes). `--from=<skill>` overrides the resume point to the named skill; `--unattended` makes the rest of the campaign unattended (On Activation step 4).
 2. **`campaign`** (new, no existing state) to run from stage 0 (Setup).
 3. **`campaign`** (state exists): when `{campaignWorkspacePath}/_campaign-state.yaml` or its `.bak` exists, prompt **resume** (via `references/step-resume.md`) or **overwrite** (via `references/step-01-setup.md`, whose §0 archives the old campaign first). **GATE [default: resume]**: in headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
 4. **`campaign status`** (read-only): load `{campaignWorkspacePath}/_campaign-state.yaml`, validate it via `campaign-validate-state.py`, then run `uv run scripts/campaign-status.py --state-file {campaignWorkspacePath}/_campaign-state.yaml` and display its summary (campaign name, current stage, completed-vs-total, per-status counts) followed by the last ~15 lines of `{campaignWorkspacePath}/_campaign-decision-log.md` for the recent decision trail, then stop. No backup, no mutation, no chaining. A missing state says no campaign has started and HALTs (exit code 2, `invalid-input`); a failed validation HALTs (exit code 3, `invalid-state`) and, when `_campaign-state.yaml.bak` exists, points to `campaign resume`, which can recover it; each HALT is at phase `status`. Otherwise exit 0.

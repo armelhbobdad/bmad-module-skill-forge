@@ -179,4 +179,4 @@ def test_the_gate_scan_finds_the_known_gates():
     assert {"1", "3"} <= found["skf-export-skill"]
     assert {"1", "3c", "3d"} <= found["skf-create-skill"]
     assert found["skf-setup"] == {"3"}
-    assert {"1", "4", "9"} <= found["skf-campaign"]
+    assert {"1", "2", "4", "9"} <= found["skf-campaign"]

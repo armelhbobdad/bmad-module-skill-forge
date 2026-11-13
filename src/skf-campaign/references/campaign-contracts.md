@@ -8,21 +8,21 @@ The self-contained contracts consulted at a specific moment: when a step HALTs, 
 
 Every HARD HALT exits with one of these codes:
 
-| Code | Meaning             | Note                                                                   |
-| ---- | ------------------- | ---------------------------------------------------------------------- |
-| 0    | success             | Never an error halt: no `emit-halt`                                    |
-| 2    | invalid-input       |                                                                        |
-| 3    | invalid-state       |                                                                        |
-| 4    | circular-deps       |                                                                        |
-| 5    | invalid-pin         |                                                                        |
-| 6    | inaccessible-repo   |                                                                        |
-| 7    | dependency-deadlock | defensive: only a hand-edited state reaches it                         |
-| 8    | missing-brief       |                                                                        |
-| 9    | corrupt-state       |                                                                        |
-| 10   | report-failure      | **degraded only**: the campaign still completes and state stays intact |
-| 11   | export-cancelled    | graceful, resumable                                                    |
-| 12   | user-cancelled      | graceful, resumable                                                    |
-| 13   | dependency-blocked  | graceful, resumable                                                    |
+| Code | Meaning             | Note                                                                                                                                                                                                        |
+| ---- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | success             | Never an error halt: no `emit-halt`                                                                                                                                                                         |
+| 2    | invalid-input       |                                                                                                                                                                                                             |
+| 3    | invalid-state       |                                                                                                                                                                                                             |
+| 4    | circular-deps       |                                                                                                                                                                                                             |
+| 5    | invalid-pin         | an interactive `campaign resume` asks for the corrected pins; a headless one checks the same pin again, so run `campaign`, choose overwrite and give the archived `campaign-brief.yaml` with corrected pins |
+| 6    | inaccessible-repo   |                                                                                                                                                                                                             |
+| 7    | dependency-deadlock | defensive: only a hand-edited state reaches it                                                                                                                                                              |
+| 8    | missing-brief       |                                                                                                                                                                                                             |
+| 9    | corrupt-state       |                                                                                                                                                                                                             |
+| 10   | report-failure      | **degraded only**: the campaign still completes and state stays intact                                                                                                                                      |
+| 11   | export-cancelled    | graceful, resumable                                                                                                                                                                                         |
+| 12   | user-cancelled      | graceful, resumable                                                                                                                                                                                         |
+| 13   | dependency-blocked  | graceful, resumable                                                                                                                                                                                         |
 
 ## Result Contract on HARD HALT
 
@@ -45,27 +45,27 @@ Every write to `_campaign-state.yaml` goes through `scripts/campaign-state.py`. 
 | Operation | Step | What it writes |
 | --- | --- | --- |
 | `init` | step-01 | the state, from `campaign-parse-manifest.py`'s targets and the gate `campaign-quality-gate.py check` settles, then `campaign-brief.yaml` from the same targets (`--brief-out`); refuses a state or backup that exists |
-| `apply-plan` | step-02 | `dependency_graph` from `campaign-deps.py --compute` |
+| `apply-plan` | step-02 | `dependency_graph` from `campaign-deps.py --compute`, and `unattended`: true with `--unattended` (the plan gate's `[U]nattended`), else false, keeping a true that `campaign resume --unattended` wrote |
 | `apply-pins` | step-03 | each resolved pin, from `campaign-validate-pins.py`'s output |
 | `apply-provenance` | step-04 | each `commit_sha`, from `campaign-provenance.py`'s output |
-| `set-skill` | step-05, step-10, step-resume | a skill's `status`, `quality_score`, `skill_path`, `brief_path` or `export` outcome (`--export`); `active` stamps `started_at` once, `completed` stamps `completed_at`, `pending` clears both and the `export` outcome |
+| `set-skill` | step-03, step-05, step-10, step-resume | a skill's `status`, `quality_score`, `skill_path`, `brief_path`, `pin` (`--pin`: empty for the latest release, a Tier A pin only as an X.Y.Z version), `halt_reason` (`--halt-reason`, only with `--status failed` or `skipped`) or `export` outcome (`--export`); `active` stamps `started_at` once, `completed` stamps `completed_at`, `pending` clears both, the `export` outcome and the `halt_reason`; `failed` and `skipped` write `halt_reason` (null without `--halt-reason`) and any other status clears it |
 | `append-workarounds` | step-05 | entries of a skill's `workarounds_applied`, each once: the `--entry` texts, or with `--doc-rot-file` one `[doc-rot] {affected}: {candidate_category}` entry per correction create-skill's step 5c kept (no file, no entry) |
-| `apply-batch` | step-06 | the Tier B batch from its line-to-skill map: `--start`, `--results-file` or `--no-results` |
-| `set-campaign` | steps 07 to 09 | `architecture_doc_path`, and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification); null for a stage skipped on purpose (`--no-<field>`), a sub-skill that printed no line (`--no-result <field>`, a `not_recorded` row with halt reason `no-result`) or a line it cannot read (one that does not parse, or has no `status` or `exit_code`: a `not_recorded` row with halt reason `result-unreadable`, exit 0); and `stage_outcomes`, each stage `completed`, `skipped` or `failed` with its halt reason and exit code |
+| `apply-batch` | step-06 | the Tier B batch from its line-to-skill map: `--start`, `--results-file` or `--no-results`, with each failed or skipped skill's `halt_reason` (its `error_code`, `no-batch-result` or `directive Skip List: <reason>`) |
+| `set-campaign` | steps 07 to 09, step-resume | `architecture_doc_path`, `unattended` (`--unattended`, from `campaign resume --unattended`), and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification); null for a stage skipped on purpose (`--no-<field>`), a sub-skill that printed no line (`--no-result <field>`, a `not_recorded` row with halt reason `no-result`) or a line it cannot read (one that does not parse, or has no `status` or `exit_code`: a `not_recorded` row with halt reason `result-unreadable`, exit 0); and `stage_outcomes`, each stage `completed`, `skipped` or `failed` with its halt reason and exit code |
 | `set-stage` | steps 05, 10, 11 | `current_stage` alone |
 | `recover` | step-resume | `.bak` over the primary, when `.bak` validates (exit 9 otherwise) |
 | `archive` | step-01 §0 (overwrite) | nothing: it moves the state, its `.bak` and the brief into a new folder under `archive/` and returns it |
 | `resume` | step-resume | nothing: it returns the stage and step file to resume |
 | `halt-payload` | any HARD HALT | nothing: it prints the error envelope's payload (Result Contract above) |
 
-Its exit codes are the campaign's: 2 for invalid input (an unknown skill, an input file it cannot read, a script output that holds an error), 3 for an invalid state or change, 4 for a plan `apply-plan` refuses, 5 for a pin `apply-pins` refuses, 6 for a repository `apply-provenance` refuses, 9 for a `recover` with no valid backup. HALT with the same code.
+Its exit codes are the campaign's: 2 for invalid input (an unknown skill, an input file it cannot read, a script output that holds an error, a Tier A pin that is no X.Y.Z version), 3 for an invalid state or change, 4 for a plan `apply-plan` refuses, 5 for a pin `apply-pins` refuses, 6 for a repository `apply-provenance` refuses, 9 for a `recover` with no valid backup. HALT with the same code.
 
 ## Decision Log
 
-`_campaign-decision-log.md` is append-only, one typed and timestamped line per entry, written with `uv run scripts/campaign-state.py log --log-file {campaignWorkspacePath}/_campaign-decision-log.md --type <decision|auto|event> --text '<entry>'` (single-quote the entry, so the shell expands no `$` or backtick in it, and write an apostrophe inside it as `'\''`). With `--once` it appends nothing when the log already holds a line of the same type and text, and returns `skipped` `true`, so a notice several calls report is logged once. Its types:
+`_campaign-decision-log.md` is append-only, one typed and timestamped line per entry, written with `uv run scripts/campaign-state.py log --log-file {campaignWorkspacePath}/_campaign-decision-log.md --type <decision|auto|event> --text '<entry>'` (single-quote the entry, so the shell expands no `$` or backtick in it, and write an apostrophe inside it as `'\''`; a `set-skill --halt-reason` or `--pin` value is quoted the same way). With `--once` it appends nothing when the log already holds a line of the same type and text, and returns `skipped` `true`, so a notice several calls report is logged once. Its types:
 
-- `decision`: the operator's choice at a gate (skip or force, overwrite, export or cancel, re-run or next, a cancel)
-- `auto`: the default a headless run took at a gate
+- `decision`: the operator's choice at a gate (skip or force, overwrite, export or cancel, re-run or next, a cancel, a corrected pin, an unattended run)
+- `auto`: the default a headless or unattended run took at a gate
 - `event`: what happened without a choice: a failed skill and why, a skip the directive or a dependency forced, a recovery from the backup, a report or hook failure
 
 ## Headless Progress Events

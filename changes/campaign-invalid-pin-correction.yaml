@@ -1,0 +1,5 @@
+type: added
+scope: skf-campaign
+summary: |
+  An invalid pin no longer ends an interactive campaign at Pin Validation. Campaign shows each invalid pin with its suggestions, asks for the corrected pins, writes each answer with the new `campaign-state.py set-skill --pin` (an empty pin means the latest release, and a Tier A pin that is not an `X.Y.Z` version is refused with exit code `2`), logs it as a `decision` and checks the pins again. A headless run still stops with exit code `5` (`invalid-pin`), and its halt message now names the ways out: run `campaign resume` interactively, which asks for the corrected pins, or, since a headless `campaign resume` checks the same pin again, run `campaign`, choose overwrite and give the archived `campaign-brief.yaml` with corrected pins.
+issues: [1143]

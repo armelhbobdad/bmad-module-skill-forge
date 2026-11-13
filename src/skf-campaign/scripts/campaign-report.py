@@ -7,7 +7,7 @@
 CLI:
   uv run campaign-report.py \
       --state-file <path> --template-file <path> --output-file <path> \
-      [--context-file <path> [--decision-log <path>]]
+      [--context-file <path>] [--decision-log <path>]
 
 Output (JSON on stdout):
   {"status":"success","report_path":"...","skills_completed":N,"skills_failed":N,
@@ -30,6 +30,17 @@ call, an exported skill by name and a failed one with that call's
 halt_reason and exit code. Both are null when the Export stage did not run
 (`campaign.current_stage` below 9). The report's Export Gate table shows the
 same outcome per skill in its Export column.
+
+The Failed / Skipped Skills section prints each failed or skipped skill's
+`halt_reason` after it (campaign-state.py records it), and the Operator
+Decisions section lists the `decision` and `auto` lines of --decision-log as
+they stand, the operator's choices and the defaults a headless or unattended
+run took, or one sentence when there is no log, none in it or it cannot be
+read: the report is still written. It keeps only the lines stamped at or
+after `campaign.started_at`, since an overwrite archives the state but leaves
+the log, which holds an earlier campaign's lines and the overwrite's own. A
+template without `{{operator_decisions}}` (an older `report_template_path`
+copy) shows no such section.
 
 `stage_outcomes` is what the capstone, verification and refinement stages
 did: the `campaign.stage_outcomes` entry campaign-state.py set-campaign
@@ -62,6 +73,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +82,10 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 GATE_SCRIPT = Path(__file__).resolve().with_name("campaign-quality-gate.py")
+# A decision-log line campaign-state.py log writes for an operator's choice or a default a run took.
+DECISION_LINE_RE = re.compile(r"^- (\S+) \((decision|auto)\) ")
+# A template placeholder, replaced in one pass so no inserted text is read as one.
+PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
 
 def _emit_error(message: str, code: str) -> None:
@@ -222,8 +238,56 @@ def _export_gate_section(
     return "\n".join(lines)
 
 
+def _skill_line(skill: Dict[str, Any]) -> str:
+    """A failed or skipped skill, with the halt_reason campaign-state.py recorded for it when there is one."""
+    line = f"- **{skill['name']}** (Tier {skill.get('tier', '?')})"
+    reason = skill.get("halt_reason")
+    reason = " ".join(reason.split()) if isinstance(reason, str) else ""
+    return f"{line}: {reason}" if reason else line
+
+
+def _stamped_since(stamp: str, since: Any) -> bool:
+    """True when a log line stamped `stamp` was written at or after `since`, the campaign's started_at.
+
+    Both are campaign-state.py's UTC `now()`, so they compare as datetimes and as text alike; a
+    stamp that does not parse, or one without a zone beside one with it, compares as text.
+    """
+    if not isinstance(since, str) or not since:
+        return True
+    line_at, start_at = _parse_iso(stamp), _parse_iso(since)
+    try:
+        return line_at >= start_at if line_at and start_at else stamp >= since
+    except TypeError:
+        return stamp >= since
+
+
+def _operator_decisions(decision_log: Optional[str], since: Any = None) -> str:
+    """This campaign's `decision` and `auto` lines of the decision log, as written, or the sentence that says why
+    there are none.
+
+    `archive` leaves the log in place when an overwrite starts a new campaign, so a line stamped before
+    `since` (the campaign's started_at), an earlier campaign's or the overwrite's own, is left out.
+    """
+    if not decision_log:
+        return "No decision log was given."
+    try:
+        text = Path(decision_log).read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        return "No operator decisions were logged."
+    except (OSError, UnicodeDecodeError):
+        return "The decision log could not be read."
+    lines = []
+    for line in (raw.strip() for raw in text.splitlines()):
+        match = DECISION_LINE_RE.match(line)
+        if match and _stamped_since(match.group(1), since):
+            lines.append(line)
+    return "\n".join(lines) if lines else "No operator decisions were logged."
+
+
 def _compute_aggregates(
-    state: Dict[str, Any], classification: Optional[Dict[str, Any]] = None
+    state: Dict[str, Any],
+    classification: Optional[Dict[str, Any]] = None,
+    decision_log: Optional[str] = None,
 ) -> Dict[str, Any]:
     campaign = state.get("campaign", {})
     skills: List[Dict[str, Any]] = state.get("skills", [])
@@ -288,11 +352,11 @@ def _compute_aggregates(
     if failed:
         failed_skipped_lines.append("### Failed Skills\n")
         for s in failed:
-            failed_skipped_lines.append(f"- **{s['name']}** (Tier {s.get('tier', '?')})")
+            failed_skipped_lines.append(_skill_line(s))
     if skipped:
         failed_skipped_lines.append("\n### Skipped Skills\n")
         for s in skipped:
-            failed_skipped_lines.append(f"- **{s['name']}** (Tier {s.get('tier', '?')})")
+            failed_skipped_lines.append(_skill_line(s))
     if not failed and not skipped:
         if skills:
             failed_skipped_lines.append("All skills completed successfully.")
@@ -326,6 +390,7 @@ def _compute_aggregates(
         "failed_skipped_section": "\n".join(failed_skipped_lines),
         "export_gate_section": _export_gate_section(classification, state),
         "stages_section": _stages_section(_stage_outcomes(state)),
+        "operator_decisions": _operator_decisions(decision_log, campaign.get("started_at")),
     }
 
 
@@ -405,13 +470,11 @@ def run(
 
     try:
         classification = _export_classification(state)
-        aggregates = _compute_aggregates(state, classification)
+        aggregates = _compute_aggregates(state, classification, decision_log)
     except Exception as exc:
         return fail(f"Failed to compute report aggregates: {exc}", "AGGREGATE_ERROR")
 
-    report = template
-    for key, value in aggregates.items():
-        report = report.replace("{{" + key + "}}", value)
+    report = PLACEHOLDER_RE.sub(lambda m: aggregates.get(m.group(1), m.group(0)), template)
 
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -463,7 +526,10 @@ def main() -> int:
         "--context-file",
         help="Also write the SKF_CAMPAIGN_RESULT_JSON payload for skf-emit-result-envelope.py here",
     )
-    parser.add_argument("--decision-log", help="Path to _campaign-decision-log.md, for the payload")
+    parser.add_argument(
+        "--decision-log",
+        help="Path to _campaign-decision-log.md: the payload names it and the Operator Decisions section reads it",
+    )
     args = parser.parse_args()
     return run(args.state_file, args.template_file, args.output_file, args.context_file, args.decision_log)
 

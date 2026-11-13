@@ -623,3 +623,50 @@ class TestSkillMdStructure:
         assert "SKF_CAMPAIGN_RESULT_JSON" in skill_content, (
             "SKILL.md must document the SKF_CAMPAIGN_RESULT_JSON envelope"
         )
+
+
+# ---------------------------------------------------------------------------
+# #1143: campaign.unattended and skills[].halt_reason
+# ---------------------------------------------------------------------------
+
+
+class TestUnattendedField:
+    @pytest.mark.parametrize("value", [True, False, None], ids=["true", "false", "null"])
+    def test_a_boolean_or_null_passes(self, schema: dict, value) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["unattended"] = value
+        validate(instance=state, schema=schema)
+
+    def test_absent_passes(self, schema: dict) -> None:
+        assert "unattended" not in VALID_MINIMAL_STATE["campaign"]
+        validate(instance=VALID_MINIMAL_STATE, schema=schema)
+
+    def test_a_string_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["unattended"] = "yes"
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
+
+    def test_not_required(self, schema: dict) -> None:
+        assert "unattended" not in schema["properties"]["campaign"]["required"]
+
+
+class TestSkillHaltReason:
+    @pytest.mark.parametrize("value", ["exit 4", None], ids=["string", "null"])
+    def test_a_string_or_null_passes(self, schema: dict, value) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["halt_reason"] = value
+        validate(instance=state, schema=schema)
+
+    def test_absent_passes(self, schema: dict) -> None:
+        assert all("halt_reason" not in skill for skill in VALID_FULL_STATE["skills"])
+        validate(instance=VALID_FULL_STATE, schema=schema)
+
+    def test_an_integer_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["halt_reason"] = 4
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
+
+    def test_not_required(self, schema: dict) -> None:
+        assert "halt_reason" not in schema["properties"]["skills"]["items"]["required"]

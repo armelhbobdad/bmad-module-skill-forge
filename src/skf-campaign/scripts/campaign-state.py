@@ -53,18 +53,29 @@ Operations:
                     without it halts (missing-brief).
   set-stage         Write current_stage alone: a stage's final write when it
                     records nothing else.
-  set-skill         Set the status, quality_score, skill_path or brief_path
-                    of one or more skills (--skill repeats). `active` stamps
-                    started_at when it is not set yet (an interrupted run
-                    keeps its start); `completed` stamps completed_at;
+  set-skill         Set the status, quality_score, skill_path, brief_path or
+                    pin of one or more skills (--skill repeats). `active`
+                    stamps started_at when it is not set yet (an interrupted
+                    run keeps its start); `completed` stamps completed_at;
                     `pending` (a reset for a re-run) clears both and the
-                    export outcome. --export records the Export stage's
-                    outcome (step-10) as `export`: `exported`, or `failed`
-                    with --export-halt-reason and --export-exit-code from
-                    the skf-export-skill call.
+                    export outcome. `failed` and `skipped` write halt_reason
+                    from --halt-reason (null without it), which goes with no
+                    other status; any other status removes halt_reason, so
+                    a reset or a rerun keeps no stale reason. --pin writes
+                    the pin step-03 corrects (empty: null, the latest
+                    release); a Tier A pin must be an X.Y.Z version, as
+                    campaign-parse-manifest.py checks it (exit 2 otherwise).
+                    --export records the Export stage's outcome (step-10) as
+                    `export`: `exported`, or `failed` with
+                    --export-halt-reason and --export-exit-code from the
+                    skf-export-skill call.
   apply-plan        Write the execution order and the cycle flag that
-                    campaign-deps.py --compute gives for the state (step-02);
-                    refuses a plan the stages cannot follow (exit 4).
+                    campaign-deps.py --compute gives for the state (step-02),
+                    and campaign.unattended: true with --unattended (the
+                    plan gate's [U]nattended), else false, except that a
+                    true already in the state (campaign resume
+                    --unattended) is kept; refuses a plan the stages
+                    cannot follow (exit 4).
   apply-pins        Write the resolved pins from campaign-validate-pins.py's
                     output (step-03); refuses output with an invalid pin
                     (exit 5).
@@ -76,7 +87,11 @@ Operations:
                     skipped_by_directive skills `skipped` and its batched
                     skills `active`; --results-file records the joined
                     results (campaign-render-batch.py --record output);
-                    --no-results fails every batched skill.
+                    --no-results fails every batched skill. Each failed or
+                    skipped skill's halt_reason says why: a failed row's
+                    error_code, no-batch-result for --no-results, and
+                    `directive Skip List: <reason>` for a Skip List skip;
+                    an activated or completed skill has none.
   append-workarounds
                     Append entries to one skill's workarounds_applied; an
                     entry it already holds is not added twice. --entry gives
@@ -89,7 +104,8 @@ Operations:
                     does not parse, is no array or holds a record without
                     those two fields is exit 2, with nothing written.
   set-campaign      Write campaign-level fields: the architecture document
-                    path, and the capstone, verification or refinement
+                    path, unattended (--unattended, from campaign resume
+                    --unattended), and the capstone, verification or refinement
                     summary read from the sub-skill's result envelope line
                     (a file or `-`; the line's SKF_*_RESULT_JSON: prefix is
                     optional). A success envelope is recorded; an error
@@ -149,16 +165,17 @@ CLI:
       [--brief-out <p> [--brief-template <p>] [--notes <text>]]
   uv run campaign-state.py set-stage --state-file <p> --stage <N>
   uv run campaign-state.py set-skill --state-file <p> --skill <name> [--skill <name> ...] \\
-      [--status <status>] [--quality-score <N>] [--skill-path <p>] [--brief-path <p>] \\
+      [--status <status> [--halt-reason <text>]] [--quality-score <N>] [--skill-path <p>] \\
+      [--brief-path <p>] [--pin <ref>] \\
       [--export exported|failed [--export-halt-reason <r>] [--export-exit-code <N>]] [--stage <N>]
-  uv run campaign-state.py apply-plan --state-file <p> [--stage <N>]
+  uv run campaign-state.py apply-plan --state-file <p> [--unattended] [--stage <N>]
   uv run campaign-state.py apply-pins --state-file <p> --results-file <p|-> [--stage <N>]
   uv run campaign-state.py apply-provenance --state-file <p> --results-file <p|-> [--stage <N>]
   uv run campaign-state.py apply-batch --state-file <p> --map-file <p> \\
       (--start | --results-file <p|-> | --no-results) [--stage <N>]
   uv run campaign-state.py append-workarounds --state-file <p> --skill <name> \\
       (--entry <text> [--entry <text> ...] | --doc-rot-file <p>) [--stage <N>]
-  uv run campaign-state.py set-campaign --state-file <p> [--architecture-doc-path <p>] \\
+  uv run campaign-state.py set-campaign --state-file <p> [--architecture-doc-path <p>] [--unattended] \\
       [--capstone <p|-> | --no-capstone] [--verification <p|-> | --no-verification] \\
       [--refinement <p|-> | --no-refinement] \\
       [--no-result capstone|verification|refinement ...] [--stage <N>]
@@ -176,7 +193,8 @@ Output (one JSON object on stdout):
              operation's own keys (init: "quality_gate", the whole gate
              in state, "gate_from_brief", the gate values the --brief-file
              set ({} without one), and "brief_file", null without
-             --brief-out; apply-batch: "activated", "skipped",
+             --brief-out; apply-plan: "execution_order" and the
+             "unattended" it leaves; apply-batch: "activated", "skipped",
              "completed", "failed"; append-workarounds: "added";
              set-campaign: "recorded", and
              "not_recorded", one {"field", "status", "halt_reason",
@@ -198,8 +216,9 @@ Exit codes (each is the campaign's HALT code for the same class):
      output from another script that holds an error, a gate the gate script
      rejects, a state that init would overwrite, a brief template that is
      no YAML mapping, export flags or set-campaign flags that do not go
-     together, a doc-rot file that is no array of corrections, or an
-     archive folder that exists
+     together, a --halt-reason without --status failed or skipped, a
+     Tier A pin that is no X.Y.Z version, a doc-rot file that is no array
+     of corrections, or an archive folder that exists
   3  invalid state: the state is missing, malformed or fails the schema, or
      the change would make it fail (nothing written)
   4  apply-plan: a plan the stages cannot follow (circular-deps)
@@ -231,9 +250,12 @@ HERE = Path(__file__).resolve().parent
 VALIDATE_SCRIPT = HERE / "campaign-validate-state.py"
 DEPS_SCRIPT = HERE / "campaign-deps.py"
 GATE_SCRIPT = HERE / "campaign-quality-gate.py"
+MANIFEST_SCRIPT = HERE / "campaign-parse-manifest.py"
 BRIEF_TEMPLATE = HERE.parent / "templates" / "campaign-brief-template.yaml"
 STATUSES = ("pending", "active", "completed", "failed", "skipped")
 SETTLED = ("completed", "failed", "skipped")
+# The statuses a skill's halt_reason explains; any other status removes it.
+REASONED = ("failed", "skipped")
 OPEN = ("pending", "active")
 LOG_TYPES = ("decision", "auto", "event")
 # A decision-log line as `log` writes it: `- <stamp> (<type>) <text>`.
@@ -642,8 +664,28 @@ def _export_outcome(args: argparse.Namespace) -> dict | None:
     return {"status": "failed", "halt_reason": args.export_halt_reason or None, "exit_code": args.export_exit_code}
 
 
+def _halt_reason(args: argparse.Namespace) -> str | None:
+    """The halt_reason a failed or skipped write records: --halt-reason on one line, or None."""
+    if args.halt_reason is not None and args.status not in REASONED:
+        raise StateError(EXIT_INPUT, "input-invalid", "--halt-reason goes with --status failed or --status skipped")
+    return " ".join((args.halt_reason or "").split()) or None
+
+
+def _checked_pin(skill: dict, pin: str | None) -> None:
+    """Refuse a Tier A pin that is no X.Y.Z version, the check campaign-parse-manifest.py makes at Setup."""
+    if pin is None or skill["tier"] != "A" or _module(MANIFEST_SCRIPT).VERSION_RE.match(pin):
+        return
+    raise StateError(EXIT_INPUT, "input-invalid",
+                     f"`{skill['name']}` is Tier A with pin `{pin}`, which is no X.Y.Z version: brief-skill builds "
+                     "a Tier A skill from a release version only (write it in full, such as `1.2.0` or `v1.2.0`, "
+                     "or leave it empty for the latest release). Nothing was written.")
+
+
 def op_set_skill(args: argparse.Namespace) -> dict:
     outcome = _export_outcome(args)
+    reason = _halt_reason(args)
+    # An empty pin is the latest release, as in a manifest: null.
+    pin = (args.pin.strip() or None) if args.pin is not None else None
 
     def change(state: dict, stamp: str, changed: list[str]) -> None:
         skills = _known(state, args.skill)
@@ -662,6 +704,16 @@ def op_set_skill(args: argparse.Namespace) -> dict:
                     skill["started_at"] = None
                     skill["completed_at"] = None
                     skill.pop("export", None)
+                if args.status in REASONED:
+                    skill["halt_reason"] = reason
+                    changed.append(f"{name}.halt_reason")
+                elif "halt_reason" in skill:
+                    del skill["halt_reason"]
+                    changed.append(f"{name}.halt_reason=removed")
+            if args.pin is not None:
+                _checked_pin(skill, pin)
+                skill["pin"] = pin
+                changed.append(f"{name}.pin={pin if pin is not None else 'null'}")
             for field in ("quality_score", "skill_path", "brief_path"):
                 value = getattr(args, field)
                 if value is not None:
@@ -695,7 +747,12 @@ def op_apply_plan(args: argparse.Namespace) -> dict:
         order = computed_plan(args.state_file)
         state["dependency_graph"] = {"execution_order": order, "circular_deps_detected": False}
         changed.append("dependency_graph.execution_order")
-        return {"execution_order": order}
+        # [U]nattended writes true; [P]roceed and headless write false, but keep the true a
+        # `campaign resume --unattended` wrote before the resume reached the plan gate.
+        unattended = bool(args.unattended) or state["campaign"].get("unattended") is True
+        state["campaign"]["unattended"] = unattended
+        changed.append(f"campaign.unattended={str(unattended).lower()}")
+        return {"execution_order": order, "unattended": unattended}
 
     return mutate(args.state_file, "apply-plan", change, args.stage)
 
@@ -742,6 +799,12 @@ def op_apply_provenance(args: argparse.Namespace) -> dict:
     return mutate(args.state_file, "apply-provenance", change, args.stage)
 
 
+def _batch_reason(head: Any, detail: Any = None) -> str | None:
+    """A Tier B skill's halt_reason: `head`, then `: detail` when there is one; None for no text."""
+    parts = [" ".join(p.split()) for p in (head, detail) if isinstance(p, str) and p.strip()]
+    return ": ".join(parts) or None
+
+
 def op_apply_batch(args: argparse.Namespace) -> dict:
     batch_map = read_json(args.map_file, "Batch map")
     lines = batch_map.get("lines")
@@ -762,17 +825,21 @@ def op_apply_batch(args: argparse.Namespace) -> dict:
         out: dict[str, list] = {"activated": [], "skipped": [], "completed": [], "failed": []}
         if args.start:
             for entry in skipped:
-                skills[entry["name"]]["status"] = "skipped"
+                skill = skills[entry["name"]]
+                skill["status"] = "skipped"
+                skill["halt_reason"] = _batch_reason("directive Skip List", entry.get("reason"))
                 out["skipped"].append({"name": entry["name"], "reason": entry.get("reason")})
             for name in batched:
                 skill = skills[name]
                 skill["status"] = "active"
+                skill.pop("halt_reason", None)
                 if not skill.get("started_at"):
                     skill["started_at"] = stamp
                 out["activated"].append(name)
         elif args.no_results:
             for name in batched:
                 skills[name]["status"] = "failed"
+                skills[name]["halt_reason"] = "no-batch-result"
                 out["failed"].append({"skill": name, "error_code": "no-batch-result"})
         else:
             for row in rows:
@@ -782,9 +849,11 @@ def op_apply_batch(args: argparse.Namespace) -> dict:
                     skill["completed_at"] = stamp
                     skill["quality_score"] = row.get("quality_score")
                     skill["skill_path"] = row.get("skill_path")
+                    skill.pop("halt_reason", None)
                     out["completed"].append(row["skill"])
                 else:
                     skill["status"] = "failed"
+                    skill["halt_reason"] = _batch_reason(row.get("error_code"))
                     out["failed"].append({"skill": row["skill"], "error_code": row.get("error_code")})
         for key, values in out.items():
             if values:
@@ -908,6 +977,9 @@ def op_set_campaign(args: argparse.Namespace) -> dict:
         if args.architecture_doc_path:
             campaign["architecture_doc_path"] = args.architecture_doc_path
             changed.append("campaign.architecture_doc_path")
+        if args.unattended:
+            campaign["unattended"] = True
+            changed.append("campaign.unattended=true")
         for field, build in SUMMARIES:
             # Each branch decides the stage outcome; a failed one takes its row's halt_reason and exit_code.
             if field in envelopes and not _readable(envelopes[field]):
@@ -1166,14 +1238,20 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("set-skill", "set fields of one or more skills")
     p.add_argument("--skill", action="append", required=True, help="skill name (repeat for several)")
     p.add_argument("--status", choices=STATUSES)
+    p.add_argument("--halt-reason",
+                   help="with --status failed or skipped: why, for the report (any other status removes it)")
     p.add_argument("--quality-score", type=_score)
     p.add_argument("--skill-path")
     p.add_argument("--brief-path")
+    p.add_argument("--pin", help="a corrected pin (step-03): empty for the latest release; Tier A takes X.Y.Z only")
     p.add_argument("--export", choices=EXPORT_STATUSES, help="the skill's skf-export-skill outcome (step-10)")
     p.add_argument("--export-halt-reason", help="with --export failed: the export envelope's halt_reason")
     p.add_argument("--export-exit-code", type=int, help="with --export failed: skf-export-skill's exit code")
 
-    command("apply-plan", "write the execution order campaign-deps.py computes (step-02)")
+    p = command("apply-plan", "write the execution order campaign-deps.py computes (step-02)")
+    p.add_argument("--unattended", action="store_true",
+                   help="the plan gate's [U]nattended: campaign.unattended true (without it false, "
+                        "unless the state already holds true)")
 
     p = command("apply-pins", "write resolved pins (step-03)")
     p.add_argument("--results-file", required=True, help="campaign-validate-pins.py output, or -")
@@ -1198,6 +1276,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = command("set-campaign", "write campaign-level fields")
     p.add_argument("--architecture-doc-path")
+    p.add_argument("--unattended", action="store_true",
+                   help="campaign resume --unattended: campaign.unattended true for the rest of the campaign")
     for field, _build in SUMMARIES:
         group = p.add_mutually_exclusive_group()
         group.add_argument(f"--{field}", help=f"the {field} sub-skill's result envelope line, a file or -")

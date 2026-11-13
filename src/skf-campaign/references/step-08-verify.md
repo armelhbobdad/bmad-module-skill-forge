@@ -36,10 +36,9 @@ Resolve the architecture document path, preferring the value persisted in state:
 
 1. If `campaign.architecture_doc_path` is set in state and the file exists, use it directly.
 2. Otherwise discover it: check `{project-root}/docs/architecture.md` (SKF convention), then `{project-root}/_bmad-output/planning-artifacts/architecture.md` (BMM convention).
-3. If still not found and `{headless_mode}` is false: prompt the operator to provide the architecture doc path.
-4. If still not found and `{headless_mode}` is true: skip VS invocation with a warning; do not HALT. Log that verification was skipped due to missing architecture doc (type `event`) and go to §5 with no verification.
+3. If still not found: skip VS invocation with a warning; do not HALT. Log that verification was skipped due to missing architecture doc (type `event`) and go to §5 with no verification.
 
-Once resolved (steps 2 and 3), persist the path at once, so the refine stage and any resume reuse it without prompting again: `uv run {stateScript} set-campaign --state-file {stateFile} --architecture-doc-path <path>`. Then proceed to §4 with the resolved path.
+When step 2 finds it, persist the path at once, so the refine stage and any resume reuse it: `uv run {stateScript} set-campaign --state-file {stateFile} --architecture-doc-path <path>`. Then proceed to §4 with the resolved path.
 
 ### §4: Invoke VS
 

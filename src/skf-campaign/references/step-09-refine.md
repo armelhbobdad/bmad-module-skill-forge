@@ -37,10 +37,9 @@ If `campaign.directive_path` is set in state, load the file at that path and app
 
 1. If `campaign.architecture_doc_path` is set in state and the file exists, use it directly (step-08 normally persists it).
 2. Otherwise check `{project-root}/docs/architecture.md`, then `{project-root}/_bmad-output/planning-artifacts/architecture.md`.
-3. If still not found and `{headless_mode}` is false: prompt the operator.
-4. If still not found and `{headless_mode}` is true: skip RA invocation with a warning; do not HALT. Log that refinement was skipped due to missing architecture doc (type `event`) and go to §5 with no refinement.
+3. If still not found: skip RA invocation with a warning; do not HALT. Log that refinement was skipped due to missing architecture doc (type `event`) and go to §5 with no refinement.
 
-Once resolved (steps 2 and 3), persist the path if state does not hold it yet: `uv run {stateScript} set-campaign --state-file {stateFile} --architecture-doc-path <path>`. Then proceed to §4 with the resolved path.
+When step 2 finds it, persist the path if state does not hold it yet: `uv run {stateScript} set-campaign --state-file {stateFile} --architecture-doc-path <path>`. Then proceed to §4 with the resolved path.
 
 **VS feasibility report:** read `campaign.verification.report_path` from state, where step-08 saved the report VS wrote, so a chained run and a resumed one pass the same report. When it is null, or `campaign.verification` is unset (VS failed or step-08 skipped it), RA runs without a report: never look for one by file name.
 

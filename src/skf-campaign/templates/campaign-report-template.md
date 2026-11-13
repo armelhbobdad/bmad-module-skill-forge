@@ -60,3 +60,7 @@
 ## Failed / Skipped Skills
 
 {{failed_skipped_section}}
+
+## Operator Decisions
+
+{{operator_decisions}}

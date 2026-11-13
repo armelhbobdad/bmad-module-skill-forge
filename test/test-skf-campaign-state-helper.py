@@ -1529,3 +1529,220 @@ def test_help_lists_every_operation(capsys):
         assert op in out
     for stage, name in mod.STEP_FILES.items():
         assert name.startswith(f"step-{stage + 1:02d}-")
+
+
+# --------------------------------------------------------------------------
+# #1143: set-skill --pin and --halt-reason, --unattended, apply-batch reasons
+# --------------------------------------------------------------------------
+
+
+class TestSetSkillPin:
+    """step-03 §4 writes the pin the operator corrects; the pin script reads the state's pin."""
+
+    def _pins(self, tmp_path):
+        return _write(tmp_path, _state(stage=1, skills=[_skill("core", pin="9.9.9"), _skill("util", tier="B")]))
+
+    @pytest.mark.parametrize("pin", ["1.2.0", "v1.2.0", " 1.2.0 "], ids=["plain", "v-prefix", "padded"])
+    def test_a_tier_a_version_is_written(self, tmp_path, capsys, pin):
+        path = self._pins(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", pin)
+        assert rc == 0
+        assert _read(path)["skills"][0]["pin"] == pin.strip()
+        assert out["changed"] == [f"core.pin={pin.strip()}"]
+
+    def test_a_tier_a_branch_writes_nothing(self, tmp_path, capsys):
+        path = self._pins(tmp_path)
+        before = path.read_bytes()
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", "main")
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert "no X.Y.Z version" in err["error"]
+        assert path.read_bytes() == before and not _bak(path).exists()
+
+    def test_a_tier_b_branch_is_written(self, tmp_path, capsys):
+        path = self._pins(tmp_path)
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "util", "--pin", "main")[0] == 0
+        assert _read(path)["skills"][1]["pin"] == "main"
+
+    @pytest.mark.parametrize("pin", ["", "   "], ids=["empty", "blank"])
+    def test_an_empty_pin_is_the_latest_release(self, tmp_path, capsys, pin):
+        path = self._pins(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--pin", pin)
+        assert rc == 0 and out["changed"] == ["core.pin=null"]
+        core = _read(path)["skills"][0]
+        assert core["pin"] is None and core["status"] == "pending"
+
+    def test_the_check_is_the_manifest_parsers(self):
+        manifest = _load("campaign-parse-manifest")
+        assert mod._module(mod.MANIFEST_SCRIPT).VERSION_RE.pattern == manifest.VERSION_RE.pattern
+
+
+class TestSetSkillHaltReason:
+    @pytest.mark.parametrize("status", ["failed", "skipped"])
+    def test_written_with_a_failed_or_skipped_status(self, tmp_path, capsys, status):
+        path = _write(tmp_path, _state())
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", status,
+                       "--halt-reason", "unmet dependency: base is failed")
+        assert rc == 0
+        assert out["changed"] == [f"core.status={status}", "core.halt_reason"]
+        state = _read(path)
+        assert state["skills"][0]["halt_reason"] == "unmet dependency: base is failed"
+        assert mod.validation_errors(state) == []
+
+    def test_without_a_reason_it_is_null(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core", halt_reason="exit 4")]))
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "failed")[0] == 0
+        assert _read(path)["skills"][0]["halt_reason"] is None
+
+    def test_a_reason_is_kept_on_one_line(self, tmp_path, capsys):
+        path = _write(tmp_path, _state())
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "failed",
+                    "--halt-reason", "  exit 4\n  no result ")[0] == 0
+        assert _read(path)["skills"][0]["halt_reason"] == "exit 4 no result"
+
+    @pytest.mark.parametrize("status", ["pending", "active", "completed"])
+    def test_another_status_removes_it(self, tmp_path, capsys, status):
+        path = _write(tmp_path, _state(skills=[_skill("core", status="failed", halt_reason="exit 4")]))
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", status)
+        assert rc == 0 and "core.halt_reason=removed" in out["changed"]
+        assert "halt_reason" not in _read(path)["skills"][0]
+
+    def test_a_write_without_a_status_keeps_it(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core", status="failed", halt_reason="exit 4")]))
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--brief-path", "b.yaml")[0] == 0
+        assert _read(path)["skills"][0]["halt_reason"] == "exit 4"
+
+    @pytest.mark.parametrize("extra", [["--status", "active"], ["--status", "completed"], []],
+                             ids=["active", "completed", "no-status"])
+    def test_a_reason_goes_only_with_failed_or_skipped(self, tmp_path, capsys, extra):
+        path = _write(tmp_path, _state())
+        before = path.read_bytes()
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", *extra, "--halt-reason", "x")
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert path.read_bytes() == before and not _bak(path).exists()
+
+
+class TestUnattended:
+    def test_apply_plan_records_the_plan_gates_choice(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(order=[]))
+        rc, out = _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1", "--unattended")
+        assert rc == 0 and out["unattended"] is True and "campaign.unattended=true" in out["changed"]
+        state = _read(path)
+        assert state["campaign"]["unattended"] is True and state["campaign"]["current_stage"] == 1
+
+    @pytest.mark.parametrize("before", [None, False, "absent"], ids=["null", "false", "absent"])
+    def test_proceed_writes_false(self, tmp_path, capsys, before):
+        state = _state(order=[])
+        if before != "absent":
+            state["campaign"]["unattended"] = before
+        path = _write(tmp_path, state)
+        # [P]roceed, or headless.
+        rc, out = _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1")
+        assert rc == 0 and out["unattended"] is False and "campaign.unattended=false" in out["changed"]
+        assert _read(path)["campaign"]["unattended"] is False
+
+    def test_proceed_keeps_the_true_a_resume_wrote(self, tmp_path, capsys):
+        # A campaign cancelled at the plan gate resumes there: `campaign resume --unattended`
+        # writes true, then [P]roceed (or headless) at the gate must not turn it off.
+        path = _write(tmp_path, _state(order=[]))
+        assert _run(capsys, "set-campaign", "--state-file", str(path), "--unattended")[0] == 0
+        rc, out = _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1")
+        assert rc == 0 and out["unattended"] is True and "campaign.unattended=true" in out["changed"]
+        assert _read(path)["campaign"]["unattended"] is True
+        # A later pass of the gate keeps it too.
+        assert _run(capsys, "apply-plan", "--state-file", str(path), "--stage", "1")[1]["unattended"] is True
+
+    def test_set_campaign_sets_it_and_a_later_write_keeps_it(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(stage=3))
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--unattended")
+        assert rc == 0 and out["changed"] == ["campaign.unattended=true"]
+        assert _read(path)["campaign"]["unattended"] is True
+        assert _run(capsys, "set-campaign", "--state-file", str(path), "--architecture-doc-path", "docs/a.md")[0] == 0
+        assert _run(capsys, "set-stage", "--state-file", str(path), "--stage", "4")[0] == 0
+        assert _read(path)["campaign"]["unattended"] is True
+
+    def test_an_older_state_has_none(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(stage=3))
+        assert _run(capsys, "set-stage", "--state-file", str(path), "--stage", "4")[0] == 0
+        assert "unattended" not in _read(path)["campaign"]
+
+
+def _batch_map(tmp_path, lines, skipped=()):
+    batch_map = tmp_path / "_batch-map.json"
+    batch_map.write_text(json.dumps({"batch_file": "b", "lines": [
+        {"batch": n, "skill": name, "target": name, "line": name} for n, name in enumerate(lines, start=1)],
+        "skipped_by_directive": list(skipped)}), encoding="utf-8")
+    return batch_map
+
+
+class TestApplyBatchReasons:
+    def test_start_records_the_skip_list_reason_and_clears_a_rerun(self, tmp_path, capsys):
+        skills = [_skill("util", tier="B", status="failed", halt_reason="no-batch-result"),
+                  _skill("cli", tier="B"), _skill("doc", tier="B")]
+        path = _write(tmp_path, _state(stage=4, skills=skills))
+        batch_map = _batch_map(tmp_path, ["util"], [{"name": "cli", "reason": "mid-rewrite"},
+                                                    {"name": "doc", "reason": None}])
+        rc, out = _run(capsys, "apply-batch", "--state-file", str(path), "--map-file", str(batch_map), "--start")
+        assert rc == 0
+        # The helper's output keeps its shape: the reason lands in the state.
+        assert (out["activated"], out["completed"], out["failed"]) == (["util"], [], [])
+        assert out["skipped"] == [{"name": "cli", "reason": "mid-rewrite"}, {"name": "doc", "reason": None}]
+        util, cli, doc = _read(path)["skills"]
+        assert "halt_reason" not in util
+        assert cli["halt_reason"] == "directive Skip List: mid-rewrite"
+        assert doc["halt_reason"] == "directive Skip List"
+
+    def test_no_results_records_no_batch_result(self, tmp_path, capsys):
+        skills = [_skill("util", tier="B", status="active"), _skill("cli", tier="B", status="active")]
+        path = _write(tmp_path, _state(stage=4, skills=skills))
+        rc, out = _run(capsys, "apply-batch", "--state-file", str(path), "--map-file",
+                       str(_batch_map(tmp_path, ["util", "cli"])), "--no-results", "--stage", "5")
+        assert rc == 0
+        assert out["failed"] == [{"skill": "util", "error_code": "no-batch-result"},
+                                 {"skill": "cli", "error_code": "no-batch-result"}]
+        assert [s["halt_reason"] for s in _read(path)["skills"]] == ["no-batch-result", "no-batch-result"]
+
+    def test_results_record_each_error_code(self, tmp_path, capsys):
+        skills = [_skill("util", tier="B", status="active", halt_reason="stale"),
+                  _skill("cli", tier="B", status="active"), _skill("doc", tier="B", status="active")]
+        path = _write(tmp_path, _state(stage=4, skills=skills))
+        results = tmp_path / "_batch-results.json"
+        results.write_text(json.dumps({"results": [
+            {"skill": "util", "status": "completed", "quality_score": 84, "skill_path": "skills/util"},
+            {"skill": "cli", "status": "failed", "error_code": "extraction-failed"},
+            {"skill": "doc", "status": "failed", "error_code": None}]}), encoding="utf-8")
+        rc, out = _run(capsys, "apply-batch", "--state-file", str(path), "--map-file",
+                       str(_batch_map(tmp_path, ["util", "cli", "doc"])), "--results-file", str(results))
+        assert rc == 0
+        assert (out["completed"], out["failed"]) == (
+            ["util"], [{"skill": "cli", "error_code": "extraction-failed"}, {"skill": "doc", "error_code": None}])
+        util, cli, doc = _read(path)["skills"]
+        assert "halt_reason" not in util
+        assert (cli["halt_reason"], doc["halt_reason"]) == ("extraction-failed", None)
+
+
+def test_a_reason_and_a_log_the_helper_wrote_reach_the_report(tmp_path, capsys):
+    report = _load("campaign-report")
+    skills = [_skill("core", status="completed", quality_score=95), _skill("web", depends_on=["core"]),
+              _skill("util", tier="B")]
+    path = _write(tmp_path, _state(stage=4, skills=skills))
+    log = tmp_path / "_campaign-decision-log.md"
+    # An earlier campaign's line, stamped before this state's started_at: archive leaves the log in place.
+    log.write_text("- 2026-09-30T09:00:00+00:00 (decision) overwrite: archived demo\n", encoding="utf-8")
+    for kind, text in (("decision", "pin: core 9.9.9 corrected to 1.2.0"), ("event", "core failed: exit 4"),
+                       ("auto", "unattended: skipped web: core is failed")):
+        assert _run(capsys, "log", "--log-file", str(log), "--type", kind, "--text", text)[0] == 0
+    assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "web", "--status", "skipped",
+                "--halt-reason", "unmet dependency: core is failed")[0] == 0
+    assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "util", "--status", "failed",
+                "--halt-reason", "exit 4")[0] == 0
+    template = REPO_ROOT / "src" / "skf-campaign" / "templates" / "campaign-report-template.md"
+    output = tmp_path / "campaign-report.md"
+    assert report.run(str(path), str(template), str(output), decision_log=str(log)) == 0
+    capsys.readouterr()
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert "- **util** (Tier B): exit 4" in lines
+    assert "- **web** (Tier A): unmet dependency: core is failed" in lines
+    decisions = lines[lines.index("## Operator Decisions") + 1:]
+    logged = [line for line in decisions if line.startswith("- ")]
+    assert [line.split(" ", 2)[2] for line in logged] == [
+        "(decision) pin: core 9.9.9 corrected to 1.2.0", "(auto) unattended: skipped web: core is failed"]

@@ -35,6 +35,16 @@ only the gate values the seeding brief set and passes no --hard. An overwrite
 archives the old campaign in step-01 §0, so Setup's numbering may start at 0,
 and `campaign status` names its real exits: 2 for no state, 3 for a state that
 fails validation, else 0.
+
+#1143: Setup looks for the architecture document, so Verification and
+Refinement never ask for one and skip with a logged event in every run. The
+plan gate offers [U]nattended and `campaign resume` takes --unattended, which
+let only the skill loop's dependency gate take its headless default. An
+interactive run corrects an invalid pin through `set-skill --pin`, and the
+headless HALT names the ways out, an interactive `campaign resume` first. Each
+failed or skipped skill's reason goes through `set-skill --halt-reason`,
+quoted as a log entry is, the dependency gate logs the default it takes in
+both branches, and step-03 and step-04 state their halt rule once.
 """
 
 from __future__ import annotations
@@ -42,6 +52,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -572,8 +583,8 @@ RAISED_BY: list[tuple[str, str, int]] = [
 ]
 
 # The rows whose Note changes what a caller does next; every other row leaves it empty.
-NOTED_EXITS = {"success", "dependency-deadlock", "report-failure", "export-cancelled", "user-cancelled",
-               "dependency-blocked"}
+NOTED_EXITS = {"success", "invalid-pin", "dependency-deadlock", "report-failure", "export-cancelled",
+               "user-cancelled", "dependency-blocked"}
 
 
 def _cited_sections() -> list[tuple[str, str, int]]:
@@ -666,7 +677,8 @@ def test_setup_logs_through_the_helper() -> None:
 def test_model_built_text_is_single_quoted() -> None:
     for path in sorted(REFERENCES_DIR.glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        assert '--text "' not in text and '--entry "' not in text, path.name
+        for flag in ("--text", "--entry", "--halt-reason", "--pin"):
+            assert f'{flag} "' not in text, (path.name, flag)
 
 
 # ---------------------------------------------------------------------------
@@ -1086,5 +1098,258 @@ def test_export_and_resume_state_what_to_show() -> None:
     assert export.rstrip().endswith("## OUTPUT\n\nChain to `{nextStepFile}`.")
     resume = _section(_step("step-resume.md"), 4)
     assert "CAMPAIGN RESUME" not in _step("step-resume.md") and "```" not in resume
-    assert resume.strip().startswith("Before chaining, show the campaign name, the stage and `step_file` it resumes")
+    # #1143: §4 opens with the `--unattended` write, then shows the resume point.
+    assert resume.strip().split("\n\n")[-1].startswith(
+        "Before chaining, show the campaign name, the stage and `step_file` it resumes")
     assert "(never a hand count of `skills[]`)" in resume
+
+
+# ---------------------------------------------------------------------------
+# #1143: Setup finds the architecture document; [U]nattended; pin correction; halt reasons
+# ---------------------------------------------------------------------------
+
+ARCH_PATHS = ("`{project-root}/docs/architecture.md`",
+              "`{project-root}/_bmad-output/planning-artifacts/architecture.md`")
+
+
+def _state_call(text: str, start: str) -> str:
+    """The one inline `uv run {stateScript} ...` call in `text` that starts with `start`."""
+    calls = [c for c in re.findall(r"`(uv run \{stateScript\} [^`]+)`", text) if c.startswith(start)]
+    assert len(calls) == 1, (start, calls)
+    return calls[0]
+
+
+def _parse(call: str, **values: str):
+    """The call's arguments, placeholders filled, through campaign-state.py's own parser."""
+    for placeholder, value in values.items():
+        call = call.replace(placeholder, value)
+    return _state_parser().parse_args(shlex.split(call)[3:])
+
+
+def test_setup_looks_for_the_architecture_document_in_both_modes() -> None:
+    intake = _section(_step("step-01-setup.md"), 1)
+    [bullet] = [line for line in intake.splitlines() if line.startswith("- `architecture_doc_path`:")]
+    for token in (*ARCH_PATHS, "in both modes", "`--architecture-doc-path`", "a `--manifest`",
+                  "a brief without `architecture_doc_path`"):
+        assert token in bullet, token
+    assert bullet.index(ARCH_PATHS[0]) < bullet.index(ARCH_PATHS[1])
+    for gone in ("discover it at runtime", "re-prompting"):
+        assert gone not in intake, gone
+    assert ('"architecture doc: <path>" or "architecture doc: none found, so verification and refinement will be '
+            'skipped"') in intake
+    assert "[--architecture-doc-path <architecture_doc_path>]" in _section(_step("step-01-setup.md"), 2)
+
+
+@pytest.mark.parametrize("name, stage, short", [("step-08-verify.md", "verification", "VS"),
+                                                 ("step-09-refine.md", "refinement", "RA")], ids=["verify", "refine"])
+def test_verify_and_refine_never_ask_for_the_architecture_document(name: str, stage: str, short: str) -> None:
+    locate = _section(_step(name), 3)
+    assert "prompt" not in locate.lower() and "`{headless_mode}` is false" not in locate
+    assert "{headless_mode}" not in locate
+    steps = re.findall(r"^\d\. (.*)$", locate, re.M)
+    assert len(steps) == 3, steps
+    assert ARCH_PATHS[0] in steps[1] and ARCH_PATHS[1] in steps[1]
+    assert steps[2].startswith(f"If still not found: skip {short} invocation with a warning; do not HALT.")
+    assert f"Log that {stage} was skipped due to missing architecture doc (type `event`)" in steps[2]
+    persist = next(p for p in locate.split("\n\n") if "--architecture-doc-path <path>" in p)
+    assert persist.startswith("When step 2 finds it, persist the path")
+    _parse(_state_call(persist, "uv run {stateScript} set-campaign"))
+
+
+def test_the_plan_gate_offers_unattended() -> None:
+    text = _step("step-02-strategy.md")
+    gate = _section(text, 6)
+    options = [line for line in gate.splitlines() if line.startswith("- `[")]
+    assert [o[:16] for o in options] == ["- `[P]roceed`: w", "- `[U]nattended`", "- `[C]ancel`: lo"]
+    unattended = options[1]
+    assert "write the plan as `[P]` does, with `--unattended` (§7)" in unattended
+    log = _parse(_state_call(unattended, "uv run {stateScript} log"))
+    assert (log.type, log.text) == ("decision", "unattended: chosen at the plan gate")
+    assert "Export still asks" in unattended
+    # Headless still takes [P]: no unattended default at the plan gate.
+    assert "**GATE [default: P]**: in headless mode, auto-proceed with `[P]`" in gate
+    assert "campaign.unattended" not in gate
+    write = _section(text, 7)
+    assert "On `[P]roceed` or `[U]nattended`" in write
+    call = "uv run {stateScript} apply-plan --state-file {stateFile} --stage 1 [--unattended]"
+    assert call in write
+    parsed = _parse(call.replace(" [--unattended]", " --unattended"))
+    assert (parsed.op, parsed.stage, parsed.unattended) == ("apply-plan", 1, True)
+    assert _parse(call.replace(" [--unattended]", "")).unattended is False
+
+
+def test_an_interactive_run_corrects_an_invalid_pin() -> None:
+    text = _step("step-03-pins.md")
+    rules = _rules_section(text)
+    assert "invalid pins are errors" not in rules and "invalid-pin" not in rules
+    handle = _section(text, 4)
+    first, gate = [p.strip() for p in handle.strip().split("\n\n")]
+    for token in ("If any result is `invalid`", "its attempted `pin`", "the script's `suggestions`",
+                  "ask for every corrected pin in one question", "nothing for the latest release",
+                  "a Tier A pin that is no X.Y.Z version: ask for that pin again", "then run §3 again"):
+        assert token in first, token
+    pin = _parse(_state_call(first, "uv run {stateScript} set-skill"), **{"<skill>": "core", "<pin>": "1.2.0"})
+    assert (pin.op, pin.skill, pin.pin) == ("set-skill", ["core"], "1.2.0")
+    # A pin is free text the operator typed: quoted as a log entry is.
+    assert ("the pin single-quoted as a log entry is, per the Decision Log in `references/campaign-contracts.md`"
+            in first)
+    log = _parse(_state_call(first, "uv run {stateScript} log"))
+    assert log.type == "decision" and log.text.startswith("pin: <skill> <old pin> corrected to")
+    # An empty answer or a null pin is the latest release, so the decision line never ends on nothing.
+    assert "(`latest release` for an empty or null pin), then run §3 again." in first
+    assert gate.startswith("**GATE [default: HALT]**: in headless mode, HALT (exit code 5, `invalid-pin`)")
+    for token in ("listing each skill, its attempted pin and the script's suggestions",
+                  "run `campaign resume` interactively (no `--headless`, `headless_mode` off), which asks for the "
+                  "corrected pins here", "since a headless resume checks the same pin again",
+                  "run `campaign`, choose overwrite and give the archived `campaign-brief.yaml` with corrected pins"):
+        assert token in gate, token
+    for gone in ("Do NOT partially proceed", "all-or-nothing", "HALT as in §4"):
+        assert gone not in text, gone
+    assert "on exit 5 (nothing written), HALT (exit code 5, `invalid-pin`)" in _section(text, 5)
+    note = _exit_table()["invalid-pin"][1]
+    assert note == ("an interactive `campaign resume` asks for the corrected pins; a headless one checks the same pin "
+                    "again, so run `campaign`, choose overwrite and give the archived `campaign-brief.yaml` with "
+                    "corrected pins")
+
+
+def test_the_invalid_pin_way_out_names_the_interactive_resume_first() -> None:
+    # A headless exit 5 leaves current_stage at 1, so a resume runs step-03 again, which an
+    # interactive run answers there: the overwrite route comes second.
+    docs = (REPO_ROOT / "docs" / "campaign.md").read_text(encoding="utf-8")
+    [bullet] = [line for line in docs.splitlines() if line.startswith("- **An invalid pin**")]
+    fragment = (REPO_ROOT / "changes" / "campaign-invalid-pin-correction.yaml").read_text(encoding="utf-8")
+    for where, text in (("step-03 GATE", _section(_step("step-03-pins.md"), 4).split("**GATE", 1)[1]),
+                        ("row 5", _exit_table()["invalid-pin"][1]), ("docs", bullet),
+                        ("fragment", fragment.split("A headless run", 1)[1])):
+        resume = text.find("`campaign resume` interactively") if where != "row 5" else text.find(
+            "an interactive `campaign resume`")
+        overwrite = text.find("choose overwrite")
+        assert 0 <= resume < overwrite, where
+    assert "Run `campaign resume` interactively (no `--headless`, and `headless_mode` not set to true): it asks for " \
+        "the corrected pins at Pin Validation." in bullet
+
+
+def test_provenance_states_its_halt_rule_once() -> None:
+    text = _step("step-04-provenance.md")
+    assert "Do NOT partially proceed" not in text
+    assert "Any inaccessible repo halts the campaign" in _rules_section(text)
+    assert re.search(r"^### §4: Handle Inaccessible Repos$", text, re.M)
+    assert re.search(r"^### §5: Write State$", text, re.M)
+
+
+def test_the_skill_loop_records_why_a_skill_failed_or_was_skipped() -> None:
+    loop = _step("step-05-skill-loop.md")
+    gate, body = _section(loop, 4), _section(loop, 5)
+    directive = _parse(_state_call(gate, "uv run {stateScript} set-skill --state-file {stateFile} --skill "
+                                         "{skill_name} --status skipped --halt-reason 'directive"),
+                       **{"{skill_name}": "core"})
+    assert (directive.status, directive.halt_reason) == ("skipped", "directive Skip List: <skip_reason>")
+    assert "with `'directive Skip List'` when `skip_reason` is null" in gate
+    [skip] = [line for line in gate.splitlines() if line.startswith("   - `[S]kip`:")]
+    blocked = _parse(_state_call(skip, "uv run {stateScript} set-skill"), **{"{skill_name}": "core"})
+    assert (blocked.status, blocked.halt_reason) == ("skipped", "unmet dependency: <dependency> is <status>")
+    assert "one such clause per unmet dependency, joined by `, `" in skip
+    failed = _parse(_state_call(body, "uv run {stateScript} set-skill --state-file {stateFile} --skill {skill_name} "
+                                      "--status failed"),
+                    **{"{skill_name}": "core", "[--quality-score <quality_score>]": "--quality-score 70"})
+    assert (failed.status, failed.halt_reason, failed.quality_score) == ("failed", "<reason>", 70)
+    # The reason names the sub-skill that failed: a bare `no-result` could be BS's, CS's or TS's.
+    assert ("`<reason>` is the failure reason, also logged as an `event`, led by the sub-skill that failed (`BS`, "
+            "`CS` or `TS`, such as `CS: no-result`): the record's `reason`, the failing sub-skill's `halt_reason`, "
+            "else `exit <code>`, `no-result`, or `unparseable result envelope`.") in body
+    batch = _section(_step("step-06-batch.md"), 5)
+    assert "apply-batch also saves that code as the skill's `halt_reason`, which the report prints" in batch
+
+
+def test_only_the_dependency_gate_takes_the_unattended_default() -> None:
+    loop = _step("step-05-skill-loop.md")
+    rules = _rules_section(loop)
+    assert ("- When state sets `campaign.unattended` to true (the plan gate's `[U]nattended`, or `campaign resume "
+            "--unattended`), an interactive run takes §4.6's `default_action` too, and never forces a dependency."
+            ) in rules.splitlines()
+    gate = _section(loop, 4)
+    [annotation] = [line for line in gate.splitlines() if "**GATE [default: `default_action`]**" in line]
+    assert ("headless, take `default_action`; a run whose state sets `campaign.unattended` to true takes it too."
+            in annotation)
+    # A headless run whose state is also unattended logs one label, every time.
+    assert ('logs "<mode>: skipped {skill_name}: {dependency} is {status}" (type `auto`, `<mode>` `headless` when '
+            '`{headless_mode}` is true, else `unattended`)') in annotation
+    # The halt default is logged too, so an unattended exit 13 shows in the report's Operator Decisions.
+    assert ('`halt` (a dependency is still pending or active, an order the loop cannot follow) logs "<mode>: halted '
+            'at {skill_name}: {dependency} is {status}" (type `auto`) for each unmet dependency, then runs `[H]alt`.'
+            ) in annotation
+    assert annotation.rstrip().endswith("runs `[H]alt`.")
+    assert "- `[H]alt`: stop the campaign with exit code 13 (`dependency-blocked`)" in gate
+    # Every other gate still asks: no other step, the Export gate included, reads the flag.
+    for path in sorted(REFERENCES_DIR.glob("*.md")):
+        if path.name != "step-05-skill-loop.md":
+            assert "campaign.unattended" not in path.read_text(encoding="utf-8"), path.name
+    assert "unattended" not in _step("step-10-export.md").lower()
+
+
+def test_resume_sets_unattended_before_it_chains() -> None:
+    text = _step("step-resume.md")
+    assert ("- Leave state untouched except for the three writes below (§1 backup restore, §3 `[R]e-run`, §4 "
+            "`--unattended`), each through `{stateScript}`, and on a non-zero exit HALT with the same code."
+            ) in _rules_section(text)
+    routing = _section(text, 4)
+    first = routing.strip().split("\n\n")[0]
+    assert first.startswith("When the invocation passed `--unattended`, run ")
+    write = _parse(_state_call(first, "uv run {stateScript} set-campaign"))
+    assert (write.op, write.unattended, write.stage) == ("set-campaign", True, None)
+    log = _parse(_state_call(first, "uv run {stateScript} log"))
+    assert (log.type, log.text) == ("decision", "unattended: set by campaign resume --unattended")
+    skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "1. **`campaign resume [--from=<skill>] [--unattended]`**" in skill
+    assert "`campaign resume [--from=<skill>] [--unattended]` to resume" in skill
+    assert re.search(r"^   \| `--unattended` \| With `campaign resume`:", skill, re.M)
+    assert "| 2 | Pin Validation | references/step-03-pins.md | Conditional (an invalid pin; headless HALTs) |" in skill
+
+
+def test_contracts_name_the_new_writes() -> None:
+    contracts = _step("campaign-contracts.md")
+    rows = {m.group(1): m.group(0) for m in re.finditer(r"^\| `([a-z-]+)` \|.*$", contracts, re.M)}
+    assert ("`unattended`: true with `--unattended` (the plan gate's `[U]nattended`), else false, keeping a true that "
+            "`campaign resume --unattended` wrote") in rows["apply-plan"]
+    for token in ("| step-03, step-05, step-10, step-resume |", "`pin` (`--pin`: empty for the latest release",
+                  "`halt_reason` (`--halt-reason`, only with `--status failed` or `skipped`)",
+                  "`pending` clears both, the `export` outcome and the `halt_reason`"):
+        assert token in rows["set-skill"], token
+    assert "with each failed or skipped skill's `halt_reason`" in rows["apply-batch"]
+    assert "| steps 07 to 09, step-resume |" in rows["set-campaign"]
+    assert "`unattended` (`--unattended`, from `campaign resume --unattended`)" in rows["set-campaign"]
+    assert "a Tier A pin that is no X.Y.Z version), 3 for" in contracts
+    log = _contract("Decision Log")
+    assert "a corrected pin, an unattended run)" in log
+    assert "- `auto`: the default a headless or unattended run took at a gate" in log
+
+
+def test_a_halt_reason_and_a_pin_are_quoted_as_a_log_entry_is() -> None:
+    # A reason (a directive's skip_reason, a record's reason) or a pin is free text: an apostrophe
+    # in it would end a single-quoted argument and break the call.
+    log = _contract("Decision Log")
+    assert ("write an apostrophe inside it as `'\\''`; a `set-skill --halt-reason` or `--pin` value is quoted the "
+            "same way)") in log
+    rules = _rules_section(_step("step-05-skill-loop.md"))
+    assert ("A `--halt-reason` text is single-quoted as a log entry is, an apostrophe written as `'\\''` "
+            "(`references/campaign-contracts.md`, Decision Log).") in rules
+    # Every value the step calls pass after these flags opens a single-quoted argument.
+    for name, flag, count in (("step-03-pins.md", "--pin", 1), ("step-05-skill-loop.md", "--halt-reason", 3)):
+        values = re.findall(rf"{flag} (\S)", _step(name))
+        assert values == ["'"] * count, (name, flag, values)
+
+
+def test_the_campaign_page_says_which_log_lines_and_architecture_paths_count() -> None:
+    lines = (REPO_ROOT / "docs" / "campaign.md").read_text(encoding="utf-8").splitlines()
+    # Operator Decisions keeps the lines stamped at or after campaign.started_at, which `init` writes.
+    [report] = [line for line in lines if line.startswith("- **Campaign report**")]
+    assert ("each default a headless or unattended run took after Setup wrote the state (a line logged before "
+            "that, such as an earlier campaign's or one of Setup's own, stays in the log only)") in report
+    # A copy of the report template shows the section only with its placeholder.
+    [templates] = [line for line in lines if line.startswith("- **Template overrides**")]
+    assert "only once it holds the `{{operator_decisions}}` placeholder the bundled template ends with" in templates
+    template = (CAMPAIGN_DIR / "templates" / "campaign-report-template.md").read_text(encoding="utf-8")
+    assert template.rstrip().endswith("{{operator_decisions}}")
+    # Step 1 of step-08/09 §3 takes the state's path only when its file exists.
+    assert any("When the state holds none, or the file it names is gone, they look in those two places again"
+               in line for line in lines)

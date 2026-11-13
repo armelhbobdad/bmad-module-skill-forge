@@ -808,3 +808,19 @@ def test_batch_contracts_list_the_batch_summary_among_their_outputs(skill):
     if skill == "skf-create-skill":
         assert ("; and under `--batch` the batch summary (`create-skill-batch-{YYYYMMDD-HHmmss}.json` and its "
                 "`-latest.json` copy in `{skills_output_folder}/_batch/`) |") in outputs
+
+
+def test_campaign_unattended_settles_only_the_dependency_gate():
+    """#1143: [U]nattended and `campaign resume --unattended` let a run take only the
+    skill loop's blocked-dependency default; the plan and Export gates still ask."""
+    named = {(_rel("skf-campaign", path), heading) for path, heading, body, _ in _annotations("skf-campaign")
+             if "campaign.unattended" in body}
+    assert named == {("references/step-05-skill-loop.md", "### §4: Dependency Gate Check")}
+    for rel, heading in (("references/step-02-strategy.md", "### §6: Plan Confirmation Gate"),
+                         ("references/step-10-export.md", "### §4: Write-Gate HALT")):
+        bodies = [body for path, h, body, _ in _annotations("skf-campaign") if _rel("skf-campaign", path) == rel
+                  and h == heading]
+        assert bodies, f"{rel}: {heading} holds no GATE annotation"
+        assert not any("campaign.unattended" in body for body in bodies), rel
+    flags = _read(SRC / "skf-campaign" / "SKILL.md").split("## On Activation", 1)[1].split("\n## ", 1)[0]
+    assert re.search(r"^\s*\| `--unattended` \|", flags, re.MULTILINE)

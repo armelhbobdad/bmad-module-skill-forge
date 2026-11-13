@@ -21,7 +21,6 @@ Validate all version pins against real releases/branches before the campaign pro
 
 - Write `campaign.current_stage` = 2 only in this stage's final state write, after every gate: step-resume resumes at `current_stage + 1`, so an early write skips unfinished work.
 - Write state and decision-log entries only through `{stateScript}`, and on a non-zero exit HALT with the same code (State Contract in `references/campaign-contracts.md`). A log entry is `uv run {stateScript} log --log-file {decisionLogFile} --type <decision|auto|event> --text '<entry>'`.
-- HALT (exit code 5, `invalid-pin`) on any invalid pin: invalid pins are errors, not gates.
 - If `{headless_mode}` is true, emit this stage's progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`.
 
 ## TASKS
@@ -46,7 +45,9 @@ If the script exits 2 (a required tool such as `gh` is unavailable, a file is un
 
 ### §4: Handle Invalid Pins
 
-If ANY pins are invalid, collect ALL failures first (all-or-nothing pattern), then HALT (exit code 5, `invalid-pin`) with a clear error listing each invalid pin, the skill name, the attempted pin value, and suggested corrections. Do NOT partially proceed.
+If any result is `invalid`, show each with its skill, its attempted `pin` and the script's `suggestions`, and ask for every corrected pin in one question: a version, or nothing for the latest release. Write each answer with `uv run {stateScript} set-skill --state-file {stateFile} --skill <skill> --pin '<pin>'` (the pin single-quoted as a log entry is, per the Decision Log in `references/campaign-contracts.md`; exit 2, a Tier A pin that is no X.Y.Z version: ask for that pin again), log it with `uv run {stateScript} log --log-file {decisionLogFile} --type decision --text 'pin: <skill> <old pin> corrected to <new pin>'` (`latest release` for an empty or null pin), then run §3 again.
+
+**GATE [default: HALT]**: in headless mode, HALT (exit code 5, `invalid-pin`) listing each skill, its attempted pin and the script's suggestions, and the ways out: run `campaign resume` interactively (no `--headless`, `headless_mode` off), which asks for the corrected pins here; or, since a headless resume checks the same pin again, run `campaign`, choose overwrite and give the archived `campaign-brief.yaml` with corrected pins.
 
 ### §5: Write State
 
@@ -56,7 +57,7 @@ Write every resolved pin and the stage in one write:
 uv run {stateScript} apply-pins --state-file {stateFile} --results-file {pinResultsFile} --stage 2
 ```
 
-It refuses results that hold an invalid pin (exit 5, nothing written: HALT as in §4); on exit 3, HALT (exit code 3, `invalid-state`).
+It refuses results that hold an invalid pin: on exit 5 (nothing written), HALT (exit code 5, `invalid-pin`); on exit 3, HALT (exit code 3, `invalid-state`).
 
 ## OUTPUT
 

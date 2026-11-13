@@ -1,0 +1,5 @@
+type: added
+scope: skf-campaign
+summary: |
+  `campaign-report.md` now says why each failed or skipped skill failed or was skipped, and ends with an Operator Decisions section that lists the `decision` and `auto` lines the campaign wrote to the decision log: your choices at each question and the defaults a headless or unattended run took. An overwrite leaves the decision log in place, so the lines stamped before the campaign started, an earlier campaign's among them, are left out. Each skill in `_campaign-state.yaml` keeps the reason as `halt_reason`, which the Skill Loop writes with the new `campaign-state.py set-skill --halt-reason` (a test failure, a sub-skill's halt reason, a directive Skip List entry or an unmet dependency) and the Tier B batch with `apply-batch` (the batch's error code, `no-batch-result`, or the Skip List entry). A copy of the report template set in `report_template_path` shows the Operator Decisions section only once it adds `{{operator_decisions}}`.
+issues: [1143]

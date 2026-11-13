@@ -55,6 +55,10 @@
           "type": ["string", "null"],
           "description": "Path to the architecture document consumed by the verify (Stage 7) and refine (Stage 8) stages. Sourced at setup; null when the campaign runs no verification."
         },
+        "unattended": {
+          "type": ["boolean", "null"],
+          "description": "True when the operator lets the skill loop take each blocked skill's headless default while the Export gate still asks: campaign-state.py apply-plan --unattended (the plan gate's [U]nattended) or set-campaign --unattended (campaign resume --unattended). apply-plan without --unattended writes false unless the state already holds true, which it keeps. Null or absent (a state written before it) means not unattended."
+        },
         "capstone": {
           "type": ["object", "null"],
           "additionalProperties": false,
@@ -228,6 +232,10 @@
           },
           "commit_sha": {
             "type": ["string", "null"]
+          },
+          "halt_reason": {
+            "type": ["string", "null"],
+            "description": "Why the skill failed or was skipped, which the campaign report prints after it: campaign-state.py set-skill --halt-reason with --status failed or skipped (null without one), or apply-batch for a Tier B skill. Any other status removes it; absent on a state written before it."
           },
           "export": {
             "type": ["object", "null"],

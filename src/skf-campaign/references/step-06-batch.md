@@ -81,7 +81,7 @@ When that call exits 0, record the results and the stage in one write:
 uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --results-file {batchResultsFile} --stage 5
 ```
 
-Log each entry of the helper's `failed[]` with its `error_code` (`no-batch-result` when the summary holds no result for its line), type `event`.
+Log each entry of the helper's `failed[]` with its `error_code` (`no-batch-result` when the summary holds no result for its line), type `event`; apply-batch also saves that code as the skill's `halt_reason`, which the report prints.
 
 When QS printed no `batch_summary` event (run no record call), or the record call exits 2 (a missing or unreadable summary, batch file or map, or results that belong to another batch file), fail every skill the map lists instead, and log why: never guess which target built which skill.
 

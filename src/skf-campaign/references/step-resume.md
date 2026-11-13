@@ -19,7 +19,7 @@ Validate campaign state integrity, recover it from its backup when it must, get 
 
 ## RULES
 
-- Leave state untouched except for the two recovery or reset choices below (§1 backup restore, §3 `[R]e-run`), each through `{stateScript}`, and on a non-zero exit HALT with the same code. A log entry is `uv run {stateScript} log --log-file {decisionLogFile} --type <decision|auto|event> --text '<entry>'`.
+- Leave state untouched except for the three writes below (§1 backup restore, §3 `[R]e-run`, §4 `--unattended`), each through `{stateScript}`, and on a non-zero exit HALT with the same code. A log entry is `uv run {stateScript} log --log-file {decisionLogFile} --type <decision|auto|event> --text '<entry>'`.
 - The chain target is the `step_file` the helper's `resume` operation (`{stateScript}`) returns: never work the stage out by hand.
 - If `{headless_mode}` is true, auto-proceed through any confirmation gates with the default action and log each auto-decision (type `auto`); emit the progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`. A campaign already complete (§3) is no error halt: it ends with the success line.
 
@@ -65,6 +65,8 @@ It returns the stage to resume, its `step_file` and a `reason`. Then:
 - **`active_other`** set: warn "Skill '{active_other}' is currently active: honoring explicit --from override."
 
 ### §4: Resume Routing
+
+When the invocation passed `--unattended`, run `uv run {stateScript} set-campaign --state-file {stateFile} --unattended` and log it with `uv run {stateScript} log --log-file {decisionLogFile} --type decision --text 'unattended: set by campaign resume --unattended'`: from here on the skill loop takes each blocked skill's headless default, and Export still asks.
 
 Before chaining, show the campaign name, the stage and `step_file` it resumes, the `--from` skill when one was named, the `completed` and `total` skills and the `pending`, `active`, `failed` and `skipped` counts that `uv run {statusScript} --state-file {stateFile}` returns (never a hand count of `skills[]`), and `campaign.last_updated`.
 

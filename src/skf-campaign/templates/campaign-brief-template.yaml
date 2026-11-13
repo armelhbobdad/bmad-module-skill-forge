@@ -24,8 +24,10 @@ targets: []
 quality_gate: {}
 
 # Optional path to the architecture document the verify (Stage 7) and refine
-# (Stage 8) stages consume. Empty string means those stages discover it at
-# runtime (docs/architecture.md, then _bmad-output/planning-artifacts/architecture.md).
+# (Stage 8) stages consume. An empty string means Setup looks for it
+# (docs/architecture.md, then _bmad-output/planning-artifacts/architecture.md)
+# when this brief seeds a campaign, and those stages look again when the state
+# holds none.
 architecture_doc_path: ""
 
 # Operator-provided context or directives for this campaign
