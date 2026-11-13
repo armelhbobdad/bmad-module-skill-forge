@@ -26,6 +26,8 @@ The forger also accepts common pipeline aliases:
 
 **Deprecated alias:** `deepwiki` resolves to `forge-auto` (renamed to avoid collision with the DeepWiki MCP — the pipeline auto-forges a verified skill and does not call that MCP). It still works but emits a one-time deprecation notice.
 
+**Setup first:** `SF` before an alias, as in `SF forge-auto <repo-or-doc-url>`, runs Setup Forge, then the alias's chain. The alias keeps its threshold (forge-auto's `TS[min:90]`), and its arguments go to the workflow after SF. `SF deepwiki <url>` works too, and `SF onboard` stops as `onboard` does.
+
 **Note:** `campaign` is a standalone workflow invoked via `@Ferris campaign`, not a pipeline alias. It orchestrates its own multi-stage pipeline internally with dependency tracking and resume.
 
 ## Pipeline Rules
@@ -58,7 +60,7 @@ How outputs from one workflow become inputs to the next:
 | TS | EX | skill name + settled verdict | EX runs only when TS settled PASS (`next_workflow` is `export-skill`); FAIL, INCONCLUSIVE and pass-with-drift halt the pipeline before EX, with the verdict as the halt reason |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --envelope` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found |
+| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --envelope` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found. Given the forge data folder, the skills folder, the sidecar and the skill, a CLEAN audit with no upstream move also passes over TS and EX when the skill is current (its active version passed its test and is exported, with no drift on record) and `forge-tier.yaml` has not changed since that test, nor `preferences.yaml`, whose `tier_override` sets the tier TS runs at: the gate's `skip` is then `US TS EX`, with the reason `current`, and the journal passes over TS and EX only where they come right after US, and no step whose bracket names another skill |
 | US | TS | skill name | Forger passes the `skill_name` US updated to TS: the skill `maintain` names, or the one a repair updates |
 | VS | RA | architecture doc path | Already known from VS invocation |
 | RA | SS | refined architecture doc path | Forger passes the `refined_path` from `SKF_REFINE_ARCHITECTURE_RESULT_JSON` as SS's `architecture_doc_path`, which runs SS in compose mode |
@@ -75,7 +77,7 @@ Circuit breakers halt the pipeline when a workflow's output doesn't meet a quali
 | CS | compilation success (`status`) | `success` | Hard error during compilation (`failed`), or a skill compiled with no exports: `partial` halts with `zero-exports` |
 | EX | export (`status`) | `success` | Hard error during export (`error`), or a `--dry-run` that wrote nothing: `dry-run` halts with `dry-run` |
 | TS | settled verdict (`verdict` / `summary.result`, with `next_workflow`) | TS's own: `TS[min:N]` reaches TS as `--threshold=N`, else the per-pipeline defaults apply (see init.md §1b) | Any verdict but PASS, reported as the halt reason: FAIL (including a FAIL that a post-score cap forced although the score clears the threshold), INCONCLUSIVE or pass-with-drift. TS owns its score, caps and 80% floor: a score between 80% and a higher threshold that TS settles as a fallback PASS with an evidence report continues |
-| AS | drift severity (`drift_score` / `summary.severity`) with the route (`next_workflow` / `summary.next_workflow`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next, unless `next_workflow` is `update-skill`: upstream moved, so the update still runs) |
+| AS | drift severity (`drift_score` / `summary.severity`) with the route (`next_workflow` / `summary.next_workflow`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next, unless `next_workflow` is `update-skill`: upstream moved, so the update still runs; with no upstream move it skips TS and EX too, where they come right after US, when the skill is current and `forge-tier.yaml` has not changed since its test, nor `preferences.yaml`) |
 | VS | coverage (`coverage_percentage` / `summary.coveragePercentage`) with the overall verdict (`overall_verdict` / `summary.overallVerdict`) | coverage above 0% | Zero coverage (`zero-coverage`): VS verified none of the architecture's technologies. Every verdict with coverage continues, NOT_FEASIBLE included, since RA takes each Blocked integration as a critical issue |
 
 Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipeline run (the forger passes it to TS as `--threshold=80`), and `AN[min:2]` asks AN for at least two units.
@@ -179,8 +181,8 @@ The forger validates the pipeline sequence and warns about:
 | Pattern | Issue | Suggestion |
 |---------|-------|------------|
 | EX before TS | Exporting untested skill | Add TS before EX |
-| US without AS | Updating without audit | Run AS first to detect what changed |
-| CS without BS or AN | Compiling without brief | Need a brief — use QS for quick path, or AN for brownfield |
+| US without AS | Updating without audit, unless the skill's active version has an audit on disk | Run AS first to detect what changed |
+| CS without BS or AN | Compiling without brief, unless the skill's `skill-brief.yaml` is on disk | Need a brief: use QS for quick path, or AN for brownfield |
 | TS after EX | Testing after export | Move TS before EX |
 | Duplicate codes | Same workflow twice | Remove duplicate |
 | `min:N` on a code other than AN or TS | Threshold ignored | Remove it, or put it on TS |

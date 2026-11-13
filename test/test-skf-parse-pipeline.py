@@ -8,14 +8,23 @@ make a plan not runnable (a missing alias argument included), a `min:N` only
 on AN and TS, and the prose that hands the parser the invocation, branches on
 its answer (a chain whose first workflow lacks its input, `first_input`, asks
 for it or halts headless) and offers no resume for a parse halt.
+
+#1170: a leading `SF` goes before an alias (`SF forge-auto <url>`, `SF
+maintain <skill>`, `SF deepwiki <url>`), keeping the alias and binding its
+arguments to the workflow after SF, and the brief and audit warnings read
+the forge state on disk when given the folders: a CS skill's brief, and the
+audit beside a US skill's active version (a versioned skill with its
+`active` link, a flat one, another version's audit, a path, no folders).
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 
@@ -160,6 +169,156 @@ def test_anti_pattern_us_without_audit():
     r = mod.parse_pipeline("US TS EX")
     patterns = {p["pattern"] for p in r["anti_patterns"]}
     assert "us-without-audit" in patterns
+
+
+# --- The brief and audit warnings read disk (#1170) ---------------------------
+
+
+def _write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json.dumps(value).encode("utf-8"))
+
+
+def _link_active(active_link, version):
+    """active -> version, with the Windows junction fallback test-skf-skill-inventory.py uses."""
+    try:
+        active_link.symlink_to(version)
+        return
+    except OSError as e:
+        if os.name != "nt" or getattr(e, "winerror", None) not in (1314, 5):
+            raise
+    abs_target = (active_link.parent / version).resolve()
+    done = subprocess.run(["cmd", "/c", "mklink", "/J", str(active_link), str(abs_target)],
+                          capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr or done.stdout
+
+
+def _skill(skills, name, versions=("1.0.0",), active="1.0.0"):
+    """A versioned SKF skill with an `active` link, as test-skf-forge-status.py's make_skill builds it."""
+    for version in versions:
+        package = skills / name / version / name
+        package.mkdir(parents=True)
+        package.joinpath("SKILL.md").write_bytes(f"---\nname: {name}\n---\n# {name}\n".encode("utf-8"))
+        _write_json(package / "metadata.json", {"name": name, "version": version, "generated_by": "create-skill"})
+    _link_active(skills / name / "active", active)
+
+
+def _flat_skill(skills, name):
+    group = skills / name
+    group.mkdir(parents=True)
+    group.joinpath("SKILL.md").write_bytes(f"---\nname: {name}\n---\n# {name}\n".encode("utf-8"))
+    _write_json(group / "metadata.json", {"name": name, "generated_by": "quick-skill"})
+
+
+def _audit(forge, name, version):
+    """An audit record beside the version's test record (`flat`: beside a flat skill's)."""
+    folder = forge / name if version == "flat" else forge / name / version
+    _write_json(folder / "audit-skill-result-latest.json",
+                {"skill": "skf-audit-skill", "status": "success", "summary": {"severity": "CLEAN"}})
+
+
+def _brief(forge, name):
+    (forge / name).mkdir(parents=True, exist_ok=True)
+    (forge / name / "skill-brief.yaml").write_bytes(f"name: {name}\n".encode("utf-8"))
+
+
+def _patterns(raw, **folders):
+    return {p["pattern"] for p in mod.parse_pipeline(raw, **folders)["anti_patterns"]}
+
+
+@pytest.fixture()
+def forge_state(tmp_path):
+    """x: a versioned skill whose active version 1.0.0 has its brief and an audit; y: a skill whose only audit is
+    another version's; flatty: a flat skill with an audit; a brief outside the forge folder, at ../outside."""
+    forge, skills = tmp_path / "forge", tmp_path / "skills"
+    skills.mkdir()
+    _skill(skills, "x")
+    _brief(forge, "x")
+    _audit(forge, "x", "1.0.0")
+    _skill(skills, "y", versions=("1.0.0", "2.0.0"), active="2.0.0")
+    _audit(forge, "y", "1.0.0")
+    _flat_skill(skills, "flatty")
+    _audit(forge, "flatty", "flat")
+    _brief(tmp_path, "outside")
+    _audit(forge, "ghost", "1.0.0")  # an audit for a skill the skills folder does not hold
+    return {"forge_data_folder": str(forge), "skills_output_folder": str(skills)}
+
+
+@pytest.mark.parametrize("raw,warned", [
+    pytest.param("CS[x] TS EX", False, id="brief-on-disk"),
+    pytest.param("CS[zeta] TS EX", True, id="unknown-skill"),
+    pytest.param("CS[y] TS EX", True, id="no-brief"),
+    pytest.param("CS TS EX", True, id="no-target"),
+    pytest.param("CS[../outside] TS EX", True, id="parent-path"),
+    pytest.param(r"CS[..\outside] TS EX", True, id="backslash-parent-path"),
+    pytest.param("CS[..] TS EX", True, id="dot-dot"),
+    pytest.param("CS[x] CS[y] TS EX", True, id="one-cs-without"),
+])
+def test_cs_without_brief_reads_the_forge_data_folder(forge_state, raw, warned):
+    assert ("cs-without-brief" in _patterns(raw, forge_data_folder=forge_state["forge_data_folder"])) is warned
+    assert ("cs-without-brief" in _patterns(raw, **forge_state)) is warned
+
+
+def test_cs_without_brief_keeps_its_order_rule_without_the_folder(forge_state):
+    assert "cs-without-brief" in _patterns("CS[x] TS EX")
+    assert "cs-without-brief" in _patterns("CS[x] TS EX", skills_output_folder=forge_state["skills_output_folder"])
+    assert "cs-without-brief" not in _patterns("BS CS[y] TS EX", **forge_state)
+
+
+@pytest.mark.parametrize("raw,warned", [
+    pytest.param("US[x] TS EX", False, id="audit-at-the-active-version"),
+    pytest.param("US[flatty] TS EX", False, id="flat-skill-audit"),
+    pytest.param("US[y] TS EX", True, id="another-versions-audit-only"),
+    pytest.param("US[ghost] TS EX", True, id="not-in-the-inventory"),
+    pytest.param("US TS EX", True, id="no-target"),
+    pytest.param("US[../x] TS EX", True, id="parent-path"),
+    pytest.param("US[x] US[y] TS EX", True, id="one-us-without"),
+])
+def test_us_without_audit_reads_the_audit_of_the_active_version(forge_state, raw, warned):
+    assert ("us-without-audit" in _patterns(raw, **forge_state)) is warned
+
+
+def test_us_without_audit_needs_both_folders_to_read_disk(forge_state):
+    assert "us-without-audit" in _patterns("US[x] TS EX")
+    for only in ("forge_data_folder", "skills_output_folder"):
+        assert "us-without-audit" in _patterns("US[x] TS EX", **{only: forge_state[only]}), only
+    assert "us-without-audit" not in _patterns("AS US[y] TS EX", **forge_state)
+
+
+def test_an_empty_folder_reads_as_no_folder_not_the_working_directory(forge_state, monkeypatch):
+    """An empty `--forge-data-folder` would read the working directory as the forge folder: it counts as absent."""
+    monkeypatch.chdir(pathlib.Path(forge_state["forge_data_folder"]))
+    assert pathlib.Path("x", "skill-brief.yaml").is_file()
+    assert "cs-without-brief" in _patterns("CS[x] TS EX", forge_data_folder="")
+    assert "cs-without-brief" not in _patterns("CS[x] TS EX", forge_data_folder=".")
+    assert "us-without-audit" in _patterns("US[x] TS EX", forge_data_folder=forge_state["forge_data_folder"],
+                                           skills_output_folder="")
+    assert "us-without-audit" in _patterns("US[x] TS EX", forge_data_folder="",
+                                           skills_output_folder=forge_state["skills_output_folder"])
+    p = subprocess.run([sys.executable, str(SCRIPT), "CS[x] TS EX", "--forge-data-folder", ""], capture_output=True,
+                       text=True, encoding="utf-8", cwd=forge_state["forge_data_folder"], timeout=60)
+    assert [a["pattern"] for a in json.loads(p.stdout)["anti_patterns"]] == ["cs-without-brief"], p.stderr
+
+
+def test_the_warnings_keep_their_messages_when_they_fire(forge_state):
+    for raw in ("CS TS EX", "US TS EX"):
+        assert mod.parse_pipeline(raw, **forge_state)["anti_patterns"] == mod.parse_pipeline(raw)["anti_patterns"]
+
+
+def test_a_forge_status_that_does_not_load_counts_as_no_audit(forge_state, monkeypatch):
+    monkeypatch.setattr(mod, "FORGE_STATUS", pathlib.Path(forge_state["skills_output_folder"]) / "absent.py")
+    assert "us-without-audit" in _patterns("US[x] TS EX", **forge_state)
+
+
+def test_the_cli_reads_disk_with_the_two_folders(forge_state):
+    flags = ["--forge-data-folder", forge_state["forge_data_folder"], "--skills-output-folder",
+             forge_state["skills_output_folder"]]
+    for args, stdin in ((["CS[x] TS EX", *flags], None), (["--stdin", *flags], "US[x] TS EX\n")):
+        p = _run(*args, stdin=stdin)
+        assert p.returncode == 0, p.stdout + p.stderr
+        assert json.loads(p.stdout)["anti_patterns"] == [], args
+    p = _run("CS[x] TS EX")
+    assert [a["pattern"] for a in json.loads(p.stdout)["anti_patterns"]] == ["cs-without-brief"]
 
 
 def test_unknown_code_invalidates():
@@ -315,6 +474,68 @@ def test_removed_alias_with_arguments_still_halts():
     assert _run(f"onboard {HONO}").returncode == 2
 
 
+# --- SF before an alias (#1170) ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,alias,deprecated,args",
+    [
+        pytest.param(f"SF forge-auto {HONO}", "forge-auto", None, {"project_path": HONO}, id="forge-auto"),
+        pytest.param("SF maintain cocoindex", "maintain", None, {"skill_name": "cocoindex"}, id="maintain"),
+        pytest.param(f"SF deepwiki {HONO}", "forge-auto", "deepwiki", {"project_path": HONO}, id="deepwiki"),
+        pytest.param(f"sf Forge-Auto {HONO} --pin 0.2.1", "forge-auto", None, {"project_path": HONO, "pin": "0.2.1"},
+                     id="any-case-with-pin"),
+        pytest.param(f"SF forge {COGNEE_REPO} cognee", "forge", None,
+                     {"target_repo": COGNEE_REPO, "skill_name": "cognee"}, id="forge"),
+        pytest.param("SF forge-quick cognee", "forge-quick", None, {"target": "cognee"}, id="forge-quick"),
+    ],
+)
+def test_sf_before_an_alias_runs_setup_then_the_alias(raw, alias, deprecated, args):
+    """A first run starts the chain as `SF <pick>`: SF, then the alias's plan, the alias and its threshold kept and
+    its arguments bound to the workflow after SF."""
+    r = mod.parse_pipeline(raw)
+    assert r["valid"] is True, r
+    assert (r["alias"], r["deprecated_alias"], r["removed_alias"]) == (alias, deprecated, None)
+    assert r["args"] == args
+    assert r["expanded"] == ["SF", *mod.parse_pipeline(alias)["expanded"]]
+    assert r["plan"] == [mod.parse_pipeline("SF")["plan"][0], *mod.parse_pipeline(alias)["plan"]]
+    assert r["first_input"] is None
+    assert r["unknown_codes"] == r["unexpected_args"] == r["missing_args"] == r["malformed_brackets"] == []
+    assert _run(raw).returncode == 0
+
+
+def test_sf_before_forge_auto_keeps_its_90_threshold():
+    r = mod.parse_pipeline(f"SF forge-auto {HONO}")
+    assert r["expanded"] == ["SF", "AN[auto]", "BS[auto]", "CS", "TS[min:90]", "EX"]
+    assert next(p for p in r["plan"] if p["code"] == "TS")["min"] == 90
+
+
+def test_sf_before_an_alias_still_needs_its_arguments():
+    r = mod.parse_pipeline("SF forge-auto")
+    assert (r["alias"], r["missing_args"], r["valid"], r["first_input"]) == ("forge-auto", ["project_path"], False,
+                                                                             None)
+    assert r["codes"][0] == "SF"
+    assert _run("SF forge-auto").returncode == 3
+    assert mod.parse_pipeline("SF maintain a b")["unexpected_args"] == ["b"]
+
+
+def test_sf_before_onboard_is_the_removed_alias():
+    r = mod.parse_pipeline(f"SF onboard {HONO}")
+    assert (r["removed_alias"], r["codes"], r["valid"]) == ("onboard", [], False)
+    assert _run(f"SF onboard {HONO}").returncode == 2
+
+
+def test_only_a_plain_leading_sf_goes_before_an_alias():
+    """Every other parse stays as it is: a chain of codes after SF, and an alias anywhere but first or right after
+    one plain SF, which is an unknown code."""
+    assert mod.parse_pipeline("SF forge-auto x")["alias"] == "forge-auto"
+    r = mod.parse_pipeline("SF QS TS EX")
+    assert (r["alias"], r["codes"], r["valid"]) == (None, ["SF", "QS", "TS", "EX"], True)
+    for raw in ("SF[auto] forge-auto x", "QS forge-auto x", "SF SF forge-auto x"):
+        r = mod.parse_pipeline(raw)
+        assert r["alias"] is None and "forge-auto" in r["unknown_codes"] and r["valid"] is False, raw
+
+
 def test_quoted_argument_stays_one_token():
     r = mod.parse_pipeline('forge-auto "/home/me/My Projects/hono"')
     assert r["args"] == {"project_path": "/home/me/My Projects/hono"}
@@ -442,13 +663,28 @@ def _step_1():
     return text[text.index("1. **Parse the invocation**"):text.index("2. **Validate the sequence**")]
 
 
-def test_step_1_call_runs_as_written():
+def _step_1_call(values):
+    """Step 1's parse call: its words after the script, each placeholder filled from `values`."""
     m = re.search(r"```bash\n\s*uv run scripts/parse-pipeline\.py (.+?) <<'(\w+)'\n\s*(<[^>\n]+>)\n\s*\2\n",
                   _step_1())
     assert m, "step 1 must hand the invocation to the parser over a quoted heredoc"
     assert m.group(3) == "<the whole invocation>"
+    words = []
+    for word in shlex.split(m.group(1)):
+        for placeholder, value in values.items():
+            word = word.replace(placeholder, value)
+        assert not re.search(r"[{<][a-z_-]+[}>]", word), word
+        words.append(word)
+    return words
+
+
+def test_step_1_call_runs_as_written(tmp_path):
+    words = _step_1_call({"{forge_data_folder}": str(tmp_path / "forge"),
+                          "{skills_output_folder}": str(tmp_path / "skills")})
+    assert words[:5] == ["--stdin", "--forge-data-folder", str(tmp_path / "forge"), "--skills-output-folder",
+                         str(tmp_path / "skills")], words
     p = subprocess.run(
-        [sys.executable, str(SCRIPT), *m.group(1).split()],
+        [sys.executable, str(SCRIPT), *words],
         input=f"forge {COGNEE_REPO} cognee\n", capture_output=True, text=True, encoding="utf-8",
     )
     assert p.returncode == 0, p.stdout

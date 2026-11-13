@@ -93,6 +93,25 @@ warning; a state campaign-status.py cannot tally, or no campaign-status.py,
 is a `campaign_unavailable` warning, which gives the `error` it printed on
 stderr, else its last stderr line (a crash's traceback ends with the cause).
 
+One skill, for the scripts beside this one, which load it in process so the
+verdict and drift rules keep this one owner (no function they call reads
+YAML, so they run without pyyaml):
+
+  skill_entry      the `skills[]` entry WS prints for one skill, from its
+                   verdict and drift rungs (no campaign or offer pass), or
+                   None when the inventory cannot run or lists no SKF skill
+                   by that name. With no inventory path it runs
+                   SHARED_INVENTORY, the shared skf-skill-inventory.py beside
+                   the skill's folder, installed and in dev alike.
+                   pipeline-gate.py's AS gate skips `US TS EX` of a skill
+                   whose entry has no next code.
+  verdict_time     the test record's `timestamp` for the active version, as
+                   a UTC time, or None: the AS gate keeps TS and EX when
+                   forge-tier.yaml, or preferences.yaml, changed after it.
+  audit_on_record  whether audit-skill-result-latest.json is a file beside
+                   the active version's test record: parse-pipeline.py
+                   raises us-without-audit only for a US skill without one.
+
 CLI usage (from the skf-forger skill root):
   uv run scripts/forge-status.py --project-root <dir> \\
       --skills-output-folder <dir> --forge-data-folder <dir> \\
@@ -140,6 +159,11 @@ AUDIT_RESULT = "audit-skill-result-latest.json"
 INVENTORY_TIMEOUT = 120
 # Where the shared inventory script sits under the project root, in probe order.
 INVENTORY_PROBES = ("_bmad/skf/shared/scripts/skf-skill-inventory.py", "src/shared/scripts/skf-skill-inventory.py")
+# Installed (under _bmad/skf/ or an IDE's skills folder) and in a dev
+# checkout (src/), shared/ sits beside this skill's folder: skill_entry's
+# inventory when its caller names none (the gate and the parser get no
+# project root).
+SHARED_INVENTORY = Path(__file__).resolve().parent.parent.parent / "shared" / "scripts" / "skf-skill-inventory.py"
 CAMPAIGN_WORKSPACE = "_campaign"  # under the forge data folder: skf-campaign's default workspace
 CAMPAIGN_STATE = "_campaign-state.yaml"
 CAMPAIGN_TIMEOUT = 60
@@ -177,15 +201,17 @@ def find_inventory(project_root: Path) -> Path | None:
     return next((project_root / probe for probe in INVENTORY_PROBES if (project_root / probe).is_file()), None)
 
 
-def run_inventory(inventory: Path | None, skills_output_folder: Path, forge_data_folder: Path) -> dict:
-    """skf-skill-inventory.py's scan, through its CLI; ValueError when it cannot give one."""
+def run_inventory(inventory: Path | None, skills_output_folder: Path, forge_data_folder: Path,
+                  skill: str | None = None) -> dict:
+    """skf-skill-inventory.py's scan, through its CLI, of one skill with `skill`; ValueError when it cannot give one."""
     if inventory is None:
         raise ValueError("not found")
     if not inventory.is_file():
         raise ValueError(f"{inventory.as_posix()} not found")
+    only = ["--skill", skill] if skill is not None else []
     try:
         done = subprocess.run(
-            [sys.executable, str(inventory), str(skills_output_folder), "--forge-data-folder",
+            [sys.executable, str(inventory), str(skills_output_folder), *only, "--forge-data-folder",
              str(forge_data_folder)],
             capture_output=True, text=True, encoding="utf-8", timeout=INVENTORY_TIMEOUT,
         )
@@ -232,6 +258,20 @@ def _timestamp(record) -> datetime | None:
     except ValueError:
         return None
     return when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when.astimezone(timezone.utc)
+
+
+def verdict_time(forge_data_folder: Path, name: str, active_version: str) -> datetime | None:
+    """The `timestamp` of the active version's test record, as a UTC time, or None (no record, an unreadable one,
+    or no readable time on it)."""
+    try:
+        return _timestamp(_read_json(_record_folder(forge_data_folder, name, active_version) / TEST_RESULT))
+    except ValueError:
+        return None
+
+
+def audit_on_record(forge_data_folder: Path, name: str, active_version: str) -> bool:
+    """Whether an audit record is a file in the folder that holds the active version's test record."""
+    return (_record_folder(forge_data_folder, name, active_version) / AUDIT_RESULT).is_file()
 
 
 def _upstream_ref(summary: dict) -> str | None:
@@ -426,6 +466,42 @@ def campaign_only(project_root: Path, forge_data_folder: Path, campaign_workspac
 # --------------------------------------------------------------------------
 
 
+def _scanned_status(skill, forge_data_folder: Path, manifest, warnings: list) -> dict | None:
+    """One inventory skill's entry, from its verdict and drift rungs, or None for a skill SKF did not generate."""
+    if not (isinstance(skill, dict) and skill.get("skf_skill") and isinstance(skill.get("name"), str)):
+        return None
+    name, active = skill["name"], skill.get("active_version")
+    verdict = drift = target_ref = None
+    if isinstance(active, str) and active:
+        try:
+            verdict = read_verdict(forge_data_folder, name, active)
+        except ValueError as e:
+            warnings.append(f"test_result_unreadable: {e}")
+        try:
+            drift, target_ref = read_drift(forge_data_folder, name, active)
+        except ValueError as e:
+            warnings.append(f"audit_result_unreadable: {e}")
+    return skill_status(name, active, verdict, exported_version(manifest, name), drift, target_ref)
+
+
+def skill_entry(skills_output_folder: Path, forge_data_folder: Path, name: str,
+                inventory: Path | None = None) -> dict | None:
+    """The `skills[]` entry WS prints for `name`, from its verdict and drift rungs, or None.
+
+    No campaign or offer pass: the entry's `next` is the skill's own next
+    code, null when it is up to date. None when the inventory (SHARED_INVENTORY
+    unless `inventory` names one) cannot run or lists no SKF skill by that name.
+    """
+    try:
+        scan = run_inventory(inventory or SHARED_INVENTORY, skills_output_folder, forge_data_folder, skill=name)
+    except ValueError:
+        return None
+    for skill in scan.get("skills") or []:
+        if isinstance(skill, dict) and skill.get("name") == name:
+            return _scanned_status(skill, forge_data_folder, scan.get("manifest"), [])
+    return None
+
+
 def forge_status(skills_output_folder: Path, forge_data_folder: Path, inventory: Path | None, run_root: Path,
                  result_dir: Path, *, project_root: Path | None = None,
                  campaign_workspace: Path | None = None) -> dict:
@@ -439,21 +515,9 @@ def forge_status(skills_output_folder: Path, forge_data_folder: Path, inventory:
         entries = {name: _unknown_status(name) for name in briefs}
     else:
         for skill in scan.get("skills") or []:
-            if not (isinstance(skill, dict) and skill.get("skf_skill") and isinstance(skill.get("name"), str)):
-                continue
-            name, active = skill["name"], skill.get("active_version")
-            verdict = drift = target_ref = None
-            if isinstance(active, str) and active:
-                try:
-                    verdict = read_verdict(forge_data_folder, name, active)
-                except ValueError as e:
-                    warnings.append(f"test_result_unreadable: {e}")
-                try:
-                    drift, target_ref = read_drift(forge_data_folder, name, active)
-                except ValueError as e:
-                    warnings.append(f"audit_result_unreadable: {e}")
-            entries[name] = skill_status(name, active, verdict, exported_version(scan.get("manifest"), name), drift,
-                                         target_ref)
+            entry = _scanned_status(skill, forge_data_folder, scan.get("manifest"), warnings)
+            if entry is not None:
+                entries[entry["name"]] = entry
         for name in briefs:
             entries.setdefault(name, _brief_status(name))
     workspace = campaign_workspace or forge_data_folder / CAMPAIGN_WORKSPACE

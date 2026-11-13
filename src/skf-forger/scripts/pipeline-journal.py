@@ -43,7 +43,11 @@ Subcommands:
            it cannot read `result-unreadable`. After AN, TS, AS or VS it runs
            pipeline-gate.py's rules in process, with the next plan code and
            AN's plan `min`, and records the decision as --gate does. After
-           any other workflow it reads the line's `status` (SF's
+           AS it also hands the gate --forge-data-folder,
+           --skills-output-folder, --sidecar and the skill AS audited (its
+           bracket, else the journal's skill), so a CLEAN audit of a skill
+           that is current skips `US TS EX`.
+           After any other workflow it reads the line's `status` (SF's
            `skf_setup.status`, US's `skf_update.status`): a status
            COMPLETED_STATUSES lists completes the step, one HALT_REASONS
            names halts with its reason (CS `partial`: `zero-exports`, EX
@@ -55,12 +59,23 @@ Subcommands:
            line's `result_path` and `report_path` as outputs; a completed
            step whose line names no such value halts `handoff-missing`.
            --gate reads the JSON pipeline-gate.py printed on stdin:
-           `continue` records the step `completed`, `skip` also records the
-           next step, the one the gate passes over, `skipped`, and `halt`
-           records the step `halted` with the gate's reason (the journal is
-           then `halted`). The gate's `handoff` is recorded too, on a halt
-           as well: AS's `target_ref` when upstream moved, which a value
-           given with --set does not replace. --status records a step with
+           `continue` records the step `completed`, `skip` also records
+           `skipped`, with the gate's reason, each step it passes over, and
+           `halt` records the step `halted` with the gate's reason (the
+           journal is then `halted`). A skip names one code or several
+           (`US TS EX`): the step right after this one must be its first
+           (else `skip-mismatch`, and nothing is recorded); from that step
+           on, the steps are matched to the skip's codes in their order,
+           each code once, so a step is passed over while its code is the
+           next one the skip names and its bracket is empty or names the
+           gated step's skill (its bracket, else the journal's skill), and
+           the first step that is not ends the pass (`AS[x] US EX TS` passes
+           over US alone, `AS[x] US TS EX TS[y]` goes on with `TS[y]`,
+           `AS[x] US TS[y] EX[y]` passes over US alone, and
+           `AS[x] US[y] TS EX` over nothing). The gate's
+           `handoff` is recorded too, on a halt as well: AS's `target_ref`
+           when upstream moved, which a value given with --set does not
+           replace. --status records a step with
            no envelope line to read: `completed`, or `halted` with --reason
            (`-` reads it on stdin; --gate and --envelope read stdin, so
            `--reason -` with them is a usage error).
@@ -70,9 +85,9 @@ Subcommands:
            `skill_name`, an AN or BS `brief_path`, an RA
            `architecture_doc_path`. --output records a result or report
            path the step's envelope names. Prints the step it `recorded`,
-           the step a gate `skipped`, the `gate` decision it recorded (null
-           for a code with no gate), and the `next` entry, null after a
-           halt or the last step.
+           the steps a gate `skipped` (a list, empty when none), the `gate`
+           decision it recorded (null for a code with no gate), and the
+           `next` entry, null after a halt or the last step.
   finish   Write the pipeline result from the journal to --result-dir:
            `pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; -2, -3 ... when a
            run already took that second's name), then its copy
@@ -176,6 +191,10 @@ CLI usage (from the skf-forger skill root):
   SKF_PIPELINE
   uv run scripts/pipeline-journal.py step --journal <file> --code CS --envelope <<'SKF_RESULT'
   SKF_CREATE_SKILL_RESULT_JSON: {"status": "success", "summary": {"skill_name": "hono"}, ...}
+  SKF_RESULT
+  uv run scripts/pipeline-journal.py step --journal <file> --code AS --forge-data-folder <dir> \\
+      --skills-output-folder <dir> --sidecar <dir> --envelope <<'SKF_RESULT'
+  SKF_AUDIT_RESULT_JSON: {"status": "success", "drift_score": "CLEAN", ...}
   SKF_RESULT
   uv run scripts/pipeline-journal.py step --journal <file> --code SF --status halted --reason - <<'SKF_REASON'
   <the line SF displayed>
@@ -1015,18 +1034,36 @@ def envelope_values(code: str, result: dict) -> tuple[dict, list[str]]:
     return values, outputs
 
 
-def _decided(decision: dict, steps: list, index: int, code: str) -> tuple[str, str | None, int | None, str | None]:
-    """The status and reason a gate decision records, and the step a skip passes over with its reason."""
+def _decided(decision: dict, steps: list, index: int, code: str,
+             skill: str | None) -> tuple[str, str | None, list[int], str | None]:
+    """The status and reason a gate decision records, and the steps a skip passes over with its reason.
+
+    A skip names one code or several (`US TS EX`): the step right after the
+    gated one must be its first; from it on, the steps are matched to the
+    skip's codes in their order, each code once. A step is passed over while
+    its code is the next one the skip names and its `target` is empty or
+    names `skill`, the gated step's skill, so the first step that is not
+    (another code, or another skill's step) ends the pass.
+    """
     status = "halted" if decision["decision"] == "halt" else "completed"
     reason = decision["reason"].strip() if status == "halted" else None
     if decision["decision"] != "skip":
-        return status, reason, None, None
-    skipped = index + 1
-    following = steps[skipped]["code"] if skipped < len(steps) else None
-    if following != decision["skip"].strip().upper():
-        raise JournalError("skip-mismatch", f"The gate passes over {decision['skip']}, but the step after "
+        return status, reason, [], None
+    codes = decision["skip"].upper().split()
+    first = index + 1
+    following = steps[first]["code"] if first < len(steps) else None
+    if following != codes[0]:
+        raise JournalError("skip-mismatch", f"The gate passes over {decision['skip'].strip()}, but the step after "
                                             f"{code} is {following or 'none'}.")
-    return status, reason, skipped, decision["reason"].strip()
+    skipped = first
+    for want in codes:
+        step = steps[skipped] if skipped < len(steps) else None
+        if (step is not None and step["code"] == want and step["status"] == "pending"
+                and step.get("target") in (None, "", skill)):
+            skipped += 1
+        else:
+            break
+    return status, reason, list(range(first, skipped)), decision["reason"].strip()
 
 
 def cmd_step(args) -> dict:
@@ -1042,9 +1079,14 @@ def cmd_step(args) -> dict:
     if steps[index]["code"] != args.code:
         raise JournalError("out-of-order", f"The next step in the journal is {steps[index]['code']} "
                                            f"(step {index + 1}), not {args.code}.")
-    skipped = skip_reason = decision = None
+    skipped: list[int] = []
+    skip_reason = decision = None
     found: dict = {}
     outputs: list[str] = []
+    # The skill the gated step works on: its own bracket, else the journal's skill. AS's gate reads it to skip
+    # `US TS EX` of a skill that is current, and a skip passes over only the steps of that skill.
+    gated = steps[index].get("target")
+    skill = gated.strip() if isinstance(gated, str) and gated.strip() else _skill_name(journal)
     if args.envelope:
         text = _read_result_text()
         result, problem = read_envelope(args.code, text)
@@ -1053,7 +1095,10 @@ def cmd_step(args) -> dict:
             plan_min = steps[index]["min"]
             minimum = plan_min if args.code == "AN" and isinstance(plan_min, int) else 1
             next_code = steps[index + 1]["code"] if index + 1 < len(steps) else None
-            decision = _checked_decision(gate.gate(args.code, text, next_code=next_code, minimum=minimum), args.code)
+            on_disk = {"forge_data_folder": args.forge_data_folder, "skills_output_folder": args.skills_output_folder,
+                       "sidecar": args.sidecar, "skill": skill} if args.code == "AS" else {}
+            decision = _checked_decision(gate.gate(args.code, text, next_code=next_code, minimum=minimum, **on_disk),
+                                         args.code)
         else:
             status, reason = ("halted", problem) if problem else envelope_outcome(args.code, result)
         if result is not None:
@@ -1071,7 +1116,7 @@ def cmd_step(args) -> dict:
             raise JournalError("reason-missing", "A halted step needs --reason: the workflow's halt reason.")
     gate_handoff: dict = {}
     if decision is not None:
-        status, reason, skipped, skip_reason = _decided(decision, steps, index, args.code)
+        status, reason, skipped, skip_reason = _decided(decision, steps, index, args.code, skill)
         gate_handoff = _gate_handoff(decision)
     # The envelope is the step's own record, so its values win over one typed with --set.
     values = {**_set_values(args.set or []), **found, **gate_handoff}
@@ -1081,10 +1126,10 @@ def cmd_step(args) -> dict:
             raise JournalError("handoff-missing", f"A completed {args.code} hands `{need}` to the next workflow: "
                                                   f"pass --set \"{need}=<value>\".")
         # The next workflow would start without its input.
-        status, reason, skipped, skip_reason = "halted", "handoff-missing", None, None
+        status, reason, skipped, skip_reason = "halted", "handoff-missing", [], None
     steps[index].update(status=status, reason=reason)
-    if skipped is not None:
-        steps[skipped].update(status="skipped", reason=skip_reason)
+    for passed in skipped:
+        steps[passed].update(status="skipped", reason=skip_reason)
     journal["data"].update(values)
     paths = list(dict.fromkeys([*outputs, *(args.output or [])]))
     journal["outputs"].extend({"code": args.code, "path": p} for p in paths)
@@ -1096,7 +1141,7 @@ def cmd_step(args) -> dict:
     # The step is saved: a parser that no longer loads loses nothing the chain ran.
     nxt = None if following is None else _entry(journal, following, skills=_load_parser().SKILLS, inputs=True)
     return {"status": "ok", "journal": str(path), "recorded": _indexed(steps, index),
-            "skipped": None if skipped is None else _indexed(steps, skipped),
+            "skipped": [_indexed(steps, passed) for passed in skipped],
             "gate": decision, "next": nxt, "data": journal["data"]}
 
 
@@ -1360,6 +1405,14 @@ def _build_parser() -> argparse.ArgumentParser:
                            "architecture_doc_path); an envelope's value wins over it.")
     step.add_argument("--output", action="append", metavar="PATH",
                       help="A result or report path the step's envelope names.")
+    step.add_argument("--forge-data-folder",
+                      help="With --envelope after AS: the forge data folder (test and audit records), which the gate "
+                           "reads with the next two and the journal's skill to skip `US TS EX` of a skill that is "
+                           "current; each of those codes passes over the step it matches, in that order, while that "
+                           "step works on the same skill.")
+    step.add_argument("--skills-output-folder", help="With --envelope after AS: the skills output folder.")
+    step.add_argument("--sidecar", help="With --envelope after AS: the forger's sidecar folder (forge-tier.yaml, "
+                                        "preferences.yaml).")
     step.set_defaults(func=cmd_step, usage_error=step.error)
 
     finish = sub.add_parser("finish", help="Write the pipeline result; delete the run folder when nothing is left.")

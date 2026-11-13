@@ -1,0 +1,5 @@
+type: added
+scope: skf-forger
+summary: |
+  A pipeline alias can now follow `SF`, as in `SF forge-auto <repo-or-doc-url>`, `SF maintain <skill>` or the legacy `SF deepwiki <url>`: the chain runs Setup Forge first, then the alias's workflows, keeping the alias, its threshold (forge-auto's 90%) and its arguments, which go to the workflow after SF. `parse-pipeline.py` used to report the alias as an unknown code. `SF onboard` stops as `onboard` does.
+issues: [1170]

@@ -2355,3 +2355,157 @@ def test_the_result_table_says_what_a_security_pass_shows(code, prefix, field):
     meaning = "`pass` when Snyk Agent Scan analysed the package and reported no risk"
     assert row.count(meaning) == 1, code
     assert row.index(field) < row.index(meaning), code
+
+
+def _first_run_sentences() -> tuple[str, str]:
+    """Step 6 of the forger's activation, and its first-run sentences (#1170), which end at the two-code question."""
+    greeting = _slice(_read(FORGER_SKILL), "6. **Greet, then dispatch or wait.**", "\n")
+    return greeting, _slice(greeting, "When `derived.is_first_run` is true and the pick holds",
+                            "When a request fits two codes")
+
+
+def test_a_first_run_pick_asks_to_set_the_tier_first_and_a_headless_one_halts():
+    """#1170: a first-run pick that needs the tier asks once whether to set it first; for an alias or a chain that is
+    `SF <pick>`, and for one workflow SF on its own, then the pick as given; headless, it halts naming that."""
+    greeting, first = _first_run_sentences()
+    for token in ("AN, BS, CS, SS, TS, US or AS (every alias does, `deepwiki` too)", "does not start with SF",
+                  "say in that greeting line that no forge tier is set yet",
+                  "ask once whether to set it first or to run the pick as given, and dispatch the answer",
+                  "For an alias or a chain, setting it first is `SF <pick>`, dispatched to Pipeline Mode: the pick "
+                  "written as a chain parse-pipeline.py takes, with SF ahead of it",
+                  "an alias keeps its arguments (`SF forge-auto <url>`) and each code its bracket "
+                  "(`SF AS[cocoindex] US TS`)",
+                  "When the invocation carries `--headless` or `-H`, ask nothing and HARD HALT, for an alias or a "
+                  "chain: \"**No forge tier yet.** Run SF first, or start the chain as `SF <pick>`.\", with `SF <pick>` "
+                  "in that chain form",
+                  "both leave out `--headless` and `-H`",
+                  "`/skf-forger forge-auto <url> --headless` halts naming `SF forge-auto <url>`"):
+        assert token in first, token
+    for absent in ("On a first run", "present the menu", "When `{headless_mode}` is true", "and no pick, HARD HALT"):
+        assert absent not in first, absent
+    assert greeting.index("dispatch the pick at once with its arguments.") < greeting.index(first)
+    # A pick that needs no tier (QS, SF, KI, WS, ...) or one led by SF is dispatched at once, as before.
+    condition = _slice(first, "the pick holds", "say in that greeting line")
+    assert "QS" not in condition and "does not start with SF" in condition, condition
+    # Each `SF <pick>` the sentences show is a chain the parser runs as given.
+    parser = _script(PARSE_PIPELINE)
+    shown = sorted(set(re.findall(r"`(SF [^`<]*(?:<url>)?)`", first)))
+    assert shown == ["SF AS[cocoindex] US TS", "SF forge-auto <url>"], shown
+    for chain in shown:
+        out = parser.parse_pipeline(chain.replace("<url>", "https://github.com/cocoindex-io/cocoindex"))
+        assert out["valid"] and out["first_input"] is None and out["codes"][0] == "SF", (chain, out)
+
+
+def test_a_first_run_pick_of_one_workflow_runs_sf_then_the_pick_as_given():
+    """#1170 review 2: a pick that names one workflow is not made a chain, which would run it headless, lose its
+    flags and, for BS, not start: it runs SF on its own, then the pick as given; its headless halt names the pick."""
+    _, first = _first_run_sentences()
+    for token in ("For a pick that names one workflow (a menu code or number with its arguments and flags, such as "
+                  "`TS cocoindex`, `BS` or `US cocoindex --from-test-report`, or a plain request, such as "
+                  "`audit cocoindex`), it is SF on its own, then, once SF reports success, the pick as given, "
+                  "dispatched as one workflow (Dispatch's single code), so it keeps its arguments, its flags and its "
+                  "own questions",
+                  "for one workflow: \"**No forge tier yet.** Run SF first, then `<pick>`.\", with the pick as given",
+                  "`/skf-forger TS cocoindex --headless` naming `TS cocoindex`"):
+        assert token in first, token
+    for chain_form in ("SF TS", "SF BS", "SF US", "SF audit"):
+        assert chain_form not in first, chain_form
+    # Why: as a chain, BS cannot start, a flag other than --pin does not parse, and an argument needs a bracket.
+    parse = _script(PARSE_PIPELINE).parse_pipeline
+    bs = parse("SF BS")
+    assert bs["valid"] and bs["first_input"] and bs["first_input"]["form"] is None, bs
+    for typed in ("SF US[cocoindex] --from-test-report", "SF TS cocoindex", "SF audit cocoindex"):
+        assert not parse(typed)["valid"], typed
+
+
+def test_a_first_run_ts_with_its_own_tier_and_a_two_code_request_come_before_the_tier_question():
+    """#1170 review 2: a TS pick with `--tier=` reads no forge-tier.yaml, so it gets no question; a request that fits
+    two codes is settled first, and only the pick it settles (`forge-auto`, not `QS`) gets the tier question."""
+    greeting, first = _first_run_sentences()
+    condition = _slice(first, "the pick holds", "say in that greeting line")
+    assert "is not a TS pick carrying `--tier=` (Test Skill then reads no forge-tier.yaml)" in condition, condition
+    settled = ("A request that fits two codes is settled first, by the question or the halt the next sentence gives, "
+               "and this rule then applies to the pick that question settles: `forge-auto` gets the tier question, "
+               "`QS` none.")
+    assert first.endswith(settled + " "), first[-300:]
+    assert greeting.index(first) + len(first) == greeting.index("When a request fits two codes (a bare repository "
+                                                                "URL fits `QS` and `forge-auto`)")
+
+
+def test_a_first_run_pick_and_maintain_read_the_forge_state_the_docs_say():
+    """#1170: `SF` goes before an alias, the brief and audit warnings read disk, `maintain` passes over TS and EX of
+    a current skill, and the user docs give the first-run question as step 6 does."""
+    mode = _read(SRC / "skf-forger" / "references" / "pipeline-mode.md")
+    special = mode.split("## Special behaviors", 1)[1]
+    [bullet] = [line for line in special.splitlines() if line.startswith("- **`SF` before an alias:**")]
+    for token in ("`SF forge-auto <repo-or-doc-url>`", "`SF maintain <skill>`", "`SF deepwiki <url>`",
+                  "keeps the alias and its threshold", "the arguments after the alias go to the workflow after SF"):
+        assert token in bullet, token
+    validate = _slice(mode, "2. **Validate the sequence**", "3. **")
+    assert "The brief and audit checks read the skill's brief and the audit of its active version on disk" in validate
+    record = _slice(mode, "   - d. **Record the step**", "   - e. **")
+    for token in ('--forge-data-folder "{forge_data_folder}" --skills-output-folder "{skills_output_folder}" '
+                  '--sidecar "{sidecar_path}" --envelope',
+                  "after AS, also with the forge data folder, the skills folder, the sidecar and the journal's skill",
+                  "`skip` passes over the workflows the gate names and records each `skipped`",
+                  "over TS and EX too where they come right after it when the skill is current",
+                  "neither `forge-tier.yaml` nor `preferences.yaml` has changed since that test",
+                  "a step whose bracket names another skill is never passed over",
+                  "the steps a gate `skipped`",
+                  "report the gate's `message` and the codes of the steps `skipped`; when `skipped` is empty, "
+                  "the next step works on another skill and runs, so report instead that the gate passed over no "
+                  "step"):
+        assert token in record, token
+
+    contracts = _read(CONTRACTS)
+    setup = _paragraph(_slice(contracts, "## Syntax", "## Pipeline Rules"), "**Setup first:**")
+    for token in ("`SF forge-auto <repo-or-doc-url>`", "keeps its threshold", "the workflow after SF",
+                  "`SF deepwiki <url>`", "`SF onboard` stops as `onboard` does"):
+        assert token in setup, token
+    [flow] = [row for row in contracts.splitlines() if row.startswith("| AS | US |")]
+    [breaker] = [row for row in _slice(contracts, "## Circuit Breakers", "### Bracket Syntax").splitlines()
+                 if row.startswith("| AS |")]
+    for row in (flow, breaker):
+        for token in ("the skill is current", "`forge-tier.yaml` has not changed since", "nor `preferences.yaml`",
+                      "where they come right after US"):
+            assert token in row, (token, row)
+    assert "`US TS EX`, with the reason `current`" in flow
+    assert "and no step whose bracket names another skill" in flow
+    anti = _slice(contracts, "## Anti-Patterns", "| TS after EX |")
+    assert "unless the skill's active version has an audit on disk" in anti
+    assert "unless the skill's `skill-brief.yaml` is on disk" in anti
+
+    doc = _read(WORKFLOWS)
+    how = _slice(doc, "### How It Works", "### Examples")
+    [maintain] = [line for line in how.splitlines() if line.startswith("- **`maintain` skips")]
+    for token in ("the skill is already current", "your forge tier has not changed since that test",
+                  "Test Skill and Export Skill are skipped too", "`@Ferris TS <name>`"):
+        assert token in maintain, token
+    [warnings] = [line for line in how.splitlines() if line.startswith("- **Anti-pattern warnings**")]
+    assert "The brief and audit warnings read disk" in warnings
+    for chain in ("CS[cocoindex] TS EX", "US[cocoindex] TS EX"):
+        assert f"`{chain}`" in warnings
+    [first_run] = [line for line in how.splitlines() if line.startswith("- **First run**")]
+    for token in ("AN, BS, CS, SS, TS, US or AS", "gets one question first: set the tier first, or run the pick as given",
+                  "For an alias or a chain, setting the tier first runs `SF <pick>`, the pick as one chain with SF "
+                  "ahead of it", "`SF forge-auto <repo-url>`", "`SF AS[cocoindex] US TS`",
+                  "For a pick that names one workflow, such as `TS cocoindex`, `BS`, `US cocoindex --from-test-report` "
+                  "or `audit cocoindex`, it runs SF, then the pick as given, with its arguments, its flags and its own "
+                  "questions", "A `TS` pick with `--tier=` sets its own tier and runs at once",
+                  "A bare repository URL first asks whether you mean QS or forge-auto, and only forge-auto then gets "
+                  "the tier question",
+                  "A headless start asks nothing and stops with \"No forge tier yet. Run SF first, or start the "
+                  "chain as `SF <pick>`.\" for an alias or a chain, or with \"No forge tier yet. Run SF first, then "
+                  "`<pick>`.\" for one workflow"):
+        assert token in first_run, token
+    agents = _paragraph(_read(AGENTS), "On your first run")
+    assert ("gets one question first: set the tier with SF before it runs (an alias or a chain becomes one chain, "
+            "such as `SF forge-auto <repo-url>`, while a pick that names one workflow, such as `TS cocoindex`, runs as "
+            "given once SF is done), or run it as given now, and a headless start stops with \"No forge tier yet\" "
+            "instead, naming what to run first.") in agents
+    assert "`@Ferris TS cocoindex`" in agents and "**" not in agents.split("A pick you start him with", 1)[1].split(
+        "If your project", 1)[0]
+    # No doc writes a pick that names one workflow as a chain led by SF.
+    for text in (first_run, agents):
+        for chain_form in ("`SF TS[cocoindex]`", "`SF AS[cocoindex]`", "`SF TS cocoindex`"):
+            assert chain_form not in text, chain_form

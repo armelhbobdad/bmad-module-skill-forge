@@ -17,6 +17,10 @@ results by hand:
     not parse, is a warning, never a crash
   - the call WS documents runs as written, and WS reads only fields the
     script prints and restates none of its rules
+  - #1170: `skill_entry` gives one skill's entry by the same rule for
+    pipeline-gate.py and parse-pipeline.py (None when the inventory cannot
+    run or lists no SKF skill by that name), with `verdict_time` and
+    `audit_on_record` beside it, all without pyyaml
   - #1169: an audit that found drift after the test verdict takes `US <name>`,
     with `--target-ref <upstream_ref>` when it found upstream moved, and
     names its severity as `drift`; an older, CLEAN, untimed or unreadable
@@ -389,7 +393,12 @@ def test_an_unreadable_test_record_beside_a_drift_audit_is_one_warning(exported_
 
 
 def test_the_test_and_audit_records_are_read_without_pyyaml(tmp_path):
-    """#1170 will load these rules into a script with no dependencies: only the campaign source reads YAML."""
+    """#1170 loads these rules into scripts with no dependencies (pipeline-gate.py, parse-pipeline.py): only the
+    campaign source reads YAML."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    make_skill(skills, "x")
+    export(skills, {"x": "1.0.0"})
     code = (
         "import importlib.util, sys\n"
         "sys.modules['yaml'] = None  # any `import yaml` now raises\n"
@@ -400,6 +409,10 @@ def test_the_test_and_audit_records_are_read_without_pyyaml(tmp_path):
         f"forge = Path({str(tmp_path)!r})\n"
         "assert mod.read_verdict(forge, 'x', '1.0.0') == 'PASS'\n"
         "assert mod.read_drift(forge, 'x', '1.0.0') == ('MINOR', 'v2.0.0')\n"
+        f"entry = mod.skill_entry(Path({str(skills)!r}), forge, 'x')\n"
+        "assert (entry['active_version'], entry['next']) == ('1.0.0', 'US x --target-ref v2.0.0'), entry\n"
+        "assert mod.verdict_time(forge, 'x', '1.0.0').isoformat() == '2026-03-01T12:00:00+00:00'\n"
+        "assert mod.audit_on_record(forge, 'x', '1.0.0')\n"
         "assert mod.skill_status('x', '1.0.0', 'PASS', '1.0.0', 'MINOR')['next'] == 'US x'\n"
         "status = mod.skill_status('x', '1.0.0', 'PASS', '1.0.0', 'MINOR', 'v2.0.0')\n"
         "assert status['next'] == 'US x --target-ref v2.0.0'\n"
@@ -415,6 +428,67 @@ def test_the_test_and_audit_records_are_read_without_pyyaml(tmp_path):
     audit(tmp_path, "x", "1.0.0", "MINOR", "2026-03-02T09:00:00Z", upstream_moved=True, upstream_ref="v2.0.0")
     p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert p.returncode == 0 and p.stdout.strip() == "ok", p.stdout + p.stderr
+
+
+# --------------------------------------------------------------------------
+# One skill, for the gate and the parser (#1170)
+# --------------------------------------------------------------------------
+
+
+def test_skill_entry_is_the_entry_ws_prints_for_one_skill(forge_tree):
+    """The gate and the parser read one skill's entry by the WS rule: the same verdict and drift rungs, no campaign
+    or offer pass."""
+    forge, skills = forge_tree / "forge", forge_tree / "skills"
+    export(skills, {"zeta": "1.0.0"})
+    ws = by_name(run(forge_tree))
+    for name in ("beta", "gamma", "delta", "zeta", "eta", "iota"):
+        assert mod.skill_entry(skills, forge, name) == ws[name], name
+    assert mod.skill_entry(skills, forge, "zeta")["next"] is None
+    assert mod.skill_entry(skills, forge, "iota")["active_version"] == "flat"
+
+
+def test_skill_entry_runs_the_shared_inventory_beside_the_skill_folder(forge_tree):
+    assert mod.SHARED_INVENTORY == INVENTORY.resolve()
+    assert mod.skill_entry(forge_tree / "skills", forge_tree / "forge", "gamma", INVENTORY)["next"] == (
+        "US gamma --from-test-report")
+
+
+@pytest.mark.parametrize("name", ["foreign", "alpha", "missing"], ids=["not-skf", "briefed-only", "missing"])
+def test_skill_entry_is_none_for_a_skill_the_inventory_does_not_list_as_skf(forge_tree, name):
+    assert mod.skill_entry(forge_tree / "skills", forge_tree / "forge", name) is None
+
+
+def test_skill_entry_is_none_when_the_inventory_cannot_run(forge_tree, tmp_path):
+    broken = tmp_path / "inventory.py"
+    broken.write_bytes(b"import sys\nsys.stderr.write('boom\\n')\nsys.exit(1)\n")
+    forge, skills = forge_tree / "forge", forge_tree / "skills"
+    assert mod.skill_entry(skills, forge, "zeta", broken) is None
+    assert mod.skill_entry(skills, forge, "zeta", tmp_path / "absent.py") is None
+    assert mod.skill_entry(tmp_path / "no-skills-folder", forge, "zeta") is None
+
+
+def test_verdict_time_is_the_test_records_timestamp(tmp_path):
+    verdict(tmp_path, "x", "1.0.0", "PASS", timestamp="2026-03-01T14:00:00+02:00")
+    verdict(tmp_path, "flatty", None, "PASS", timestamp=TESTED)
+    verdict(tmp_path, "untimed", "1.0.0", "PASS")
+    verdict(tmp_path, "garbled", "1.0.0", "PASS", timestamp="yesterday")
+    (tmp_path / "broken" / "1.0.0").mkdir(parents=True)
+    (tmp_path / "broken" / "1.0.0" / mod.TEST_RESULT).write_bytes(b"{not json")
+    assert mod.verdict_time(tmp_path, "x", "1.0.0").isoformat() == "2026-03-01T12:00:00+00:00"
+    assert mod.verdict_time(tmp_path, "flatty", "flat").isoformat() == "2026-03-01T12:00:00+00:00"
+    for name, version in (("x", "0.9.0"), ("untimed", "1.0.0"), ("garbled", "1.0.0"), ("broken", "1.0.0"),
+                          ("missing", "1.0.0")):
+        assert mod.verdict_time(tmp_path, name, version) is None, name
+
+
+def test_audit_on_record_looks_beside_the_active_versions_test_record(tmp_path):
+    audit(tmp_path, "x", "1.0.0", "CLEAN", TESTED)
+    audit(tmp_path, "flatty", None, "MINOR", TESTED)
+    assert mod.audit_on_record(tmp_path, "x", "1.0.0") is True
+    assert mod.audit_on_record(tmp_path, "x", "0.9.0") is False  # another version's audit
+    assert mod.audit_on_record(tmp_path, "flatty", "flat") is True
+    assert mod.audit_on_record(tmp_path, "flatty", "1.0.0") is False
+    assert mod.audit_on_record(tmp_path, "missing", "1.0.0") is False
 
 
 # --------------------------------------------------------------------------

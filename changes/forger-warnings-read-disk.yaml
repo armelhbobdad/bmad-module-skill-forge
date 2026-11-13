@@ -1,0 +1,5 @@
+type: changed
+scope: skf-forger
+summary: |
+  A chain's missing-brief and missing-audit warnings now read the forge state on disk instead of the order of its codes alone, so Ferris no longer asks you to confirm a chain whose skill already has what the warning names. `CS[cocoindex] TS EX` raises no `cs-without-brief` when `cocoindex/skill-brief.yaml` is in the forge data folder, and `US[cocoindex] TS EX` no `us-without-audit` when the active version of cocoindex has an audit on record. `parse-pipeline.py` takes the folders as `--forge-data-folder` and `--skills-output-folder`; without them each warning reads the order of the codes, as before.
+issues: [1170]

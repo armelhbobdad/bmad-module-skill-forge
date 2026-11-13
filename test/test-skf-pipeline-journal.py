@@ -10,6 +10,15 @@ killed session or a compacted context loses nothing:
     other step its status; a halt needs its reason, and a completed step
     the value it hands the next; an AS that found upstream moved hands US the
     new ref through the gate's `handoff`, with no --set
+  - a skip of several codes (#1170) is matched to the steps from the one
+    right after the gated step, in its order, each code once, so the first
+    step that is not its next code, or works on another skill than the
+    gated step's, ends the pass, and `skipped` lists the steps it passed
+    over; AS's
+    gate gets the folders `step` is given and the journal's skill, so
+    `maintain` on a current skill, run through the documented calls, passes
+    over US, TS and EX and finishes `success`; `SF <alias>` hands the
+    alias's arguments to the workflow after SF
   - step --envelope records a step from the envelope line its workflow
     printed (#1168): the gate's rules for AN, TS, AS and VS, run in process,
     and the envelope's `status` for every other code (CS `partial` and EX
@@ -279,7 +288,7 @@ def test_steps_record_in_order_and_hand_their_values_on(chain):
     out = chain.gate("AN", "continue", "--set", "brief_path=/fd/hono/skill-brief.yaml",
                      "--output", "/fd/hono/analyze-source-result-latest.json")
     assert out["recorded"]["index"] == 0 and out["recorded"]["status"] == "completed"
-    assert out["skipped"] is None
+    assert out["skipped"] == []
     assert out["next"]["code"] == "BS" and out["next"]["mode"] == "auto"
     assert out["data"] == {"brief_path": "/fd/hono/skill-brief.yaml"}
     journal = chain.data()
@@ -301,7 +310,8 @@ def test_a_gate_skip_records_the_step_it_passes_over(chain):
     chain.start("maintain cocoindex")
     out = chain.gate("AS", "skip", reason="CLEAN", skip="US")
     assert (out["recorded"]["code"], out["recorded"]["status"], out["recorded"]["reason"]) == ("AS", "completed", None)
-    assert (out["skipped"]["code"], out["skipped"]["status"], out["skipped"]["reason"]) == ("US", "skipped", "CLEAN")
+    assert [(s["index"], s["code"], s["status"], s["reason"]) for s in out["skipped"]] == [
+        (1, "US", "skipped", "CLEAN")]
     assert out["next"]["code"] == "TS"
     assert chain.ran("TS")["next"]["code"] == "EX"
 
@@ -319,6 +329,71 @@ def test_a_skip_passes_over_only_the_step_after_the_gated_one(chain):
     out = chain.gate("AS", "skip", reason="CLEAN", skip="US", rc=1)
     assert (out["error"], out["retry"]) == ("skip-mismatch", False)
     assert [s["status"] for s in chain.data()["steps"]] == ["pending"] * 3
+
+
+@pytest.mark.parametrize(("invocation", "skipped", "following"), [
+    ("AS[cocoindex] US TS EX", ["US", "TS", "EX"], None),
+    ("AS[cocoindex] US TS", ["US", "TS"], None),
+    ("AS[cocoindex] US SS", ["US"], ("SS", None)),
+    ("AS[cocoindex] US TS EX TS[other] EX[other]", ["US", "TS", "EX"], ("TS", "other")),
+    ("AS[cocoindex] US TS[other] EX[other]", ["US"], ("TS", "other")),
+    ("AS[cocoindex] US TS[cocoindex] EX", ["US", "TS", "EX"], None),
+    ("AS[cocoindex] US[other] TS EX", [], ("US", "other")),
+    ("AS[cocoindex] US EX TS", ["US"], ("EX", None)),
+    ("AS[cocoindex] US US TS EX", ["US"], ("US", None)),
+    ("maintain cocoindex", ["US", "TS", "EX"], None),
+])
+def test_a_skip_of_several_codes_passes_over_each_step_it_names_in_its_order(chain, invocation, skipped, following):
+    """#1170: a current skill's CLEAN audit skips `US TS EX`: from the step after the audit, each step is matched to
+    the skip's next code, each code once, while it works on the audited skill (an empty bracket, or that skill's
+    name), and the first that is not ends the pass, so another skill's US, TS and EX, or steps out of that order,
+    run."""
+    chain.start(invocation)
+    out = chain.gate("AS", "skip", reason="current", skip="US TS EX")
+    assert [(s["index"], s["code"], s["status"], s["reason"]) for s in out["skipped"]] == [
+        (i + 1, code, "skipped", "current") for i, code in enumerate(skipped)]
+    assert (None if out["next"] is None else (out["next"]["code"], out["next"]["target"])) == following
+    steps = chain.data()["steps"]
+    assert [s["status"] for s in steps] == ["completed", *["skipped"] * len(skipped),
+                                            *["pending"] * (len(steps) - 1 - len(skipped))]
+    if following is None:
+        assert chain.finish()["pipeline_status"] == "success"
+
+
+@pytest.mark.parametrize("skip", ["US", "US TS EX"])
+def test_a_skip_passes_over_no_step_of_another_skill(chain, skip):
+    """#1170: after `AS[x]`, a CLEAN skip (`US`) or a current one (`US TS EX`) records nothing skipped when the step
+    after the audit works on another skill, whose update then runs."""
+    reason = "CLEAN" if skip == "US" else "current"
+    chain.start("AS[cocoindex] US[other] TS EX")
+    out = chain.gate("AS", "skip", reason=reason, skip=skip)
+    assert (out["recorded"]["status"], out["skipped"]) == ("completed", [])
+    assert (out["next"]["code"], out["next"]["target"]) == ("US", "other")
+    assert [s["status"] for s in chain.data()["steps"]] == ["completed", "pending", "pending", "pending"]
+
+
+def test_a_skip_of_several_codes_must_start_at_the_step_after_the_gated_one(chain):
+    """`US TS EX` after `AS[x] TS EX` records nothing; after `AS[x] US TS EX` it records the three."""
+    chain.start("AS[cocoindex] TS EX")
+    out = chain.gate("AS", "skip", reason="current", skip="US TS EX", rc=1)
+    assert (out["error"], out["retry"]) == ("skip-mismatch", False)
+    assert out["message"] == "The gate passes over US TS EX, but the step after AS is TS."
+    assert [s["status"] for s in chain.data()["steps"]] == ["pending"] * 3
+    assert chain.data()["updated_at"] == chain.data()["started_at"]
+    chain.start("AS[cocoindex] US TS EX")
+    out = chain.gate("AS", "skip", reason="current", skip="US TS EX")
+    assert [s["code"] for s in out["skipped"]] == ["US", "TS", "EX"]
+
+
+def test_sf_before_an_alias_gives_the_alias_arguments_to_the_workflow_after_sf(chain):
+    """#1170: a first run's `SF forge-auto <url>` runs SF, then AN with the URL and its auto mode."""
+    out = chain.start(f"SF forge-auto {HONO}")
+    assert (out["alias"], out["args"]) == ("forge-auto", {"project_path": HONO})
+    assert [s["code"] for s in out["steps"]] == ["SF", "AN", "BS", "CS", "TS", "EX"]
+    assert (out["next"]["code"], out["next"]["inputs"]) == ("SF", {})
+    out = chain.step("SF")
+    assert (out["next"]["code"], out["next"]["inputs"]) == ("AN", {"project_path": HONO, "auto": True})
+    assert [s["min"] for s in chain.data()["steps"]] == [None, None, None, None, 90, None]
 
 
 def test_a_gated_step_records_the_gates_decision_not_a_status(chain):
@@ -1362,7 +1437,7 @@ def test_each_codes_envelope_completes_its_step(chain, code):
     payload = envelope_payload(code)
     out = chain.envelope(code, _line(code, payload) + "\n")
     assert (out["recorded"]["code"], out["recorded"]["status"], out["recorded"]["reason"]) == (code, "completed", None)
-    assert (out["skipped"], out["next"]) == (None, None)
+    assert (out["skipped"], out["next"]) == ([], None)
     assert out["data"] == HANDED.get(code, {})
     if code in GATED:
         assert out["gate"] == GATE_MOD.gate(code, _line(code, payload))
@@ -1480,7 +1555,7 @@ def test_a_clean_audit_skips_the_update_and_prints_the_gate(chain):
     line = envelope("AS", drift_score="CLEAN")
     out = chain.envelope("AS", line)
     assert (out["recorded"]["status"], out["recorded"]["reason"]) == ("completed", None)
-    assert (out["skipped"]["code"], out["skipped"]["status"], out["skipped"]["reason"]) == ("US", "skipped", "CLEAN")
+    assert [(s["code"], s["status"], s["reason"]) for s in out["skipped"]] == [("US", "skipped", "CLEAN")]
     assert out["gate"] == GATE_MOD.gate("AS", line, next_code="US") and out["gate"]["message"]
     assert out["next"]["code"] == "TS"
 
@@ -1954,6 +2029,12 @@ def _pipeline_mode_calls() -> dict[str, str]:
     return calls
 
 
+def _documented_values(root: Path) -> dict[str, str]:
+    """The placeholders pipeline-mode.md's calls take, filled with the folders a project under `root` keeps."""
+    return {"{project-root}": str(root), "{sidecar_path}": str(root / "sidecar"),
+            "{forge_data_folder}": str(root / "forge-data"), "{skills_output_folder}": str(root / "skills")}
+
+
 def test_the_activation_call_runs_as_written(tmp_path):
     [call] = re.findall(r"^\s*(uv run scripts/pipeline-journal\.py resume .+)$", _journal_step_of_activation(), re.M)
     values = {"{project-root}": str(tmp_path), "{sidecar_path}": str(tmp_path / "sidecar"),
@@ -1973,7 +2054,7 @@ def test_the_pipeline_mode_calls_run_as_written(tmp_path):
         "<the whole invocation>", "<the envelope line the workflow printed>", "<the line SF displayed>")
     assert (calls["finish-stdin"], calls["parse-halt-stdin"]) == ("<the reason the chain stopped with>",
                                                                   "<the halt reason>")
-    values = {"{project-root}": str(tmp_path), "{sidecar_path}": str(tmp_path / "sidecar")}
+    values = _documented_values(tmp_path)
     started = _run(*_argv(calls["start"], values), stdin="maintain cocoindex\n")
     values["<journal>"] = started["journal"]
     assert Path(started["run_dir"]).parent == tmp_path / "_bmad-output" / ".skf-run"
@@ -1981,9 +2062,10 @@ def test_the_pipeline_mode_calls_run_as_written(tmp_path):
     def record(code: str, line: str) -> dict:
         return _run(*_argv(calls["envelope"], {**values, "<code>": code}), stdin=line + "\n")
 
-    # AS: a CLEAN audit with no move skips US.
+    # AS: a CLEAN audit with no move skips US (the skill is not in the skills folder, so it is not current).
     out = record("AS", envelope("AS", drift_score="CLEAN", next_workflow=None))
-    assert (out["skipped"]["code"], out["gate"]["decision"], out["next"]["code"]) == ("US", "skip", "TS")
+    assert ([s["code"] for s in out["skipped"]], out["gate"]["decision"], out["next"]["code"]) == (
+        ["US"], "skip", "TS")
     # TS: FAIL halts.
     out = record("TS", envelope("TS", verdict="FAIL", next_workflow="update-skill", exit_code=2))
     assert (out["recorded"]["reason"], out["next"]) == ("FAIL", None)
@@ -2004,6 +2086,136 @@ def test_the_pipeline_mode_calls_run_as_written(tmp_path):
         "SF", "halted", "uv: command not found")
 
 
+def _link_active(active_link: Path, version: str) -> None:
+    """active -> version, with the Windows junction fallback test-skf-skill-inventory.py uses."""
+    try:
+        active_link.symlink_to(version)
+        return
+    except OSError as e:
+        if os.name != "nt" or getattr(e, "winerror", None) not in (1314, 5):
+            raise
+    abs_target = (active_link.parent / version).resolve()
+    done = subprocess.run(["cmd", "/c", "mklink", "/J", str(active_link), str(abs_target)],
+                          capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr or done.stdout
+
+
+def current_skill(forge: Path, skills: Path, sidecar: Path, name: str) -> None:
+    """A skill forge-status.py calls current: version 1.0.0 is active, PASSed its test and is the exported one,
+    with no drift on record, and forge-tier.yaml was last written an hour before that test."""
+    package = skills / name / "1.0.0" / name
+    package.mkdir(parents=True)
+    package.joinpath("SKILL.md").write_bytes(f"---\nname: {name}\n---\n# {name}\n".encode("utf-8"))
+    (package / "metadata.json").write_bytes(json.dumps({"name": name, "generated_by": "create-skill"}).encode())
+    _link_active(skills / name / "active", "1.0.0")
+    manifest = {"schema_version": "2", "updated_at": "2026-03-01T13:00:00Z", "exports": {name: {
+        "active_version": "1.0.0", "versions": {"1.0.0": {"last_exported": "2026-03-01", "status": "active"}}}}}
+    (skills / mod.EXPORT_MANIFEST).write_bytes(json.dumps(manifest).encode("utf-8"))
+    (forge / name / "1.0.0").mkdir(parents=True)
+    record = {"runId": "20260301T120000Z-0000beef", "timestamp": "2026-03-01T12:00:00Z",
+              "summary": {"result": "PASS"}}
+    (forge / name / "1.0.0" / mod.TEST_RESULT).write_bytes(json.dumps(record).encode("utf-8"))
+    sidecar.mkdir(parents=True, exist_ok=True)
+    (sidecar / "forge-tier.yaml").write_bytes(b"tier: Forge\n")
+    hour_before = datetime(2026, 3, 1, 11, 0, 0, tzinfo=timezone.utc).timestamp()
+    os.utime(sidecar / "forge-tier.yaml", (hour_before, hour_before))
+
+
+def _step_1_parse_call(values: dict[str, str]) -> list[str]:
+    """pipeline-mode.md step 1's parse call: its words after the script, placeholders filled."""
+    m = re.search(r"```bash\n\s*uv run scripts/parse-pipeline\.py (.+?) <<'(\w+)'\n\s*<the whole invocation>\n\s*\2\n",
+                  _read(PIPELINE_MODE))
+    assert m, "step 1 shows no parse call over a quoted heredoc"
+    words = []
+    for word in shlex.split(m.group(1)):
+        for placeholder, value in values.items():
+            word = word.replace(placeholder, value)
+        assert not re.search(r"[{<][a-z_ |-]+[}>]", word), word
+        words.append(word)
+    return words
+
+
+def test_maintain_on_a_current_skill_passes_over_us_ts_and_ex_as_documented(tmp_path):
+    """#1170's acceptance: step 1 and step 4d run as written, every placeholder filled, on `maintain` of a skill
+    that is current: the parse warns about nothing, AS's step records US, TS and EX skipped, and the chain
+    finishes `success` with nothing left to resume."""
+    calls = _pipeline_mode_calls()
+    values = _documented_values(tmp_path)
+    current_skill(Path(values["{forge_data_folder}"]), Path(values["{skills_output_folder}"]),
+                  Path(values["{sidecar_path}"]), "cocoindex")
+    parse = subprocess.run([sys.executable, str(SRC / "skf-forger" / "scripts" / "parse-pipeline.py"),
+                            *_step_1_parse_call(values)], input="maintain cocoindex\n", capture_output=True,
+                           text=True, encoding="utf-8", timeout=60)
+    assert parse.returncode == 0, parse.stdout + parse.stderr
+    assert json.loads(parse.stdout)["anti_patterns"] == []
+    started = _run(*_argv(calls["start"], values), stdin="maintain cocoindex\n")
+    values["<journal>"] = started["journal"]
+    out = _run(*_argv(calls["envelope"], {**values, "<code>": "AS"}),
+               stdin=envelope("AS", drift_score="CLEAN", next_workflow=None) + "\n")
+    assert (out["gate"]["decision"], out["gate"]["skip"], out["gate"]["reason"]) == ("skip", "US TS EX", "current")
+    assert "cocoindex is current" in out["gate"]["message"] and "Run TS cocoindex" in out["gate"]["message"]
+    assert [(s["code"], s["status"], s["reason"]) for s in out["skipped"]] == [
+        ("US", "skipped", "current"), ("TS", "skipped", "current"), ("EX", "skipped", "current")]
+    assert out["next"] is None
+    finished = _run(*_argv(calls["finish"], values), stdin="")
+    assert (finished["pipeline_status"], finished["halt_reason"], finished["run_dir_kept"]) == ("success", None,
+                                                                                                False)
+    # A tier set after that test (SF ran since) keeps TS and EX.
+    os.utime(Path(values["{sidecar_path}"]) / "forge-tier.yaml", None)
+    started = _run(*_argv(calls["start"], values), stdin="maintain cocoindex\n")
+    out = _run(*_argv(calls["envelope"], {**values, "<journal>": started["journal"], "<code>": "AS"}),
+               stdin=envelope("AS", drift_score="CLEAN", next_workflow=None) + "\n")
+    assert ([s["code"] for s in out["skipped"]], out["gate"]["reason"], out["next"]["code"]) == (["US"], "CLEAN", "TS")
+
+
+def test_the_as_gate_reads_the_journals_skill_and_the_folders_step_is_given(chain):
+    """A shorter plan passes over what it holds; without the folders the skip stays at US."""
+    current_skill(chain.forge, chain.skills, chain.sidecar, "cocoindex")
+    folders = ("--forge-data-folder", chain.forge, "--skills-output-folder", chain.skills, "--sidecar", chain.sidecar)
+    line = envelope("AS", drift_score="CLEAN", next_workflow=None)
+    chain.start("AS[cocoindex] US TS")
+    out = chain.envelope("AS", line, *folders)
+    assert ([s["code"] for s in out["skipped"]], out["next"]) == (["US", "TS"], None)
+    chain.start("AS[cocoindex] US SS")
+    out = chain.envelope("AS", line, *folders)
+    assert ([s["code"] for s in out["skipped"]], out["next"]["code"]) == (["US"], "SS")
+    chain.start("maintain cocoindex")
+    out = chain.envelope("AS", line)
+    assert ([s["code"] for s in out["skipped"]], out["next"]["code"]) == (["US"], "TS")
+    chain.start("maintain other")
+    out = chain.envelope("AS", line, *folders)
+    assert ([s["code"] for s in out["skipped"]], out["gate"]["reason"]) == (["US"], "CLEAN")
+    # Another skill's TS and EX after them run, and so do they right after US.
+    chain.start("AS[cocoindex] US TS EX TS[other] EX[other]")
+    out = chain.envelope("AS", line, *folders)
+    assert ([s["code"] for s in out["skipped"]], out["next"]["code"], out["next"]["target"]) == (
+        ["US", "TS", "EX"], "TS", "other")
+    chain.start("AS[cocoindex] US TS[other] EX[other]")
+    out = chain.envelope("AS", line, *folders)
+    assert (out["gate"]["skip"], out["gate"]["reason"]) == ("US TS EX", "current")
+    assert ([s["code"] for s in out["skipped"]], out["next"]["code"], out["next"]["target"]) == (
+        ["US"], "TS", "other")
+    chain.start("AS[cocoindex] US[other] TS EX")
+    out = chain.envelope("AS", line, *folders)
+    assert (out["skipped"], out["next"]["code"], out["next"]["target"]) == ([], "US", "other")
+
+
+def test_the_as_gate_reads_the_skill_as_audited_not_an_earlier_steps(chain):
+    """In `TS[x] AS[y] US TS EX` AS audited y: x being current skips nothing of y's, and y being current does."""
+    current_skill(chain.forge, chain.skills, chain.sidecar, "cocoindex")
+    folders = ("--forge-data-folder", chain.forge, "--skills-output-folder", chain.skills, "--sidecar", chain.sidecar)
+    line = envelope("AS", drift_score="CLEAN", next_workflow=None)
+    chain.start("TS[cocoindex] AS[other] US TS EX")
+    chain.ran("TS")
+    out = chain.envelope("AS", line, *folders)
+    assert ([s["code"] for s in out["skipped"]], out["gate"]["reason"]) == (["US"], "CLEAN")
+    chain.start("TS[other] AS[cocoindex] US TS EX")
+    chain.ran("TS")
+    out = chain.envelope("AS", line, *folders)
+    assert ([s["code"] for s in out["skipped"]], out["gate"]["reason"], out["next"]) == (
+        ["US", "TS", "EX"], "current", None)
+
+
 def test_pipeline_mode_documents_no_hand_copied_value_and_no_quoting_rule():
     """#1168's acceptance: step d hands the journal the envelope line, so no documented call runs the gate,
     copies a value with --set or --output, or quotes a reason by hand."""
@@ -2020,7 +2232,7 @@ def test_a_failed_step_call_still_leaves_this_runs_result(tmp_path):
     """A step call that fails stops the chain, and step 5's call, given the failure as the halt reason in
     its heredoc, writes this run's result: the latest record is never the previous run's."""
     calls = _pipeline_mode_calls()
-    values = {"{project-root}": str(tmp_path), "{sidecar_path}": str(tmp_path / "sidecar")}
+    values = _documented_values(tmp_path)
     (tmp_path / "sidecar").mkdir()
     earlier = {"skill": "skf-forger", "status": "success", "run_id": "20260930T080000Z-0000beef",
                "summary": {"status": "success", "steps": [{"code": "QS"}]}}

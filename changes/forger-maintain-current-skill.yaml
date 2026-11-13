@@ -1,0 +1,5 @@
+type: changed
+scope: skf-forger
+summary: |
+  `maintain` no longer re-tests and re-exports a skill that is already current. When Audit Skill finds no drift and the source did not move, and the skill's active version passed its test and is the exported one, with no drift on record, and neither `forge-tier.yaml` nor `preferences.yaml` (whose `tier_override` sets the tier a test runs at) has changed since that test, the chain passes over Update Skill, Test Skill and Export Skill and says why; run `@Ferris TS <name>` to test it again. `pipeline-gate.py` takes `--forge-data-folder`, `--skills-output-folder`, `--sidecar` and `--skill` for this, and its `skip` names `US TS EX` with the reason `current`. `pipeline-journal.py step` takes the three folders and records each step a gate passes over, matching the skip's codes to the steps after the audit in their order, and only steps for the audited skill, so a chain such as `AS[x] US SS` or `AS[x] US TS[y] EX[y]` passes over US alone; its `skipped` is now a list, empty when the gate passed over nothing.
+issues: [1170]
