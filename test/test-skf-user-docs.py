@@ -314,9 +314,9 @@ def test_skill_model_says_what_a_stack_distribution_counts(tmp_path):
 def test_skill_model_says_where_an_update_records_itself():
     """#548: an update writes `last_update` and `update_type` into provenance-map.json, never into metadata.json."""
     write = _read(UPDATE_WRITE)
-    metadata = _slice(write, "### 2. Write Updated metadata.json", "### 3.")
+    metadata = _slice(write, "### 2. Prepare the Write Inputs", "### 3.")
     assert "the `metadata` call removes either key an older SKF version left in metadata.json" in metadata
-    provenance = _slice(write, "### 3. Write Updated provenance-map.json", "### 4.")
+    provenance = _slice(write, "### 3. Write Updated provenance-map.json", "### 3b.")
     for key in ('"last_update"', '"update_type"'):
         assert key in provenance, key
     doc = _read(SKILL_MODEL)

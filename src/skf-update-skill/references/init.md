@@ -407,6 +407,16 @@ Steps 5 and 6 reuse `{source_display}` and `{source_commit_line}`.
 
 ### 8. Confirmation Gate
 
+**Record the run context** first, in every mode (`--detect-only` and `--dry-run` too): a later step reads back from it a binding its context lost (SKILL.md's Workflow Rules). From `{project-root}`, run:
+
+```bash
+cat > "{run_dir}/run-context.json" <<'SKF_JSON'
+{"skill_name": "{skill_name}", "baseline_version": "{baseline_version}", "forge_tier": "{forge_tier}", "update_mode": "<normal, gap-driven or degraded>", "headless_mode": {headless_mode}, "degraded_mode": {degraded_mode}, "detect_only_mode": {detect_only_mode}, "dry_run_mode": {dry_run_mode}, "allow_workspace_drift": {allow_workspace_drift}, "allow_degraded": {allow_degraded}, "test_report_path": "{test_report_path}", "test_report_run_id": "{test_report_run_id}", "target_ref_override": "{target_ref_override}", "lock_owner": "{lock_owner}", "skill_package": "{skill_package}", "forge_version": "{forge_version}", "provenance_map_path": "{provenance_map_path}", "manual_inventory": "{manual_inventory}", "source_root": "{source_root}", "source_repo": "{source_repo}", "source_ref": "{source_ref}", "source_commit": "{source_commit}", "source_tree_status": "{source_tree_status}", "source_tree": "{source_tree}", "workspace_clone": "{workspace_clone}", "target_ref": "{target_ref}", "target_commit": "{target_commit}", "source_moved": {source_moved}, "source_diff_status": "{source_diff_status}", "source_changed_files": "{source_changed_files}", "tree_timeout": {tree_timeout}, "source_version_detected": "{source_version_detected}", "source_display": "{source_display}", "source_commit_line": "{source_commit_line}"}
+SKF_JSON
+```
+
+Write each value as JSON: a string with `"` and `\` escaped and every path with `/`, a flag `true` or `false` (`false` for one this run never set), `tree_timeout` a number, `source_moved` `true`, `false` or `null`, and a bare `null`, with no quotes, for a binding this run did not bind (in gap-driven mode, every source-tree binding §6b would make). It holds no `version`: write.md §2 rebinds `{version}` to the version the update writes. merge.md §6b and gap-driven.md §3 rewrite the file with what they bind.
+
 Present "**Select:** [C] Continue to Change Detection" ("**Select:** [C] Continue to Gap-Driven Repair" when `update_mode` is `gap-driven`) and wait for the user to confirm; on [C], load, read the full file, then execute `{gapDrivenStepFile}` when `update_mode` is `gap-driven`, else `{nextStepFile}`.
 
 **GATE [default: C]**: headless (`{headless_mode}` true), auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 6's line carries it):

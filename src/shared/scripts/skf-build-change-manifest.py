@@ -482,7 +482,7 @@ Apply (update-skill write.md §3):
   --source-root (its file name when no --source-root is given or the
   file is not there).
 
-Metadata (update-skill write.md §2):
+Metadata (update-skill write.md §3b):
 
   metadata.json as --metadata holds it, with what the update sets: version
   (--version) and generation_date (--generation-date, YYYY-MM-DDTHH:MM:SSZ);
@@ -797,8 +797,8 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      An internal one keeps its outcome in its verification record (with no
      signature), its record is not in `files`, `counts` tallies it under
      `reclassified` instead of its outcome, and it is listed in
-     `reclassified` (merge queues it as a metadata update; apply writes no
-     entry for it).
+     `reclassified` (gap-driven.md §4 records it for the evidence report;
+     apply writes no entry for it).
 
   Any answer missing in step 3 or 5 (a `docstring` too, for each
   re-extracted entry): {"status": "needs-judgment", "needs_judgment":

@@ -149,7 +149,7 @@ its severity; a category the table does not hold is not routed, and takes
 no entry, so nothing is written for it. A `stale-documentation` gap is not
 routed: the source has no line to repair the name from, and removing its
 documentation unchecked could delete a name the surface missed or one the
-source still declares. Nor is a `metadata-drift` gap: write.md §2's
+source still declares. Nor is a `metadata-drift` gap: write.md §3b's
 `metadata` call recounts the counts a patch would set (except under the
 drift override and for a docs-only skill, where it passes the counts
 metadata.json records), so no metadata patch holds. Nor is a

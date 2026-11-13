@@ -17,7 +17,7 @@ updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
 # Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
-# Advisory: if neither resolves, §2 and §6 relabel nothing (each label
+# Advisory: if neither resolves, §3b and §6 relabel nothing (each label
 # violation and node-kind finding is a WARN), and §6 records `Provenance:
 # SKIP (verifier missing; re-install SKF)` with a warning: the files it
 # checks are already written, and no set is compared by hand.
@@ -25,7 +25,7 @@ verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{extractionPatternsData}` to the first existing path. If neither
-# exists, §2 relabels nothing and §6 fixes no node kind: list each label
+# exists, §3b relabels nothing and §6 fixes no node kind: list each label
 # violation and each node-kind finding as a WARN.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
@@ -41,14 +41,14 @@ hashContentProbeOrder:
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
 # Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. HALT if neither resolves — §2's `stats` block and
+# existing path wins. HALT if neither resolves: §3b's `stats` block and
 # `confidence_distribution` are computed values that must not be hand-binned,
 # and this is the same helper sibling create-skill compiles them with.
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 # Resolve `{sourceTreeHelper}` to the first existing path. §9 uses its
-# `advance` subcommand to move the workspace clone to the commit §2
+# `advance` subcommand to move the workspace clone to the commit §3b
 # recorded. If neither path exists, skip the call and continue: it never
 # gates the workflow.
 sourceTreeProbeOrder:
@@ -70,14 +70,14 @@ checkWorkspaceDriftProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
 # Resolve `{buildChangeManifestHelper}` to the first existing path; HALT if
-# neither exists: §3's `apply` writes the provenance map and §2's `metadata`
+# neither exists: §3's `apply` writes the provenance map and §3b's `metadata`
 # call metadata.json, from this run's records, never by hand.
 buildChangeManifestProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
   - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
 # Resolve `{compareDocHashesHelper}` to the first existing path when step 2
 # wrote `{run_dir}/doc-hashes.json` (a docs-only skill); HALT if neither
-# exists: §2 records the changed documents' new hashes with its
+# exists: §3b records the changed documents' new hashes with its
 # `refresh-hashes`, so the next update does not find them changed again.
 compareDocHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
@@ -107,8 +107,8 @@ shardBodyProbeOrder:
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# `{extractPublicApiHelper}`: §2's public API counts, the runner's or those
-# `{entryPointsByHandData}` has it make; if neither exists, §2 halts.
+# `{extractPublicApiHelper}`: §3b's public API counts, the runner's or those
+# `{entryPointsByHandData}` has it make; if neither exists, §3b halts.
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
@@ -200,7 +200,7 @@ SKILL.md was written in step 4 section 6b. Verify the write landed intact before
   - **Outside gap-driven mode** (step 4 §6b created a new version folder): "The previous version at `{skill_group}/{baseline_version}/` is unchanged, and the halt removed `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`, which step 4 created for this update: re-run update-skill."
   - **Gap-driven mode** (the repair edited the current version in place): "The halt restored the package, with its [MANUAL] blocks, its provenance map and evidence report, and the skill brief, from the snapshot step 4 took before its first write: the skill is as it was. Re-run update-skill."
 
-### 2. Write Updated metadata.json
+### 2. Prepare the Write Inputs
 
 **Renew the run lock first:** step 4 §8 may have waited at its gate since step 4 §6b renewed it. From `{project-root}`, run the renewal step 4 §6b ran:
 
@@ -217,25 +217,81 @@ uv run {runLockHelper} acquire \
 
 `{lock_recovery}` is, outside gap-driven mode, "The previous version is unchanged, and the halt removed `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`, which step 4 created for this update: re-run update-skill once no other update of {skill_name} runs." and, in gap-driven mode, "This repair already wrote SKILL.md in place; the halt restored the package and the skill brief from the snapshot step 4 took, so the skill is as it was: re-run update-skill once no other update of {skill_name} runs."
 
-The `metadata` call below writes `{skill_package}/metadata.json`, never by hand:
-- **First, apply any queued `metadata_patches[]`** (staged by merge Priority 8b from gap-driven `metadata update` entries) to `metadata.json`, before §3's `apply` reads it: each surgical patch described in the gap's remediation. The `metadata` call keeps a patch in any field but those its `--help` lists (e.g., `exports_documented`), whose value it writes; apply none to `exports[]`, which §3's `apply` builds from the list it reads. Log each patch the call overwrites, drops (its `dropped_stats`) or you leave out, so a still-stale value surfaces in the report rather than being silently overwritten.
-- **For gap-driven rescopes** (`DELETED_EXPORT` / verification `rescoped`): §3's `apply` drops the removed exports from `exports`, and `stats` recompute from that reduced surface, which the `brief.scope.exclude` + `scope.amendments[]` (`action: "excluded"`) step 4 §6b wrote from gap-driven.md §1's rule R1 justify.
-- `version` is `{new_version}`, the version step 4 §6b chose: **if `update_mode == "gap-driven"`, that is the unchanged version**: the skill is being repaired against the same source commit, so of the fields that mark an update only `generation_date` below changes, and step 4 wrote into the existing version directory (step 1 §6c records no source version in gap-driven mode). Otherwise it is the version whose folder step 4 §6b created: `{source_version_detected}` when step 1 §6c recorded `source_version_detected`, else the next patch version. Never pick another value here: `version` must name the folder `metadata.json` sits in, the one §8 points the `active` link at. From here on `{version}` is `{new_version}`.
+Prepare what §3's `apply` and §3b's `metadata` call read, before either runs:
+- **Apply the queued metadata patches.** When merge Priority 8b wrote `{run_dir}/metadata-patches.json` (gap-driven `metadata update` entries; no file, no patch), set in `{skill_package}/metadata.json`, before §3's `apply` reads it, each field of the `set` of each of its `metadata_patches[]` (`a.b` names a nested field). Leave out a field §3b's `metadata` call writes (its `--help` lists them, e.g., `exports_documented`), whose value it would overwrite, and `exports[]`, which §3's `apply` builds from the list it reads. For each field, append the record `metadata_patch_outcome: {gap_id, field, outcome, why}` to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `metadata_patch_outcome`: `outcome` `applied` with `why` null, or `left-out` with `why` the reason (`the metadata call writes it`, `apply builds exports[]`). §3b adds a `dropped` line for an applied field the call drops, so a still-stale value surfaces in both reports rather than being silently overwritten.
+- `--version "{new_version}"` is the version step 4 §6b chose; never pick another. From here on `{version}` is `{new_version}`.
 - Bind `{generation_date}` ← the current UTC time to the second, read from the clock with `date -u +%Y-%m-%dT%H:%M:%SZ`, never typed: step 1 §4b offers a test report only when it is newer. It is the only update bookkeeping metadata.json carries, in every mode: §3's update operation block records `last_update` and `update_type` in provenance-map.json, and the `metadata` call removes either key an older SKF version left in metadata.json.
-- **Record the source commit** (when `{source_tree_status}` is `ready` or `offline`): pass `--source-commit "{target_commit}"`, the commit every step of this run read, and, when `{target_ref_override}` is set, `--source-ref "{target_ref}"`. The call leaves `source_root` as metadata.json records it: it names the clone SKF keeps for the repository; never write `{source_tree}` or any other path of this run into an artifact. For any other source (a local folder, gap-driven mode, docs-only) pass neither, which keeps both. The in-context `{source_commit}` stays the value init.md §6 read; §9 needs it.
+- **Record the source commit** (when `{source_tree_status}` is `ready` or `offline`): pass `--source-commit "{target_commit}"` to §3b's `metadata` call, the commit every step of this run read, and, when `{target_ref_override}` is set, `--source-ref "{target_ref}"`. The call leaves `source_root` as metadata.json records it: it names the clone SKF keeps for the repository; never write `{source_tree}` or any other path of this run into an artifact. For any other source (a local folder, gap-driven mode, docs-only) pass neither, which keeps both. Bind `{map_source_commit}` ← `{target_commit}` when `{source_tree_status}` is `ready` or `offline`, else the `source_commit` metadata.json records, and `{map_source_ref}` ← `{target_ref}` when `{target_ref_override}` is set, else its `source_ref`, each `""` for a null one: the values §3b's call leaves in metadata.json, which §3's `apply` writes to the map. The in-context `{source_commit}` stays the value init.md §6 read; §9 needs it.
+
+### 3. Write Updated provenance-map.json
+
+Write `{forge_version}/provenance-map.json` with `{buildChangeManifestHelper}` `apply` (resolve it ← first existing path in `{buildChangeManifestProbeOrder}`), never by hand: it reads `{provenance_map_path}`, the map the update started from (init.md §4: the current version's map, else the flat one an older skill keeps in `{forge_data_folder}/{skill_name}/`), and this run's records in `{run_dir}`, and writes the whole updated map through a temporary file and one rename. When step 4 §6b created a new version, `{forge_version}` is its forge folder, which holds a copy of the previous map when there was one, the same bytes `apply` reads: write the whole updated map there, and leave the previous version's map as it was. In a repair `{provenance_map_path}` is the only map there is: `apply` writes the updated map to `{forge_version}`, and a flat map stays as it was. A repair of a skill whose forge data is flat (init.md §4 bound the flat map) may find no forge folder for its version, and `apply` writes only into a folder that exists. In gap-driven mode, first create it, as report.md §5b does. From `{project-root}`, run:
+
+```bash
+mkdir -p "{forge_version}"
+```
+
+On a non-zero exit, HALT with status `halted-for-write-failure` before `apply` runs: display "**The forge folder of this version of {skill_name} could not be created** at `{forge_version}`: {its stderr}. This repair already wrote SKILL.md in place; the halt restored the package and the skill brief from the snapshot step 4 took, so the skill is as it was. Make `{forge_data_folder}/{skill_name}/` writable, or move what is at `{forge_version}` out of the way, then re-run update-skill." The halt procedure takes `phase: "write:provenance-map"`, `path: "{forge_version}"`, `reason: "forge-folder-not-created: <its stderr>"`. Then, in a repair whose `{provenance_map_path}` is the flat map, copy into `{forge_version}` each of `evidence-report.md` and `extraction-rules.yaml` from `{forge_data_folder}/{skill_name}/` when it is there and `{forge_version}` does not hold it yet. Copy, never move: the flat files stay as they are, and a file `{forge_version}` already holds is never overwritten. §4 appends this update to the evidence report there; the extraction rules record how the skill was extracted. When a copy fails, HALT with the same status and phase, `path: "{forge_version}/<the file>"` and `reason: "forge-file-not-copied: <its error>"`. A later halt removes the map and evidence report this run writes or copies there, which `begin` found absent, and leaves the folder empty but for a copied `extraction-rules.yaml`, a copy of the flat file and harmless; every reader looks for a file in it and falls back to the flat one, so an empty folder reads as none. Then, from `{project-root}`, run:
+
+```bash
+uv run {buildChangeManifestHelper} apply \
+    --update-type "{update_type}" \
+    [--provenance-map "{provenance_map_path}"] \
+    [--manifest "{run_dir}/change-manifest.json"] \
+    [--category-c "{run_dir}/category-c.json"] \
+    [--ccc-pairs "{run_dir}/ccc-pairs.json"] \
+    [--extraction "{run_dir}/extraction.json"] \
+    [--export-details "{run_dir}/export-details.json"] \
+    [--reextract-records "{run_dir}/reextract-records.json"] \
+    [--merge-records "{run_dir}/merge-records.json"] \
+    [--file-compare "{run_dir}/category-d-compare.json"] \
+    [--new-files "{run_dir}/new-files.json"] \
+    [--promoted-docs "{run_dir}/promoted-docs.json"] \
+    [--source-root "{source_root}"] \
+    --skill-name "{skill_name}" \
+    --generation-date "{generation_date}" \
+    [--test-report-run-id "{test_report_run_id}"] \
+    --confidence-tier "{forge_tier}" \
+    --manual-sections-preserved "{manual_sections_preserved}" \
+    --source-commit "{map_source_commit}" \
+    --source-ref "{map_source_ref}" \
+    [--drift-head "{head_short_sha}" --drift-pinned "{pinned_short_sha}"] \
+    --metadata-in "{skill_package}/metadata.json" \
+    --lists-out "{run_dir}/metadata-lists.json" \
+    -o "{forge_version}/provenance-map.json" \
+    > "{run_dir}/apply.json"
+```
+
+`{update_type}` follows the run's mode as report.md §2 names it (`{update_mode}`): `incremental` for `normal`, `gap-driven` for `gap-driven`, `full` for `degraded` (a degraded run has no map: leave out `--provenance-map`, and `apply` starts a new one). Pass each `{run_dir}` file the run wrote: the change manifest and the records in every mode, `category-c.json` and `ccc-pairs.json` (step 2's Category C and its CCC check), `extraction.json` and `export-details.json` when step 2 wrote them, `merge-records.json` when step 4 did, the Category D files (`category-d-compare.json`, and `new-files.json` when step 2 wrote it: a skill with no brief has none) with `--source-root` when step 2 ran Category D, and `promoted-docs.json` when step 2 §1b wrote it. `{generation_date}` is the value §2 bound, `--test-report-run-id` goes only with a gap-driven run (the `{test_report_run_id}` of the report it applied), `{manual_sections_preserved}` is `len(preserved) + len(moved)` from the §1 `manual-verify` verdict (never a marker count), and `{map_source_commit}` and `{map_source_ref}` are the values §2 bound, the `source_commit` and `source_ref` §3b's `metadata` call leaves in `metadata.json` (an empty string for a null one): audit-skill reads its baseline commit from the map's top-level `source_commit` and `source_ref`. Pass `--drift-head` and `--drift-pinned` only when `{workspace_drift_status}` is `overridden` (gap-driven.md §3). Pass `--metadata-in` and `--lists-out` in every mode: `apply` writes there the lists §3b's `metadata` call reads. Every entry `apply` writes carries `signature_source`, which §3b's stats helper bins (an entry the map held with none, or with a value other than `T1`, `T1-low`, `T2` or `T3`, as a map written before the key existed does, takes its `confidence` when that is `T1-low`, `T2` or `T3`, else `T1` when its `extraction_method` is `ast-grep` or `ast_bridge`, else `T1-low`), and `apply` sets the map's update operation block (`"last_update"`, `"update_type"` and its other keys), replacing an earlier update's.
+
+Dispatch on its exit code:
+
+- **0:** it printed `{status: "written", entries, not_public, relabeled, signature_source_backfilled, file_entries, warnings, map}` to `{run_dir}/apply.json`. Bind `{provenance_spot_check_warnings}` ← its `warnings`, and add each to `warnings[]`, recording them in one call, from `{project-root}`: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/apply.json"`; the update report lists each as a WARN (report.md §2). In gap-driven mode a `NEW_EXPORT` or `MODIFIED_EXPORT` the map holds whose spot-check ended `missing` or `unknown` keeps its entry unchanged, whatever its severity, with one of these warnings, which names the cause of an `unknown` (several map entries of its name, no definition line or several at the entry, a file no rule covers, a failed or skipped check, a citation of another file than the map's entries of its name); for a blocking gap (any severity but `Medium`, `Low` or `Info`) it also names the gap and the one fix a re-run acts on (gap-driven.md §4 bullet 1): fix the entry by hand, or, for several entries of its name, give the gap a `file:line` Source at the definition when that file holds only one of them, then re-run update-skill. A `cited-elsewhere` gap, whatever its severity, takes its own warning and fix in their place (gap-driven.md §4 bullet 1). A rule R5 `MOVED_EXPORT` whose map entry's file is gone keeps its entry unchanged too, whatever its severity, with a warning that names the file and the hand fix. An `outside-scope` gap (the skill brief's scope leaves out the file it names), whatever its severity, adds no entry, a placeholder included, and is never refused, with its own warning, which names the files left out and the fix: when the skill covers that file, change the brief's scope so it takes it (its `scope.include` or `scope.exclude`), then re-run update-skill; otherwise re-run Test Skill (gap-driven.md §4 bullet 1). `not_public` lists, `{name, file}`, each new export of a `public-api` skill it did not add in normal mode as off the public surface (the `public: false` mark of `reextract-records.json`, else the same rule over the `scope.type` and `entry_point_diff` of `extraction.json`), and one of its `warnings` counts them. When `extraction.json` names `public-api` but gives no surface the rule can read (Quick tier, a runner failure, an incomplete run), it adds every name, with one warning that says so. `relabeled` lists, `{name, file, from, to}`, each entry whose `signature_source` a gap-driven repair changed when it wrote the signature §4a's record gave (a record read by eye moves an `ast-grep` entry from T1 to T1-low), each with one of its `warnings`: §3b adds each name to `{provenance_relabels}`. `signature_source_backfilled` counts, by value, the entries it gave a `signature_source` because they lacked or held an unrecognized one (`{"T1-low": 2}`, `{}` when none), with one of its `warnings`, which also lists each unrecognized value it replaced (`name: old -> new`); it does not list them in `entries.updated`. In a map naming several libraries, one of its `warnings` counts and names each new entry it gave the map's first `source_library` because the entry's file or folder did not settle which (`<name> in <file>`, or `<name> (no file)`): check that entry's `source_library` in `{forge_version}/provenance-map.json` and correct it by hand when it names the wrong library.
+- **3** (`status` `refused`): a blocking gap reached the provenance write with no source line (`blocking_unresolved[]`: a `NEW_EXPORT` the map does not hold, `unknown` for any cause but `outside-scope`, with a severity other than `Medium`, `Low` or `Info`, a missing one included). gap-driven.md §4 sends every such gap to its §4a and halts with `halted-for-remediation-path` before merge when §4a does not find it, so this happens only when that check was skipped or bypassed: `apply` wrote nothing, and no null citation is written. HALT with status `blocked` and write no `metadata.json`, `provenance-map.json` or other artifact. Tell the user: "**A blocking gap reached the provenance write with no source line:** {each export name, with its severity or "no severity"}. gap-driven.md §4 should have stopped on it with `halted-for-remediation-path`. The halt restored SKILL.md and references/ from the snapshot step 4 took; give each gap a `file:line` Source or name the file that defines its export in its Remediation (or downgrade it to Medium, Low or Info), then re-run update-skill." The halt procedure takes `phase: "write:provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "blocking-gap-unresolved: {export names}: gap-driven.md §4 should have halted with halted-for-remediation-path"`.
+- **Exit 1, no JSON, or no candidate resolves:** HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "<its stderr, or skf-build-change-manifest.py is missing; re-install SKF>"`).
+
+**For script/asset file changes:** `apply` updates the rows; copy or remove the files themselves in `{skill_package}`, each path the change manifest's `category_d` lists: a `scripts_*` path under `scripts/`, an `assets_*` path under `assets/`:
+- MODIFIED_FILE (`*_modified`): copy the file from `{source_root}` (the row's `content_hash` is updated by `apply`)
+- DELETED_FILE (`*_deleted`): remove the file
+- NEW_FILE (`*_added`): copy the file from `{source_root}` (`apply` adds its row)
+- A `docs_*` path is source-tracked, never bundled: copy and remove nothing for it.
+
+### 3b. Write Updated metadata.json
+
+The `metadata` call below writes `{skill_package}/metadata.json` from the map and the lists §3's `apply` wrote, never by hand:
 - **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins): the same helper sibling create-skill compiles them with, so create and update emit byte-identical stats for identical inputs. The helper owns all the arithmetic: it bins each provenance `entries[]` row once by its `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`, sets `exports_documented` = the entry count for the library shape (for a reference app, the Pattern Surface row count; see **Shape** below), and derives `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), plus `scripts_count` / `assets_count` from the inventory arrays. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. You supply only the payload:
 
   **Payload (passed as JSON on stdin):**
   - `exports_public_api` and `exports_internal`, unless the drift override below applies. At Quick tier, count them by `{entryPointsByHandData}`, as create-skill does, and pass the `counts` of `{run_dir}/denominator.json`. Otherwise, from `{project-root}`, run `uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] [--language "{language}"] [--scope-type "{scope_type}"] --head-cap 0 -o "{run_dir}/public-api.json"` once over the whole scope (no `--files-from`), with the longest timeout your shell tool takes (a large tree takes minutes), as create-skill's extract.md §4 does, and pass its `counts.exports_public_api` and `counts.exports_internal`, as its compile.md §4 does. Pass `--brief` when that file exists (step 4 §6b wrote a rescope's amendment into it), and `--language` and `--scope-type` when metadata.json records them. On exit 1 (`incomplete`) run it once more. In gap-driven mode, gap-driven.md §4 already ran it over the same scope when it wrote `{run_dir}/public-api.json` with `status` `ok` and `counts.rescoped` of `{run_dir}/gap-records.json` is 0 (no rescope amended that scope): then read that JSON as this bullet says instead of running it again. When its `files_without_recipes` is not empty (in-scope files no recipe reads), count those files' entry points' names by steps 2 to 4 of `{entryPointsByHandData}`, with `--extraction "{run_dir}/public-api.json"`, as create-skill's extract.md §4b does, and pass the `counts` of `{run_dir}/denominator.json` in place of the runner's: they hold its names. Still incomplete, or on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count them by `{entryPointsByHandData}` and pass the `counts` of `{run_dir}/denominator.json`. On exit 2 (an input error, such as a skill brief it cannot read, or a failure it did not foresee), also add `public-api-counted-by-hand: {line}` to `warnings[]`, `{line}` being the stderr line that holds `error:`, recorded as **Warnings go to the run log** says, and show it to the user: the runner should have made these counts. When a call of `{entryPointsByHandData}` fails as its step 4 says, HALT with status `blocked` (halt procedure: `phase: "write:public-api"`, its `error:` line, or the helper that does not resolve, as `reason`). A docs-only skill has no tree to count: pass the values metadata.json records, as the drift override does.
   - `effective_denominator`: the `counts.effective_denominator` of the JSON whose two counts you passed above, when its `counts.effective_denominator_decision.store` is true and the skill brief's `scope.notes` documents the stratification: `skf-extract-public-api.py` decides `store` as it does for create-skill, so the count follows the source and the brief this update read. Under the drift override, and for a docs-only skill, pass the value `stats.effective_denominator` records once the queued `metadata_patches[]` are applied, when it records one. Otherwise leave it out, and `metadata.json` keeps no `stats.effective_denominator`: remove one an earlier run recorded.
-  - `scripts` / `assets`: the scripts / assets inventory arrays (or `[]` when empty) — the helper sets `scripts_count` / `assets_count` from their lengths
+  - `scripts` / `assets`: the scripts / assets inventory arrays (or `[]` when empty); the helper sets `scripts_count` / `assets_count` from their lengths
   - `pattern_surfaces_documented` (reference app only): none in the payload, and never typed. `--skill-md "{skill_package}/SKILL.md"` has the helper count the data rows of the merged SKILL.md's `## Pattern Surface` tables, as create-skill's compile.md §4 has it do. The helper uses the count as `exports_documented` and emits it as `stats.pattern_surfaces_documented`, the count test-skill measures a reference app's coverage by.
 
   **Public API counts under the drift override** (`{workspace_drift_status}` is `overridden`, gap-driven.md §3): count nothing at `{source_root}`, which is HEAD, not the pinned commit. Pass as `exports_public_api` and `exports_internal` the values `{skill_package}/metadata.json` records in `stats` once the queued `metadata_patches[]` above are applied (0 for one it does not record, with a WARN).
 
   **Shape:** read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it (create-skill records the brief's `scope.type` there). When it is `reference-app`, pass `--shape reference-app` and `--skill-md "{skill_package}/SKILL.md"`, which counts `pattern_surfaces_documented`, as create-skill's compile.md §4 does; for any other `scope_type`, or none, pass no `--shape` (the helper's default, the library shape).
 
-  **Invoke**: the helper reads `entries[]`, so run §3's `apply` first; the scripts / assets inventory arrays are the `scripts` and `assets` lists it wrote to `{run_dir}/metadata-lists.json`:
+  **Invoke**: the helper reads the `entries[]` of the map §3's `apply` wrote; the scripts / assets inventory arrays are the `scripts` and `assets` lists `apply` wrote to `{run_dir}/metadata-lists.json`:
 
   ```bash
   echo '{"exports_public_api": {N}, "exports_internal": {M}, "scripts": {scripts-inventory-or-[]}, "assets": {assets-inventory-or-[]}}' \
@@ -280,7 +336,7 @@ The `metadata` call below writes `{skill_package}/metadata.json`, never by hand:
       [--source-commit "{target_commit}"] [--source-ref "{target_ref}"]
   ```
 
-  It sets `tool_versions` to the toolchain this run used, as create-skill stamps it: `skf` read from the installed SKF under `--skf-root`, `ast_grep` from the `ast_grep.version` of `--extraction`, `qmd` from `--qmd-version`; a tool this run did not use keeps the version metadata.json records. Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`, and `--qmd-version` when re-extract.md §3 queried QMD and bound `{qmd_version}`. When the `effective_denominator` this run stores differs from the one metadata.json records, or only one of them has one, it drops each `effective_denominator_*` stats key, which explained the old count; `dropped_stats` lists each key it drops, a stats helper field this run's stats left out included. On exit 0, add each of its `warnings` to `warnings[]`, recorded as **Warnings go to the run log** says, so the report lists each dropped key, each `unknown` tool version and each stats key create-skill does not write that an earlier run left. Leave out only a warning that a stats key was `kept from an earlier run` when this run's `metadata_patches[]` wrote that key; a dropped key's warning always goes to `warnings[]`.
+  It sets `tool_versions` to the toolchain this run used, as create-skill stamps it: `skf` read from the installed SKF under `--skf-root`, `ast_grep` from the `ast_grep.version` of `--extraction`, `qmd` from `--qmd-version`; a tool this run did not use keeps the version metadata.json records. Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`, and `--qmd-version` when re-extract.md §3 queried QMD and bound `{qmd_version}`. Pass `--source-commit` and `--source-ref` as §2's **Record the source commit** says. When the `effective_denominator` this run stores differs from the one metadata.json records, or only one of them has one, it drops each `effective_denominator_*` stats key, which explained the old count; `dropped_stats` lists each key it drops, a stats helper field this run's stats left out included. On exit 0, add each of its `warnings` to `warnings[]`, recorded as **Warnings go to the run log** says, so the report lists each dropped key, each `unknown` tool version and each stats key create-skill does not write that an earlier run left. Leave out only a warning that a stats key was `kept from an earlier run` when this run's `metadata_patches[]` wrote that key; a dropped key's warning always goes to `warnings[]`. Then, for each `stats.<key>` field §2 applied (its `metadata_patch_outcome` line reads `applied`) whose `<key>` the call's `dropped_stats` names, append one more `metadata_patch_outcome` line to `{run_dir}/evidence-records.jsonl`, with `outcome` `dropped` and `why` `the metadata call dropped it`, under the `gap_id` and `field` of that `applied` line.
 
   On exit 1, fix the input its stderr names and run it again; when it fails again, prints no JSON or no candidate resolves, HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:metadata"`, `path: "{skill_package}/metadata.json"`, `reason: "<its stderr>"`).
 
@@ -291,60 +347,6 @@ uv run {compareDocHashesHelper} refresh-hashes "{skill_package}/metadata.json" -
 ```
 
 It sets the `content_hash` and `recorded_at` of each `doc_sources[]` entry whose URL is in the comparison's `changed[]`, keeps every other entry and field, and rewrites `metadata.json` through one rename: never edit `doc_sources` by hand. On exit 2, no JSON, or no candidate resolves: HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:doc-sources"`, `path: "{skill_package}/metadata.json"`, `reason: "<its error, or skf-detect-docs.py is missing; re-install SKF>"`).
-
-### 3. Write Updated provenance-map.json
-
-Write `{forge_version}/provenance-map.json` with `{buildChangeManifestHelper}` `apply` (resolve it ← first existing path in `{buildChangeManifestProbeOrder}`), never by hand: it reads `{provenance_map_path}`, the map the update started from (init.md §4: the current version's map, else the flat one an older skill keeps in `{forge_data_folder}/{skill_name}/`), and this run's records in `{run_dir}`, and writes the whole updated map through a temporary file and one rename. When step 4 §6b created a new version, `{forge_version}` is its forge folder, which holds a copy of the previous map when there was one, the same bytes `apply` reads: write the whole updated map there, and leave the previous version's map as it was. In a repair `{provenance_map_path}` is the only map there is: `apply` writes the updated map to `{forge_version}`, and a flat map stays as it was. A repair of a skill whose forge data is flat (init.md §4 bound the flat map) may find no forge folder for its version, and `apply` writes only into a folder that exists. In gap-driven mode, first create it, as report.md §5b does. From `{project-root}`, run:
-
-```bash
-mkdir -p "{forge_version}"
-```
-
-On a non-zero exit, HALT with status `halted-for-write-failure` before `apply` runs: display "**The forge folder of this version of {skill_name} could not be created** at `{forge_version}`: {its stderr}. This repair already wrote SKILL.md in place; the halt restored the package and the skill brief from the snapshot step 4 took, so the skill is as it was. Make `{forge_data_folder}/{skill_name}/` writable, or move what is at `{forge_version}` out of the way, then re-run update-skill." The halt procedure takes `phase: "write:provenance-map"`, `path: "{forge_version}"`, `reason: "forge-folder-not-created: <its stderr>"`. Then, in a repair whose `{provenance_map_path}` is the flat map, copy into `{forge_version}` each of `evidence-report.md` and `extraction-rules.yaml` from `{forge_data_folder}/{skill_name}/` when it is there and `{forge_version}` does not hold it yet. Copy, never move: the flat files stay as they are, and a file `{forge_version}` already holds is never overwritten. §4 appends this update to the evidence report there; the extraction rules record how the skill was extracted. When a copy fails, HALT with the same status and phase, `path: "{forge_version}/<the file>"` and `reason: "forge-file-not-copied: <its error>"`. A later halt removes the map and evidence report this run writes or copies there, which `begin` found absent, and leaves the folder empty but for a copied `extraction-rules.yaml`, a copy of the flat file and harmless; every reader looks for a file in it and falls back to the flat one, so an empty folder reads as none. Then, from `{project-root}`, run:
-
-```bash
-uv run {buildChangeManifestHelper} apply \
-    --update-type "{update_type}" \
-    [--provenance-map "{provenance_map_path}"] \
-    [--manifest "{run_dir}/change-manifest.json"] \
-    [--category-c "{run_dir}/category-c.json"] \
-    [--ccc-pairs "{run_dir}/ccc-pairs.json"] \
-    [--extraction "{run_dir}/extraction.json"] \
-    [--export-details "{run_dir}/export-details.json"] \
-    [--reextract-records "{run_dir}/reextract-records.json"] \
-    [--merge-records "{run_dir}/merge-records.json"] \
-    [--file-compare "{run_dir}/category-d-compare.json"] \
-    [--new-files "{run_dir}/new-files.json"] \
-    [--promoted-docs "{run_dir}/promoted-docs.json"] \
-    [--source-root "{source_root}"] \
-    --skill-name "{skill_name}" \
-    --generation-date "{generation_date}" \
-    [--test-report-run-id "{test_report_run_id}"] \
-    --confidence-tier "{forge_tier}" \
-    --manual-sections-preserved "{manual_sections_preserved}" \
-    --source-commit "{map_source_commit}" \
-    --source-ref "{map_source_ref}" \
-    [--drift-head "{head_short_sha}" --drift-pinned "{pinned_short_sha}"] \
-    --not-public-out "{run_dir}/not-public.json" \
-    --metadata-in "{skill_package}/metadata.json" \
-    --lists-out "{run_dir}/metadata-lists.json" \
-    -o "{forge_version}/provenance-map.json" \
-    > "{run_dir}/apply.json"
-```
-
-`{update_type}` follows the run's mode as report.md §2 names it (`{update_mode}`): `incremental` for `normal`, `gap-driven` for `gap-driven`, `full` for `degraded` (a degraded run has no map: leave out `--provenance-map`, and `apply` starts a new one). Pass each `{run_dir}` file the run wrote: the change manifest and the records in every mode, `category-c.json` and `ccc-pairs.json` (step 2's Category C and its CCC check), `extraction.json` and `export-details.json` when step 2 wrote them, `merge-records.json` when step 4 did, the Category D files (`category-d-compare.json`, and `new-files.json` when step 2 wrote it: a skill with no brief has none) with `--source-root` when step 2 ran Category D, and `promoted-docs.json` when step 2 §1b wrote it. `{generation_date}` is the value §2 bound, `--test-report-run-id` goes only with a gap-driven run (the `{test_report_run_id}` of the report it applied), `{manual_sections_preserved}` is `len(preserved) + len(moved)` from the §1 `manual-verify` verdict (never a marker count), and `{map_source_commit}` and `{map_source_ref}` are the `source_commit` and `source_ref` §2 writes to `metadata.json` (an empty string for a null one): audit-skill reads its baseline commit from the map's top-level `source_commit` and `source_ref`. Pass `--drift-head` and `--drift-pinned` only when `{workspace_drift_status}` is `overridden` (gap-driven.md §3). Pass `--metadata-in` and `--lists-out` in every mode: `apply` writes there the lists §2's `metadata` call reads. Every entry `apply` writes carries `signature_source`, which §2's stats helper bins (an entry the map held with none, or with a value other than `T1`, `T1-low`, `T2` or `T3`, as a map written before the key existed does, takes its `confidence` when that is `T1-low`, `T2` or `T3`, else `T1` when its `extraction_method` is `ast-grep` or `ast_bridge`, else `T1-low`), and `apply` sets the map's update operation block (`"last_update"`, `"update_type"` and its other keys), replacing an earlier update's.
-
-Dispatch on its exit code:
-
-- **0:** it printed `{status: "written", entries, not_public, relabeled, signature_source_backfilled, file_entries, warnings, map}` to `{run_dir}/apply.json`. Bind `{provenance_spot_check_warnings}` ← its `warnings`, and add each to `warnings[]`, recording them in one call, from `{project-root}`: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/apply.json"`; the update report lists each as a WARN (report.md §2). In gap-driven mode a `NEW_EXPORT` or `MODIFIED_EXPORT` the map holds whose spot-check ended `missing` or `unknown` keeps its entry unchanged, whatever its severity, with one of these warnings, which names the cause of an `unknown` (several map entries of its name, no definition line or several at the entry, a file no rule covers, a failed or skipped check, a citation of another file than the map's entries of its name); for a blocking gap (any severity but `Medium`, `Low` or `Info`) it also names the gap and the one fix a re-run acts on (gap-driven.md §4 bullet 1): fix the entry by hand, or, for several entries of its name, give the gap a `file:line` Source at the definition when that file holds only one of them, then re-run update-skill. A `cited-elsewhere` gap, whatever its severity, takes its own warning and fix in their place (gap-driven.md §4 bullet 1). A rule R5 `MOVED_EXPORT` whose map entry's file is gone keeps its entry unchanged too, whatever its severity, with a warning that names the file and the hand fix. An `outside-scope` gap (the skill brief's scope leaves out the file it names), whatever its severity, adds no entry, a placeholder included, and is never refused, with its own warning, which names the files left out and the fix: when the skill covers that file, change the brief's scope so it takes it (its `scope.include` or `scope.exclude`), then re-run update-skill; otherwise re-run Test Skill (gap-driven.md §4 bullet 1). `not_public` lists, `{name, file}`, each new export of a `public-api` skill it did not add in normal mode as off the public surface (the `public: false` mark of `reextract-records.json`, else the same rule over the `scope.type` and `entry_point_diff` of `extraction.json`), and one of its `warnings` counts them; it also wrote that list to `{run_dir}/not-public.json` (`[]` when it left none out). When `extraction.json` names `public-api` but gives no surface the rule can read (Quick tier, a runner failure, an incomplete run), it adds every name, with one warning that says so. `relabeled` lists, `{name, file, from, to}`, each entry whose `signature_source` a gap-driven repair changed when it wrote the signature §4a's record gave (a record read by eye moves an `ast-grep` entry from T1 to T1-low), each with one of its `warnings`: §2 adds each name to `{provenance_relabels}`. `signature_source_backfilled` counts, by value, the entries it gave a `signature_source` because they lacked or held an unrecognized one (`{"T1-low": 2}`, `{}` when none), with one of its `warnings`, which also lists each unrecognized value it replaced (`name: old -> new`); it does not list them in `entries.updated`. In a map naming several libraries, one of its `warnings` counts and names each new entry it gave the map's first `source_library` because the entry's file or folder did not settle which (`<name> in <file>`, or `<name> (no file)`): check that entry's `source_library` in `{forge_version}/provenance-map.json` and correct it by hand when it names the wrong library.
-- **3** (`status` `refused`): a blocking gap reached the provenance write with no source line (`blocking_unresolved[]`: a `NEW_EXPORT` the map does not hold, `unknown` for any cause but `outside-scope`, with a severity other than `Medium`, `Low` or `Info`, a missing one included). gap-driven.md §4 sends every such gap to its §4a and halts with `halted-for-remediation-path` before merge when §4a does not find it, so this happens only when that check was skipped or bypassed: `apply` wrote nothing, and no null citation is written. HALT with status `blocked` and write no `metadata.json`, `provenance-map.json` or other artifact. Tell the user: "**A blocking gap reached the provenance write with no source line:** {each export name, with its severity or "no severity"}. gap-driven.md §4 should have stopped on it with `halted-for-remediation-path`. The halt restored SKILL.md and references/ from the snapshot step 4 took; give each gap a `file:line` Source or name the file that defines its export in its Remediation (or downgrade it to Medium, Low or Info), then re-run update-skill." The halt procedure takes `phase: "write:provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "blocking-gap-unresolved: {export names}: gap-driven.md §4 should have halted with halted-for-remediation-path"`.
-- **Exit 1, no JSON, or no candidate resolves:** HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "<its stderr, or skf-build-change-manifest.py is missing; re-install SKF>"`).
-
-**For script/asset file changes:** `apply` updates the rows; copy or remove the files themselves in `{skill_package}`, each path the change manifest's `category_d` lists: a `scripts_*` path under `scripts/`, an `assets_*` path under `assets/`:
-- MODIFIED_FILE (`*_modified`): copy the file from `{source_root}` (the row's `content_hash` is updated by `apply`)
-- DELETED_FILE (`*_deleted`): remove the file
-- NEW_FILE (`*_added`): copy the file from `{source_root}` (`apply` adds its row)
-- A `docs_*` path is source-tracked, never bundled: copy and remove nothing for it.
 
 ### 4. Write Updated evidence-report.md
 
@@ -377,6 +379,12 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Scope reconciliation after detection: {scope_reconciliation_post, or none}
 - Targeted re-extraction: {targeted_reextraction, or none}
 
+### Repairs Applied
+- Structural fixes: {structural_fix, or none}
+- Metadata patches: {metadata_patch, or none}
+- Metadata patch outcomes: {metadata_patch_outcome, or none}
+- Reclassified exports: {reclassified, or none}
+
 ### Validation Summary
 - Spec compliance: {PASS/WARN/FAIL/SKIP} (quality score {score}/100)
 - Body split: {each section §7 moved and the references/ file it added, or none}
@@ -400,7 +408,9 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Scope and Targeted Re-Extraction population:** read `{run_dir}/evidence-records.jsonl`, where step 2 (§1b, §1c and §2.2) and gap-driven.md §4 appended their records, one JSON line each. Write each record under its key as it was recorded, and `none` for a key no line holds (or when the file does not exist), so a headless decision such as a deletion-ratio continue stays visible after the run.
 
-**Validation Summary population:** §4 writes `[MANUAL] integrity` from §1's `manual-verify` verdict (`PASS` when `ok`) and `Confidence tiers` from §2 (`PASS` when the stats helper reported no label violation, else `WARN` naming `{provenance_relabels}`), with placeholders for the rest. §6 fills `Provenance`, and §7 fills `Spec compliance`, `Diff` and `Security`, and `Body split` (`none` when no split ran), each in the on-disk report, as §5 fills the Context Snippet sub-block.
+**Repairs Applied population:** read the same file's `structural_fix` and `metadata_patch` lines (merge Priorities 8 and 8b), its `metadata_patch_outcome` lines (§2 and §3b) and its `reclassified` lines (gap-driven.md §4): only a gap-driven repair appends them. Write each line under its row as it was recorded, one item per line, and `none` for a row no line holds (or when the file does not exist), so each fix, patch and reclassified export the repair made reaches the user.
+
+**Validation Summary population:** §4 writes `[MANUAL] integrity` from §1's `manual-verify` verdict (`PASS` when `ok`) and `Confidence tiers` from §3b (`PASS` when the stats helper reported no label violation, else `WARN` naming `{provenance_relabels}`), with placeholders for the rest. §6 fills `Provenance`, and §7 fills `Spec compliance`, `Diff` and `Security`, and `Body split` (`none` when no split ran), each in the on-disk report, as §5 fills the Context Snippet sub-block.
 
 **Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, and what changed, based on the recorded `description_guard_diff_kind`). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state — except when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule): then set `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`, so a refused restore is distinguishable from a run where the guard never fired. Same field semantics and populator logic as create-skill step 6 §8.
 
@@ -415,7 +425,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 **Staleness triggers:** run the two `gotchas` calls of the regeneration paragraph below first, before you check any trigger: `gotchas prior` binds the `prior_api` the **Headline exports changed** ranking starts from, and `gotchas resolve` returns the line **Gotchas changed** compares. When no trigger fires, nothing is written from them.
 
 - **Headline exports changed**: the api names `skf-export-skill/references/generate-snippet.md` §3b ranks for this run differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, or a `NEW_EXPORT` took a free slot). In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it deprecated or removed: a line that differs by the ranking alone (its order, a free slot or the tier's limit) waits for the next export.
-- **Version changed** — §2 bumped `version` (normal mode with detected source drift; never fires in gap-driven mode per §2's carve-out).
+- **Version changed**: §3b's `metadata` call wrote a version other than the one the run started from (never in gap-driven mode, which keeps its version, step 4 §6b).
 - **Gotchas changed**: the `line` `gotchas resolve` returned (`skf-export-skill/references/generate-snippet.md` §3a, from the merged SKILL.md and this run's evidence report: at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, `[CARRIED]` markers aside.
 - **Anchors changed**: the prior snippet's `|quick-start:` or `|key-types:` anchor differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md (an anchor points into `references/` although SKILL.md has the heading, or a heading moved). Record it as `anchors` in `Triggers fired`.
 
@@ -433,7 +443,7 @@ Write the regenerated snippet to `{skill_package}/context-snippet.md`, preservin
 
 ### 6. Provenance Completeness
 
-Provenance completeness is a deterministic set-diff plus citation resolution over `metadata.json` (§2) and `provenance-map.json` (§3). Run it against the just-written artifacts via `{verifyProvenanceCompletenessHelper}`:
+Provenance completeness is a deterministic set-diff plus citation resolution over `metadata.json` (§3b) and `provenance-map.json` (§3). Run it against the just-written artifacts via `{verifyProvenanceCompletenessHelper}`:
 
 ```bash
 uv run {verifyProvenanceCompletenessHelper} verify \
@@ -445,7 +455,7 @@ uv run {verifyProvenanceCompletenessHelper} verify \
     -o "{forge_data_folder}/{skill_name}/.skf-update-verify.json"
 ```
 
-The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_root}` is null, empty or a URL (a docs-only skill), leave out the `--source-root` line: an empty flag value fails the helper's arguments, and the citation check must still run. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 7 removes it), so citations resolve against the commit §2 recorded. It writes its JSON to `{forge_data_folder}/{skill_name}/.skf-update-verify.json`, beside the §1b lock (each run overwrites it). **Read that JSON and do NOT recompute the set operations by eye, since an LLM set-diff can silently pass a dropped or orphaned entry:**
+The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_root}` is null, empty or a URL (a docs-only skill), leave out the `--source-root` line: an empty flag value fails the helper's arguments, and the citation check must still run. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 7 removes it), so citations resolve against the commit §3b recorded. It writes its JSON to `{forge_data_folder}/{skill_name}/.skf-update-verify.json`, beside the §1b lock (each run overwrites it). **Read that JSON and do NOT recompute the set operations by eye, since an LLM set-diff can silently pass a dropped or orphaned entry:**
 
 - `missing[]` — documented exports (metadata `exports[]`) with no provenance entry: a coverage gap.
 - `orphaned[]` — provenance `entries[].export_name` whose export was removed but the entry remains.
@@ -572,7 +582,7 @@ For each exit-2 halt, the halt procedure takes `phase: "write:active-symlink"`, 
 
 ### 8a. Verify the Active Symlink
 
-Check, read-only, that the `active` link resolves to the version §2 wrote to `metadata.json`, in every mode (consumers that do not read the export manifest fall back to the link, `knowledge/version-paths.md` §Reading Workflows step 5):
+Check, read-only, that the `active` link resolves to the version §3b wrote to `metadata.json`, in every mode (consumers that do not read the export manifest fall back to the link, `knowledge/version-paths.md` §Reading Workflows step 5):
 
 ```bash
 uv run {updateActiveSymlinkHelper} verify \
@@ -586,7 +596,7 @@ On `ok` (exit 0), continue to §9. On any other exit, or no JSON on stdout (exit
 
 ### 9. Move the Workspace Clone to the Recorded Commit
 
-Run only when `{source_tree_status}` is `ready` and `{workspace_clone}` is not null. test-skill and audit-skill read the skill's source from metadata.json `source_root`, the clone SKF keeps for this repository, and test-skill compares its HEAD with the `source_commit` §2 just wrote. From `{project-root}`, resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`, `{cccGitHygieneHelper}` ← first existing path in `{cccGitHygieneProbeOrder}` and `{checkWorkspaceDriftHelper}` ← first existing path in `{checkWorkspaceDriftProbeOrder}`, then run:
+Run only when `{source_tree_status}` is `ready` and `{workspace_clone}` is not null. test-skill and audit-skill read the skill's source from metadata.json `source_root`, the clone SKF keeps for this repository, and test-skill compares its HEAD with the `source_commit` §3b just wrote. From `{project-root}`, resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`, `{cccGitHygieneHelper}` ← first existing path in `{cccGitHygieneProbeOrder}` and `{checkWorkspaceDriftHelper}` ← first existing path in `{checkWorkspaceDriftProbeOrder}`, then run:
 
 ```bash
 uv run {sourceTreeHelper} advance \
@@ -601,7 +611,7 @@ uv run {sourceTreeHelper} advance \
     [--drift-helper "{checkWorkspaceDriftHelper}"]
 ```
 
-Pass `--hygiene-helper` and `--drift-helper` only when they resolved. `{source_commit}` is the commit init.md §6 read from metadata.json, before §2 recorded `{target_commit}`, and `{tree_timeout}` is the time limit init.md §6b chose: the helper stops itself within it.
+Pass `--hygiene-helper` and `--drift-helper` only when they resolved. `{source_commit}` is the commit init.md §6 read from metadata.json, before §3b recorded `{target_commit}`, and `{tree_timeout}` is the time limit init.md §6b chose: the helper stops itself within it.
 
 The helper takes the clone's `.skf-workspace.lock`, the lock create-skill also takes, waiting up to a minute, and runs the git hygiene check inside it. It then does nothing when the clone already holds `{target_commit}`; otherwise it moves the clone there only when `{checkWorkspaceDriftHelper}` confirms the clone still holds `{source_commit}` and no tracked file has local changes, taking the commit from `{source_tree}` rather than the network. It never forces a checkout and never moves a clone another run moved. When the clone is missing, it clones it first, as create-skill does.
 

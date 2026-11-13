@@ -80,7 +80,7 @@ Subcommand: refresh-hashes
 ---------------------------------------------------------------------------
 
 Records the new hashes of the documents a `compare-hashes` run found
-changed, once update-skill has re-read them (update-skill write.md §2), so
+changed, once update-skill has re-read them (update-skill write.md §3b), so
 the next comparison starts from the documents this update used.
 
   uv run src/shared/scripts/skf-detect-docs.py refresh-hashes \\

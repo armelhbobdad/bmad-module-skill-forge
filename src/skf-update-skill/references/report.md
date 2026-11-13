@@ -170,6 +170,8 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 
 {in gap-driven mode, when gap-driven.md §1 left gaps unrouted: **Not repaired by this run:** each `{id}: {title} ({category}): {reason}`, with the `reason` gap-driven.md §1's `not_routed[]` gives it}
 
+{when `{run_dir}/evidence-records.jsonl` holds a `structural_fix`, `metadata_patch`, `metadata_patch_outcome` or `reclassified` line: **Repairs applied:** each `structural_fix` as `{summary} at {file}:{line}`, each `metadata_patch` as `{summary}` with each field of its `set` and that field's `metadata_patch_outcome` lines (`applied`, `left-out` or `dropped`, with the `why`), and each `reclassified` export as `{export} (internal-unreachable)`}
+
 ### Export Changes
 
 | Change Type | Count |
@@ -190,7 +192,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 | T1-low | {count} | Read by eye, at any tier (`extraction_method: source-read`) |
 | T2 | {count} | QMD-enriched semantic context |
 
-{if `{provenance_relabels}` is non-empty: **Relabeled to match extraction_method (write.md §2):** {export names}{; **WARN, no node kind found:** {export names}}}
+{if `{provenance_relabels}` is non-empty: **Relabeled to match extraction_method (write.md §3b):** {export names}{; **WARN, no node kind found:** {export names}}}
 
 ### [MANUAL] Section Preservation
 
@@ -204,7 +206,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 
 ### 3. Present Validation Findings
 
-Read the Validation Summary write.md recorded for this update in `{forge_version}/evidence-report.md`: `[MANUAL] integrity` from write.md §1's `manual-verify` verdict, `Confidence tiers` from §2's relabels, `Provenance` from §6, and `Spec compliance`, `Diff` and `Security` from §7.
+Read the Validation Summary write.md recorded for this update in `{forge_version}/evidence-report.md`: `[MANUAL] integrity` from write.md §1's `manual-verify` verdict, `Confidence tiers` from §3b's relabels, `Provenance` from §6, and `Spec compliance`, `Diff` and `Security` from §7.
 
 **If any row is WARN or FAIL:**
 
@@ -297,7 +299,7 @@ Leave `files_written` out when the emitter's message names it (the line then hol
 - `files_written[]`: `references` stands for every `references/*.md` file of the package this run wrote, added or removed, one value however many: merge.md §6b's merge, at any priority, write.md §6's provenance fixes and write.md §7's body split. Read it from the files on disk, never from memory: a `references/` path in the `files_written[]` write.md §6's provenance `fix` printed; a file the `Body split` row lists in this run's `## Update Operation` section of `{forge_version}/evidence-report.md`, the one write.md §4 appended, never an earlier update's; outside gap-driven mode, a `references/*.md` file that `{skill_package}` and the previous version's package (`{skill_group}/{baseline_version}/{skill_name}/references/`) do not hold alike, one lacking it or the two differing; in gap-driven mode, which repairs the version in place, a file in `{run_dir}/references/`, where merge.md §6b staged each one it wrote, a path `{run_dir}/references-removed.txt` lists, or a `references/` path in the `files_written[]` of `{run_dir}/citation-moves.json`, where merge.md §6b moved citations in place.
 - `headless_decisions[]`: every gate's record in the run's decision log (init.md §4 degraded-rebuild and §8 confirmation, detect-changes.md §1b / §1c / §2.2, gap-driven.md §1 rule R1, merge.md §8). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gate auto-resolved.
 - `error`: null on every exit this step prints except the failure line above, which carries `{phase: "report:result-contract", path, reason}`. A halt's line carries `{phase, path?, reason}`, and pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `new-files-not-checked` (Category D: a skill with no brief, so no new script or asset was looked for), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category}): {reason}` for each gap gap-driven.md §1 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (gap-driven.md §3), `run-state-not-finished`, `result_file_write_failed` (a result file the emitter could not write; the hook then does not run), `public-api-counted-by-hand:` (write.md §2: the recipe runner exited 2, so the public names were found without it; it quotes the runner's error line) and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `new-files-not-checked` (Category D: a skill with no brief, so no new script or asset was looked for), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category}): {reason}` for each gap gap-driven.md §1 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (gap-driven.md §3), `run-state-not-finished`, `result_file_write_failed` (a result file the emitter could not write; the hook then does not run), `public-api-counted-by-hand:` (write.md §3b: the recipe runner exited 2, so the public names were found without it; it quotes the runner's error line) and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
 
 **Post-finalization hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 

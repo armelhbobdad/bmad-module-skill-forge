@@ -168,11 +168,13 @@ def test_merge_stages_copies_publishes_and_rebinds_in_order():
 
 
 def test_write_names_the_folder_step_4_created():
-    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    assert "`version` is `{new_version}`, the version step 4 §6b chose" in two
-    assert '--version "{new_version}"' in two
+    two = _slice(_read(WRITE), "### 2. Prepare the Write Inputs", "### 3.")
+    # one line: merge.md §6b chose the version, so write restates no rule for it (#1192 leanness-7)
+    assert '- `--version "{new_version}"` is the version step 4 §6b chose; never pick another.' in two
     assert "From here on `{version}` is `{new_version}`" in two
-    assert "increment patch version" not in two
+    assert "increment patch version" not in two and "`source_version_detected`" not in two
+    metadata = _slice(_read(WRITE), "### 3b. Write Updated metadata.json", "### 4.")
+    assert '--version "{new_version}"' in metadata
     three = _slice(_read(WRITE), "### 3. Write Updated provenance-map.json", "Dispatch on its exit code:")
     assert "write the whole updated map there" in three
 

@@ -182,10 +182,11 @@ WRITERS = (
     "src/skf-update-skill/references/write.md",
 )
 UPDATE_WRITE = "src/skf-update-skill/references/write.md"
-UPDATE_WRITE_SECTIONS = ("### 2. Write Updated metadata.json", "### 4. Write Updated evidence-report.md")
+UPDATE_WRITE_SECTIONS = ("### 2. Prepare the Write Inputs", "### 4. Write Updated evidence-report.md")
 # Names in those sections of update-skill's write step that are not keys it
-# writes: a value step 1 records.
-UPDATE_WRITE_NOT_KEYS = {"source_version_detected"}
+# writes (none since #1192 cut the version bullet that named step 1's
+# source_version_detected).
+UPDATE_WRITE_NOT_KEYS = set()
 # The writers' other source_* keys: an authority enum, and a place inside the
 # source rather than the source itself.
 NOT_SOURCE_NAMES = {"source_authority", "source_file", "source_line"}

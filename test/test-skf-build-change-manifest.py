@@ -2583,15 +2583,16 @@ def test_the_component_library_exemption_is_create_skills_block() -> None:
 
 
 def test_write_sets_metadata_through_the_helper() -> None:
-    """write.md §3 passes the flags and §2 writes metadata.json through `metadata`, keeping no rule of its own,
+    """write.md §3 passes the flags and §3b writes metadata.json through `metadata`, keeping no rule of its own,
     and merge.md's Priority 6 leaves the script and asset rows to it."""
     write = (UPDATE_REFS / "write.md").read_text(encoding="utf-8")
     call = write[write.index("uv run {buildChangeManifestHelper} apply"):]
     call = call[:call.index("```")]
     assert '--metadata-in "{skill_package}/metadata.json"' in call
     assert '--lists-out "{run_dir}/metadata-lists.json"' in call
-    two = write[write.index("### 2. Write Updated metadata.json"):write.index("### 3. ")]
-    meta = two[two.index("uv run {buildChangeManifestHelper} metadata"):]
+    two = write[write.index("### 2. Prepare the Write Inputs"):write.index("### 3. ")]
+    three_b = write[write.index("### 3b. Write Updated metadata.json"):write.index("### 4. ")]
+    meta = three_b[three_b.index("uv run {buildChangeManifestHelper} metadata"):]
     meta = meta[:meta.index("```")]
     for flag in ('--metadata "{skill_package}/metadata.json"', '--lists "{run_dir}/metadata-lists.json"',
                  '--stats "{run_dir}/stats.json"', '--version "{new_version}"',
@@ -2600,7 +2601,7 @@ def test_write_sets_metadata_through_the_helper() -> None:
                  '\n      --skf-root "{project-root}/_bmad/skf" \\\n',
                  '[--extraction "{run_dir}/extraction.json"]', '[--qmd-version "{qmd_version}"]'):
         assert flag in meta, flag
-    after = two[two.index("uv run {buildChangeManifestHelper} metadata"):]
+    after = three_b[three_b.index("uv run {buildChangeManifestHelper} metadata"):]
     after = after[after.index("```") + 3:after.index("On exit 1, fix the input its stderr names")]
     for token in ("Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`",
                   "and `--qmd-version` when re-extract.md §3 queried QMD and bound `{qmd_version}`",
@@ -2612,8 +2613,16 @@ def test_write_sets_metadata_through_the_helper() -> None:
         assert token in after, token
     # #815: a patch adds no explanatory stat the next recount would leave standing beside another count, in write,
     # in merge's Priority 8b, which queues it, and in gap-driven's rule R4, which routes it
-    assert "add an explanatory stat" not in two
-    assert "Log each patch the call overwrites, drops (its `dropped_stats`) or you leave out" in two
+    assert "add an explanatory stat" not in two + three_b
+    # #1192 architecture-5: each patch's outcome is a record the evidence report and the update report list, not a
+    # log kept in context: §2 records each field it applies or leaves out, §3b each applied one the call drops
+    assert "Log each patch" not in write
+    for token in ("append the record `metadata_patch_outcome: {gap_id, field, outcome, why}` to "
+                  "`{run_dir}/evidence-records.jsonl` as one JSON line keyed `metadata_patch_outcome`",
+                  "`outcome` `applied` with `why` null, or `left-out` with `why` the reason"):
+        assert token in two, token
+    assert ("whose `<key>` the call's `dropped_stats` names, append one more `metadata_patch_outcome` line to "
+            "`{run_dir}/evidence-records.jsonl`, with `outcome` `dropped`") in after
     priority_8b = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
     priority_8b = priority_8b[priority_8b.index("**Priority 8b:"):]
     priority_8b = priority_8b[:priority_8b.index("**If no metadata-update entries:**")]
@@ -2629,14 +2638,14 @@ def test_write_sets_metadata_through_the_helper() -> None:
     qmd = reextract[reextract.index("### 3. Deep Tier QMD Enrichment"):reextract.index("### 4. ")]
     assert "bind `{qmd_version}` ← the version `qmd --version` prints (`qmd 2.0.1` gives `2.0.1`)" in qmd
     assert qmd.index("bind `{qmd_version}`") < qmd.index("**If no matching collection found in registry:**")
-    assert two.count('-o "{run_dir}/stats.json"') == 2
+    assert three_b.count('-o "{run_dir}/stats.json"') == 2
     for gone in ("Update `exports` array to reflect current export list", "add no name whose record",
                  "Set `exports` to the list", "into `metadata.json` **verbatim**", "Update `generation_date`",
                  "and write the `stats` and `confidence_distribution` it returns"):
-        assert gone not in two, gone
+        assert gone not in two + three_b, gone
     # a gap-driven patch reaches metadata.json before apply reads it, and never exports[], which apply owns
-    assert "to `metadata.json`, before §3's `apply` reads it" in two
-    assert "apply none to `exports[]`, which §3's `apply` builds from the list it reads" in two
+    assert "set in `{skill_package}/metadata.json`, before §3's `apply` reads it" in two
+    assert "and `exports[]`, which §3's `apply` builds from the list it reads" in two
     merge = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
     assert "`metadata.json` `scripts[]`/`assets[]`" not in merge
     assert "and `stats.scripts_count`/`stats.assets_count`" not in merge
@@ -2847,7 +2856,7 @@ def test_the_oms_cognee_update_documents_its_public_surface_and_keeps_its_ast_la
     for name in TRACED:
         assert (by_name[name]["source_line"], by_name[name]["extraction_method"], by_name[name]["confidence"]) == \
             (fresh[name]["source_line"], "ast-grep", "T1"), name
-    # write.md §2's whole-scope count, and the stats helper over the written map
+    # write.md §3b's whole-scope count, and the stats helper over the written map
     counts = _run_runner(root, run / "public-api.json")["counts"]
     derived = stats.derive_stats(doc, {"exports_public_api": counts["exports_public_api"],
                                        "exports_internal": counts["exports_internal"]})

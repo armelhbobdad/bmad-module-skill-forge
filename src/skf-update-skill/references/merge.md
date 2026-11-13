@@ -100,7 +100,7 @@ Apply merge in the following priority order.
 - Check if deleted export has attached [MANUAL] blocks
 - If [MANUAL] attached: flag as ORPHAN conflict (do not remove)
 - If no [MANUAL]: remove generated content cleanly
-- **Gap-driven rescopes** (`DELETED_EXPORT` from gap-driven.md §1 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). gap-driven.md §4 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
+- **Gap-driven rescopes** (`DELETED_EXPORT` from gap-driven.md §1 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §3/§3b). gap-driven.md §4 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
 
 **Priority 2 — Process MOVED exports:**
 - §6b moves each `MOVED_EXPORT`'s citations (in gap-driven mode, each record marked `moved`) by script: never move a citation by hand. The script moves each `[AST:]` or `[SRC:]` citation of the export's old line to its `new_line`, and, when the change manifest gives it an `old_file` (a move across files), to the file its `per_file` item names, keeping its prefix; a citation another export also claims, or one inside a [MANUAL] block, stays where it is with a `provenance:` warning. A `MODIFIED_EXPORT` with an `old_file` (it also changed) is rewritten whole by Priority 4.
@@ -157,9 +157,9 @@ For each entry of `promoted_docs_new[]`, read from `{run_dir}/promoted-docs.json
   - `confidence`: `"T1-low"`
   - `extraction_method`: `"promoted-authoritative"`
 - Do NOT copy the file into the skill package (doc type is source-tracked, not bundled).
-- Record in the update report: `"Added authoritative doc: {path} (heuristic: {basename})"`.
+- The evidence report accounts for the doc through detect-changes.md §1b's `authoritative_files_mirror` record, which names, with its heuristic, each doc a person promoted at its prompt, and counts under `pre_decided` each one the brief already took.
 
-**If `promoted_docs_new[]` is empty:** skip Priority 7 silently. No report entry.
+**If `promoted_docs_new[]` is empty:** skip Priority 7 silently.
 
 **Priority 8: Process STRUCTURAL_FIX entries (gap-driven, from gap-driven.md §1 rule R2):**
 
@@ -169,7 +169,7 @@ For each `STRUCTURAL_FIX` entry gap-driven.md §4 forwarded:
 - **A split-body consistency finding** (rule R2: two files of the skill, the SKILL.md body or a `references/*.md` file, document one export differently): edit the file the entry's `package_citation` names, the side the pinned source contradicts (test-skill coverage-check §5b), so it documents the export as the other file does: of two `references/*.md` files no source settled, that is the one whose path sorts last, matched to the other. Without a `package_citation`, edit the file the remediation names to change; when neither names one, edit the `references/*.md` file to match the SKILL.md body, or of two `references/*.md` files the one whose path sorts last to match the other. Several split-body entries that cite one file and line are one edit of it. Change only what the remediation names as contradicting (a parameter, a type, the return type), taking it from the other file, and nothing more when it says both forms agree with the source. A remediation that asks for citations instead (each form documents a different declaration of the name) names no form to take: add each citation it names at the line it names, in either file, with the module or owner it names, and change no form. Keep each file's level of detail: the body keeps its brief form, and a `|` the change puts inside a table cell is escaped (`\|`). Read no source. When the manifest also holds a `MODIFIED_EXPORT` for the same export, Priority 4's rewrite settles the body: skip this edit of SKILL.md for that export.
 - Do **not** add, modify, or remove any provenance `entries[]` row — STRUCTURAL_FIX never touches the provenance map.
 - Preserve any [MANUAL] blocks; if the fix location overlaps a [MANUAL] block, flag as a POSITION conflict instead of editing.
-- Record in the update report: `"Structural fix: {remediation summary} at {file}:{line}"`.
+- For each entry it edits, append the record `structural_fix: {gap_id, summary, file, line}` (`summary` its remediation in one line, `file` and `line` where the edit landed) to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `structural_fix`. An edit this priority skips for Priority 4's rewrite, or flags as a POSITION conflict, adds none.
 
 **If no STRUCTURAL_FIX entries:** skip Priority 8 silently.
 
@@ -177,11 +177,19 @@ For each `STRUCTURAL_FIX` entry gap-driven.md §4 forwarded:
 
 For each `metadata update` entry gap-driven.md §4 forwarded:
 
-- Queue the surgical metadata patch described in the entry's `remediation` in workflow context as `metadata_patches[]` for write.md §2 to apply **before** its automatic stat recount.
+- Stage the surgical metadata patch the entry's `remediation` describes as one item of `metadata_patches[]`, for write.md §2 to apply **before** write.md §3b's automatic stat recount: its `gap_id`, a one-line `summary` of its remediation, and in `set` each metadata.json field it sets (`a.b` for a nested one) with its value.
 - Touch no provenance `entries[]` row and no generated markdown — this priority only stages the patch; write.md §2 applies it.
-- Record in the update report: `"Metadata patch queued: {remediation summary}"`.
+- Append the record `metadata_patch: {gap_id, summary, set}` of each item to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `metadata_patch`.
 
-**If no metadata-update entries:** skip Priority 8b silently.
+Once every entry is staged, write the items to `{run_dir}/metadata-patches.json` in one file write, each value as JSON (a string with `"` and `\` escaped), from `{project-root}`:
+
+```bash
+cat > "{run_dir}/metadata-patches.json" <<'SKF_JSON'
+{"metadata_patches": [{"gap_id": "<the entry's gap_id>", "summary": "<its remediation in one line>", "set": {"<metadata.json field, a.b for a nested one>": <its value as JSON>}}]}
+SKF_JSON
+```
+
+**If no metadata-update entries:** skip Priority 8b silently, and write no `metadata-patches.json`.
 
 ### 4. Check for Conflicts
 
@@ -360,6 +368,8 @@ If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, p
    ```
 
    It moves the citations of each record marked `moved` that the provenance map holds, as the version folder's step 4 above says, and checks SKILL.md's [MANUAL] blocks against the inventory after its writes. On `manual_verify.ok` false: HALT with status `halted-for-manual-mismatch`, as step 2's check does (halt procedure: `phase: "merge:verify-manual-integrity"`, `path: "{skill_package}/SKILL.md"`, `reason: "[MANUAL] blocks differ from the approved inventory: modified {modified}; missing {missing}"`). Otherwise act on its exit as that step says, with `path: "{skill_package}"` on a halt, whose rollback restores the package and the brief from the snapshot.
+
+**Rewrite the run context** once the writes above are done, in every mode: write `{run_dir}/run-context.json` again, as init.md §8 wrote it, with the key `new_version` added and `skill_package`, `forge_version` and `manual_inventory` at their values now (the new version's paths step 7 rebound, outside gap-driven mode, and the inventory §4 amended), keeping every other key as the file holds it. Step 5 reads a binding it lost back from there.
 
 **Do NOT write here:**
 - `metadata.json`, `provenance-map.json`, `evidence-report.md`: derived from the merge output, written by step 5 sections 2–4 (the version folder above only copies the previous version's files, which step 5 then rewrites)
