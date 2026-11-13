@@ -85,7 +85,7 @@ uv run {runStateHelper} halt --run-dir "{run_dir}" \
 SKF_JSON
 ```
 
-Pass `--tree` once §6b has bound `{source_tree}`, `--lock` and `--owner` once §1b has bound `{lock_owner}`, and `--emit` in `{headless_mode}`. It removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. The emitter adds `files_written: []`. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "init:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+Pass `--tree` once §6b has bound `{source_tree}`, `--lock` and `--owner` once §1b has bound `{lock_owner}`, and `--emit` in `{headless_mode}`. It removes the private source tree, releases the run lock and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line, with a warning (`source-tree-not-removed`, `run-lock-not-released`) for each step it could not finish: do none of it yourself. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "init:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place. No HALT in this step adds a `headless_decisions[]` entry: a halt is not an auto-resolved gate.
 
@@ -105,12 +105,8 @@ Provide either:
 - A skill name (resolves via version-aware path resolution — see `knowledge/version-paths.md`)
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
-- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the gap-driven.md §3 guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and gap-driven.md §3 halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 5 will NOT automatically re-pin
-- `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map (not with `--from-test-report`, which needs the map): without it, a headless run halts `blocked` there rather than silently rebuilding
-- `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` (for example the `upstream_ref` an audit reports). When the update writes, step 5 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
-- `--source-root <path>` (a skill read from a local folder, in any mode) to read the source from that folder instead of the `source_root` metadata.json records, for a source that moved. When the update writes, step 5 records it as the new `source_root`, so later runs read it too
-- `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
-- `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
+
+Add `--dry-run` to preview what would change without writing anything; `references/invocation-contract.md` lists the other flags.
 
 **Skill:** {user provides a number from the list, a name or a path}"
 
@@ -154,7 +150,7 @@ Pass `--version`: §1 always binds `{active_version}`. Never glob, sort or read 
   - **Headless** (`{headless_mode}` true): HALT (halt procedure: `status: "blocked"`, `phase: "init:test-report"`, `path: "{forge_data_folder}/{skill_name}"`, `reason: "input-missing: --from-test-report found no finished test report: <cause>"`, with `version` and `previous_version` `"unknown"`) and display "**No finished test report of {skill_name} to repair from:** <cause>. Run `@Ferris TS {skill_name}` first, or re-run without `--from-test-report` to check the source for changes." This runs before the §1b lock, so there is no lock to release.
   - **Interactive:** warn that no test report was found, with the cause, add `test-report-missing: <cause>` to `warnings[]`, and continue in normal source drift mode.
 
-**If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by gap-driven.md §3's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
+**If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by gap-driven.md §3's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode. Under it update-skill takes nothing from HEAD, so gap-driven.md §3 halts `halted-for-workspace-drift` before merge on each gap that needs the pinned tree, every new or modified export and every rescope among them, and step 5 does not re-pin `metadata.source_commit`.
 
 **If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown), when a provenance map is present, or in gap-driven mode, where §4 halts `blocked` instead.
 
@@ -201,11 +197,7 @@ uv run {runStateHelper} rollback \
 
 It finds that run's folder by the run id in the owner (`update-skill:{skill_name}:<run id>`), reads what the run recorded before its first write, restores a repair's package (with the version's provenance map, evidence report and skill brief) from the snapshot it took, removes the version folders it created (never one the `active` link names), and deletes its run folder (only a `.skf-run/skf-update-skill-<run id>` folder: it refuses a run id that would lead anywhere else); a run that finished its writes, or never began them, needs nothing undone. An owner of another skill or workflow, or one with no run id (an older SKF's lock), has no run folder: `status` `no-run-folder`, and nothing to report. On exit 0 with any other `status`, add `interrupted-run-cleaned: {stale_replaced.held_by}: {status}; restored {restored}; removed {removed}` to `warnings[]` and tell the user in one line what was put back. On any other exit, or no JSON, add `interrupted-run-not-cleaned: {stale_replaced.held_by}: {its failed[] or message}` and go on: a version folder it left then stops step 4 §6b, whose message says which folders to delete.
 
-**Release contract:**
-
-- Every exit after this section releases the lock, so a run that halts does not block the next one: step 7 on a run that reaches it, and every other exit through the halt procedure of the step file it fires in: in this step §2's ABORTs, the Stack Skill Guard, §3, the §4 and §6 halts and the §6b source tree halts, and every later step's halts through their own. The release never stops on the result: when it fails or prints no JSON, the halt helper adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to its envelope's `warnings[]`. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
-- A crashed or killed run leaves its lock until it goes stale. A run that waits at a gate past that time can lose its lock to the next update, so merge.md §6b renews the lock before the run writes the skill, and halts `halted-for-concurrent-run` when this run no longer holds it.
-- The private source tree §6b prepares has its own contract: step 7 removes it, every HALT or ABORT after §6b removes it first (the halt procedure of its step file), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
+**Release contract:** every exit after this section releases the lock, so a run that halts does not block the next one: step 7, or the halt procedure of the step file it fires in (in this step §2's ABORTs, the Stack Skill Guard, §3, the §4 and §6 halts and the §6b source tree halts, and every later step's halts), whose helper adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to `warnings[]` when the release fails. A release deletes the lock only while `{lock_owner}` holds it, and a run that waits at a gate past the stale time can lose it, so merge.md §6b renews the lock before the run writes the skill. The private source tree §6b prepares has its own contract: step 7 or the halt procedure removes it.
 
 ### 2. Validate Required Artifacts
 
@@ -218,13 +210,9 @@ It finds that run's folder by the run id in the owner (`update-skill:{skill_name
 - Extract: `name`, `skill_type` (single or stack), `version`, `generation_date`, `confidence_tier`, `source_type`, `scope_type` and `language` (when present), `source_repo`, `source_root`, `source_ref`, `source_commit`
 - If missing: HALT (halt procedure: `status: "blocked"`, `phase: "init:validate-artifacts"`, `path: "{resolved_skill_package}/metadata.json"`, `reason: "no metadata.json in the skill package"`): "No metadata.json found. This skill may have been created manually. Run create-skill to generate provenance data."
 
-**Detect skill type from metadata:**
-- If `skill_type == "single"` or absent: flag as single skill
-- If `skill_type == "stack"`: flag as stack skill — the guard below redirects it
-
 ### Stack Skill Guard
 
-After loading metadata.json, check `skill_type`:
+After loading metadata.json, check `skill_type` (absent means `single`):
 - If `skill_type` is `"stack"`: display message:
   "**Stack skills cannot be surgically updated.** Stack skills compose exports from multiple sources — surgical re-extraction requires re-running the full composition pipeline.
   
@@ -233,7 +221,7 @@ After loading metadata.json, check `skill_type`:
   If you came here from an audit report, the drift report identifies which constituent libraries changed — use that to decide whether re-composition is needed."
 - Then HALT (halt procedure: `status: "blocked"`, `phase: "init:stack-skill-guard"`, `path: "{resolved_skill_package}"`, `reason: "stack-skill: a stack skill is re-composed with skf-create-stack-skill, never updated"`): the redirect ends the run, and step 2 never runs
 
-**This guard is the single gate for stack skills** — every stack is redirected to `skf-create-stack-skill` here, before step 2, and no flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses it. Every later stage therefore runs against a single skill only and carries no stack-merge branch.
+No flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses this guard.
 
 ### 3. Load Forge Tier Configuration
 
@@ -372,13 +360,6 @@ uv run {sourceTreeHelper} open \
 Pass `--target-ref` only when `{target_ref_override}` is set.
 
 Bind `{source_tree_status}` ← `status`, `{source_tree_reason}` ← `reason`, `{source_tree_message}` ← `message`, `{source_tree}` ← `tree`, `{workspace_clone}` ← `clone`, `{target_ref}` ← `target_ref`, `{target_commit}` ← `target_commit`, `{source_moved}` ← `moved`, `{source_diff_status}` ← `diff_status`, `{source_changed_files}` ← `changed_files`, `{source_changed_counts}` ← `changed_counts` and `{source_tree_warnings}` ← `warnings`. Add each `{source_tree_warnings}` entry to `warnings[]` as `source-tree: <entry>`. `{source_tree}` is the tree itself; `{source_changed_files}` and `run.json` sit in its run folder, one level up.
-
-What the helper does:
-
-- **Which sources it takes.** Only the clone SKF keeps for a remote repository: `{source_repo}` names that repository and `{source_root}` is the clone path SKF computes for it (compared as resolved paths, so a trailing slash or `~` does not matter), or a clone of the same repository at `repos/<host>/<owner>/<repo>` in any SKF workspace folder, whatever the letter case of those folder names. Any other source — a local folder, or the remote URL a Quick-tier skill records — is read as it stands (`skipped`).
-- **The commit.** It asks the remote which commit the ref points to (a tag before a branch of the same name; an annotated tag resolves to its commit), fetches that one commit into a folder of this run's own and checks it out there. It takes the objects from the shared clone when the clone already has them, and never writes to the clone. When the remote cannot be reached or the commit cannot be fetched, and `--target-ref` was not given, it checks out `{source_commit}` from the shared clone instead (`offline`).
-- **The file list.** It writes git's list of added, modified and deleted files between `{source_commit}` and the tree's commit to `{source_changed_files}`; `{source_diff_status}` is `unavailable` when `{source_commit}` cannot be read.
-- **Housekeeping.** It first removes trees earlier runs left behind for seven days or more.
 
 Dispatch on `{source_tree_status}`:
 

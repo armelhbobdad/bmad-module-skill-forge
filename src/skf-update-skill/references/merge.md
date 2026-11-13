@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'write.md'
-manualSectionRulesFile: 'references/manual-section-rules.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. HALT if neither resolves when §6b creates a version
@@ -79,26 +78,23 @@ uv run {runStateHelper} halt --run-dir "{run_dir}" \
 SKF_JSON
 ```
 
-Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Once §6b has run `begin`, the helper first undoes what this run wrote: in gap-driven mode it restores the package, the version's provenance map and evidence report, and the skill brief from the snapshot `begin` took; in every other mode it removes the version folders `begin` recorded (never one the `active` link names). Then it removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Tell the user in one line what it restored and removed, and name each path its `failed[]` lists for the user to restore or delete by hand. The emitter adds `files_written: []`: after the rollback nothing this run wrote stands. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "merge:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Once §6b has run `begin`, the helper first undoes what this run wrote; then it removes the private source tree, releases the run lock and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line, with a warning (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`) for each step it could not finish: do none of it yourself. Tell the user in one line what it restored and removed, and name each path its `failed[]` lists for the user to restore or delete by hand. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "merge:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place.
 
 **Warnings go to the run log.** Record each warning this step adds to `warnings[]` the moment it is raised: write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or backticks), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. The halt line and the result line read warnings only from `{run_dir}/warnings.jsonl`.
 
-### 1. Load Merge Rules
-
-Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns. The change-category actions and their priority order are in §3 below, and the conflict handling in §4.
-
 ### 2. Extract [MANUAL] Blocks
 
 From the [MANUAL] inventory captured in step 1:
 - Extract every `<!-- [MANUAL:section-name] -->` ... `<!-- [/MANUAL:section-name] -->` block
-- Map each block to its parent section heading
+- Map each block to its parent section heading: when the generated content around a block moves, the block moves with that section
 - Store blocks in a preservation map keyed by section-name
+- A block nested inside another is an ERROR: flag it, since blocks never nest
 
 ### 3. Apply Merge by Priority Order
 
-Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2, or gap-driven.md §1 in gap-driven mode), the extraction or verification records from `{run_dir}/reextract-records.json` (step 3, or gap-driven.md §4), and the documents step 2 §1b promoted from `{run_dir}/promoted-docs.json` when it wrote that file. A compacted context still merges what those steps found. A gap-driven record in `files` that carries a `local` name was matched by its public name (a renamed re-export): document it under that public name, its `name`, saying it re-exports the declared `local` name.
+Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2, or gap-driven.md §1 in gap-driven mode), and the extraction or verification records from `{run_dir}/reextract-records.json` (step 3, or gap-driven.md §4). A compacted context still merges what those steps found. A gap-driven record in `files` that carries a `local` name was matched by its public name (a renamed re-export): document it under that public name, its `name`, saying it re-exports the declared `local` name.
 
 Apply merge in the following priority order.
 
@@ -138,37 +134,7 @@ Apply merge in the following priority order.
 - **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (gap-driven.md §4 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check found that line by the verifier's text rules, not by an ast-grep recipe, so the prefix is `SRC`, never `AST`. Document it from its record in `files` of `{run_dir}/reextract-records.json`, as a `re-extracted` one is, when §4 copied one there from §4a's extraction at that line (its verification record's `extraction_method` is set): its signature, parameters and return type come from that record, never from the gap's text, and the record holds no docstring (§4 asks none for it). It keeps its `[SRC:]` citation and its T1-low label whatever its record's tool.
 - **Gap-driven `NEW_EXPORT` recorded `unknown` with `cited-elsewhere` or `outside-scope`** (gap-driven.md §4: the provenance map already holds its name at another file than the gap cites, or the skill brief's scope leaves out the file the gap names): add nothing for it, and never document it from the gap's text (its title, issue or remediation), which may describe another file's declaration.
 
-**Priority 6 — Process script/asset file changes (from Category D in change manifest):**
-
-Category D operates on every `file_entries[]` row regardless of `file_type`. Handle each entry by its type:
-
-- **`file_type: "script"` or `file_type: "asset"`:**
-  - MODIFIED_FILE: queue file for re-copy from `{source_root}`, update `file_entries` content_hash
-  - DELETED_FILE: queue file for removal from `scripts/` or `assets/`, remove from `file_entries`
-  - NEW_FILE: queue file for copy from `{source_root}`, add to `file_entries`
-  - Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
-  - Update Section 7b manifest table to reflect changes
-
-- **`file_type: "doc"`** (authoritative docs promoted by §2a/§1b):
-  - MODIFIED_FILE: update `file_entries` content_hash only. **Do NOT copy the file** — doc-type entries are source-tracked but not bundled. Record the drift in the update report.
-  - DELETED_FILE: remove from `file_entries`. **Do NOT remove any file from the skill package** (there was nothing copied). Record the removal in the update report — a deleted authoritative doc is a meaningful upstream signal.
-  - NEW_FILE: this path is not used for doc type — new doc entries come from Priority 7 below, not from Category D. If Category D reports NEW_FILE with `file_type: "doc"`, log a warning and route to Priority 7.
-
-**Priority 7 — Process new authoritative docs (from `promoted_docs_new[]` populated by §1b):**
-
-For each entry of `promoted_docs_new[]`, read from `{run_dir}/promoted-docs.json`:
-
-- Add a new row to `file_entries[]` in the merged provenance map with:
-  - `file_name`: `"docs/authoritative/{source_path}"` (synthetic namespace — see skill-sections.md for convention)
-  - `file_type`: `"doc"`
-  - `source_file`: the path from `promoted_docs_new[].path`
-  - `content_hash`: the hash pre-computed by §1b
-  - `confidence`: `"T1-low"`
-  - `extraction_method`: `"promoted-authoritative"`
-- Do NOT copy the file into the skill package (doc type is source-tracked, not bundled).
-- The evidence report accounts for the doc through detect-changes.md §1b's `authoritative_files_mirror` record, which names, with its heuristic, each doc a person promoted at its prompt, and counts under `pre_decided` each one the brief already took.
-
-**If `promoted_docs_new[]` is empty:** skip Priority 7 silently.
+**Priority 6: Process script, asset and document changes (Category D of the change manifest):** step 5's `apply` writes every `file_entries[]` row, and write.md §3 copies or removes each script and asset file the change manifest's `category_d` lists, never a document. Merge updates SKILL.md's Section 7b manifest table for those `scripts_*` and `assets_*` paths, and never modifies a file in `scripts/[MANUAL]/` or `assets/[MANUAL]/` (user-authored). Changed documents are already recorded for the reports: report.md lists each `docs_modified` and `docs_deleted` path of `category_d`, and the evidence report names each document §1b promoted through detect-changes.md §1b's `authoritative_files_mirror` record.
 
 **Priority 8: Process STRUCTURAL_FIX entries (gap-driven, from gap-driven.md §1 rule R2):**
 

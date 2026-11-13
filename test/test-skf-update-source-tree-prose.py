@@ -134,6 +134,12 @@ each halt procedure runs the `{runStateHelper}` `halt` call itself, and
 report.md §5b binds a lost `{onCompleteCommand}` through the customization
 helper before the hook.
 
+And the #1195 fix: each halt procedure leaves the `halt` call's work to the
+helper, no call site reprints a helper's output or steps (the drift gate's
+reasons are gap-records'), the no-skill prompt asks one question, merge.md
+loads no rules file and keeps one Priority for Category D, and SKILL.md's
+provenance rule is the one the stages keep.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -416,7 +422,6 @@ def test_init_6b_reasons_and_time_limit():
     assert '--timeout "{tree_timeout}"' in _fence(six_b, "uv run {sourceTreeHelper} open")
     assert '--timeout "{tree_timeout}"' in _fence(_write_9(), "uv run {sourceTreeHelper} advance")
     assert "skf-source-tree.py did not finish" in six_b and "did not run" not in six_b
-    assert "whatever the letter case of those folder names" in six_b
     assert "letter case does not matter" not in six_b
     trouble = _slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
                      "### Update Skill stops with `blocked` before detecting changes", "\n### ")
@@ -477,8 +482,6 @@ def test_no_provenance_map_stops_a_repair_and_a_degraded_run_goes_through_init()
 
 def test_init_target_ref_flag():
     text = _read(INIT)
-    request = _slice(text, "### 1. Request Skill Path", "**Skill:**")
-    assert "`--target-ref <tag|branch|HEAD|commit>`" in request
     assert "set `{target_ref_override}` to its value" in text
     assert "`--target-ref` has no effect with `--from-test-report`" in text
     # The mode decides, not the flag: a missing test report leaves a normal run, which honours the ref.
@@ -695,9 +698,6 @@ def test_update_fences_run_no_git_fetch_or_checkout():
 
 
 def test_copies_come_from_the_tree():
-    priority6 = _slice(_read(MERGE), "**Priority 6", "**Priority 7")
-    assert "queue file for re-copy from `{source_root}`" in priority6
-    assert "queue file for copy from `{source_root}`" in priority6
     three = _slice(_read(WRITE), "### 3. Write Updated provenance-map.json", "### 3b.")
     # the paths come from the change manifest's typed Category D lists, never from a hand sort (step 5b
     # determinism-2)
@@ -846,14 +846,14 @@ def test_skill_md_contract():
                      "(`source-tree-not-removed`, `run-lock-not-released`)" if path in (INIT, DETECT, RE_EXTRACT)
                      else "(`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`)",
                      f'`phase: "{path.stem}:<the helper\'s file name>"`')
-        for case in ("`--emit` in `{headless_mode}`", *cases, "it never stops on a result",
+        for case in ("`--emit` in `{headless_mode}`", *cases, "do none of it yourself",
                      "which redoes nothing already done"):
             assert case in procedure, (path.name, case)
         assert "An interactive HALT displays its message and emits nothing." in procedure, path.name
     statuses = re.search(r'\{"status": ((?:"[a-z]+"(?: \| )?)+),', _read(HELPER))
     assert statuses and set(re.findall(r'"([a-z]+)"', statuses.group(1))) == {"removed", "missing", "left", "refused"}
     coupling = _slice(text, "- **Cross-skill data coupling:**", "\n")
-    assert "skf-source-tree.py" in coupling and "remote-source-resolution" not in coupling
+    assert "remote-source-resolution" not in coupling
     assert "four shared assets" not in coupling
 
 
@@ -1139,7 +1139,6 @@ def test_run_lock_replaces_the_pid_guard():
                   "- No candidate resolves, or the command fails or prints no JSON:", "then continue."):
         assert token in step1, token
     assert "Release the lock before delegating" not in step1
-    assert "apart from one line when the lock or the tree stays on disk" in _slice(health, "## STEP GOAL:", "## Steps")
     # no step keeps the lock in a shell process, and none deletes it without checking its owner
     for path in sorted(UPDATE.rglob("*.md")):
         rel = path.relative_to(REPO_ROOT).as_posix()
@@ -1716,7 +1715,10 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     assert "drift gate halted" not in counts and "A stack never reaches this step" not in two
     assert (two.index("  **Payload (passed as JSON on stdin):**")
             < two.index("  **Public API counts under the drift override**") < two.index("  **Shape:**"))
-    assert "- `a public API recount from the tree (rule R1)`: a rescope (`DELETED_EXPORT`);" in _drift_gate()
+    # the gate's reasons live in the helper that applies them (#1195): a rescope needs a public API recount
+    assert _module(BUILD_MANIFEST, "skf_build_change_manifest_rescope_reason").DRIFT_RESCOPE == \
+        "a public API recount from the tree (rule R1)"
+    assert 'a DELETED_EXPORT "a public API recount from the tree (rule R1)"' in _gap_records_doc()
     zero_a = _zero_a()
     assert "and on every rescope, whose stats recount would count the public API there" in zero_a
     # write §3b's counts paragraph above is the one statement of the kept counts: §3 no longer catalogues what the
@@ -1724,11 +1726,13 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     assert "keeps the public API counts" not in zero_a and "no spot-check in §4 moves a line" not in zero_a
     deleted = _slice(_read(GAP), "   - **`blocked`** (`rescope_without_amendment[]`)", "\n")
     assert "drift gate halted" not in deleted and "reaches this branch" not in deleted  # no unreachable route (#600)
-    init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
-    assert "counts no public API there" in init
-    assert "which every new or modified export does, and on every rescope" in init
+    # the flag's handler, not the no-skill prompt, says what the override halts on (#1195)
+    init = _slice(_read(INIT), "**If `--allow-workspace-drift` was provided:**", "\n")
+    assert "Under it update-skill takes nothing from HEAD" in init
+    assert "every new or modified export and every rescope among them" in init
     flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
-    assert "a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift`" in flags
+    assert ("`--allow-workspace-drift` (gap-driven only: each gap that needs the pinned tree halts "
+            "`halted-for-workspace-drift` before merge, gap-driven.md §3)") in flags
     # the rescope's amendment is not in the brief before step 4 §6b writes it: the halt leaves the brief as it
     # was, and a re-run asks again (W2 handoff: rule R1's brief write is idempotent and deferred)
     gate = _drift_gate()
@@ -1822,7 +1826,7 @@ def test_forge_tier_follows_the_ast_extraction_protocol():
     # a test report may name a file the brief's scope leaves out as an export's home
     assert "--brief" not in own and "It takes no `--brief`" in zero_a
     assert "On exit 1 (`incomplete`, its JSON written) run it once more" in zero_a
-    init = _slice(_read(INIT), "**Check metadata.json exists:**", "**Detect skill")
+    init = _slice(_read(INIT), "**Check metadata.json exists:**", "### Stack Skill Guard")
     assert "`scope_type` and `language` (when present)" in init
     assert "Follow the AST Extraction Protocol in" not in zero_a
     # §4a states what is read by eye itself: re-extract.md §1b, which it used to point to, is not loaded (#600)
@@ -2072,7 +2076,8 @@ def test_a_located_export_takes_the_signature_the_runner_gives_at_its_line(tmp_p
     assert "when `reextract.entries` or `reextract.signatures` is not empty, run §4a for them" in \
         _slice(text, "   - **`planned`:**", "\n")
     zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
-    assert "invokes for the entries its plan lists in `reextract.entries` and `reextract.signatures`" in zero_a
+    assert "Runs only for the entries §4 bullet 1's plan lists in `reextract.entries` and `reextract.signatures`" \
+        in zero_a
     assert "The plan adds the `file` of each export `reextract.signatures` lists" in \
         _slice(zero_a, "2. **The file set**", "\n")
     merge = _read(MERGE)
@@ -2383,16 +2388,9 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
     """Under the override every new or modified export halts in gap-driven.md, before merge (#530, #557)."""
     text = _read(GAP)
     gate = _drift_gate()
-    for token in ("update-skill writes nothing read there, neither a provenance line nor a signature, parameter "
-                  "list, return type or node kind",
-                  "Every `NEW_EXPORT` and every `MODIFIED_EXPORT` needs it, whatever its `severity` and whether the "
-                  "provenance map holds the export",
-                  "merge Priority 4 replaces a modified export's content with a fresh extraction",
-                  "merge Priority 5 appends a new export's content",
-                  "HALT with status `halted-for-workspace-drift` before merge runs",
+    for token in ("HALT with status `halted-for-workspace-drift` before merge runs",
                   "merge writes nothing and §4a never runs",
                   "A rescope's amendment is not in the skill brief yet (rule R1)",
-                  "Every `DELETED_EXPORT` needs the tree as well: in gap-driven mode it is a rescope (rule R1)",
                   'phase: "re-extract:workspace-drift"'):
         assert token in gate, token
     # severity and the map no longer decide whether an entry halts: the #551 conditions are gone
@@ -2400,9 +2398,16 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
                  "a non-empty `remediation_paths[]` and a blocking severity",
                  "Gaps that need a line:", "{rule R3 | remediation paths | cited export not in the map}"):
         assert gone not in gate, gone
-    assert re.findall(r"^- `([^`]+)`: ", gate, re.M) == GATE_REASONS
-    # the gap §4a would halt with nothing to scan halts here first under the override (#558 item 4)
-    assert "under the override this gate halts on it first" in gate
+    # the helper that applies the gate holds which entries halt and why (#1195): every export-bearing entry but a
+    # MOVED_EXPORT, whatever its severity, before any spot-check, so a gap §4a would halt with nothing to scan halts
+    # here first (#558 item 4); the gate lists no reason by hand
+    doc = _gap_records_doc()
+    for token in ("1. Drift gate (--drift-status overridden): each export-bearing entry but a MOVED_EXPORT needs the "
+                  "tree, with the first reason that fits", "and no spot-check runs."):
+        assert token in doc, token
+    assert re.findall(r"^- `([^`]+)`: ", gate, re.M) == []
+    build = _module(BUILD_MANIFEST, "skf_build_change_manifest_gate_reasons")
+    assert [build.DRIFT_RESCOPE, build.DRIFT_COMPLETENESS, build.DRIFT_NOT_IN_MAP, build.DRIFT_IN_MAP] == GATE_REASONS
     message = _fence(gate, "Workspace drift blocks {N} gap(s)")
     for token in ("Workspace drift blocks {N} gap(s) that need the pinned tree.",
                   "writes nothing read at HEAD: no provenance line, signature, parameter list,\n"
@@ -2424,11 +2429,10 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
             "and lists in `drift_blocked[]`") in gate
     zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
     assert "Never under the drift override" not in zero_a and "drift override" not in zero_a
-    four = _slice(text, "3. Set `no_reextraction: true`", "\n")
-    assert ("a cited `NEW_EXPORT` whose spot-check pinned a line gets a new `source-read` (`T1-low`) entry at that "
-            "line") in four
-    # the MOVED_EXPORT bullet states the one override rule a spot-check acts on (#600 leanness-6)
-    assert "drift override" not in four and "so §4a never runs" not in four
+    # a cited new export whose spot-check pinned a line gets a `source-read` entry there: merge Priority 5 says so,
+    # where it cites the line (#1195: gap-driven.md sets no `no_reextraction` flag that nothing reads)
+    assert "the line write.md §3 records in its new `source-read` entry" in \
+        _slice(_read(MERGE), "**Priority 5", "**Priority 6")
     zero_a = _zero_a()
     # what the override keeps out, by name: write §3b still counts the public surface at `{source_root}`
     assert ("so update-skill takes no provenance line, signature, parameter list, return type or node kind "
@@ -2455,13 +2459,6 @@ def test_every_change_category_halts_or_passes_the_drift_gate(tmp_path, capsys):
     categories = [*dict.fromkeys(translate.CHANGE_CATEGORIES.values()), "DELETED_EXPORT"]
     assert sorted(categories) == sorted(["NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT",
                                          "STRUCTURAL_FIX", "metadata update"])
-    gate = _drift_gate()
-    halts = _slice(gate, "Every `NEW_EXPORT`", " needs it,") + _slice(gate, "Every `DELETED_EXPORT`", " needs the tree")
-    passes = _slice(gate, "A rule R5 `MOVED_EXPORT`", " need nothing from the tree and pass.")
-    for category in categories:
-        token = f"`{category}`"
-        assert (token in halts) != (token in passes), category
-    assert "`NEW_EXPORT`" in halts and "`MODIFIED_EXPORT`" in halts and "`DELETED_EXPORT`" in halts
     # run the plan under the override: every category that halts is listed with its reason, the others pass
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -2534,13 +2531,12 @@ def test_name_lookup_filters_by_the_citation_file(tmp_path):
                  "Read the entry's `map_match`"):
         assert gone not in text, gone
     assert "(each entry with its `map_match`), never from memory" in _slice(text, "### 4. Spot-Check", "1. **")
-    gate = _drift_gate()
-    assert "read from the entry's `map_match` (§1)" in gate
-    assert ("- `a line and a signature from the tree`: an export whose `map_match` is `not-found` with no candidate "
-            "that has a `source_file`;") in gate
-    assert ("- `a signature from the tree`: an export the map holds (`found` or `ambiguous`, or `not-found` with a "
-            "candidate that has a `source_file`: a citation of another file than the map's entries of its name).") \
-        in gate
+    # the drift gate's reasons read each entry's `map_match`, in the helper that applies the gate (#1195)
+    doc = _gap_records_doc()
+    assert ('one whose map_match is not-found with no candidate that has a source_file "a line and a signature from '
+            'the tree"') in doc
+    assert ('any other (a not-found with such a candidate, a citation of another file than the map\'s entries, among '
+            'them) "a signature from the tree"') in doc
     assert "map_match the `match` lookup of `name` with the kept citation" in _translate_doc()
     # translate's lookup: the citation's file and line tell two same-name entries apart, a name the title gives
     # (answered `name`) is looked up too, and a citation inside the skill package keys nothing
@@ -2939,22 +2935,22 @@ def _doc_line(name: str, *needles: str) -> str:
 def test_override_is_described_where_the_flag_is():
     """init.md, SKILL.md and the docs say the override moves or pins no line and halts on gaps that need one.
 
-    init.md and both docs pages also say it takes no signature, parameter list, return type or node kind from
-    HEAD, so every new or modified export halts, whatever its severity, and SKILL.md gives the flag one clause
-    (#557).
+    init.md's flag handler and both docs pages also say it takes no signature, parameter list, return type or
+    node kind from HEAD, so every new or modified export halts, whatever its severity, and the invocation contract
+    gives the flag one clause (#557). The no-skill prompt lists no flag but `--from-test-report` and `--dry-run`, so
+    the handler says it (#1195).
     """
-    init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
-    assert "moves or pins no provenance line read there" in init and "halted-for-workspace-drift" in init
-    for token in ("update-skill takes nothing from HEAD",
-                  "reads no signature, parameter list, return type or node kind there",
-                  "which every new or modified export does"):
+    init = _slice(_read(INIT), "**If `--allow-workspace-drift` was provided:**", "\n")
+    for token in ("update-skill takes nothing from HEAD", "halted-for-workspace-drift",
+                  "every new or modified export and every rescope among them",
+                  "step 5 does not re-pin `metadata.source_commit`"):
         assert token in init, token
-    # SKILL.md gives the caller one clause; gap-driven.md §3 holds what the override keeps out
+    # gap-driven.md §3 holds what the override keeps out
+    assert "so update-skill takes no provenance line, signature, parameter list, return type or node kind from it" \
+        in _zero_a()
     flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
-    for token in ("update-skill takes nothing from HEAD",
-                  "a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift` before "
-                  "merge"):
-        assert token in flags, token
+    assert ("each gap that needs the pinned tree halts `halted-for-workspace-drift` before merge, gap-driven.md §3"
+            in flags)
     # the docs say it in their own words; the #551 wording, under which only a gap that needed a line halted, is gone
     gap_driven = ("`--allow-workspace-drift`", "Update Skill with `--from-test-report`")
     verifying = _doc_line("verifying-a-skill.md", *gap_driven)
@@ -2968,13 +2964,13 @@ def test_override_is_described_where_the_flag_is():
     assert "stops on a gap that needs one" not in workflows
     # the reports verifying-a-skill.md says still run hold only categories the drift gate lets through; removed
     # exports stay out, as the gate halts on a rescope once write.md §3b keeps the recorded public API counts
-    gate = _drift_gate()
-    end = gate.index(" need nothing from the tree and pass.")
-    passes = gate[gate.rindex(". ", 0, end) + 2:end]
+    doc = _gap_records_doc()
+    passes = (_slice(doc, "Its STRUCTURAL_FIX and metadata update entries", "export-bearing.")
+              + _slice(doc, "each export-bearing entry but a MOVED_EXPORT", " needs the tree"))
     still_runs = _slice(verifying, "A report whose gaps are only", " still runs")
     for category, words in (("MOVED_EXPORT", "provenance line fixes"), ("STRUCTURAL_FIX", "structural fixes"),
                             ("metadata update", "metadata patches")):
-        assert f"`{category}`" in passes and words in still_runs, category
+        assert category in passes and words in still_runs, category
     assert "removed exports" not in still_runs
     for text in (init, flags, verifying, workflows):
         assert "\u2014" not in text
@@ -2988,7 +2984,7 @@ def test_docs_say_a_rescope_halts_under_the_override():
     that still goes ahead keeps the public API counts metadata.json records.
     """
     gate = _drift_gate()
-    assert "- `a public API recount from the tree (rule R1)`: a rescope (`DELETED_EXPORT`);" in gate
+    assert 'a DELETED_EXPORT "a public API recount from the tree (rule R1)"' in _gap_records_doc()
     assert "A rescope's amendment is not in the skill brief yet (rule R1): step 4 \u00a76b writes it, so this halt " \
            "leaves the brief as it was" in gate
     counts = _slice(_read(WRITE), "  **Public API counts under the drift override**", "\n")
@@ -3021,21 +3017,22 @@ def test_one_severity_rule_in_gap_driven_and_write(tmp_path, capsys):
     assert text.count(BLOCKING_RULE) == 1
     assert "`severity` is `Critical` or `High`" not in text  # the test a missing severity slipped through
     # §4a restates no routing: §4 bullet 1's plan lists its entries (#600 w3 leanness-5; step 5b round 2)
-    used_by = _slice(text, "**Used by:** §4 bullet 1's plan", "**Purpose:**")
-    assert "for the entries it lists in `reextract.entries`" in used_by
+    header = _slice(text, "Runs only for the entries §4 bullet 1's plan lists", "\n")
+    assert "lists in `reextract.entries`" in header
     for gone in (BLOCKING_RULE, "blocking severity", "`Medium`", "provenance-completeness"):
-        assert gone not in used_by, gone
+        assert gone not in header, gone
     # the prose around §4a states the same rule, an unrecognized severity included
     for gone in ("citation-less Critical/High", "the Critical/High HALT",
                  "Critical and High gaps, and gaps with no severity"):
         assert gone not in text, gone
-    assert "for a gap with a blocking `severity` (§4 bullet 1) and no citation that pins a line" in \
-        _slice(text, "**Purpose:**", "\n")
+    assert "for a gap with a blocking `severity` (§4 bullet 1) and no citation that pins a line" in header
+    # SKILL.md's rule asks where each statement was read, not an AST match (#1195): a gap read by eye stands
+    assert "It produces source provenance for a gap" in header and "AST" not in header
     # re-extract.md keeps no gap-driven exception in its Rules: a repair never loads it (#600 architecture-4)
     assert "**Exception (gap-driven mode):**" not in _read(RE_EXTRACT)
     template = " ".join(_fence(text, "Targeted re-extraction failed for {N} gap(s).").split())
     assert ("A blocking gap (any severity but Medium, Low or Info, a missing or unrecognized one included) must "
-            "resolve to AST provenance.") in template
+            "resolve to source provenance.") in template
     why = _slice(text, "**Why halt instead of degrading to `unknown`:**", "\n")
     assert "a null citation on a blocking gap lets the skill pass re-test" in why
     assert "Critical or High gap by definition" not in why
@@ -3184,8 +3181,9 @@ def test_a_gap_outside_the_brief_scope_is_never_repaired_there(tmp_path, capsys)
     assert ("It takes no `--brief`: §4 bullet 1's plan already left out each file a gap cites or its Remediation "
             "names that the brief's scope leaves out.") in zero_a
     # nothing is read for a gap the scope keeps from a repair, so the drift gate passes it
-    assert ("So does, with `--brief`, a gap the brief's scope keeps from a repair before anything is read for it"
-            in _slice(text, DRIFT_GATE, "- `a public API recount from the tree (rule R1)`"))
+    assert ("An entry the brief's scope keeps from a repair before anything is read for it (step 3 records it "
+            "outside-scope, or cited-elsewhere with citation_check outside-scope, with no check run and nothing to "
+            "scan) passes.") in _gap_records_doc()
     assert "a file the brief's scope leaves out, several map entries of its name" in \
         _slice(text, '"**Gap-driven re-extraction.**', "\n")
     assert ("One the brief's scope keeps from a repair (`outside-scope`, or `cited-elsewhere` with `citation_check` "
@@ -3252,9 +3250,7 @@ def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, 
     and §4 bullet 2's `unresolved` handler halts with `halted-for-remediation-path` before merge."""
     text = _read(GAP)
     zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
-    used_by = _slice(zero_a, "**Used by:** §4 bullet 1's plan", "**Purpose:**")
-    assert "an entry with none has nothing to scan" in used_by
-    assert "A run in which §4 bullet 1 routes no entry here skips this section entirely" in zero_a
+    assert "a run that routes none here skips it" in _slice(zero_a, "Runs only for the entries", "\n")
     # the routing and the match are gap-records', stated once in its docstring (step 5b round 2)
     doc = _gap_records_doc()
     for token in ("or with no citation: targeted re-extraction (§4a) for a provenance_completeness entry with a source "
@@ -3328,7 +3324,6 @@ def test_gap_driven_dry_run_stops_before_merge():
     assert "Proceeding to merge" not in _slice(text, '"**Gap-driven re-extraction.**', "\n")  # §5's branch says it
     halt = "a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it"
     assert halt in _slice(_read(CONTRACT), "| **Flags** |", "\n")
-    assert halt in _slice(_read(INIT), "- `--dry-run` to run detect-changes + re-extract", "\n")
 
 
 def test_write_keeps_a_documented_defensive_halt(tmp_path):
@@ -3545,9 +3540,11 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
 
 def test_a_moved_export_across_files_names_its_old_file():
     """#686: the change manifest names the file a MOVED_EXPORT across files left, where `apply` finds its entry."""
-    shape = _slice(_read(DETECT), "The helper emits the unified manifest envelope:", "### 4.")
-    assert "[{name, change_type, old_line, new_line, old_file?}, ...]" in shape
-    assert "a `MOVED_EXPORT` across files an `old_file`, the file it left, where `apply` finds its entry" in shape
+    # the manifest's shape is the helper's docstring; detect-changes.md reprints no envelope (#1195)
+    shape = _docstring(BUILD_MANIFEST, "Manifest (build's output):", "Gap records (update-skill")
+    assert ("Each per_file item's exports_affected holds {name, change_type, old_line, new_line}, and old_file for an "
+            "export that moved across files (a MOVED_EXPORT, or a MODIFIED_EXPORT that also changed)") in shape
+    assert "The helper emits the unified manifest envelope" not in _read(DETECT)
     # merge's script moves a cross-file citation to the new file, never by hand (#1191 determinism-1)
     priority2 = _slice(_read(MERGE), "**Priority 2", "**Priority 3")
     for token in ("§6b moves each `MOVED_EXPORT`'s citations (in gap-driven mode, each record marked `moved`) by "
@@ -3607,7 +3604,6 @@ def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
     # a STRUCTURAL_FIX needs nothing from the tree: forwarded as is, and the drift gate lets it through
     written = _slice(_read(GAP), "   - **`written`:** keep its `counts` for §5", "\n")
     assert "with no spot-check, no provenance lookup and no `entries[]` change" in written
-    assert "a `STRUCTURAL_FIX` (a split-body consistency finding among them)" in _drift_gate()
     # run it: translate keeps the in-package citation as `package_citation` alone and routes the finding (#779),
     # and gap-records forwards it as it is
     translate = _module(PARSE_GAPS, "skf_parse_gaps_split_body_prose")
@@ -3901,7 +3897,9 @@ def test_reference_app_stats_use_the_reference_app_shape():
                   "pass no `--shape` (the helper's default, the library shape)"):
         assert token in shape, token
     # init.md's Stack Skill Guard is the one gate for stacks: write does not narrate a route no stack takes (#600)
-    assert "Stack Skill Guard" not in shape and "**This guard is the single gate for stack skills**" in _read(INIT)
+    assert "Stack Skill Guard" not in shape
+    assert ("No flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses this "
+            "guard.") in _slice(_read(INIT), "### Stack Skill Guard", "### 3.")
     payload = _slice(two, "  - `pattern_surfaces_documented` (reference app only):", "\n")
     # the helper counts the rows; the payload holds no typed count (#1191 determinism-7)
     for token in ("none in the payload, and never typed",
@@ -4653,7 +4651,9 @@ def test_the_run_folder_carries_the_helper_files_and_step_7_removes_it(tmp_path,
                   '[--new-files "{run_dir}/new-files.json"]'):
         assert token in build, token
     three = _slice(detect, "### 3. Build Change Manifest", "### 4.")
-    assert '"docs_modified": N, "docs_deleted": N' in three and "`category_d` in the category JSON" not in three
+    assert '"docs_modified": [...], "docs_deleted": [...]' in " ".join(
+        _module(BUILD_MANIFEST, "skf_build_change_manifest_docs_lists").__doc__.split())
+    assert "`category_d` in the category JSON" not in three
     forge = tmp_path / "forge"
     forge.mkdir()
     provenance = forge / "provenance-map.json"
@@ -5245,7 +5245,7 @@ def test_headless_skips_are_deferred_for_a_person(tmp_path):
     lines = (run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 4  # one per path, never collapsed
     one_c = _slice(detect, "### 1c.", "### 2. Compare")
-    assert '| "deferred-headless" | null' in one_c
+    assert "A `prior_action` of `deferred-headless` marks a path a headless run deferred" in one_c
     # the dispatch helper reads both the deferral and the legacy headless skip as unresolved
     forge = tmp_path / "forge"
     (forge / "lib" / "1.0.0").mkdir(parents=True)
@@ -5758,16 +5758,19 @@ def test_a_read_only_run_that_finds_no_change_stays_read_only():
         assert "`{run_dir}/warnings.jsonl`" in _slice(report, section, end), section
     one_c = _slice(_read(HEALTH), "1c. **Remove this update's run folder**", "\n")
     assert "step 7 already printed them and wrote them into the result files" not in one_c
-    assert "step 6 listed the warnings in a read-only run's report" in one_c
+    assert "step 6 listed the warnings in a read-only run's report" not in one_c
 
 
 def test_merge_reads_the_run_state_from_disk():
     """merge §3 reads the manifest and the records step 2 and step 3 wrote to the run folder, never from memory
-    (#587: state held only in context)."""
+    (#587: state held only in context). The documents step 2 §1b promoted reach the map through step 5's `apply`,
+    which reads `{run_dir}/promoted-docs.json` itself, so merge reads no such file (#1195)."""
     three = _slice(_read(MERGE), "### 3. Apply Merge by Priority Order", "**Priority 1")
     for token in ("from disk, never from memory", "`{run_dir}/change-manifest.json`",
-                  "`{run_dir}/reextract-records.json`", "`{run_dir}/promoted-docs.json`"):
+                  "`{run_dir}/reextract-records.json`"):
         assert token in three, token
+    assert "promoted-docs.json" not in _read(MERGE)
+    assert '[--promoted-docs "{run_dir}/promoted-docs.json"]' in _write_3()
     assert "in-context `promoted_docs_new[]`" not in _read(MERGE)
 
 
@@ -5857,8 +5860,6 @@ def test_manual_decisions_amend_the_inventory_before_the_staged_check(tmp_path):
     check verifies what the user approved (W3 architecture-1 and enhancement-1, with the verifier's corrections)."""
     merge = _read(MERGE)
     assert "- Never delete or modify [MANUAL] section content without the user's section 4 [R]/[E] decision" in merge
-    rules = _read(REFS / "manual-section-rules.md")
-    assert "without the user's merge §4 [R]emove or [E]dit decision" in rules
     four = _slice(merge, "### 4. Check for Conflicts", "### 6. Compile Merge Results")
     for token in ('{"name": "<block>", "action": "remove"}', '"content_file": "manual-edit-<block>.md"',
                   "Never type a hash", "Rebind `{manual_inventory}` ← `{run_dir}/manual-inventory.json`",
@@ -6157,7 +6158,7 @@ def test_write_makes_the_version_live_after_the_last_check():
         assert "kept it" not in section and "restore the listed blocks" not in section, start
     procedure = _halt_procedure(WRITE)
     assert "Until §10 closes the window" in procedure
-    assert "unless the `active` link already names them (§8), which keeps that version" in procedure
+    assert "keeping a version the `active` link already names (§8, its `kept`)" in procedure
     eight = _slice(write, "### 8. Update the Active Symlink", "### 8a.")
     assert "now that §6 and §7 have checked the written package" in eight
     assert eight.count("Continue to §8a.") == 2
@@ -6538,9 +6539,9 @@ def test_every_repair_record_has_a_slot_in_both_reports():
         assert f"`{key}`" in repairs, key
     assert "**Repairs applied:** each `structural_fix` as `{summary} at {file}:{line}`" in repairs
     assert repairs.endswith("}") and applied.index("**Not repaired by this run:**") < applied.index(repairs)
-    # Priority 7's doc is already in step 2's authoritative_files_mirror record, which §4 renders
-    p7 = _slice(merge, "**Priority 7", "**Priority 8:")
-    assert "detect-changes.md §1b's `authoritative_files_mirror` record" in p7 and "No report entry." not in p7
+    # a promoted doc is already in step 2's authoritative_files_mirror record, which §4 renders (Priority 6, #1195)
+    p6 = _slice(merge, "**Priority 6", "**Priority 8:")
+    assert "detect-changes.md §1b's `authoritative_files_mirror` record" in p6 and "No report entry." not in p6
     # a structural fix is recorded where it lands; a POSITION conflict edits nothing, so it records nothing
     p8 = _slice(merge, "**Priority 8:", "**Priority 8b:")
     assert "`structural_fix: {gap_id, summary, file, line}`" in p8
@@ -6779,30 +6780,25 @@ def test_skill_md_routes_the_gap_driven_branch_and_names_its_files():
             "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root") in conventions
     assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
             "SKF module root, and that skill must be installed with this one.") in conventions
+    # the coupling bullet points at each stage's frontmatter, which names the create-skill files (#1195)
     coupling = _slice(skill, "- **Cross-skill data coupling:**", "\n")
-    assert ("and `gap-driven.md` pulls `extraction-patterns.md` and `tier-degradation-rules.md`") in coupling
+    assert "each named in the stage's frontmatter or where the stage reads it" in coupling
+    assert not re.search(r"[\w-]+\.md", coupling), coupling
     front = yaml.safe_load(_frontmatter(_read(GAP)))
     for key in ("extractionPatternsData", "tierDegradationRulesData"):
         assert front[key].startswith("skf-create-skill/references/"), key
-        assert f"`{Path(front[key]).name}`" in coupling, key
 
 
 def test_the_rule_files_hold_no_copy_of_merge():
-    """manual-section-rules.md keeps the marker rules merge.md does not state; init.md no longer loads it
-    (#600 leanness-8); merge-conflict-rules.md is gone, since its rows only repeated merge.md's Rules and §4
-    (architecture-8)."""
-    rules = _read(REFS / "manual-section-rules.md")
-    assert "### Conflict Types" not in rules and "### Preservation Algorithm" not in rules
-    # one bold-term style for the four rules
-    assert re.findall(r"^\d\. \*\*([^*]+)\*\*: ", rules, re.M) == [
-        "Never delete or modify content between [MANUAL] markers without the user's merge §4 [R]emove or [E]dit "
-        "decision", "Preserve marker positions", "Multiple [MANUAL] blocks", "Nested [MANUAL] forbidden"]
-    assert not (REFS / "merge-conflict-rules.md").exists()
+    """No static rule file sits beside merge.md: merge-conflict-rules.md went since its rows only repeated
+    merge.md's Rules and §4 (#600 architecture-8), and manual-section-rules.md went once merge.md §2 took its two
+    marker rules merge.md did not state (#1195 architecture-8)."""
+    for gone in ("merge-conflict-rules.md", "manual-section-rules.md"):
+        assert not (REFS / gone).exists(), gone
     merge = _read(MERGE)
-    assert "mergeConflictRulesFile" not in merge and "merge-conflict-rules" not in merge
-    assert "the [MANUAL] rules file merge.md loads" in _read(SKILL)
-    init = _read(INIT)
-    assert "manualSectionRulesFile" not in init and "manualSectionRulesFile" in merge
+    for gone in ("mergeConflictRulesFile", "merge-conflict-rules", "manualSectionRulesFile", "manual-section-rules"):
+        assert gone not in merge, gone
+    assert "manualSectionRulesFile" not in _read(INIT) and "rules file" not in _read(SKILL)
 
 
 
@@ -6966,8 +6962,6 @@ def test_a_moved_local_source_is_named_with_source_root(tmp_path):
     or docs-only skill and for a path that is no folder, warns, and step 5 records it in metadata.json, which the
     next run's §6 reads."""
     init = _read(INIT)
-    request = _slice(init, "### 1. Request Skill Path", "**Skill:**")
-    assert "- `--source-root <path>` (a skill read from a local folder, in any mode)" in request
     handler = _slice(init, "**If `--source-root` was provided:**", "\n")
     assert "set `{source_root_override}` to its path, made absolute (a relative path is read from `{project-root}`)" \
         in handler
@@ -7444,3 +7438,255 @@ def test_the_result_contract_points_at_the_schema():
     for gate in gates:
         assert any(gate in _read(path) for path in STEP_FILES), gate
     assert "merge.clean-merge-gate" not in props["headless_decisions"]["description"]
+
+
+# --------------------------------------------------------------------------
+# #1195: the stage files and SKILL.md state the step at hand, not a helper's
+# insides, another section or a later step
+# --------------------------------------------------------------------------
+
+# The texts #1195 cut to one clause: detect-changes.md's three Purpose lines (each by the section's start and
+# the marker after its Purpose) and gap-driven.md §4a's lead.
+LEAN_PURPOSES = {
+    ("### 1b.", "**Skip this section entirely if:**"):
+        "**Purpose:** a project can add authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` "
+        "and the like) after the skill was created; surface each with create-skill §2a's [P]/[S]/[U] prompt.",
+    ("### 1c.", "**Skip this section entirely if:**"):
+        "**Purpose:** catch new code globs outside the brief's `scope.include` after an upstream restructure "
+        "(rebrand, package restructure, major-version rewrite).",
+    ("#### 2.2", "**Trigger computation:**"):
+        "**Purpose:** the safety net when no audit drift report named the restructure.",
+}
+FOUR_A_LEAD = ("Runs only for the entries §4 bullet 1's plan lists in `reextract.entries` and `reextract.signatures`; a "
+               "run that routes none here skips it. It produces source provenance for a gap with a blocking `severity` "
+               "(§4 bullet 1) and no citation that pins a line, so step 5 §3 never writes `source_file: null` for a "
+               "blocking finding, and reads the signature SKILL.md and the provenance map take for an export a "
+               "spot-check located.\n")
+
+
+def test_halt_procedures_leave_the_helper_its_work():
+    """leanness-3: each halt procedure gives the `halt` call its flags and payload, then says in one clause what
+    the helper does, so the model does none of it: no stage narrates the emitter's fields, the lock's owner check
+    or the rollback's cases, which the helper's docstring states."""
+    for path in STEP_FILES:
+        procedure = _halt_procedure(path)
+        assert "do none of it yourself" in procedure, path.name
+        for gone in ("which adds the decisions recorded so far", "it never stops on a result",
+                     "The emitter adds `files_written: []`", "(never one another run holds)",
+                     "through the shared emitter", "from the snapshot"):
+            assert gone not in procedure, (path.name, gone)
+        # each warning the clause names is one the helper adds
+        named = re.search(r"with a warning \(([^)]+)\)", procedure).group(1)
+        for warning in re.findall(r"`([a-z-]+)`", named):
+            assert f"`{warning}: " in _read(RUN_STATE), (path.name, warning)
+        # what the step still does with the result stays: the escaping, the verbatim line and the one retry
+        for kept in ("escape `\"` and `\\`", "Display the line it prints verbatim.",
+                     "fix the payload once and run it again", "An interactive HALT displays its message and emits "
+                     "nothing."):
+            assert kept in procedure, (path.name, kept)
+    # merge and write tell the user what the rollback did, and write's payload reads the version it kept
+    for path in (MERGE, WRITE):
+        assert "name each path its `failed[]` lists for the user to restore or delete by hand" in \
+            _halt_procedure(path), path.name
+    assert "keeping a version the `active` link already names (§8, its `kept`)" in _halt_procedure(WRITE)
+    assert "the artifacts this step wrote when the helper kept a live version" in _halt_procedure(WRITE)
+    # the helper's docstring holds what the stages no longer narrate
+    doc = " ".join(_module(RUN_STATE, "skf_update_run_state_halt_doc").__doc__.split())
+    for token in ("which never removes a lock another run holds", "with --run-dir when the folder still exists, so "
+                  "the line carries the decisions and warnings the run recorded", "never stopping on a result"):
+        assert token in doc, token
+
+
+def test_call_sites_reprint_no_helper_output():
+    """leanness-1 and -2: a call site keeps the command, its inputs and the dispatch on what it prints; the helper's
+    own steps and its output's shape are its docstring's, and the drift gate's partition is gap-records' plan."""
+    assert "What the helper does:" not in _read(INIT)
+    assert "Dispatch on `{source_tree_status}`:" in _init_6b()
+    assert "The helper takes the clone's" not in _write_9()
+    detect = _read(DETECT)
+    for start, end in (("### 1c.", "### 2. Compare"), ("#### 2.2", "### 3."), ("### 3. Build Change Manifest", "### 4.")):
+        section = _slice(detect, start, end)
+        assert "```json" not in section and "envelope" not in section, start
+    three = _slice(detect, "### 3. Build Change Manifest", "### 4.")
+    assert three.rstrip().endswith("`{run_dir}/change-manifest.json` is the change manifest: step 3, step 6 and step "
+                                   "5's `apply` read it there, so it survives a compacted context.")
+    assert "If `skip_reason` is non-null OR `should_trigger` is false, skip the prompt and continue to §3." in \
+        _slice(detect, "#### 2.2", "### 3.")
+    gap = _read(GAP)
+    assert "```json" not in gap and "The helper emits" not in gap
+    assert "sentinels" not in _zero_a() and "auto-skips" not in _zero_a()
+    gate = _drift_gate()
+    assert _slice(gate, DRIFT_GATE, "\n") == (
+        DRIFT_GATE + " Run §4 bullet 1 now: with `--drift-status overridden` its plan checks this gate before any "
+        "spot-check, and lists in `drift_blocked[]` each entry whose repair needs the tree, with its reason; never "
+        "classify by hand.")
+    assert re.findall(r"^- `([^`]+)`: ", gate, re.M) == []
+    # the reasons the user still reads in the halt are the ones the helper writes
+    build = _module(BUILD_MANIFEST, "skf_build_change_manifest_lean_gate")
+    assert [build.DRIFT_RESCOPE, build.DRIFT_COMPLETENESS, build.DRIFT_NOT_IN_MAP, build.DRIFT_IN_MAP] == GATE_REASONS
+    assert "{" + " | ".join(GATE_REASONS) + "}" in _fence(gate, "Workspace drift blocks {N} gap(s)")
+    # leanness-6: no step sets a flag nothing reads
+    for path in sorted(SRC.rglob("*")):
+        if path.is_file() and path.suffix in (".md", ".py", ".yaml", ".json", ".toml", ".js"):
+            assert "no_reextraction" not in path.read_text(encoding="utf-8"), path.relative_to(REPO_ROOT)
+    assert _slice(gap, "2. **Write the gap-driven records**", "### 4a.").rstrip().endswith(
+        "3. Go on to §5. §4a below runs only where bullet 1 calls it.")
+
+
+def test_the_no_skill_prompt_asks_one_question():
+    """leanness-10 and enhancement-6: with no skill named, an interactive update asks which skill, takes three
+    answer forms and points to `--dry-run` and the invocation contract for the other flags; each flag passed on the
+    invocation still has its handler, and the drift flag's handler says what the override halts on."""
+    init = _read(INIT)
+    one = _slice(init, "### 1. Request Skill Path", "### 1b. Concurrency Guard")
+    prompt = _slice(one, '"**Which skill would you like to update?**', '**Skill:**')
+    assert prompt.count("?") == 1
+    assert set(FLAG_RE.findall(prompt)) == {"--from-test-report", "--dry-run"}
+    assert len(re.findall(r"^- ", prompt, re.M)) == 3
+    assert ("\nAdd `--dry-run` to preview what would change without writing anything; "
+            "`references/invocation-contract.md` lists the other flags.\n") in prompt
+    for gone in ("--allow-degraded", "headless mode only", "--allow-workspace-drift"):
+        assert gone not in prompt, gone
+    # the skills SKF generated are still listed, numbered, above the one question
+    assert "Above the prompt, list, numbered, the `name` and `active_version` of each `skills[]` entry" in \
+        _slice(one, "**No skill passed, interactive:**", "\n")
+    # every flag the contract lists keeps its handler in §1 (`--headless` is SKILL.md's), which acts as before
+    flags_row = _slice(_read(CONTRACT), "| **Flags** |", "\n")
+    for flag in sorted(set(FLAG_RE.findall(flags_row)) - {"--headless"}):
+        assert f"**If `{flag}` was provided" in one, flag
+    for flag, action in (("--allow-degraded", "set `allow_degraded: true` in workflow context"),
+                         ("--target-ref", "set `{target_ref_override}` to its value in workflow context"),
+                         ("--source-root", "set `{source_root_override}` to its path, made absolute"),
+                         ("--detect-only", "set `detect_only_mode: true` in workflow context"),
+                         ("--dry-run", "set `dry_run_mode: true` in workflow context"),
+                         ("--allow-workspace-drift", "set `allow_workspace_drift: true` in workflow context")):
+        assert action in _slice(one, f"**If `{flag}` was provided", "\n"), flag
+    drift = _slice(one, "**If `--allow-workspace-drift` was provided:**", "\n")
+    assert drift.rstrip().endswith(
+        "Under it update-skill takes nothing from HEAD, so gap-driven.md §3 halts `halted-for-workspace-drift` before "
+        "merge on each gap that needs the pinned tree, every new or modified export and every rescope among them, "
+        "and step 5 does not re-pin `metadata.source_commit`.")
+    assert ("`--allow-workspace-drift` (gap-driven only: each gap that needs the pinned tree halts "
+            "`halted-for-workspace-drift` before merge, gap-driven.md §3)") in flags_row
+    assert "update-skill takes nothing from HEAD" not in flags_row
+    # the prompt sends an interactive user to the contract, so it says what each flag the prompt dropped does
+    contract = _read(CONTRACT)
+    assert "Interactive runs do not need this file" not in contract
+    assert "an interactive run needs it only to look up a flag." in _slice(contract, "# Invocation Contract", "| Aspect")
+    for flag, clause in (("`--target-ref <ref>`", " (normal mode, a skill forged from a remote repository: read a tag, "
+                          "a branch, `HEAD` (the default branch) or a full 40-character commit instead of the recorded "
+                          "`source_ref`, and record it as the new `source_ref` when the update writes);"),
+                         ("`--allow-degraded`", " (headless only: take init.md §4's degraded rebuild when no provenance "
+                          "map is found, instead of halting `blocked`);")):
+        assert flag + clause in flags_row, flag
+
+
+def test_merge_reads_no_rules_file_and_one_file_priority():
+    """architecture-8 and leanness-4: merge.md §2 states the two [MANUAL] marker rules the rules file kept, so merge
+    loads no second-hop file, and one Priority says what merge does for Category D: `apply` writes the rows,
+    write.md §3 copies the files, and merge updates the Section 7b table."""
+    assert not (REFS / "manual-section-rules.md").exists()
+    merge = _read(MERGE)
+    assert "manualSectionRulesFile" not in yaml.safe_load(_frontmatter(merge))
+    assert "{manualSectionRulesFile}" not in merge and "### 1. Load Merge Rules" not in merge
+    # §2 keeps its number, so no merge.md §N reference moves
+    assert re.findall(r"^### (\d+[a-z]?)\. ", merge, re.M)[:2] == ["2", "3"]
+    two = _slice(merge, "### 2. Extract [MANUAL] Blocks", "### 3.")
+    assert ("- Map each block to its parent section heading: when the generated content around a block moves, the "
+            "block moves with that section\n") in two
+    assert two.rstrip().endswith("- A block nested inside another is an ERROR: flag it, since blocks never nest")
+    assert "rules file" not in _slice(_read(SKILL), "## Conventions", "## Role")
+    for path in sorted(UPDATE.rglob("*.md")):
+        assert "Priority 7" not in _read(path) and "Priority 6/7" not in _read(path), path.name
+    six = _slice(merge, "**Priority 6", "**Priority 8:")
+    assert six.rstrip() == (
+        "**Priority 6: Process script, asset and document changes (Category D of the change manifest):** step 5's "
+        "`apply` writes every `file_entries[]` row, and write.md §3 copies or removes each script and asset file the "
+        "change manifest's `category_d` lists, never a document. Merge updates SKILL.md's Section 7b manifest table "
+        "for those `scripts_*` and `assets_*` paths, and never modifies a file in `scripts/[MANUAL]/` or "
+        "`assets/[MANUAL]/` (user-authored). Changed documents are already recorded for the reports: report.md lists "
+        "each `docs_modified` and `docs_deleted` path of `category_d`, and the evidence report names each document "
+        "§1b promoted through detect-changes.md §1b's `authoritative_files_mirror` record.")
+    # each fact Priority 6 points to holds where it points
+    assert "each path the change manifest's `category_d` lists" in _write_3()
+    assert "each `docs_modified` path (modified) and `docs_deleted` path (deleted)" in _read(REPORT)
+    assert "(docs/authoritative/<path>, promoted-authoritative)" in " ".join(
+        _module(BUILD_MANIFEST, "skf_build_change_manifest_doc_rows").__doc__.split())
+    assert "authoritative_files_mirror" in _slice(_read(DETECT), "### 1b.", "### 1c.")
+    assert "step 5's `apply` writes a new `file_entries[]` row for each. A promotion" in _read(DETECT)
+    assert "through step 5's `apply`, never through code extraction" in _read(DETECT)
+    assert "step 2's Category D and step 5's `apply` handle doc-type drift" in _read(RE_EXTRACT)
+    # a re-promoted document's row comes from `apply` too, and no step 2 text says merge writes one
+    assert ("with the helper's hash, size and line count so step 5's `apply` writes a new `file_entries[]` row."
+            ) in _slice(_read(DETECT), "### 1b.", "### 1c.")
+    assert "§4 merge writes" not in _read(DETECT)
+
+
+def test_stage_text_states_the_step_at_hand():
+    """leanness-5, -11 and -12, architecture-4 and -7: each passage says what its own step does, in the words a
+    later step or the helper does not already hold, and SKILL.md's provenance rule is the one the stages keep."""
+    init = _read(INIT)
+    guard = _slice(init, "### 1b. Concurrency Guard", "### 2.")
+    release = _slice(guard, "**Release contract:**", "\n")
+    assert "**Release contract:**\n" not in guard and guard.rstrip().endswith(release.rstrip())
+    for token in ("every exit after this section releases the lock, so a run that halts does not block the next one: "
+                  "step 7, or the halt procedure of the step file it fires in",
+                  "whose helper adds `run-lock-not-released: " + LOCK_FILE + "` to `warnings[]` when the release fails",
+                  "merge.md §6b renews the lock before the run writes the skill",
+                  "The private source tree §6b prepares has its own contract: step 7 or the halt procedure removes it."):
+        assert token in release, token
+    assert "**Detect skill type from metadata:**" not in init and "flag as single skill" not in init
+    stack = _slice(init, "### Stack Skill Guard", "### 3.")
+    assert "After loading metadata.json, check `skill_type` (absent means `single`):" in stack
+    assert stack.rstrip().endswith(
+        "No flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses this guard.")
+    assert "single gate for stack skills" not in init
+    # SKILL.md: the provenance rule the stages keep, the docs-only case, and the coupling as one clause
+    skill = _read(SKILL)
+    assert ("- Never hallucinate: every statement cites where it was read (an ast-grep match, a source line read by "
+            "eye, or a docs URL), with that method's confidence label\n") in _slice(skill, "## Workflow Rules",
+                                                                                 "## Stages")
+    assert "each regenerated instruction cites code by file:line (a docs-only skill cites its documents' URLs)" in skill
+    coupling = _slice(skill, "- **Cross-skill data coupling:**", "\n")
+    assert coupling == ("- **Cross-skill data coupling:** stages load extraction rules and templates from "
+                        "`skf-create-skill`, each named in the stage's frontmatter or where the stage reads it, so "
+                        "create and update extract alike.")
+    for path in sorted(UPDATE.rglob("*.md")):
+        assert "AST provenance" not in _read(path) and "AST-backed provenance" not in _read(path), path.name
+    # detect-changes.md and gap-driven.md: one clause of purpose, no Note on another section
+    detect = _read(DETECT)
+    for (start, end), purpose in LEAN_PURPOSES.items():
+        lead = _slice(detect, start, end)
+        assert lead.split("\n", 2)[2].strip() == purpose, start
+    assert "**Note:**" not in _slice(detect, "### 1c.", "### 2. Compare")
+    gap = _read(GAP)
+    four_a = _slice(gap, "### 4a. Targeted Re-Extraction Branch", "**Procedure:**")
+    assert four_a.split("\n", 2)[2].strip() == FOUR_A_LEAD.strip()
+    for gone in ("**Do not execute this section sequentially.**", "**Used by:**", "**Purpose:**"):
+        assert gone not in four_a, gone
+    # health-check.md: its goal in one sentence, and no note on where the warnings went
+    health = _read(HEALTH)
+    assert _slice(health, "## STEP GOAL:", "## Steps").strip() == (
+        "## STEP GOAL:\n\nRelease the concurrency lock and the private source tree, remove this update's run folder, "
+        "then chain to the shared workflow self-improvement health check at `{nextStepFile}`, the last step of "
+        "update-skill.")
+    assert "It holds this run's state, its decision log and warnings, and the helper files" in \
+        _slice(health, "1c. **Remove this update's run folder**", "\n")
+    # write.md: §0 is the guard's one statement, §7's fence runs it, and §5 states the snippet fields once
+    write = _read(WRITE)
+    seven = _slice(write, "### 7. Run Post-Write Validation", "**If skill-check is available:**")
+    assert "# Phase" not in seven and "ad-hoc" not in seven
+    assert "**Context Snippet population**" not in write
+    # a clean run's three Description Guard fields name the dash the template offers, `Original description
+    # preserved` included, whose `{true/false}` placeholder has none of its own
+    assert ("When `Restored: false`, each of the other three fields is the dash the `Triggering tool` and `Notes` "
+            "placeholders offer, the clean-run expected state, except when") in write
+    assert "keep the template's no-fire dash" not in write
+    five = _slice(write, "### 5. Regenerate context-snippet.md", "### 6.")
+    assert ("`Regenerated: true` with each trigger that fired in `Triggers fired:` (`headline-exports`, `version`, "
+            "`gotchas`, `anchors`), or `Regenerated: false` with `Triggers fired:` left at the template's empty mark (a "
+            "gap-driven repair, or a run that changed only internals), and always a one-sentence `Notes:` reason.\n"
+            ) in five
+    assert "field semantics" not in five and "otherwise skip: a skip is the correct outcome" not in five
+    assert "Regenerate it only when at least one of these triggers fired.\n" in five
+    assert "**If no trigger fired:** skip regeneration" in five

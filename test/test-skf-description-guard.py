@@ -566,7 +566,7 @@ GUARD_STEPS = {
 # (start, end) of each step's Description Guard evidence-report populator
 POPULATORS = {
     "create-skill": ("**Description Guard population:**", "### 9. Auto-Proceed"),
-    "update-skill": ("**Description Guard population**", "**Context Snippet population**"),
+    "update-skill": ("**Description Guard population**", "### 5. Regenerate context-snippet.md"),
 }
 
 def _read(path: Path) -> str:

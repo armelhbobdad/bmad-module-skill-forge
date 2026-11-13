@@ -47,7 +47,7 @@ uv run {runStateHelper} halt --run-dir "{run_dir}" \
 SKF_JSON
 ```
 
-Pass `--tree` when init.md §6b bound `{source_tree}`, `--lock` and `--owner` when init.md §1b bound `{lock_owner}` (the read-only modes take no lock), and `--emit` in `{headless_mode}`. It removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "re-extract:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+Pass `--tree` when init.md §6b bound `{source_tree}`, `--lock` and `--owner` when init.md §1b bound `{lock_owner}` (the read-only modes take no lock), and `--emit` in `{headless_mode}`. It removes the private source tree, releases the run lock and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line, with a warning (`source-tree-not-removed`, `run-lock-not-released`) for each step it could not finish: do none of it yourself. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "re-extract:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place.
 
@@ -91,7 +91,7 @@ The halt leaves `{run_dir}` in place.
 
 ### 2. Extract Changed Files
 
-Step 2's Category A left every promoted or tracked document out of the files to extract (its §2.0): a document must not reach AST extraction, which would produce ghost entries; step 2's Category D and step 4's Priority 6/7 handle doc-type drift.
+Step 2's Category A left every promoted or tracked document out of the files to extract (its §2.0): a document must not reach AST extraction, which would produce ghost entries; step 2's Category D and step 5's `apply` handle doc-type drift.
 
 For each file `{run_dir}/extract-files.json` lists (step 2 wrote it: the MODIFIED and ADDED files and each MOVED file's new path), launch a subprocess that:
 

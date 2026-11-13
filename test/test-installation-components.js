@@ -352,7 +352,6 @@ async function runTests() {
     },
     'update-skill': {
       steps: ['init.md', 'detect-changes.md', 'gap-driven.md', 're-extract.md', 'merge.md', 'write.md', 'report.md', 'health-check.md'],
-      references: ['manual-section-rules.md'],
     },
     'audit-skill': {
       steps: ['init.md', 're-index.md', 'structural-diff.md', 'semantic-diff.md', 'severity-classify.md', 'report.md', 'health-check.md'],

@@ -154,7 +154,7 @@ uv run {runStateHelper} halt --run-dir "{run_dir}" \
 SKF_JSON
 ```
 
-Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Until §10 closes the window, the helper first undoes what this run wrote: in gap-driven mode it restores the package, the version's provenance map and evidence report, and the skill brief from the snapshot step 4 §6b took; in every other mode it removes the version folders step 4 created, unless the `active` link already names them (§8), which keeps that version, now the skill's live one (its `kept`). Then it removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Tell the user in one line what it restored, removed or kept, and name each path its `failed[]` lists for the user to restore or delete by hand. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "write:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Until §10 closes the window, the helper first undoes what this run wrote, keeping a version the `active` link already names (§8, its `kept`); then it removes the private source tree, releases the run lock and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line, with a warning (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`) for each step it could not finish: do none of it yourself. Tell the user in one line what it restored, removed or kept, and name each path its `failed[]` lists for the user to restore or delete by hand. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "write:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place.
 
@@ -393,15 +393,13 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Validation Summary population:** §4 writes `[MANUAL] integrity` from §1's `manual-verify` verdict (`PASS` when `ok`) and `Confidence tiers` from §3b (`PASS` when the stats helper reported no label violation, else `WARN` naming `{provenance_relabels}`), with placeholders for the rest. §6 fills `Provenance`, and §7 fills `Spec compliance`, `Diff` and `Security`, and `Body split` (`none` when no split ran), each in the on-disk report, as §5 fills the Context Snippet sub-block.
 
-**Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, and what changed, based on the recorded `description_guard_diff_kind`). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state — except when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule): then set `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`, so a refused restore is distinguishable from a run where the guard never fired. Same field semantics and populator logic as create-skill step 6 §8.
-
-**Context Snippet population** (used by §5 after the staleness check runs): §4 writes the sub-block with placeholders; §5 updates the on-disk evidence report in place after deciding whether to regenerate. Set `Regenerated: true` and populate `Triggers fired` with any combination of `headline-exports`, `version`, `gotchas` when at least one trigger fired. Set `Regenerated: false` and `Triggers fired: —` when none fired (the gap-driven / internals-only outcome). Always fill `Notes` with a one-sentence reason (e.g., `"Gap-driven repair — no snippet surface changed"`, `"Version bumped 0.1.0 → 0.2.0; headline exports re-ranked"`).
+**Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, and what changed, based on the recorded `description_guard_diff_kind`). When `Restored: false`, each of the other three fields is the dash the `Triggering tool` and `Notes` placeholders offer, the clean-run expected state, except when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule): then set `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused: empty captured snapshot (empty-capture)`, so a refused restore is distinguishable from a run where the guard never fired. Same field semantics and populator logic as create-skill step 6 §8.
 
 ### 5. Regenerate context-snippet.md
 
 **Regenerate `context-snippet.md` if stale:**
 
-`context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, **gotchas** or **section anchors** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip: a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
+`context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, **gotchas** or **section anchors** change in this run. Regenerate it only when at least one of these triggers fired.
 
 **Staleness triggers:** run the two `gotchas` calls of the regeneration paragraph below first, before you check any trigger: `gotchas prior` binds the `prior_api` the **Headline exports changed** ranking starts from, and `gotchas resolve` returns the line **Gotchas changed** compares. When no trigger fires, nothing is written from them.
 
@@ -410,7 +408,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - **Gotchas changed**: the `line` `gotchas resolve` returned (`skf-export-skill/references/generate-snippet.md` §3a, from the merged SKILL.md and this run's evidence report: at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, `[CARRIED]` markers aside.
 - **Anchors changed**: the prior snippet's `|quick-start:` or `|key-types:` anchor differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md (an anchor points into `references/` although SKILL.md has the heading, or a heading moved). Record it as `anchors` in `Triggers fired`.
 
-**Record the decision on the on-disk evidence report:** open `{forge_version}/evidence-report.md` (written by §4 with placeholder values in the `### Context Snippet` sub-block) and update that sub-block under the Update Operation section just written. Set `Regenerated: true|false`, fill `Triggers fired:` with the list of triggers that fired (or `—` when none), and write a one-sentence `Notes:` entry. See §4's "Context Snippet population" note for field semantics.
+**Record the decision on the on-disk evidence report:** open `{forge_version}/evidence-report.md` (written by §4 with placeholder values in the `### Context Snippet` sub-block) and update that sub-block under the Update Operation section just written: `Regenerated: true` with each trigger that fired in `Triggers fired:` (`headline-exports`, `version`, `gotchas`, `anchors`), or `Regenerated: false` with `Triggers fired:` left at the template's empty mark (a gap-driven repair, or a run that changed only internals), and always a one-sentence `Notes:` reason.
 
 **If no trigger fired:** skip regeneration: do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §6.
 
@@ -495,18 +493,12 @@ skill-check runs once per update, here, against the written package, and once mo
 **Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix`, the `{shardBodyHelper}` body split and any `split-body` write) must run inside the four-phase guard defined in §0. Invoke `{descriptionGuardHelper}` at the capture and verify-restore points around each call:
 
 ```bash
-# Phase 1: capture before any frontmatter-touching tool call
 uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"
 # the snapshot lands in the run folder; read its `description` as `guarded_description`
 
-# Phase 2: run the tool (skill-check --fix, the body split, split-body --write)
-
-# Phases 3+4: verify and restore after the tool call
 uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" \
     --captured-file "{run_dir}/description-guard.json"
 ```
-
-Do not rely on per-call ad-hoc preservation logic: use the helper.
 
 **If skill-check is available:**
 
@@ -593,8 +585,6 @@ uv run {sourceTreeHelper} advance \
 ```
 
 Pass `--hygiene-helper` and `--drift-helper` only when they resolved. `{source_commit}` is the commit init.md §6 read from metadata.json, before §3b recorded `{target_commit}`, and `{tree_timeout}` is the time limit init.md §6b chose: the helper stops itself within it.
-
-The helper takes the clone's `.skf-workspace.lock`, the lock create-skill also takes, waiting up to a minute, and runs the git hygiene check inside it. It then does nothing when the clone already holds `{target_commit}`; otherwise it moves the clone there only when `{checkWorkspaceDriftHelper}` confirms the clone still holds `{source_commit}` and no tracked file has local changes, taking the commit from `{source_tree}` rather than the network. It never forces a checkout and never moves a clone another run moved. When the clone is missing, it clones it first, as create-skill does.
 
 Bind `{advance_status}` ← `status`, `{advance_skip_reason}` ← `skip_reason`, `{advance_head}` ← `head_sha`, `{advance_log}` ← `log_message` and `{advance_warnings}` ← `warnings`. Log `{advance_log}` in the evidence report and add each `{advance_warnings}` entry to `warnings[]` as `source-tree: <entry>`.
 

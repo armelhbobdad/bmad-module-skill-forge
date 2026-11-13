@@ -70,7 +70,7 @@ uv run {runStateHelper} halt --run-dir "{run_dir}" \
 SKF_JSON
 ```
 
-Pass `--lock` and `--owner` when init.md §1b bound `{lock_owner}` (the read-only modes take no lock), and `--emit` in `{headless_mode}`. It releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`run-lock-not-released`); it never stops on a result. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "re-extract:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+Pass `--lock` and `--owner` when init.md §1b bound `{lock_owner}` (the read-only modes take no lock), and `--emit` in `{headless_mode}`. It releases the run lock and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line, with a warning (`run-lock-not-released`) when it could not release it: do none of it yourself. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "re-extract:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place.
 
@@ -182,19 +182,7 @@ uv run {checkWorkspaceDriftHelper} <source-root> \
     [--allow-drift]
 ```
 
-Pass `--allow-drift` only when the user provided `--allow-workspace-drift` to update-skill. The helper accepts `""` and `"local"` as the "no pinned commit" sentinels; it also auto-skips when `source_root` is not a git working tree (bare checkout, tarball extract, etc.).
-
-The helper emits a result envelope:
-
-```json
-{
-  "status": "ok" | "skipped" | "mismatch" | "overridden",
-  "skip_reason": "no-pinned-commit" | "not-a-git-tree" | null,
-  "head_sha": "...", "head_short_sha": "...", "match_kind": "full" | "short-prefix" | null,
-  "log_message": "workspace_drift_check: ...",
-  "halt_message": "<multi-line user-facing message>" | null
-}
-```
+Pass `--allow-drift` only when the user provided `--allow-workspace-drift` to update-skill.
 
 Bind `{workspace_drift_status}` ← `status` and `{head_short_sha}` ← `head_short_sha` in workflow context, and `{pinned_short_sha}` ← the first 7 characters of `metadata.source_commit`. Then write `{run_dir}/run-context.json` again, as init.md §8 wrote it, with the keys `workspace_drift_status`, `head_short_sha` and `pinned_short_sha` added, keeping every other key as the file holds it. Only `overridden` (`--allow-workspace-drift` was passed and HEAD is not the pinned commit) changes what later steps do: nothing read at HEAD says anything about the pinned commit, so update-skill takes no provenance line, signature, parameter list, return type or node kind from it. The drift gate below halts on every gap whose repair needs a line, signature, parameter list or return type from the tree, and on every rescope, whose stats recount would count the public API there. `ok` (HEAD holds the pinned commit, with or without the flag) and `skipped` change nothing: lines move and node kinds are looked up as usual.
 
@@ -205,12 +193,7 @@ Bind `{workspace_drift_status}` ← `status` and `{head_short_sha}` ← `head_sh
 - **`mismatch`** (helper exit 2): HALT immediately with status `halted-for-workspace-drift`. Display the helper's `halt_message` verbatim: it already substitutes `{pinned_commit}`, `{source_ref or "unset"}`, `{source_root}`, `{head_sha}`, and the suggested `git checkout` command. Do not proceed to §4. Step 4 (merge) has not run; no partial writes. The halt procedure takes `phase: "re-extract:workspace-drift"`, `path: "{source_root}"`, `reason: "workspace HEAD {head_short_sha} is not the pinned commit {pinned_short_sha}"`.
 - **Any other result** (the helper exits non-zero without a `mismatch` envelope, prints no JSON, or returns a status not listed above): HALT with status `blocked`, since the guard could not tell which commit the spot-checks would read. Show the helper's stderr. Do not proceed to §4. Step 4 (merge) has not run; no partial writes. The halt procedure takes `phase: "re-extract:workspace-drift"`, `path: "{source_root}"`, `reason: "drift-check-failed: {what the helper printed, or no JSON}"`.
 
-**Drift gate (only when `{workspace_drift_status}` is `overridden`).** Run §4 bullet 1 now: with `--drift-status overridden` its plan checks this gate before any spot-check, and lists in `drift_blocked[]` every manifest entry whose repair needs something read from the tree: under the override that tree is HEAD, not the pinned commit, and update-skill writes nothing read there, neither a provenance line nor a signature, parameter list, return type or node kind. Every `NEW_EXPORT` and every `MODIFIED_EXPORT` needs it, whatever its `severity` and whether the provenance map holds the export: merge Priority 4 replaces a modified export's content with a fresh extraction, merge Priority 5 appends a new export's content, and write.md §3 adds an entry for an export the map does not hold, and in gap-driven mode each of those could only be read from the tree. That includes a gap §4 bullet 1 would send to §4a with nothing to scan (a blocking severity as bullet 1 defines it, no `source_citation` and an empty `resolved_paths[]`): under the override this gate halts on it first. Every `DELETED_EXPORT` needs the tree as well: in gap-driven mode it is a rescope (rule R1), which narrows the brief's scope, and write.md §3b must then recount `exports_public_api` and `exports_internal` over the narrowed scope from the tree, while under the override it keeps the counts metadata.json records. A rule R5 `MOVED_EXPORT`, a `STRUCTURAL_FIX` (a split-body consistency finding among them) and a `metadata update` need nothing from the tree and pass. So does, with `--brief`, a gap the brief's scope keeps from a repair before anything is read for it (§4 bullet 1 records it `outside-scope`, or `cited-elsewhere` with `citation_check` `outside-scope`, with no check run and nothing to scan). Each item gives its entry's `reason`, the first that fits, read from the entry's `map_match` (§1):
-
-- `a public API recount from the tree (rule R1)`: a rescope (`DELETED_EXPORT`);
-- `a line from the tree (rule R3)`: a provenance-completeness gap (`provenance_completeness: true`), which §4 bullet 1 routes to §4a;
-- `a line and a signature from the tree`: an export whose `map_match` is `not-found` with no candidate that has a `source_file`;
-- `a signature from the tree`: an export the map holds (`found` or `ambiguous`, or `not-found` with a candidate that has a `source_file`: a citation of another file than the map's entries of its name).
+**Drift gate (only when `{workspace_drift_status}` is `overridden`).** Run §4 bullet 1 now: with `--drift-status overridden` its plan checks this gate before any spot-check, and lists in `drift_blocked[]` each entry whose repair needs the tree, with its reason; never classify by hand.
 
 When its `status` is not `drift-blocked`, go on with its output in §4. Otherwise HALT with status `halted-for-workspace-drift` before merge runs, so merge writes nothing and §4a never runs. A rescope's amendment is not in the skill brief yet (rule R1): step 4 §6b writes it, so this halt leaves the brief as it was, and a re-run asks again. Display, with `{source_commit}` and `{source_ref}` read from metadata.json:
 
@@ -302,7 +285,7 @@ Pass `--brief`, `--language` and `--scope-type` as write.md §3b passes them: th
      Targeted re-extraction failed for {N} gap(s).
 
      A blocking gap (any severity but Medium, Low or Info, a missing or
-     unrecognized one included) must resolve to AST provenance. The Remediation
+     unrecognized one included) must resolve to source provenance. The Remediation
      text for the entries below does not name a file that contains the expected
      export, so the workflow cannot produce a non-null `source_file` /
      `source_line` without hallucinating.
@@ -329,16 +312,11 @@ Pass `--brief`, `--language` and `--scope-type` as write.md §3b passes them: th
    - **Exit 1 or no JSON:** HALT with status `blocked` (halt procedure: `phase: "re-extract:gap-records"`, its stderr as `reason`).
 
    write.md §3 (step 5) accepts null `source_file` / `source_line` only for an `unknown` `Medium`, `Low` or `Info` gap the map does not hold, and leaves unchanged an entry whose definition lines the rules do not recognize, which may be a shape they do not cover: never call it gone. It also leaves unchanged a rule R5 `MOVED_EXPORT` whose map entry's file is gone, with the warning bullet 1 names.
-3. Set `no_reextraction: true` in workflow context: step 5 will use this flag to skip stale `source_file`/`source_line`/`confidence` field updates for `verified` exports, except the label relabel write.md §3b applies when its stats helper flags an entry whose labels disagree with its `extraction_method`. `moved` exports get updated citations; a cited `NEW_EXPORT` whose spot-check pinned a line gets a new `source-read` (`T1-low`) entry at that line, since the verifier's text rules found that line, not an ast-grep recipe; `re-extracted` exports get full fresh provenance from §4a's extraction records (see step 5 §3). The flag is a global gap-driven marker, not a per-entry one: step 5 dispatches on each verification outcome independently.
-4. Go on to §5. §4a below runs only where bullet 1 calls it.
+3. Go on to §5. §4a below runs only where bullet 1 calls it.
 
 ### 4a. Targeted Re-Extraction Branch (Helper, Called from §4 Bullet 1)
 
-**Do not execute this section sequentially.** It is a helper procedure §4 bullet 1 invokes for the entries its plan lists in `reextract.entries` and `reextract.signatures`. A run in which §4 bullet 1 routes no entry here skips this section entirely.
-
-**Used by:** §4 bullet 1's plan, for the entries it lists in `reextract.entries`: each scans its `resolved_paths[]` (an entry with none has nothing to scan), and §4 bullet 2 matches what this section extracts to each entry by name. For each export it lists in `reextract.signatures`, §4 bullet 2 takes the signature this section extracts at its `file` and `line`.
-
-**Purpose:** produce AST-backed provenance for a gap with a blocking `severity` (§4 bullet 1) and no citation that pins a line, so step 5 §3 never writes `source_file: null` for a blocking finding. Honors the workflow-level rule **Never hallucinate** (every statement must have AST provenance) against the most common gap-driven trigger: a failing test report whose Gap Report `Source:` field is a region reference (e.g., `@storybook/addon-docs control primitives`) rather than a `file:line` pair. For an export a spot-check located, it reads the signature SKILL.md and the provenance map take, so neither keeps a stale one nor takes one from merge's prose.
+Runs only for the entries §4 bullet 1's plan lists in `reextract.entries` and `reextract.signatures`; a run that routes none here skips it. It produces source provenance for a gap with a blocking `severity` (§4 bullet 1) and no citation that pins a line, so step 5 §3 never writes `source_file: null` for a blocking finding, and reads the signature SKILL.md and the provenance map take for an export a spot-check located.
 
 **Procedure:**
 
