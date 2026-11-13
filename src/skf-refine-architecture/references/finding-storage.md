@@ -8,7 +8,7 @@ No gap, issue or improvement is looked for with a skill outside the document's s
 
 ## Findings a Review Dropped
 
-`{dismissed_findings}` (Step 01 §1b) lists the findings a step 5 review dropped from an earlier refinement of this document, each as `{kind, skills, anchor, title, capability}`; it is empty on a first pass. If it is no longer in context, read it again as Step 01 §1b does.
+`{dismissed_findings}` (Step 01 §1b) lists the findings a step 5 review dropped from an earlier refinement of this document, each as `{kind, skills, anchor, title, capability}`; it is empty on a first pass. If it is no longer in context, read it again as Step 01 §1b does, taking `{previous_pass}`, `{outputFolderPath}` and `{arch_project_name}` from the `<!-- [RA-RUN] ... -->` block of the RA state file when they are no longer bound: `{dismissedFile}` is `{outputFolderPath}/.ra-dismissed-{arch_project_name}.json`.
 
 Compare each in-scope finding with that list before storing it. It matches a record when its kind (`gap`, `issue` or `improvement`) is the record's and it cites the same skills (the same pair for a gap or a synergy, in either order). An issue must also contradict the claim the record's `anchor` holds, or have no claim line when that anchor is `null`, and an improvement must name the capability or API the record's `capability` holds, so one dropped finding never hides another about the same skills. Store a matching finding in full under the shared `<!-- [RA-DISMISSED] ... -->` block instead of under its kind's block, with a one-line title of its own and the `title` of the record it matched: Step 05 lists it at the review and inserts it only if the user takes it back. Report it apart from the step's count, as previously dismissed.
 

@@ -13,7 +13,21 @@ and pin the prose around them:
   emitter itself and shows the emit-halt command, and no file types an
   envelope or defers it to SKILL.md (the bare "HALT with error" is gone);
 - On Activation reads the run's timestamp from the clock, and the stages
-  read the run's bindings back from the RA state file;
+  read the run's bindings back from the RA state file: init writes its
+  `[RA-RUN]` block one `key=value` per line, so a path or a hook holding
+  spaces, `=` or quotes reads back whole, and each binding compile, report
+  and init's resume offer read back is a key that block maps (#1178);
+- an interactive run offers to resume a review that stopped before its [C]
+  or [X] (#1178): init asks between its first section and the one that
+  sets an earlier pass aside, only for the same document, unchanged since
+  that run hashed it, whose run folder still holds the plan and the apply
+  record, with the draft still in place, and never in a headless run; an
+  edited document gets one line and a new run; [R] binds the stopped run,
+  checks the rules again and hands compile the kept plan, whose `apply`
+  rebuilds the draft before the review, and the halts a resumed review can
+  reach point at [N]; the documented `hash` call gives one hash for one
+  document and another once it is edited, apply and promote leave the
+  files the conditions read, and SKILL.md declares no single-pass run;
 - every halt_reason, emitted through the documented command (and On
   Activation's heredoc, before the run folder exists), prints a line that
   validates, whose run_id is the run's timestamp;
@@ -67,6 +81,7 @@ SCHEMA_PATH = SRC / "shared" / "scripts" / "schemas" / "skf-refine-architecture-
 EMITTER = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
 PRESERVATION = SKILL / "scripts" / "skf-check-preservation.py"
 ENUMERATE = SRC / "shared" / "scripts" / "skf-enumerate-stack-skills.py"
+HASH_CONTENT = SRC / "shared" / "scripts" / "skf-hash-content.py"
 SKILL_MD = SKILL / "SKILL.md"
 EXIT_CODES = REFERENCES / "exit-codes.md"
 INIT = REFERENCES / "init.md"
@@ -644,10 +659,256 @@ def test_the_run_reads_its_clock_and_its_bindings_back():
     assert "`timestamp` ← the output of `date -u +%Y%m%d-%H%M%S`, run once now" in variables
     assert "captured at activation time" not in variables
     reset = _section(_read(INIT), "### 3c. Reset RA State File", "### 4.")
-    assert ("<!-- [RA-RUN] run_dir={run_dir} timestamp={timestamp} architecture_doc={architecture_doc} "
-            "arch_project_name={arch_project_name} -->") in reset
+    assert "<!-- [RA-RUN] run_dir={run_dir}" not in reset, "#1178: one binding per line, not one line"
+    assert "Steps 02 to 06 read these bindings back from the block when context degrades" in reset
     for path in (COMPILE, REPORT):
         assert "the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md`" in _read(path), path
+        assert "as Step 01 §3c maps its keys" in _read(path), path
+
+
+RUN_KEYS = ["run_dir", "timestamp", "architecture_doc", "architecture_doc_hash", "arch_project_name", "headless_mode",
+            "output_folder_path", "refinement_rules_path", "previous_pass", "on_complete"]
+
+
+def _run_block() -> str:
+    """The `[RA-RUN]` block init §3c appends, as its fenced template shows it."""
+    reset = _section(_read(INIT), "### 3c. Reset RA State File", "### 4.")
+    m = re.search(r"```markdown\n(<!-- \[RA-RUN\]\n.*?\n-->)\n```", reset, re.DOTALL)
+    assert m, "init §3c shows the [RA-RUN] block in a fence"
+    return m.group(1)
+
+
+def _run_block_keys() -> dict[str, str]:
+    """{key: binding} for each `key={binding}` line of the block."""
+    keys = {}
+    for line in _run_block().splitlines()[1:-1]:
+        key, sep, value = line.partition("=")
+        binding = re.fullmatch(r"\{([A-Za-z_]+)\}", value)
+        assert sep and binding and re.fullmatch(r"[a-z_]+", key), line
+        keys[key] = binding.group(1)
+    return keys
+
+
+def test_the_run_block_gives_each_binding_back_whole(tmp_path):
+    """#1178 architecture-1: one `key=value` per line, the value everything after the first `=`, so a path or a hook
+    holding spaces, `=` or quotes reads back whole, and a run with no hook reads back an empty one."""
+    keys = _run_block_keys()
+    assert list(keys) == RUN_KEYS
+    reset = _section(_read(INIT), "### 3c. Reset RA State File", "### 4.")
+    assert "A key's value is everything after the first `=` of its line, empty when the line ends there" in reset
+    for key, binding in keys.items():
+        if key != binding:
+            assert f"`{key}` as `{{{binding}}}`" in reset, key
+    assert "every other key as the binding of its own name" in reset
+    values = {
+        "run_dir": f"/home/a user/app/_bmad-output/.skf-run/{WORKFLOW}-{RUN_STAMP}",
+        "timestamp": RUN_STAMP,
+        "architecture_doc": '/home/a user/app/docs/arch = v2 "draft".md',
+        "architecture_doc_hash": "sha256:" + "0f" * 32,
+        "arch_project_name": "my app",
+        "headless_mode": "false",
+        "outputFolderPath": "/home/a user/app/docs/refined out",
+        "refinementRulesPath": "/home/a user/app/_bmad/custom/rules=house.md",
+        "previous_pass": "true",
+        "onCompleteCommand": "notify-send --app-name='SKF RA' \"refined = done\" --urgency=low",
+    }
+    assert set(values) == set(keys.values())
+    for hook in (values["onCompleteCommand"], ""):
+        bound = {**values, "onCompleteCommand": hook}
+        block = _run_block()
+        for binding, value in bound.items():
+            block = block.replace("{" + binding + "}", value)
+        state = tmp_path / "ra-state-app.md"
+        state.write_bytes(f"<!-- RA state for app -->\n<!-- [RA-VS] none -->\n{block}\n".encode("utf-8"))
+        text = state.read_text(encoding="utf-8")
+        lines = text[text.index("<!-- [RA-RUN]"):].splitlines()
+        read_back = dict(line.split("=", 1) for line in lines[1:lines.index("-->")])
+        assert read_back == {key: bound[binding] for key, binding in keys.items()}
+
+
+def test_every_binding_read_back_is_a_key_the_run_block_maps():
+    """#1178 architecture-1: compile reads back every binding but the hook and the document's hash, report the five
+    it uses, and init's resume offer the block's own keys, so none names a binding the block does not hold."""
+    keys = _run_block_keys()
+    bindings = set(keys.values())
+    recovery = _section(_read(COMPILE), "**Context recovery check:**", "\n\n")
+    compiled = re.findall(r"`\{([A-Za-z_]+)\}`", _section(
+        recovery, "read what is no longer in context from the RA state file: ", " from the `<!-- [RA-RUN] -->` block"))
+    # Only init's resume offer compares the document's hash.
+    assert set(compiled) == bindings - {"onCompleteCommand", "architecture_doc_hash"}, compiled
+    numbers = _section(_read(REPORT), "### 1. Load the Run's Numbers", "### 2.")
+    reported = re.findall(r"`\{([A-Za-z_]+)\}`", _section(numbers, "**Run recovery:** if ", " is no longer bound"))
+    assert reported == ["run_dir", "arch_project_name", "headless_mode", "outputFolderPath", "onCompleteCommand"]
+    assert set(reported) <= bindings
+    hook = _section(_read(REPORT), "### 5. Post-Completion Hook", "### 6.")
+    assert "read again from the `[RA-RUN]` block when it is no longer bound" in hook
+    resume = _section(_read(INIT), "### 1a. Resume a Stopped Review", "### 1b.")
+    conditions = _section(resume, "Only an interactive run looks for a stopped review", "Show:")
+    read = set(re.findall(r"(?:its|block's) `([a-z_]+)`", conditions))
+    assert read == {"headless_mode", "architecture_doc", "architecture_doc_hash", "run_dir", "timestamp"}, read
+    assert read <= set(keys)
+    assert "bind each key of the block as §3c maps it" in resume
+
+
+def test_an_interactive_run_offers_to_resume_a_stopped_review():
+    """#1178 enhancement-5: the issue's first option, a resume offer, not a single-pass line in SKILL.md. Only an
+    interactive run asks, between §1 and §1b, and only for a review of the same, unchanged document whose plan,
+    apply record and draft are still there; [R] binds the stopped run, checks the rules and hands compile the kept
+    plan, and a halt it can reach points at [N]."""
+    init = _read(INIT)
+    assert (init.index("### 1. Accept Input Documents") < init.index("### 1a. Resume a Stopped Review")
+            < init.index("### 1b. Set Aside an Earlier Refinement Pass") < init.index("### 3c. Reset RA State File"))
+    assert "draftFile: '{forge_data_folder}/.skf-ra-draft-{project_name}.md'" in _frontmatter(init)
+    resume = _section(init, "### 1a. Resume a Stopped Review", "### 1b.")
+    assert resume.split("\n\n")[1] == ("Only an interactive run looks for a stopped review: a headless run skips this "
+                                       "section and always starts a new run.")
+    conditions = [line for line in resume.splitlines() if line.startswith("- ") and not line.startswith("- IF ")]
+    leads = ("- the state file holds that block with every key §3c writes, and its `headless_mode` is `false`",
+             "- its `architecture_doc` names the same file as `{architecture_doc}`",
+             "- the folder its `run_dir` names holds `insertion-plan.json` and `apply.json`",
+             "- `{draftFile}` exists: step 5's [X] deletes the draft and its [C] moves it into place",
+             "- the document is as that run read it")
+    assert len(conditions) == len(leads) and all(c.startswith(lead) for c, lead in zip(conditions, leads)), conditions
+    assert "a block an older version wrote on one line lacks keys" in conditions[0]
+    for needle in ("Otherwise say nothing and go on to §1b.", "`{stopped_timestamp}` is the block's `timestamp`"):
+        assert needle in resume, needle
+    offer = _section(resume, '"**A review of this document stopped before it finished.**', "\n\n")
+    for needle in ("Resuming rebuilds that draft from the plan and shows the review again with that run's settings: "
+                   "its scope, its [VS] report, its output folder, its refinement rules and its `on_complete` hook",
+                   "so the report you chose above and `--scope-skills` do not apply to it",
+                   "A new run reads the skills again and builds a new draft, and leaves that run's folder as it is."):
+        assert needle in offer, needle
+    assert "replaces both" not in offer, "[N] leaves the stopped plan in its folder"
+    [menu] = [line for line in resume.splitlines() if "**Select:**" in line]
+    assert menu == ("Display: **Select:** [R] Resume the review of the draft from {stopped_timestamp} | "
+                    "[N] Start a new run")
+    branches = [line for line in resume.splitlines() if line.startswith("- IF ")]
+    leads = ("- IF R:", "- IF N:", "- IF cancel / exit / [X] / q / :q:", "- IF anything else:")
+    assert len(branches) == len(leads) and all(b.startswith(lead) for b, lead in zip(branches, leads)), branches
+    steps = ('rm -rf "{run_dir}"', "bind each key of the block as §3c maps it",
+             "add it to that folder's run sink", "run §4's `rules` check", "set `{resumed_review}` to true",
+             "execute `references/compile.md`")
+    at = [branches[0].lower().index(step.lower()) for step in steps]
+    assert at == sorted(at), steps
+    assert "§1's report answer and `--scope-skills` do not apply" in branches[0]
+    # The rules the review binds are the stopped run's, so the halt names [N], not removing the override.
+    assert ('its message ends "Fix that copy, or run [RA] again and choose [N] to start a new run." in place of its '
+            "last sentence") in branches[0]
+    rules = _section(init, "### 4. Check the Refinement Rules", "### 5.")
+    assert rules.count("or remove that override.") == 1, "the last sentence a resumed review replaces"
+    assert "leave the stopped run folder as it is and go on to §1b" in branches[1]
+    assert "Once §3c replaces the state file, that review can no longer be resumed." in branches[1]
+    assert 'HALT (exit code 6, `halt_reason: "user-cancelled"`) at phase `init:resume`' in branches[2]
+    assert "GATE [default:" not in resume, "headless never reaches it (test-skf-headless-gates INTERACTIVE_ONLY)"
+    # Compile rebuilds the draft from the kept plan, after reading every binding back, then shows the review.
+    base = _section(_read(COMPILE), "### 1. Prepare the Original as Base", "### 2.")
+    resumed = _section(base, "**A resumed review.**", "\n\n")
+    assert base.index("**Context recovery check:**") < base.index("**A resumed review.**")
+    assert "When `{resumed_review}` is true (Step 01 §1a resumed a stopped review)" in resumed
+    assert (resumed.index("run §6's `apply` on the kept `{planFile}` without writing the plan again")
+            < resumed.index("handle its exit code as §6 says") < resumed.index("go to §7"))
+    assert ("On an exit 2 whose `error` names `{planFile}`, write the plan again through §2 to §5, from the findings "
+            "the recovery check read back") in resumed
+    recovery = _section(base, "**Context recovery check:**", "\n\n")
+    assert ('In a resumed review (Step 01 §1a), the message ends instead with "Re-run [RA] and choose [N] when it '
+            'offers to resume this review: [R] would read the same state file again."') in recovery
+    assert "single-pass" not in _read(SKILL_MD).lower()
+
+
+def test_a_review_resumes_only_on_the_document_its_run_read(tmp_path):
+    """#1178 review loop 1: the kept plan's anchors come from the stopped run's copy of the document, so init hashes
+    the document, records the hash, and offers a resume only while the document hashes the same; an edited one
+    gets one line and a new run. The documented call gives one document one hash and an edit another."""
+    init = _read(INIT)
+    probes = ("hashContentProbeOrder:\n"
+              "  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'\n"
+              "  - '{project-root}/src/shared/scripts/skf-hash-content.py'\n")
+    assert probes in _frontmatter(init) + "\n" and HASH_CONTENT.is_file()
+    first = _section(init, "### 1b. Set Aside an Earlier Refinement Pass", "### 2.")
+    hashed = first[first.index("**Hash the document.**"):]
+    assert "Bind `{architecture_doc_hash}` ← the `content_hash` it prints" in hashed
+    assert "bind it empty and go on" in hashed
+    keys = _run_block_keys()
+    assert list(keys).index("architecture_doc_hash") == list(keys).index("architecture_doc") + 1
+    resume = _section(init, "### 1a. Resume a Stopped Review", "### 1b.")
+    [condition] = [line for line in resume.splitlines() if line.startswith("- the document is as that run read it")]
+    assert "run §1b's call, `uv run {hashContentHelper} hash \"{architecture_doc}\"`" in condition
+    assert "a `content_hash` that is not empty and equals the block's `architecture_doc_hash`" in condition
+    notice = _section(resume, "Otherwise say nothing and go on to §1b.", "\n\n")
+    assert "when the first four hold and only the last does not (the hashes differ, or either is empty)" in notice
+    assert ('say "A review of this document stopped before it finished, but the document changed after that run '
+            'read it, or cannot be compared with it, so this run starts over." and go on to §1b') in notice
+    call = _helper_call(init, "hashContentHelper", "hash")
+    arch = tmp_path / "my docs" / "architecture.md"
+    arch.parent.mkdir()
+    arch.write_bytes(ARCH.encode("utf-8"))
+
+    def content_hash() -> str:
+        proc = _run([HASH_CONTENT, *_bind(call, {"architecture_doc": arch.as_posix()})])
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)["content_hash"]
+
+    stopped = content_hash()
+    assert stopped.startswith("sha256:") and content_hash() == stopped, "an unchanged document is offered"
+    arch.write_bytes(ARCH.replace("Loro stores documents.", "Loro stores and syncs documents.").encode("utf-8"))
+    assert content_hash() != stopped, "an edited document is not"
+
+
+def test_the_resume_conditions_follow_what_apply_and_promote_leave(tmp_path):
+    """#1178: init's offer reads files the documented calls leave. A plan apply refuses writes no apply.json and no
+    draft, the kept plan rebuilds the same draft, the promotion moves the draft away and [X] deletes it, so a review
+    that ended either way is never offered again, while a promotion the check refuses keeps the draft (review loop 2)."""
+    resume = _section(_read(INIT), "### 1a. Resume a Stopped Review", "### 1b.")
+    assert "holds `insertion-plan.json` and `apply.json`" in resume and "`{draftFile}` exists" in resume
+    assert "while a [C] whose `promote` halted keeps it for the resumed review to approve again" in resume
+    compile_text = _read(COMPILE)
+    compile_files = _frontmatter(compile_text)
+    for name in ("planFile: '{run_dir}/insertion-plan.json'", "applyResult: '{run_dir}/apply.json'",
+                 "draftFile: '{forge_data_folder}/.skf-ra-draft-{project_name}.md'"):
+        assert name in compile_files, name
+    cancel = [line for line in compile_text.splitlines() if line.startswith("- IF cancel / exit / [X] / q / :q:")]
+    assert len(cancel) == 1 and 'delete the draft (`rm -f "{draftFile}"`)' in cancel[0]
+    run_dir = _run_dir(tmp_path)
+    forge, docs = tmp_path / "forge", tmp_path / "docs"
+    forge.mkdir()
+    docs.mkdir()
+    arch = tmp_path / "architecture.md"
+    arch.write_bytes(ARCH.encode("utf-8"))
+    draft = forge / ".skf-ra-draft-app.md"
+    values = {"architecture_doc": arch.as_posix(), "run_dir": run_dir.as_posix(), "timestamp": RUN_STAMP,
+              "draftFile": draft.as_posix(), "outputFile": (docs / "refined-architecture-app.md").as_posix(),
+              "planFile": (run_dir / "insertion-plan.json").as_posix(),
+              "applyResult": (run_dir / "apply.json").as_posix(),
+              "promoteResult": (run_dir / "promote.json").as_posix()}
+    rules = json.loads(_run([PRESERVATION, *_bind(_call(_read(INIT), "rules"), {
+        "refinementRulesData": (REFERENCES / "refinement-rules.md").as_posix()})]).stdout)
+    summary = "## Refinement Summary\n\n{changes_rows}\n\n{evidence_rows}\n"
+    plan = {"entries": [{"id": "gap-1", "kind": "gap", "anchor": "## No Such Section", "skills": ["loro", "fastapi"],
+                         "block": "#### RA: Loro <-> FastAPI Integration Path"}],
+            "summary": summary, "unverified_technologies": [], "skill_count": 2, "tiers": rules["tiers"]}
+    (run_dir / "insertion-plan.json").write_bytes(json.dumps(plan).encode("utf-8"))
+    refused = _run([PRESERVATION, *_bind(_call(compile_text, "apply"), values)])
+    assert refused.returncode == 1 and json.loads(refused.stdout)["status"] == "problems", refused.stdout
+    assert not (run_dir / "apply.json").exists() and not draft.exists(), "no offer for a plan that built nothing"
+    plan["entries"][0]["anchor"] = "## Data Layer"
+    (run_dir / "insertion-plan.json").write_bytes(json.dumps(plan).encode("utf-8"))
+    built = _run([PRESERVATION, *_bind(_call(compile_text, "apply"), values)])
+    assert built.returncode == 0, built.stdout
+    assert (run_dir / "apply.json").is_file() and draft.is_file(), "the offer's files are there"
+    first = draft.read_bytes()
+    draft.unlink()
+    # [R]: compile runs apply on the kept plan, which writes the same draft again.
+    again = _run([PRESERVATION, *_bind(_call(compile_text, "apply"), values)])
+    assert again.returncode == 0, again.stdout
+    assert draft.read_bytes() == first
+    # A [C] whose promote halts keeps the draft, so that review is offered again.
+    draft.write_bytes(first.replace(b"Loro stores documents.", b""))
+    kept = _run([PRESERVATION, *_bind(_call(compile_text, "promote"), values)])
+    assert kept.returncode == 1 and draft.is_file(), kept.stdout
+    draft.write_bytes(first)
+    promoted = _run([PRESERVATION, *_bind(_call(compile_text, "promote"), values)])
+    assert promoted.returncode == 0, promoted.stdout
+    assert not draft.exists(), "a review that ended with [C] leaves no draft to resume"
 
 
 def test_the_stages_table_marks_every_gate():

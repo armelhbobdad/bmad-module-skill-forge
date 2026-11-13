@@ -28,7 +28,7 @@ Find undocumented integration paths — library pairs that have compatible APIs 
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{headless_mode}` or `{run_dir}` is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-refine-architecture --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -42,7 +42,7 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 - `{run_dir}/technologies.json`: a JSON array of the libraries, frameworks, databases, services and tools the document names, each as the document writes it, in order of first mention. Programming languages, protocols and data formats do not count, and neither does a technology the document marks as deprecated, removed or being replaced, since no skill should exist for it.
 
-The technology list and the helper both read the document as `{analysis_doc}` (`{run_dir}/analysis-doc.md`), the architecture document with any earlier Refine Architecture pass set aside (Step 01 §1b), so RA's own old annotations never count as documented pairs, mentions or technologies:
+If `{run_dir}` is no longer bound (a long run's context degraded), read it from the `<!-- [RA-RUN] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), as Step 01 §3c maps its keys. The technology list and the helper both read the document as `{analysis_doc}` (`{run_dir}/analysis-doc.md`), the architecture document with any earlier Refine Architecture pass set aside (Step 01 §1b), so RA's own old annotations never count as documented pairs, mentions or technologies:
 
 ```bash
 uv run {comentionHelper} mentions --doc "{analysis_doc}" --skills "{run_dir}/skill-terms.json" --technologies "{run_dir}/technologies.json"
@@ -84,7 +84,7 @@ No gap, issue or improvement is looked for with an out-of-scope skill: the VS ve
 
 Display: **Select:** [C] Continue with this scope | [X] Cancel
 
-**GATE [default: C]**: present the menu and wait for the user's choice. If `{headless_mode}`: keep the derived sets and auto-proceed with [C], log: "headless: auto-confirm derived document scope (in scope: {in_scope_skills}; out of scope: {out_of_scope_skills})", giving each in-scope skill its Why from the table (the term that named it, or why it is ambiguous). Record that decision in the run sink the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "gap-analysis.scope", "default_action": "C", "taken_action": "C", "reason": "<the line logged>", "evidence": {"in_scope": [<the in-scope skills>], "out_of_scope": [<the out-of-scope skills>]}}`, then run:
+**GATE [default: C]**: present the menu and wait for the user's choice. When `{headless_mode}` is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file. If `{headless_mode}`: keep the derived sets and auto-proceed with [C], log: "headless: auto-confirm derived document scope (in scope: {in_scope_skills}; out of scope: {out_of_scope_skills})", giving each in-scope skill its Why from the table (the term that named it, or why it is ambiguous). Record that decision in the run sink the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "gap-analysis.scope", "default_action": "C", "taken_action": "C", "reason": "<the line logged>", "evidence": {"in_scope": [<the in-scope skills>], "out_of_scope": [<the out-of-scope skills>]}}`, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-refine-architecture --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
@@ -97,7 +97,7 @@ uv run {emitEnvelopeHelper} record --workflow skf-refine-architecture --run-dir 
 
 **Technologies with no skill.** `{unverified_technologies}` = `{doc_mentions}.unverified_technologies`: the technologies §2 listed that no inventory skill covers, read in `{analysis_doc}` so an earlier Refine Architecture pass never adds a name. The helper decides what a skill covers (its `technologies[]` names, for each technology, the skill, term and `kind` of each match), so no step compares a technology with a skill by hand. A `covered_by` entry of kind `alias-contained` or `name-contained` (an alias such as `ai` or `core`, or a skill name such as `react`, found only inside a longer name) does not cover the technology, which stays in `{unverified_technologies}` unless the document shows that term is that technology (`next` for Next.js, `vue` for "Vue 3"; React Native and React Query are not `react`), as the derived scope above judges common-word aliases. No step can check what the document says about these technologies: §6 names them, and Step 05 lists them in the Refinement Summary as not verified. The list depends on the inventory, not on the scope, so `--scope-skills` and the edits above leave it unchanged.
 
-Store `{in_scope_skills}`, `{out_of_scope_skills}` and `{unverified_technologies}` as workflow state; §3 settles the two sets and splits the pairs by them. Step 03 (issue detection) and Step 04 (improvements) reuse the scope sets and the pair lists §3 builds, and Step 05 (compile) reuses `{unverified_technologies}`; §6 also records them all in the RA state file.
+Store `{in_scope_skills}`, `{out_of_scope_skills}` and `{unverified_technologies}` as workflow state; §3 settles the two sets and splits the pairs by them. Step 03 (issue detection) and Step 04 (improvements) reuse the scope sets and the pair lists §3 builds, and Step 05 (compile) reuses `{unverified_technologies}`; §3 also records them all in the RA state file, once it settles them.
 
 ### 3. Split the Library Pairs by Scope
 
@@ -120,6 +120,8 @@ Each warning goes into the run sink as it is raised, so the envelope and the res
 ```bash
 uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'
 ```
+
+Append the scope under a `<!-- [RA-SCOPE] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`) once these bindings are final, before §4 reads a surface: `{in_scope_skills}`, `{out_of_scope_skills}`, how the scope was set (`--scope-skills`, derived, derived then edited at the §2b confirmation, or every skill by the safe default), any name this section reported as not an inventory skill, `{in_scope_pairs}`, `{out_of_scope_pairs}` and `{unverified_technologies}`. A run appends it once: §4, Step 03, Step 04 and Step 05 read the block back if context degrades on a long run.
 
 §4 reads the surfaces of `{in_scope_skills}` only, and §5 and Step 04 §4 read `{in_scope_pairs}` only, instead of checking each pair's scope again; Step 03 §3 sets aside a claim that names a skill of `{out_of_scope_skills}`, and Step 03 §4 passes `{in_scope_skills}` to the `verdicts` join.
 
@@ -144,7 +146,9 @@ Once §3's bindings are final, for each skill in `{in_scope_skills}`, delegate r
 - `capabilities`: the capabilities and features the SKILL.md documents beyond its exports, one short phrase each
 - If a field has no matches, return an empty array `[]`
 
-**Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Store the collected summaries as `{skill_api_surfaces}` workflow state, which Step 03 (issue detection) and Step 04 (improvements) reuse. Append them to the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`) as a `<!-- [RA-SURFACES] ... -->` block too: Steps 03 and 04 read them back from it if context degrades on a long run.
+**When subagents are unavailable**, read the in-scope skills yourself, one at a time, in the order of the `skills[]` of `{run_dir}/skill-inventory.json`: for each, read what a subagent would (its `exports[]`, its SKILL.md and its `references/*.md`), write its compact JSON by the rules above, and append it to the RA state file as its own `<!-- [RA-SURFACES] ... -->` block before going on to the next. Each summary is in the state file as its read ends, so a context compaction loses none.
+
+**Parent collects all subagent JSON summaries.** Apart from the fallback's reads, do not load full SKILL.md content into parent context. Store the collected summaries as `{skill_api_surfaces}` workflow state, which Step 03 (issue detection) and Step 04 (improvements) reuse. As each round returns, append its summaries to the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`) as a `<!-- [RA-SURFACES] ... -->` block, before the next round starts: Steps 03 and 04 read the blocks back from it if context degrades on a long run, and after a context loss in the middle of this section the blocks already appended name the skills read, so only the others are read. If `{run_dir}` or `{in_scope_skills}` is no longer bound, read `{run_dir}` from the `<!-- [RA-RUN] ... -->` block of the same file and `{in_scope_skills}` from its `<!-- [RA-SCOPE] ... -->` block (§3).
 
 **From the skill inventory (Step 01 §2), also take** each skill's `language` (the enumerate helper reads it from `metadata.json`: a string, a list of strings for a stack, or null when none is recorded). Do not open `metadata.json` in the parent.
 
@@ -158,7 +162,7 @@ For each pair in `{in_scope_pairs}` (from §3) not already documented in the arc
 - Are they in the same language or is there a bridge mechanism available?
 
 **If compatible APIs exist (in-scope pair) but NO architecture mention:**
-- Type the gap by the Gap Classification of `{refinementRulesData}`
+- Type the gap by the Gap Classification of `{refinementRulesData}`. If `{refinementRulesPath}`, which `{refinementRulesData}` names, is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file
 - Document the connecting APIs from both skills
 - Propose a brief architecture section describing the integration
 
@@ -184,9 +188,7 @@ Report the in-scope gap count, then list each gap as a row of **# / Library A / 
 - **Skills were left out of the scope (`{out_of_scope_skills}` from §3 is not empty):** name them in one line, since no gap was looked for with them: "Not analyzed, outside this document's scope: {out_of_scope_skills}. Re-run with `--scope-skills` naming the skills to include to pull any that belong into scope."
 - **The architecture names technologies with no skill (`{unverified_technologies}` from §2b is not empty):** name them. No skill backs what the document says about them, so no step checks it; recommend generating their skills with [CS] or [QS] before re-running [RA].
 
-Store the gap findings under a `<!-- [RA-GAPS] ... -->` block and the names of `{out_of_scope_skills}` under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker, as `{findingStorageData}` says (a gap that matches one a review dropped goes under `[RA-DISMISSED]` instead).
-
-Append the scope under a `<!-- [RA-SCOPE] ... -->` block too: `{in_scope_skills}`, `{out_of_scope_skills}`, how the scope was set (`--scope-skills`, derived, derived then edited at the §2b confirmation, or every skill by the safe default), any name §3 reported as not an inventory skill, `{in_scope_pairs}`, `{out_of_scope_pairs}` and `{unverified_technologies}`. Step 03, Step 04 and Step 05 read the block back if context degrades on a long run.
+Store the gap findings under a `<!-- [RA-GAPS] ... -->` block and the names of `{out_of_scope_skills}` under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker, as `{findingStorageData}` says (a gap that matches one a review dropped goes under `[RA-DISMISSED]` instead). §3 already appended the scope's `<!-- [RA-SCOPE] ... -->` block.
 
 ### 7. Auto-Proceed to Next Step
 

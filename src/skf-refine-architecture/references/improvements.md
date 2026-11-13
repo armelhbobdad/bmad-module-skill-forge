@@ -22,11 +22,11 @@ Identify capability expansions: library features documented in the generated ski
 
 ### 3. Compare Skill API Surfaces Against Architecture Usage
 
-**Scope routing (from Step 02 §2b):** Apply `{in_scope_skills}` and `{out_of_scope_skills}`, and the pair lists `{in_scope_pairs}` and `{out_of_scope_pairs}` that Step 02 §3 split by them; if they are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). Step 02 §4 read no surface of a skill in `{out_of_scope_skills}`, so no improvement or synergy involves one: a capability that pays off only together with an out-of-scope skill is not looked for.
+**Scope routing (from Step 02 §2b):** Apply `{in_scope_skills}` and `{out_of_scope_skills}`, and the pair lists `{in_scope_pairs}` and `{out_of_scope_pairs}` that Step 02 §3 split by them; if they are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), and `{run_dir}` from its `<!-- [RA-RUN] ... -->` block when it is no longer bound (`{analysis_doc}` is `{run_dir}/analysis-doc.md`). Step 02 §4 read no surface of a skill in `{out_of_scope_skills}`, so no improvement or synergy involves one: a capability that pays off only together with an out-of-scope skill is not looked for.
 
 For each skill in `{in_scope_skills}`:
 
-Compare its `{skill_api_surfaces}` entry (`{exports, protocols, data_formats, capabilities}`, or the `<!-- [RA-SURFACES] ... -->` block of the same state file after a context loss) with what `{analysis_doc}`, the copy Step 01 §1b wrote with any earlier Refine Architecture pass set aside, says the library does. An export or capability the architecture never uses counts when it would strengthen the architecture, and so does a pattern the skill documents that beats the approach the architecture describes; an internal utility, helper or debug function does not. Never re-read a SKILL.md, in the parent or through new subagents.
+Compare its `{skill_api_surfaces}` entry (`{exports, protocols, data_formats, capabilities}`, or the `<!-- [RA-SURFACES] ... -->` blocks of the same state file after a context loss) with what `{analysis_doc}`, the copy Step 01 §1b wrote with any earlier Refine Architecture pass set aside, says the library does. An export or capability the architecture never uses counts when it would strengthen the architecture, and so does a pattern the skill documents that beats the approach the architecture describes; an internal utility, helper or debug function does not. Never re-read a SKILL.md, in the parent or through new subagents.
 
 ### 4. Detect Cross-Library Synergies
 
@@ -47,7 +47,7 @@ Evidence:
 Suggestion: {how to incorporate this capability into the architecture}
 ```
 
-**Type and value:** type each improvement by the Improvement Classification of `{refinementRulesData}` and give it one tier of its Improvement Value table.
+**Type and value:** type each improvement by the Improvement Classification of `{refinementRulesData}` and give it one tier of its Improvement Value table. If `{refinementRulesPath}`, which `{refinementRulesData}` names, is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file.
 
 ### 6. Report Improvements & Store Findings
 

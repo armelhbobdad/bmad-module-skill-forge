@@ -38,7 +38,7 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Load the Run's Numbers
 
-**Run recovery:** if `{run_dir}` or `{arch_project_name}` is no longer bound, read it from the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md`.
+**Run recovery:** if `{run_dir}`, `{arch_project_name}`, `{headless_mode}`, `{outputFolderPath}` or `{onCompleteCommand}` is no longer bound, read it from the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md`, as Step 01 §3c maps its keys.
 
 Stage the result contract's payload from the records of step 1's check for an earlier pass, step 5's build of the draft and its promotion to `{outputFile}`:
 
@@ -99,7 +99,7 @@ It writes `{outputFolderPath}/refine-architecture-result-{YYYYMMDD-HHmmss}.json`
 
 ### 5. Post-Completion Hook (optional)
 
-Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`) is empty, the bundled default. When `{result_path}` is null, skip it too, with one line saying no result file was written for the hook to read. Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record, so a notifier, indexer or chained pipeline sees a complete record:
+Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`, and read again from the `[RA-RUN]` block when it is no longer bound, as §1 says) is empty, the bundled default. When `{result_path}` is null, skip it too, with one line saying no result file was written for the hook to read. Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record, so a notifier, indexer or chained pipeline sees a complete record:
 
 ```bash
 {onCompleteCommand} --result-path="{result_path}"

@@ -3,6 +3,8 @@ nextStepFile: 'gap-analysis.md'
 refinementRulesData: '{refinementRulesPath}'
 # The findings a step 5 review dropped from an earlier refinement (compile.md §8).
 dismissedFile: '{outputFolderPath}/.ra-dismissed-{arch_project_name}.json'
+# The draft compile.md builds, which a stopped step 5 review leaves behind (§1a).
+draftFile: '{forge_data_folder}/.skf-ra-draft-{project_name}.md'
 # Each probe order resolves to its first existing path.
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
@@ -10,6 +12,10 @@ enumerateStackSkillsProbeOrder:
 validateFeasibilityReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
   - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
+# §1b hashes the architecture document with it, and §1a compares that hash with a stopped run's.
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 preservationScript: 'scripts/skf-check-preservation.py'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -96,6 +102,33 @@ A headless run that answered the report question this way (no `--vs-report-path`
 
 **Scope hint (optional, `--scope-skills`):** If `--scope-skills <names>` was provided, store the comma-separated names as `{scope_skills}`, as given: Step 02 §2b takes them as the in-scope skill set, and Step 02 §3 checks each against the inventory. If absent, leave `{scope_skills}` empty.
 
+### 1a. Resume a Stopped Review
+
+Only an interactive run looks for a stopped review: a headless run skips this section and always starts a new run.
+
+A step 5 review that stopped before its [C] or [X] (the session ended or lost its context, say) leaves its run folder, its draft and the RA state file behind, so the review can go on without the analysis running again. Read the `<!-- [RA-RUN] ... -->` block of `{forge_data_folder}/ra-state-{project_name}.md`, one `key=value` per line as §3c writes it, and offer to resume only when all of these hold:
+
+- the state file holds that block with every key §3c writes, and its `headless_mode` is `false`: a block an older version wrote on one line lacks keys, and a headless run's sink holds decisions an interactive result would then report;
+- its `architecture_doc` names the same file as `{architecture_doc}`;
+- the folder its `run_dir` names holds `insertion-plan.json` and `apply.json`, which `apply` writes only once it has built a draft;
+- `{draftFile}` exists: step 5's [X] deletes the draft and its [C] moves it into place, so a review that ended either way leaves none, while a [C] whose `promote` halted keeps it for the resumed review to approve again;
+- the document is as that run read it: resolve `{hashContentHelper}` from `{hashContentProbeOrder}` (first existing path wins) and run §1b's call, `uv run {hashContentHelper} hash "{architecture_doc}"`, which must print a `content_hash` that is not empty and equals the block's `architecture_doc_hash`. The kept plan's anchors and findings come from that run's copy of the document, so applied to an edited one it would insert findings about text the document no longer holds.
+
+Otherwise say nothing and go on to §1b. The one exception: when the first four hold and only the last does not (the hashes differ, or either is empty), say "A review of this document stopped before it finished, but the document changed after that run read it, or cannot be compared with it, so this run starts over." and go on to §1b.
+
+When they all hold, `{stopped_timestamp}` is the block's `timestamp` and `{stopped_run_dir}` its `run_dir` (`{timestamp}` and `{run_dir}` are still this run's). Show:
+
+"**A review of this document stopped before it finished.** Its draft, from the run of {stopped_timestamp}, is at `{draftFile}`, and its plan in `{stopped_run_dir}`. Resuming rebuilds that draft from the plan and shows the review again with that run's settings: its scope, its [VS] report, its output folder, its refinement rules and its `on_complete` hook, so the report you chose above and `--scope-skills` do not apply to it. A new run reads the skills again and builds a new draft, and leaves that run's folder as it is."
+
+Display: **Select:** [R] Resume the review of the draft from {stopped_timestamp} | [N] Start a new run
+
+Wait for the user's choice.
+
+- IF R: delete the run folder this activation made, which holds at most the resolver warning: `rm -rf "{run_dir}"`. Then bind each key of the block as §3c maps it, so `{run_dir}`, `{timestamp}` and every other binding there are the stopped run's, and bind `{analysis_doc}` ← `{run_dir}/analysis-doc.md`. When `{customization_resolver_unavailable}` is set, add it to that folder's run sink with the file write and the `record` call SKILL.md On Activation §5 uses. Then run §4's `rules` check, which halts as §4 says, except that its message ends "Fix that copy, or run [RA] again and choose [N] to start a new run." in place of its last sentence: the path is the stopped run's, which removing the override does not change. Set `{resumed_review}` to true, and load, read the full file and then execute `references/compile.md`: its review starts again from the kept plan. §1's report answer and `--scope-skills` do not apply to it, since compile reads the stopped run's `[RA-VS]` and `[RA-SCOPE]` blocks.
+- IF N: leave the stopped run folder as it is and go on to §1b. Once §3c replaces the state file, that review can no longer be resumed.
+- IF cancel / exit / [X] / q / :q: display "Cancelled: no refinement was performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`) at phase `init:resume`.
+- IF anything else: answer it (a question about the stopped review, say), then redisplay the menu.
+
 ### 1b. Set Aside an Earlier Refinement Pass
 
 Before §3c resets the state file, set aside any earlier Refine Architecture pass, whose annotations are not the user's text:
@@ -113,6 +146,14 @@ Bind `{analysis_doc}` ← `{run_dir}/analysis-doc.md`, the document with any ear
 - If `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:previous-pass`.
 
 **Findings an earlier review dropped.** When `{previous_pass}` is true and `{dismissedFile}` exists, read it as `{dismissed_findings}`: the list of `{kind, skills, anchor, title, capability}` records Step 05 writes when its review drops a finding, which Steps 02 to 04 match as `references/finding-storage.md` says. Otherwise `{dismissed_findings}` is empty. A file that is not such a JSON list leaves it empty too: say "The record of findings dropped at an earlier review cannot be read ({reason}): they may come back in this run." (in headless, log it).
+
+**Hash the document.** Resolve `{hashContentHelper}` from `{hashContentProbeOrder}` (first existing path wins) unless §1a did, and run:
+
+```bash
+uv run {hashContentHelper} hash "{architecture_doc}"
+```
+
+Bind `{architecture_doc_hash}` ← the `content_hash` it prints: §3c records it, so a later run's §1a resumes this run's review only while the document is as this run read it. When no candidate exists, or the call exits non-zero or prints no `content_hash`, bind it empty and go on: this run's review then cannot be resumed.
 
 ### 2. Scan Skills Folder
 
@@ -148,7 +189,24 @@ Create (or overwrite) `{forge_data_folder}/ra-state-{project_name}.md` with a fr
 
 Then append a `<!-- [RA-VS] ... -->` block: the `path`, `generatedAt`, `coveragePercentage` and `coverageMeasured` of `{vs_report}` when `vs_report_available` is true, or `none`. Step 03 reads the report again from that `path` and checks its `generatedAt`, and Step 05 reads the block back if context degrades on a long run.
 
-Then append `<!-- [RA-RUN] run_dir={run_dir} timestamp={timestamp} architecture_doc={architecture_doc} arch_project_name={arch_project_name} -->`: Steps 05 and 06 read these bindings back when context degrades, since the run's records live in `{run_dir}`.
+Then append the run's bindings as a `<!-- [RA-RUN] ... -->` block, one `key=value` per line, since a path or a command can hold spaces:
+
+```markdown
+<!-- [RA-RUN]
+run_dir={run_dir}
+timestamp={timestamp}
+architecture_doc={architecture_doc}
+architecture_doc_hash={architecture_doc_hash}
+arch_project_name={arch_project_name}
+headless_mode={headless_mode}
+output_folder_path={outputFolderPath}
+refinement_rules_path={refinementRulesPath}
+previous_pass={previous_pass}
+on_complete={onCompleteCommand}
+-->
+```
+
+A key's value is everything after the first `=` of its line, empty when the line ends there (no `on_complete` hook, say). Each key reads back as the binding its line names: `output_folder_path` as `{outputFolderPath}`, `refinement_rules_path` as `{refinementRulesPath}`, `on_complete` as `{onCompleteCommand}`, and every other key as the binding of its own name. Steps 02 to 06 read these bindings back from the block when context degrades, since the run's records live in `{run_dir}`, and §1a reads a stopped run's.
 
 On a write failure: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:state-file`, with `"path"` set to the state file, naming the captured error.
 

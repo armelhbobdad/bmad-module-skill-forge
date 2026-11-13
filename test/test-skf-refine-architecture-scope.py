@@ -15,8 +15,9 @@ These tests keep the step files on that contract:
   `--scope-skills` scope or the safe default shows no gate;
 - the mentions helper, not the prose, decides which technologies a skill
   covers, and gives the term that named each skill for the gate;
-- section 6 names the technologies with no skill and appends the
-  `[RA-SCOPE]` block that steps 4 and 5 read back;
+- section 6 names the technologies with no skill, and section 3 appends
+  the `[RA-SCOPE]` block that section 4 and steps 3 to 5 read back, once
+  its bindings are final and before section 4 reads a surface (#1178);
 - gap analysis sections 4 and 5 and improvements sections 3 and 4 read
   in-scope skills and in-scope pairs only (#1177): no gap, issue or
   improvement is looked for with an out-of-scope skill, gap analysis names
@@ -92,7 +93,15 @@ And it pins the split of the rules a team may swap from the ones it may not
 - the per-refinement walkthrough is [R] at the step 5 review gate, step 6 has
   no menu, step 4 reads the capabilities step 2 collected instead of a
   second subagent round, and the split names the skills a run left out of
-  scope in an `out_of_scope_skills` warning.
+  scope in an `out_of_scope_skills` warning;
+- step 2 appends each round's API surfaces to the RA state file as the
+  round returns, and without subagents reads the in-scope skills one at a
+  time, appending each before the next, so a context loss keeps every
+  surface read; steps 3 and 4 read the blocks back, and steps 2 to 4 and
+  the finding storage read `{run_dir}`, `{analysis_doc}`,
+  `{headless_mode}`, the refinement rules path and the bindings of the
+  dropped-findings record back from the `[RA-RUN]` block; a resumed
+  review keeps the drops its stopped review staged (#1178).
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -419,11 +428,13 @@ def test_gap_report_names_unverified_technologies_and_stores_the_scope():
     signal = _bullet(report, "**The architecture names technologies with no skill")
     assert "`{unverified_technologies}`" in signal
     assert "[CS] or [QS]" in signal and "re-running [RA]" in signal
-    block = _slice(report, "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
+    # #1178: section 3 appends the block once its bindings are final, so a context loss in section 4 keeps the scope.
+    block = _slice(_gap_split(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
     for field in ("`{in_scope_skills}`", "`{out_of_scope_skills}`", "`{unverified_technologies}`"):
         assert field in block, f"the [RA-SCOPE] block must record {field}"
     assert "how the scope was set" in block
     assert "Step 04 and Step 05 read the block back" in block
+    assert "Append the scope under" not in report and "§3 already appended the scope's" in report
 
 
 # --- Step 4: improvements stay inside the scope ---
@@ -1163,7 +1174,7 @@ def test_the_terms_and_the_split_halt_at_their_phase():
 
 
 def test_the_scope_block_holds_the_pair_lists():
-    block = _slice(_gap_report(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
+    block = _slice(_gap_split(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
     assert "`{in_scope_pairs}`" in block and "`{out_of_scope_pairs}`" in block
     assert "Step 03, Step 04 and Step 05 read the block back" in block
 
@@ -1575,6 +1586,112 @@ def test_step_4_reads_the_surfaces_step_2_collected():
         assert "`{exports, protocols, data_formats, capabilities}`" in text, path.name
         assert "the `<!-- [RA-SURFACES] ... -->` block" in text, path.name
         assert "Reload a" not in text, path.name
+
+
+# --- The run survives a context loss and a runtime without subagents (#1178) ---
+
+
+def test_the_surfaces_survive_a_context_loss_and_a_runtime_without_subagents():
+    # enhancement-3: each round's summaries reach the state file as the round returns, and the fallback appends
+    # each skill's before it reads the next, as Verify Stack's integrations stage does.
+    surfaces = _slice(_read(GAP), "### 4. Load Skill API Surfaces for Cross-Reference", "### 5.")
+    assert "Launch up to **8 subagents concurrently** (batch larger inventories in rounds of 8)" in surfaces
+    collect = _slice(surfaces, "**Parent collects all subagent JSON summaries.**", "\n\n")
+    for needle in ("Apart from the fallback's reads, do not load full SKILL.md content into parent context.",
+                   "As each round returns, append its summaries to the RA state file",
+                   "as a `<!-- [RA-SURFACES] ... -->` block, before the next round starts",
+                   "Steps 03 and 04 read the blocks back from it if context degrades on a long run",
+                   "the blocks already appended name the skills read, so only the others are read",
+                   "If `{run_dir}` or `{in_scope_skills}` is no longer bound, read `{run_dir}` from the "
+                   "`<!-- [RA-RUN] ... -->` block of the same file and `{in_scope_skills}` from its "
+                   "`<!-- [RA-SCOPE] ... -->` block (§3)"):
+        assert needle in collect, needle
+    assert "Append them to the RA state file" not in surfaces, "no single block once every round returned"
+    fallback = _slice(surfaces, "**When subagents are unavailable**", "\n\n")
+    for needle in ("read the in-scope skills yourself, one at a time",
+                   "in the order of the `skills[]` of `{run_dir}/skill-inventory.json`",
+                   "write its compact JSON by the rules above",
+                   "as its own `<!-- [RA-SURFACES] ... -->` block before going on to the next",
+                   "so a context compaction loses none"):
+        assert needle in fallback, needle
+    assert (surfaces.index("**Extraction rules for subagents:**") < surfaces.index("**When subagents are unavailable**")
+            < surfaces.index("**Parent collects all subagent JSON summaries.**"))
+    for path in (ISSUES, IMPROVEMENTS):
+        assert "the `<!-- [RA-SURFACES] ... -->` blocks of" in _read(path), path.name
+
+
+def test_the_scope_is_saved_before_the_surfaces_are_read():
+    # review loop 1: section 4's recovery reads the scope back, so section 3 appends it, once, before section 4.
+    gap = _read(GAP)
+    split = _gap_split()
+    block = _slice(split, "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
+    assert "once these bindings are final, before §4 reads a surface" in block
+    assert "A run appends it once: §4, Step 03, Step 04 and Step 05 read the block back" in block
+    assert split.index("Once these bindings are final") < split.index("Append the scope under")
+    assert gap.count("Append the scope under") == 1
+    assert gap.index("Append the scope under") < gap.index("### 4. Load Skill API Surfaces")
+    assert "§3 also records them all in the RA state file, once it settles them" in _slice(
+        _gap_scope(), "Store `{in_scope_skills}`", "\n\n")
+
+
+RUN_BLOCK = "`<!-- [RA-RUN] ... -->` block"
+ANALYSIS_DOC = "(`{analysis_doc}` is `{run_dir}/analysis-doc.md`)"
+RULES_BACK = ("If `{refinementRulesPath}`, which `{refinementRulesData}` names, is no longer bound, read it from "
+              f"the {RUN_BLOCK} of the RA state file")
+
+
+def test_the_steps_recover_their_run_bindings_from_the_run_block():
+    # architecture-1: each place steps 2 to 4 read a run binding names the block it comes back from.
+    claims = _gap_claims()
+    assert (f"If `{{run_dir}}` is no longer bound (a long run's context degraded), read it from the {RUN_BLOCK} of "
+            "the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), as Step 01 §3c maps its keys. "
+            "The technology list and the helper both read the document as `{analysis_doc}`") in claims
+    gate_line = [line for line in _scope_gate().splitlines() if "GATE [default: C]" in line][0]
+    assert (f"When `{{headless_mode}}` is no longer bound, read it from the {RUN_BLOCK} of the RA state file. "
+            "If `{headless_mode}`:") in gate_line
+    cross = _slice(_read(GAP), "### 5. Cross-Reference: Identify Gaps", "### 6.")
+    assert f"Type the gap by the Gap Classification of `{{refinementRulesData}}`. {RULES_BACK}" in cross
+    issue_claims = _slice(_read(ISSUES), "### 2. Extract Integration Claims from Architecture", "### 3.")
+    assert (f"If `{{run_dir}}` is no longer bound, read it from the {RUN_BLOCK} of the RA state file "
+            "(`{forge_data_folder}/ra-state-{project_name}.md`), as Step 01 §3c maps its keys: `{analysis_doc}` is "
+            "`{run_dir}/analysis-doc.md`.") in issue_claims
+    verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
+    routing = _slice(verify, "**Scope routing (from Step 02 §3):**", "\n\n")
+    assert f"and `{{run_dir}}` from its {RUN_BLOCK} when it is no longer bound {ANALYSIS_DOC}" in routing
+    assert f"type it by the Issue Classification of `{{refinementRulesData}}`. {RULES_BACK}" in verify
+    vs = _issue_vs()
+    assert f"and `{{run_dir}}` and `{{refinementRulesPath}}` from its {RUN_BLOCK} when they are no longer bound" in vs
+    compare = _slice(_improvements_compare(), "**Scope routing (from Step 02 §2b):**", "\n\n")
+    assert f"and `{{run_dir}}` from its {RUN_BLOCK} when it is no longer bound {ANALYSIS_DOC}" in compare
+    typed = _slice(_read(IMPROVEMENTS), "**Type and value:**", "\n\n")
+    assert f"one tier of its Improvement Value table. {RULES_BACK}" in typed
+    for path in (GAP, ISSUES, IMPROVEMENTS):
+        assert "refinementRulesData: '{refinementRulesPath}'" in _frontmatter(_read(path)), path.name
+    dropped = _slice(_read(STORAGE), "## Findings a Review Dropped", "Compare each in-scope finding")
+    assert (f"taking `{{previous_pass}}`, `{{outputFolderPath}}` and `{{arch_project_name}}` from the {RUN_BLOCK} of "
+            "the RA state file when they are no longer bound") in dropped
+    path = DISMISSED_FILE.split("'")[1]
+    assert f"`{{dismissedFile}}` is `{path}`" in dropped
+    # review loop 2: a halt after a context loss still knows whether to print its envelope.
+    for step in (GAP, ISSUES):
+        envelope = _slice(_read(step), "**Halt envelope.**", "```bash")
+        assert (f"When `{{headless_mode}}` or `{{run_dir}}` is no longer bound, read it from the {RUN_BLOCK} of the "
+                "RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). In headless mode, stage") in envelope
+
+
+def test_a_resumed_review_keeps_the_drops_its_stopped_review_staged():
+    # review loop 1: the resumed review's run folder is the stopped one's, whose dismissed.json holds its rounds'
+    # drops and take-backs, so they are neither lost nor listed again as left out.
+    resumed = _slice(_compile_base(), "**A resumed review.**", "\n\n")
+    for needle in ("A `{run_dir}/dismissed.json` the stopped review's feedback rounds left counts as staged",
+                   "a later round changes it instead of starting again from `{dismissedFile}`",
+                   "and [C] writes it as §8 says",
+                   "§7 does not list as left out a dismissed finding the kept plan already holds"):
+        assert needle in resumed, needle
+    record = _slice(_read(STORAGE), "**How Step 05 records a drop.**", "\n\n")
+    assert "which the first round that changes it starts from `{dismissedFile}`" in record
+    approve = _slice(_read(COMPILE), "- IF C (only while the last `apply` exited 0)", "- IF cancel")
+    assert "When a feedback round staged `{run_dir}/dismissed.json`, only now write it to `{dismissedFile}`" in approve
 
 
 # --- Headless envelopes name what a run left out (#593 follow-up) ---

@@ -109,6 +109,11 @@ RECORD_RE = re.compile(r"\brecord\b", re.IGNORECASE)
 # stage 0, references/preflight.md), and the draft
 # resume offer that intake's §3 loads, whose file says headless runs skip it.
 INTERACTIVE_ONLY = {
+    # refine-architecture's offer to resume a stopped review (#1178), which its section says headless runs skip.
+    ("skf-refine-architecture", "references/init.md"): (
+        ("### 1a. Resume a Stopped Review",),
+        ("references/init.md", "a headless run skips this section"),
+    ),
     ("skf-brief-skill", "references/gather-intent.md"): (
         ("### 3. Gather Target Repository", "### 3b. Gather Target Version", "### 4. Gather User Intent",
          "### 6. Derive Skill Name", "### 8. Present MENU OPTIONS"),

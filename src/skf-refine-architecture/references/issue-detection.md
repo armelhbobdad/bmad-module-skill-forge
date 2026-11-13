@@ -30,7 +30,7 @@ Find contradictions between what the architecture document claims and what the g
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"path"` when the halt names one, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{headless_mode}` or `{run_dir}` is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"path"` when the halt names one, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-refine-architecture --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -40,7 +40,7 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 2. Extract Integration Claims from Architecture
 
-Parse the architecture document for specific claims about how technologies interact. Read it as `{analysis_doc}`, the copy Step 01 §1b wrote with any earlier Refine Architecture pass set aside, so a claim is always the user's, never an old RA annotation.
+Parse the architecture document for specific claims about how technologies interact. Read it as `{analysis_doc}`, the copy Step 01 §1b wrote with any earlier Refine Architecture pass set aside, so a claim is always the user's, never an old RA annotation. If `{run_dir}` is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), as Step 01 §3c maps its keys: `{analysis_doc}` is `{run_dir}/analysis-doc.md`.
 
 **Claim types to extract:**
 - **API claims:** "Library X provides/exposes/exports {function/endpoint}"
@@ -58,9 +58,9 @@ For each claim, record:
 
 ### 3. Verify Claims Against Skill API Surfaces
 
-**Scope routing (from Step 02 §3):** a claim that names a skill of `{out_of_scope_skills}` is not checked, since Step 02 §4 read no surface of that skill: record it, with its exact text and section, in the informational Out-of-Scope bucket (§6). If the scope sets are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`).
+**Scope routing (from Step 02 §3):** a claim that names a skill of `{out_of_scope_skills}` is not checked, since Step 02 §4 read no surface of that skill: record it, with its exact text and section, in the informational Out-of-Scope bucket (§6). If the scope sets are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), and `{run_dir}` from its `<!-- [RA-RUN] ... -->` block when it is no longer bound (`{analysis_doc}` is `{run_dir}/analysis-doc.md`).
 
-Check each other claim against the compact API surfaces Step 02 §4 collected, the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats, capabilities}`), and against each skill's `language` in `skill_inventory`. If the summaries are no longer in context, read them from the `<!-- [RA-SURFACES] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), never from the SKILL.md files. Look at what the claim says about an API and its signature, a protocol or data format, a call across languages, and the types passed between libraries. Whether a named export exists is never looked up by hand: unless §2 staged `[]`, one call looks every staged pair up in its skill's `exports[]` in `{run_dir}/skill-inventory.json` (Step 01 §2):
+Check each other claim against the compact API surfaces Step 02 §4 collected, the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats, capabilities}`), and against each skill's `language` in `skill_inventory`. If the summaries are no longer in context, read them from the `<!-- [RA-SURFACES] ... -->` blocks of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), never from the SKILL.md files. Look at what the claim says about an API and its signature, a protocol or data format, a call across languages, and the types passed between libraries. Whether a named export exists is never looked up by hand: unless §2 staged `[]`, one call looks every staged pair up in its skill's `exports[]` in `{run_dir}/skill-inventory.json` (Step 01 §2):
 
 ```bash
 uv run {preservationScript} exports --inventory "{run_dir}/skill-inventory.json" --claims "{run_dir}/claimed-names.json"
@@ -77,7 +77,7 @@ Branch on its exit code:
 - **2** with a JSON whose `error` names `{run_dir}/claimed-names.json`: stage it again as §2 says and run the command again. When the `error` names a pair whose `claimed` names no identifier, write that export by its name alone (`QueryClientProvider` for `<QueryClientProvider>`), or drop the pair when the claim names none (an operator such as `+`). One whose `error` names `{run_dir}/skill-inventory.json`: the inventory Step 01 §2 saved can no longer be read, so HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:exports`, naming its `error`, with `"path"` set to `{run_dir}/skill-inventory.json`. **2 with no JSON:** a malformed call: fix it and run it again.
 - If `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `issue-detection:exports`.
 
-A claim the skill evidence contradicts is an issue: type it by the Issue Classification of `{refinementRulesData}`.
+A claim the skill evidence contradicts is an issue: type it by the Issue Classification of `{refinementRulesData}`. If `{refinementRulesPath}`, which `{refinementRulesData}` names, is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA state file.
 
 ### 4. Incorporate VS Report (If Available)
 
@@ -89,7 +89,7 @@ If `vs_report_available` is false, skip this section: issue detection proceeds w
 uv run {preservationScript} verdicts --report "{vs_report_path}" --generated-at "{vs_generated_at}" --skills "{run_dir}/skill-terms.json" --in-scope "{in_scope_names}" --rules "{refinementRulesData}"
 ```
 
-`{vs_report_path}` and `{vs_generated_at}` are the `path` and `generatedAt` of `{vs_report}` (an empty string when `generatedAt` is null), and `{in_scope_names}` every name in `{in_scope_skills}`, comma-separated. If they are no longer in context, read them from the `[RA-VS]` and `[RA-SCOPE]` blocks of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). Branch on its exit code:
+`{vs_report_path}` and `{vs_generated_at}` are the `path` and `generatedAt` of `{vs_report}` (an empty string when `generatedAt` is null), and `{in_scope_names}` every name in `{in_scope_skills}`, comma-separated. If they are no longer in context, read them from the `[RA-VS]` and `[RA-SCOPE]` blocks of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), and `{run_dir}` and `{refinementRulesPath}` from its `<!-- [RA-RUN] ... -->` block when they are no longer bound. Branch on its exit code:
 
 - **0:** each `in_scope` row (both libraries in-scope skills, in report order) whose `raises` names a tier is an issue of that tier; one whose `raises` is null raises none. The token alone decides, never phrases in the rationale text. Record every `out_of_scope` row, with its `reason`, under the informational Out-of-Scope bucket instead of promoting it to an issue for this architecture.
 - **1** (`status: "stale"`): the report this run started from is gone ([VS] rewrote it during this run, or it cannot be read again), or the refinement rules no longer pass step 1's check: HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:vs-report`, naming the `detail` of each of its `problems`, with `"path"` set to `{vs_report_path}`.
