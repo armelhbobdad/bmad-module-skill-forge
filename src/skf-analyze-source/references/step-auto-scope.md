@@ -124,7 +124,7 @@ On a non-zero exit or an empty top-level `matches[]`, go on to the route silentl
 ### 1. Load Context
 
 Read {outputFile} frontmatter to obtain:
-- `project_paths[]`: the root(s) to analyze
+- `project_paths[]`: its one entry, `{project_path}`, the target to analyze
 - `forge_tier`: for brief generation
 - `project_name`, `user_name`, `date`
 - `scope_hint` (the folders or packages to focus on or skip) and `intent_hint` (the goal of the analysis), each possibly empty: §3b, §5 and §6 apply them

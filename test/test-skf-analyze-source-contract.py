@@ -2290,6 +2290,12 @@ def test_an_auto_call_given_several_paths_or_a_ref_flag_halts_in_init(tmp_path, 
     assert "Requires `--project-path` naming one target." in auto_flag
     [inputs] = [line for line in contract if line.startswith("| **Headless inputs** |")]
     assert "`--project-path <path>` (comma-separated for several; one for `[auto]`)" in inputs
+    # The user guide and step 1a's own context list say one target too (#1123 lane review).
+    assert ("Analyze Source takes `--project-path` (one path for an `AN[auto]` run, which exits 2 when given "
+            "several), `--scope-hint` and `--intent-hint`.") in _read(REPO / "docs" / "workflows.md")
+    load = _section(_read(AUTO), "### 1. Load Context", "### 2.")
+    assert "- `project_paths[]`: its one entry, `{project_path}`, the target to analyze" in load
+    assert "root(s)" not in _read(AUTO)
     fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-auto-one-target.yaml"))
     assert (fragment["type"], fragment["scope"], fragment["issues"]) == ("breaking", "skf-analyze-source", [1123])
     assert "now exits `2` (`input-missing`, `error.phase` `init:2b`)" in fragment["summary"]
