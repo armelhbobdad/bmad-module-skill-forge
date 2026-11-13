@@ -18,6 +18,7 @@ import importlib.util
 import json
 import re
 import shlex
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -533,6 +534,20 @@ def test_render_refuses_what_it_cannot_write(tmp_path, case, code, error):
     proc = _render_files(tmp_path, paths)
     assert proc.returncode == code, proc.stdout + proc.stderr
     assert proc.stdout == "" and proc.stderr.startswith("error: ") and error in proc.stderr, proc.stderr
+
+
+def test_a_render_refusal_is_utf8_on_a_cp1252_console(tmp_path):
+    """A Windows console gives the script cp1252 streams, and the count refusal names \u00a75c: the script writes
+    its error line in UTF-8 anyway, so a caller that reads it as UTF-8 gets it on every platform."""
+    paths = _aggregated(tmp_path)
+    paths["--judged"].write_bytes(json.dumps([{**RENDER_JUDGED[0]}, *RENDER_JUDGED]).encode("utf-8"))
+    args = ["--coherence", tmp_path / "coherence.json", "--references", paths["--references"],
+            "--judged", paths["--judged"]]
+    proc = subprocess.run([sys.executable, str(SCRIPT), "render", *map(str, args)], capture_output=True,
+                          env={**os.environ, "PYTHONIOENCODING": "cp1252"}, timeout=60, check=False)
+    assert (proc.returncode, proc.stdout) == (2, b"")
+    line = proc.stderr.decode("utf-8").splitlines()[0]
+    assert line.startswith("error: ") and "run \u00a75c's command again over these files" in line, line
 
 
 def test_coherence_check_renders_the_contextual_tables_as_written(tmp_path):
