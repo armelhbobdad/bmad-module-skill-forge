@@ -214,9 +214,10 @@ def test_refine_architecture_documents_the_scope_confirmation():
 
 
 def test_refine_architecture_documents_the_summary_rows_and_next_step():
-    """#610: the rows the section names are rows compile writes, and so is the [CS] or [QS] next step."""
+    """#610, #1176: the rows the section names are rows compile's {changes_rows} writes, and the [CS] or [QS] next step
+    is compile's."""
     summary = _slice(_read(RA_REFS / "compile.md"), "### 5. Add Refinement Summary Section", "### 6.")
-    rows = re.findall(r"^\| ([^|]+?) \| \{", summary, re.M)
+    rows = _slice(summary, "The script writes the rows in this order", "\n\n")
     output = _paragraph(_ra_section(), "**Output:**")
     for row in ("Not verified (no skill)", "VS Coverage"):
         assert row in rows, row

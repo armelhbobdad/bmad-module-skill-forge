@@ -16,7 +16,12 @@ model retyping the original, so these pin what it promises (#587):
   fallback sections ordered by severity and value;
 - the summary's counts, unverified technologies and evidence rows come from
   the plan, apply's record holds the filled summary, and a summary that
-  types the totals or leaves an unknown placeholder is refused;
+  types the totals or leaves an unknown placeholder is refused; the Changes
+  Made rows are the script's {changes_rows} (#1176): every tier of the plan
+  with its count, 0 included, and the VS Coverage row from the plan's
+  vs_report (`<n>%` or `not recorded`, the report's file name only), so a
+  summary without {changes_rows} or {evidence_rows}, one that types a tier
+  count, leaves a tier out or types evidence rows, is refused;
 - the plan check names each anchor that is missing (with the closest line)
   or ambiguous (with every match and its heading), and every other problem,
   before anything is written, so an earlier draft stays as it was; a
@@ -39,14 +44,23 @@ model retyping the original, so these pin what it promises (#587):
   renamed copy, and names each table and tier rule a copy breaks: a missing
   or empty table, a tier name the summary cannot count, a reserved or
   repeated name, an unknown, repeated or unmapped VS token and a VS row
-  that raises no tier;
+  that raises no tier; an unbolded Raises cell counts only when it is
+  wholly a tier, No issue or None (#1176), so `No Critical issue` raises
+  neither;
 - verdicts (issue-detection.md section 4, #598) joins each [VS] row to the
   skill of that name or of a single alias, routes a pair with an
   out-of-scope skill or a library no skill matches (a cycle row's `cycle`)
   to out_of_scope, gives each in-scope row the tier its token raises, and
   reports a report [VS] rewrote, one that cannot be read or breaks the
   contract, and rules that changed, as stale (exit 1); a missing reader
-  exits 3.
+  exits 3;
+- exports (issue-detection.md section 3, #1176) looks each claimed export
+  up by its last identifier after one normalization (`Type::method`,
+  `obj.method()`, a backticked signature, a generic, `mod/fn`), on
+  skf-names-present.py's identifier boundaries, and reports a method of a
+  listed type as member-unlisted, an empty or unknown list as list-empty
+  and a skill no name or unshared alias matches as unknown-skill; a bad inventory or
+  claims file exits 2 naming it.
 """
 
 from __future__ import annotations
@@ -111,12 +125,15 @@ GET /docs
 SUMMARY = (
     "## Refinement Summary\n\n"
     "Produced by: Refine Architecture workflow using 3 skills\n\n"
-    "| Category | Count | Breakdown |\n|---|---|---|\n"
+    "| Category | Count | Breakdown |\n|---|---|---|\n{changes_rows}\n\n"
+    "| Skill | Refinements |\n|---|---|\n{evidence_rows}"
+)
+# The Changes Made rows as compile.md had the model write them before {changes_rows}.
+TYPED_ROWS = (
     "| Gaps Filled | {gap_count} | - |\n"
     "| Issues Flagged | {issue_count} | Critical: {critical_count}, Major: {major_count}, Minor: {minor_count} |\n"
     "| Improvements Suggested | {improvement_count} | High: {high_count}, Medium: {medium_count}, Low: {low_count} |\n"
-    "| Not verified (no skill) | {unverified_count} | Redis |\n\n"
-    "| Skill | Refinements |\n|---|---|\n{evidence_rows}"
+    "| Not verified (no skill) | {unverified_count} | {unverified_technologies} |"
 )
 
 
@@ -410,10 +427,15 @@ def test_the_summary_counts_and_evidence_come_from_the_plan(tmp_path):
     }
     assert result["evidence"] == {"loro": 3, "fastapi": 1, "yjs": 1}
     lines = _texts(draft.read_text(encoding="utf-8"))
-    assert "| Gaps Filled | 1 | - |" in lines
-    assert "| Issues Flagged | 2 | Critical: 1, Major: 0, Minor: 1 |" in lines
-    assert "| Improvements Suggested | 1 | High: 0, Medium: 1, Low: 0 |" in lines
-    assert "| Not verified (no skill) | 1 | Redis |" in lines
+    # {changes_rows} writes every row in order; no skill_count and no vs_report, so neither of their rows.
+    start = lines.index("| Gaps Filled | 1 | - |")
+    assert lines[start:start + 5] == [
+        "| Gaps Filled | 1 | - |",
+        "| Issues Flagged | 2 | Critical: 1, Major: 0, Minor: 1 |",
+        "| Improvements Suggested | 1 | High: 0, Medium: 1, Low: 0 |",
+        "| Not verified (no skill) | 1 | Redis |",
+        "",
+    ]
     assert lines[-5:-2] == ["| loro | 3 |", "| fastapi | 1 |", "| yjs | 1 |"]
     assert [p["id"] for p in result["placed"]] == ["issue-1", "gap-1", "issue-2"]
     assert lines[result["placed"][0]["line"] - 1] == "<!-- RA:BEGIN issue issue-1 -->"
@@ -426,7 +448,11 @@ def test_the_skill_count_comes_from_the_plan(tmp_path):
     proc, draft = _apply(tmp_path, _plan(summary=summary, skill_count=4))
     assert proc.returncode == 0, proc.stdout
     assert json.loads(proc.stdout)["counts"]["skills"] == 4
-    assert "Produced by: Refine Architecture workflow using 4 skills" in _texts(draft.read_text(encoding="utf-8"))
+    lines = _texts(draft.read_text(encoding="utf-8"))
+    assert "Produced by: Refine Architecture workflow using 4 skills" in lines
+    # The plan's skill_count also adds the Skills Used as Evidence row, before the Not verified row.
+    at = lines.index("| Skills Used as Evidence | 4 | - |")
+    assert lines[at - 1].startswith("| Improvements Suggested |") and lines[at + 1].startswith("| Not verified")
     again = tmp_path / "again"
     again.mkdir()
     problems = _problems(again, _plan(summary=summary, skill_count=-1))
@@ -436,8 +462,7 @@ def test_the_skill_count_comes_from_the_plan(tmp_path):
 @pytest.mark.parametrize(("names", "shown"), [(["Redis", "Kafka"], "Redis, Kafka"), ([], "none")],
                          ids=["named", "none"])
 def test_the_unverified_technologies_come_from_the_plan(tmp_path, names, shown):
-    summary = SUMMARY.replace("| {unverified_count} | Redis |", "| {unverified_count} | {unverified_technologies} |")
-    proc, draft = _apply(tmp_path, {**_plan(summary=summary), "unverified_technologies": names})
+    proc, draft = _apply(tmp_path, {**_plan(), "unverified_technologies": names})
     assert proc.returncode == 0, proc.stdout
     result = json.loads(proc.stdout)
     row = f"| Not verified (no skill) | {len(names)} | {shown} |"
@@ -456,14 +481,86 @@ def test_the_record_holds_the_summary_the_draft_shows(tmp_path):
 
 
 def test_tiers_can_be_renamed(tmp_path):
-    summary = SUMMARY.replace("{critical_count}", "{blocker_count}").replace("{major_count}", "{warn_count}")
-    summary = summary.replace(", Minor: {minor_count}", "")
+    # {changes_rows} names the plan's own tiers in order, a tier no entry has included, and each
+    # {<tier>_count} stays fillable elsewhere in the summary.
+    summary = SUMMARY + "\n\nBlockers: {blocker_count}, to look at: {should_fix_count}"
     plan = _plan(_issue("issue-1", "Sync runs over gRPC.", "Blocker"), summary=summary,
-                 tiers={"issue": ["Blocker", "Warn"]})
+                 tiers={"issue": ["Blocker", "Should fix"], "improvement": ["Worth it", "Later on"]})
     proc, draft = _apply(tmp_path, plan)
     assert proc.returncode == 0, proc.stdout
-    assert json.loads(proc.stdout)["counts"]["issue_tiers"] == {"Blocker": 1, "Warn": 0}
-    assert "| Issues Flagged | 1 | Critical: 1, Major: 0 |" in _texts(draft.read_text(encoding="utf-8"))
+    assert json.loads(proc.stdout)["counts"]["issue_tiers"] == {"Blocker": 1, "Should fix": 0}
+    lines = _texts(draft.read_text(encoding="utf-8"))
+    assert "| Issues Flagged | 1 | Blocker: 1, Should fix: 0 |" in lines
+    assert "| Improvements Suggested | 0 | Worth it: 0, Later on: 0 |" in lines
+    assert "Blockers: 1, to look at: 0" in lines
+    assert not any("Critical" in line or "High" in line for line in lines)
+
+
+def _vs_row(tmp_path, vs_report):
+    proc, draft = _apply(tmp_path, _plan(vs_report=vs_report))
+    assert proc.returncode == 0, proc.stdout
+    lines = _texts(draft.read_text(encoding="utf-8"))
+    rows = [line for line in lines if line.startswith("| VS Coverage |")]
+    assert len(rows) <= 1, rows
+    if rows:
+        # The VS Coverage row comes last, right after the Not verified row.
+        assert lines[lines.index(rows[0]) - 1].startswith("| Not verified (no skill) |")
+    return rows[0] if rows else None
+
+
+@pytest.mark.parametrize(
+    ("vs_report", "row"),
+    [
+        ({"path": "_bmad-output/forge/feasibility-report-app-latest.md", "coveragePercentage": 80,
+          "coverageMeasured": True},
+         "| VS Coverage | 80% | technologies with a skill when [VS] ran, from `feasibility-report-app-latest.md` |"),
+        # A [VS] run that stopped before its coverage step left coveragePercentage: 0, which is no 0%.
+        ({"path": "C:\\work\\forge\\feasibility-report-app.md", "coveragePercentage": 0, "coverageMeasured": False},
+         "| VS Coverage | not recorded | technologies with a skill when [VS] ran, from `feasibility-report-app.md` |"),
+        # The validator's JSON when the frontmatter percentage is missing or not a whole number.
+        ({"path": "forge/feasibility-report-app-latest.md", "coveragePercentage": None, "coverageMeasured": False},
+         "| VS Coverage | not recorded | technologies with a skill when [VS] ran, from "
+         "`feasibility-report-app-latest.md` |"),
+        ({"path": "forge/feasibility-report-a|b.md", "coveragePercentage": 100, "coverageMeasured": True,
+          "generatedAt": "2026-10-01T10:00:00Z"},
+         "| VS Coverage | 100% | technologies with a skill when [VS] ran, from `feasibility-report-a\\|b.md` |"),
+        (None, None),
+    ],
+    ids=["measured", "not-measured", "not-measured-null", "pipe-in-the-name", "absent"],
+)
+def test_the_vs_coverage_row_comes_from_the_plans_vs_report(tmp_path, vs_report, row):
+    assert _vs_row(tmp_path, vs_report) == row
+
+
+@pytest.mark.parametrize(
+    "vs_report",
+    [{"coveragePercentage": 80, "coverageMeasured": True},
+     {"path": " ", "coveragePercentage": 80, "coverageMeasured": True},
+     {"path": "r.md", "coveragePercentage": 80},
+     {"path": "r.md", "coveragePercentage": 80, "coverageMeasured": "yes"},
+     {"path": "r.md", "coveragePercentage": 80.5, "coverageMeasured": True},
+     {"path": "r.md", "coveragePercentage": 101, "coverageMeasured": True},
+     {"path": "r.md", "coveragePercentage": None, "coverageMeasured": True},
+     {"path": "r.md", "coveragePercentage": True, "coverageMeasured": True},
+     "forge/feasibility-report-app-latest.md"],
+    ids=["no-path", "blank-path", "no-measured", "measured-not-bool", "fraction", "over-100", "null-percentage",
+         "bool-percentage", "not-an-object"],
+)
+def test_a_vs_report_that_is_not_the_reports_json_is_a_problem(tmp_path, vs_report):
+    [problem] = _problems(tmp_path, _plan(vs_report=vs_report))
+    assert problem["reason"] == "plan-invalid" and "vs_report" in problem["detail"]
+
+
+def test_a_pipe_in_a_written_name_is_escaped(tmp_path):
+    plan = {**_plan(_issue("issue-1", "Sync runs over gRPC.", "A|B")), "unverified_technologies": ["x|y", "Redis"],
+            "tiers": {"issue": ["A|B", "C"]}}
+    proc, draft = _apply(tmp_path, plan)
+    assert proc.returncode == 0, proc.stdout
+    lines = _texts(draft.read_text(encoding="utf-8"))
+    assert "| Issues Flagged | 1 | A\\|B: 1, C: 0 |" in lines
+    assert "| Not verified (no skill) | 2 | x\\|y, Redis |" in lines
+    # The record lists the names as the plan gives them.
+    assert json.loads(proc.stdout)["unverified_technologies"] == ["x|y", "Redis"]
 
 
 # --------------------------------------------------------------------------
@@ -540,17 +637,44 @@ def test_a_duplicate_id_is_a_problem(tmp_path):
 @pytest.mark.parametrize(
     ("summary", "reason"),
     [
-        (SUMMARY.replace("{gap_count}", "2"), "summary-count-typed"),
         (SUMMARY + "\n\nUsing {skill_count} skills", "summary-placeholder"),
         (SUMMARY + "\n<!-- RA:BEGIN x y -->", "summary-has-marker"),
         (SUMMARY + "\n```\nopen", "summary-unclosed-fence"),
         ("", "plan-invalid"),
     ],
-    ids=["typed", "unknown-placeholder", "marker", "fence", "empty"],
+    ids=["unknown-placeholder", "marker", "fence", "empty"],
 )
 def test_each_summary_problem_is_named(tmp_path, summary, reason):
     problems = _problems(tmp_path, _plan(summary=summary))
     assert [p["reason"] for p in problems] == [reason]
+
+
+@pytest.mark.parametrize(
+    ("summary", "typed"),
+    [
+        # Every count placeholder is there, but a tier's count is typed: only {changes_rows} writes them all.
+        (SUMMARY.replace("{changes_rows}", TYPED_ROWS.replace("{critical_count}", "2")), "{changes_rows}"),
+        # A breakdown that leaves a tier out.
+        (SUMMARY.replace("{changes_rows}", TYPED_ROWS.replace(", Minor: {minor_count}", "")), "{changes_rows}"),
+        # Named alone: the counts it writes are never asked for beside it.
+        (SUMMARY.replace("{changes_rows}", "| Gaps Filled | 2 | - |"), "{changes_rows}"),
+        (SUMMARY.replace("{evidence_rows}", "| loro | 3 |"), "{evidence_rows}"),
+    ],
+    ids=["typed-tier-count", "tier-left-out", "typed-total", "typed-evidence-rows"],
+)
+def test_a_summary_that_types_a_count_or_a_row_is_refused(tmp_path, summary, typed):
+    [problem] = _problems(tmp_path, _plan(summary=summary))
+    assert problem["reason"] == "summary-count-typed", problem
+    assert problem["detail"].endswith(": " + typed), problem["detail"]
+
+
+def test_changes_rows_stand_for_the_totals_and_the_unverified_count(tmp_path):
+    # The rows write the three totals and {unverified_count}, so a summary needs only {changes_rows} and
+    # {evidence_rows}; the totals still fill wherever else they stand.
+    summary = SUMMARY + "\n\n{gap_count} gaps, {issue_count} issues, {unverified_count} unverified"
+    proc, draft = _apply(tmp_path, _plan(_issue("issue-1", "Sync runs over gRPC.", "Critical"), summary=summary))
+    assert proc.returncode == 0, proc.stdout
+    assert "0 gaps, 1 issues, 1 unverified" in _texts(draft.read_text(encoding="utf-8"))
 
 
 def test_a_plan_that_is_not_json_is_a_problem(tmp_path):
@@ -980,10 +1104,10 @@ def test_inspect_writes_its_record_only_on_success(tmp_path):
     assert (tmp_path / "s.md").read_bytes() == ARCH.encode("utf-8")
 
 
-def test_the_cli_has_the_seven_subcommands():
+def test_the_cli_has_the_eight_subcommands():
     proc = _run("--help")
     assert proc.returncode == 0
-    for command in ("inspect", "apply", "check", "promote", "context", "rules", "verdicts"):
+    for command in ("inspect", "apply", "check", "promote", "context", "rules", "verdicts", "exports"):
         assert command in proc.stdout
     assert _run().returncode == 2
 
@@ -1032,10 +1156,12 @@ def test_a_renamed_copy_passes_and_maps_its_own_tiers(tmp_path):
 
 
 def test_an_unbolded_copy_passes_and_maps_its_tiers(tmp_path):
-    # A team's copy need not bold the tier a VS row raises: its text names one, or says No issue or None.
-    text = _broken(("A **Critical** issue: the architecture", "A Critical issue: the architecture"),
-                   ("A **Major** issue, confirmed by the VS evidence", "major"),
-                   ("A **Minor**, potential issue", "Minor, a potential issue"), ("| No issue", "| None"))
+    # A team's copy need not bold the tier a VS row raises when the cell holds only that tier, No issue or
+    # None (ignoring case, runs of spaces and one trailing period).
+    text = _broken(("A **Critical** issue: the architecture needs a redesign", "Critical"),
+                   ("A **Major** issue, confirmed by the VS evidence", "major."),
+                   ("A **Minor**, potential issue: every compatibility check passed but neither skill cites the "
+                    "other literally", "*Minor*"), ("| No issue", "| None."))
     code, result = _rules_result(tmp_path, text)
     assert code == 0, result
     assert result["vs_raises"] == {"Verified": None, "Plausible": "Minor", "Risky": "Major", "Blocked": "Critical"}
@@ -1050,18 +1176,43 @@ def test_a_bold_no_issue_raises_no_issue_whatever_its_prose_names(tmp_path):
 
 
 def test_a_longer_tier_is_not_also_read_as_a_shorter_one():
+    # Unbolded, only a whole cell that is one tier counts, so `Very Severe` is never also `Severe`.
     tiers = {"severe_count": "Severe", "very_severe_count": "Very Severe"}
-    assert mod.vs_raised("A very  severe issue", tiers) == (["Very Severe"], False)
+    assert mod.vs_raised("Very  Severe", tiers) == (["Very Severe"], False)
+    assert mod.vs_raised(" very severe. ", tiers) == (["Very Severe"], False)
+    assert mod.vs_raised("severe", tiers) == (["Severe"], False)
+    assert mod.vs_raised("**Very Severe**: the architecture needs a redesign", tiers) == (["Very Severe"], False)
     assert mod.vs_raised("A **Severe** issue, not Very Severe", tiers) == (["Severe"], False)
-    assert mod.vs_raised("Nothing to raise", tiers) == ([], False)
-    assert mod.vs_raised("No issue: the pair is verified", tiers) == ([], True)
     # A bold No issue or None counts as a bold tier does: the prose around it is not read.
     assert mod.vs_raised("**No issue**, even when the rationale notes severe caveats", tiers) == ([], True)
     assert mod.vs_raised("__None__, whatever the Severe rationale says", tiers) == ([], True)
-    # Unbolded, a tier word no longer hides No issue or None: check_rules reports the pair.
-    assert mod.vs_raised("No issue unless a severe caveat shows", tiers) == (["Severe"], True)
-    assert mod.vs_raised("A **Severe** issue or **No issue**", tiers) == (["Severe"], True)
     assert mod.vs_raised("A **Severe** issue, none of the rationale changes it", tiers) == (["Severe"], False)
+    # Bolding a tier and also No issue is returned as it is: check_rules reports the pair.
+    assert mod.vs_raised("A **Severe** issue or **No issue**", tiers) == (["Severe"], True)
+
+
+@pytest.mark.parametrize(
+    ("cell", "raised"),
+    [("Very Severe", (["Very Severe"], False)), ("major.", (["Major"], False)), ("None", ([], True)),
+     ("no  issue.", ([], True)), ("A **Major** issue", (["Major"], False)), ("`Critical`", (["Critical"], False)),
+     # The one trailing period counts the same outside the markup as inside it.
+     ("`Critical`.", (["Critical"], False)), ("*Major*.", (["Major"], False)), ("*Major.*", (["Major"], False))],
+)
+def test_an_unbolded_cell_raises_what_it_wholly_is(cell, raised):
+    tiers = {"critical_count": "Critical", "major_count": "Major", "very_severe_count": "Very Severe"}
+    assert mod.vs_raised(cell, tiers) == raised
+
+
+NEGATED = ["No Critical issue", "Not a Major issue", "No major issue: the pair is verified",
+           "Never Critical: no action"]
+
+
+@pytest.mark.parametrize("cell", [*NEGATED, "No issue unless a minor caveat shows", "Major or Minor, confirmed",
+                                  "None (Critical findings are tracked elsewhere)", "A Critical issue", "Nothing"])
+def test_an_unbolded_cell_that_is_not_wholly_a_tier_raises_neither(cell):
+    # A negation never raises the tier it negates, and a tier in running prose never counts.
+    tiers = {"critical_count": "Critical", "major_count": "Major", "minor_count": "Minor"}
+    assert mod.vs_raised(cell, tiers) == ([], False)
 
 
 def test_a_heading_of_any_level_and_case_holds_a_table(tmp_path):
@@ -1088,14 +1239,20 @@ BROKEN_RULES = [
     pytest.param((("A **Major** issue", "A **Severe** issue"),), "vs-raises", "VS row `Risky`",
                  id="raises-unknown-tier"),
     pytest.param((("| No issue", "| Nothing"),), "vs-raises", "VS row `Verified`", id="raises-nothing"),
-    pytest.param((("A **Major** issue, confirmed", "Major or Minor, confirmed"),), "vs-raises",
+    pytest.param((("A **Major** issue, confirmed", "A **Major** or **Minor** issue, confirmed"),), "vs-raises",
                  "VS row `Risky` (line 57) names more than one tier of the Issue Severity table: Major, Minor",
                  id="raises-two-tiers"),
-    pytest.param((("| No issue", "| No issue, even when the rationale notes minor caveats"),), "vs-raises",
-                 "VS row `Verified` (line 59) names Minor and also says No issue or None", id="raises-tier-and-none"),
+    pytest.param((("| No issue", "| **No issue**, or **Minor** when the rationale notes caveats"),), "vs-raises",
+                 "VS row `Verified` (line 59) names Minor and also says No issue or None: bold the one it raises",
+                 id="raises-tier-and-none"),
+    # Unbolded, a cell that is not wholly a tier, No issue or None raises neither, whatever tier it names.
     pytest.param((("| No issue", "| None (Critical findings are tracked elsewhere)"),), "vs-raises",
-                 "VS row `Verified` (line 59) names Critical and also says No issue or None: bold the one it raises",
-                 id="raises-none-and-tier"),
+                 "VS row `Verified` (line 59) raises neither a tier of the Issue Severity table nor No issue: bold the "
+                 "one it raises, or write only a tier, No issue or None in the cell", id="raises-none-and-tier"),
+    pytest.param((("A **Major** issue, confirmed", "Major or Minor, confirmed"),), "vs-raises",
+                 "VS row `Risky` (line 57) raises neither", id="raises-two-tiers-unbolded"),
+    *[pytest.param((("| No issue", f"| {cell}"),), "vs-raises", "VS row `Verified` (line 59) raises neither",
+                   id=f"negated-{index}") for index, cell in enumerate(NEGATED, 1)],
 ]
 
 
@@ -1252,3 +1409,162 @@ def test_a_missing_reader_exits_3(tmp_path, monkeypatch, capsys):
                      "--in-scope", "loro", "--rules", str(RULES_PATH)])
     assert code == 3
     assert "feasibility-report reader is not installed" in json.loads(capsys.readouterr().out)["error"]
+
+
+# --------------------------------------------------------------------------
+# exports: a claimed export looked up in its skill's inventory exports
+# --------------------------------------------------------------------------
+
+NAMES_PRESENT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-names-present.py"
+INVENTORY = {
+    "skills": [
+        {"name": "oms-cognee", "exports": ["cognee.add", "Doc::new", "query", "useQuery", "fn", "getAll", "get_all",
+                                           "Get"],
+         "exports_source": "metadata", "source_repo_basename": "cognee", "source_root_basename": "cognee-src"},
+        {"name": "loro", "exports": ["LoroDoc", "LoroText"], "exports_source": "metadata",
+         "source_repo_basename": "loro-crdt", "source_root_basename": "loro"},
+        {"name": "stack-app", "exports": [], "exports_source": "metadata"},
+        {"name": "old-skill", "exports": ["query"], "exports_source": "unknown"},
+    ],
+    "warnings": [],
+}
+
+
+def _exports(tmp_path, claims, inventory=INVENTORY):
+    inventory_path = _write(tmp_path / "skill-inventory.json",
+                            inventory if isinstance(inventory, str) else json.dumps(inventory))
+    claims_path = _write(tmp_path / "claimed-names.json", claims if isinstance(claims, str) else json.dumps(claims))
+    proc = _run("exports", "--inventory", inventory_path, "--claims", claims_path)
+    return proc.returncode, json.loads(proc.stdout)
+
+
+def _statuses(result):
+    return [(r["claimed"], r["name"], r["status"], r["matched_skill"], r["matches"]) for r in result["results"]]
+
+
+def test_each_claimed_form_is_looked_up_by_its_last_identifier(tmp_path):
+    claims = [{"skill": "oms-cognee", "claimed": c}
+              for c in ("Doc::new", "cognee.add()", "`query(sql: str) -> Rows`", "useQuery<Data>()", "mod/fn")]
+    code, result = _exports(tmp_path, claims)
+    assert code == 0 and result["status"] == "ok", result
+    assert _statuses(result) == [
+        ("Doc::new", "new", "present", "oms-cognee", ["Doc::new"]),
+        ("cognee.add()", "add", "present", "oms-cognee", ["cognee.add"]),
+        ("`query(sql: str) -> Rows`", "query", "present", "oms-cognee", ["query"]),
+        ("useQuery<Data>()", "useQuery", "present", "oms-cognee", ["useQuery"]),
+        ("mod/fn", "fn", "present", "oms-cognee", ["fn"]),
+    ]
+    assert result["counts"] == {"present": 5, "member-unlisted": 0, "absent": 0, "list-empty": 0,
+                                "unknown-skill": 0}
+    assert result["inventory"].endswith("skill-inventory.json")
+
+
+@pytest.mark.parametrize(
+    ("claimed", "identifiers"),
+    [("Doc::new", ["Doc", "new"]), ("`cognee.add()`", ["cognee", "add"]),
+     ("query(sql: str) -> Rows", ["query"]), ("useQuery<Data>()", ["useQuery"]),
+     ("foo<F: Fn() -> T>(f: F)", ["foo"]), ("Vec::<Map<K, V>>::new()", ["Vec", "new"]), ("$state", ["$state"]),
+     ("@scope/pkg.run", ["scope", "pkg", "run"]), ("()", []), ("`<T>`", []), ("2fast", []), ("Vec2::new", ["Vec2", "new"]),
+     # A type written after the name, with no parameter list to cut it off, is never read as the name.
+     ("query -> Rows", ["query"]), ("MAX_SIZE: int", ["MAX_SIZE"]), ("handler: Event => void", ["handler"]),
+     ("Queue[Item]", ["Queue"]), ("typing.List[int]", ["typing", "List"])],
+)
+def test_the_normalization_keeps_the_identifiers_outside_generics_and_arguments(claimed, identifiers):
+    assert mod.claimed_identifiers(claimed) == identifiers
+
+
+def test_a_method_of_a_listed_type_is_member_unlisted(tmp_path):
+    # exports[] lists top-level names, so a method the list omits is not proved absent.
+    code, result = _exports(tmp_path, [{"skill": "loro", "claimed": "LoroDoc::import"},
+                                       {"skill": "loro", "claimed": "Automerge.merge()"}])
+    assert code == 0, result
+    assert _statuses(result) == [("LoroDoc::import", "import", "member-unlisted", "loro", ["LoroDoc"]),
+                                 ("Automerge.merge()", "merge", "absent", "loro", [])]
+
+
+@pytest.mark.parametrize("claimed", ["get", "Query", "use"], ids=["inside-longer-names", "case", "prefix"])
+def test_a_name_is_held_only_on_identifier_boundaries(tmp_path, claimed):
+    # `get` is not in getAll or get_all, `Get` is not `get`, and `use` is not in useQuery.
+    code, result = _exports(tmp_path, [{"skill": "oms-cognee", "claimed": claimed}])
+    assert code == 0, result
+    assert [(r["status"], r["matches"]) for r in result["results"]] == [("absent", [])]
+
+
+def test_an_empty_or_unknown_list_proves_nothing_and_an_unknown_skill_is_named(tmp_path):
+    claims = [{"skill": "stack-app", "claimed": "query"}, {"skill": "old-skill", "claimed": "query"},
+              {"skill": "nope", "claimed": "query"}, {"skill": "Cognee", "claimed": "query"},
+              {"skill": "LORO-CRDT", "claimed": "LoroText"}, {"skill": "cognee-src", "claimed": "query"}]
+    code, result = _exports(tmp_path, claims)
+    assert code == 0, result
+    assert [(r["status"], r["matched_skill"]) for r in result["results"]] == [
+        ("list-empty", "stack-app"), ("list-empty", "old-skill"), ("unknown-skill", None),
+        # A skill matches by name or by its source repository or folder, ignoring case.
+        ("present", "oms-cognee"), ("present", "loro"), ("present", "oms-cognee")]
+    assert result["counts"] == {"present": 3, "member-unlisted": 0, "absent": 0, "list-empty": 2,
+                                "unknown-skill": 1}
+
+
+def test_an_alias_two_skills_share_names_neither(tmp_path):
+    # Two skills built from one repository share its name: the pair must name the skill itself.
+    inventory = {"skills": [
+        {"name": "sb-react", "exports": ["Meta"], "exports_source": "metadata", "source_repo_basename": "storybook"},
+        {"name": "sb-vue", "exports": ["Meta"], "exports_source": "metadata", "source_repo_basename": "storybook"}]}
+    code, result = _exports(tmp_path, [{"skill": "storybook", "claimed": "Meta"},
+                                       {"skill": "sb-vue", "claimed": "Meta"}], inventory)
+    assert code == 0, result
+    assert [(r["status"], r["matched_skill"]) for r in result["results"]] == [
+        ("unknown-skill", None), ("present", "sb-vue")]
+
+
+def test_exports_writes_nothing_and_takes_no_claims(tmp_path):
+    code, result = _exports(tmp_path, [])
+    assert code == 0 and result["results"] == [], result
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["claimed-names.json", "skill-inventory.json"]
+
+
+BAD_EXPORT_INPUTS = [
+    pytest.param("claims", {"skill": "loro", "claimed": "LoroDoc"}, "not a JSON array", id="claims-object"),
+    pytest.param("claims", [{"skill": "loro"}], "not a JSON array", id="claims-no-claimed"),
+    pytest.param("claims", [{"skill": "loro", "claimed": "  "}], "not a JSON array", id="claims-blank"),
+    pytest.param("claims", [{"skill": "loro", "claimed": "()"}], "pair 1 claims `()`, which names no identifier",
+                 id="claims-no-identifier"),
+    pytest.param("claims", "[not json", "not JSON", id="claims-not-json"),
+    pytest.param("inventory", {"warnings": []}, "not a skill inventory", id="inventory-no-skills"),
+    pytest.param("inventory", {"skills": [{"name": "loro", "exports": "LoroDoc"}]}, "not a skill inventory",
+                 id="inventory-exports-not-a-list"),
+    pytest.param("inventory", {"skills": [{"exports": []}]}, "not a skill inventory", id="inventory-no-name"),
+]
+
+
+@pytest.mark.parametrize(("bad", "content", "detail"), BAD_EXPORT_INPUTS)
+def test_a_bad_inventory_or_claims_file_exits_2_naming_it(tmp_path, bad, content, detail):
+    kwargs = {"claims": [{"skill": "loro", "claimed": "LoroDoc"}], "inventory": INVENTORY}
+    kwargs[bad] = content
+    code, result = _exports(tmp_path, **kwargs)
+    assert code == 2 and result["status"] == "error", result
+    named = "claimed-names.json" if bad == "claims" else "skill-inventory.json"
+    assert Path(result["error"].split(": ", 1)[0]).name == named, result["error"]
+    assert detail in result["error"], result["error"]
+
+
+def test_a_missing_inventory_or_claims_file_exits_2_naming_it(tmp_path):
+    claims = _write(tmp_path / "claimed-names.json", json.dumps([{"skill": "loro", "claimed": "LoroDoc"}]))
+    proc = _run("exports", "--inventory", tmp_path / "gone.json", "--claims", claims)
+    assert proc.returncode == 2
+    assert "gone.json" in json.loads(proc.stdout)["error"]
+    inventory = _write(tmp_path / "skill-inventory.json", json.dumps(INVENTORY))
+    proc = _run("exports", "--inventory", inventory, "--claims", tmp_path / "no-claims.json")
+    assert proc.returncode == 2
+    assert "no-claims.json" in json.loads(proc.stdout)["error"]
+
+
+def test_the_boundary_rule_is_skf_names_presents():
+    # Copied, not imported, so the two must stay the same: same characters, same answers.
+    spec_np = importlib.util.spec_from_file_location("skf_names_present_parity", NAMES_PRESENT_PATH)
+    names_present = importlib.util.module_from_spec(spec_np)
+    assert spec_np.loader is not None
+    spec_np.loader.exec_module(names_present)
+    assert mod.NAME_CHARS == names_present.NAME_CHARS
+    for name, text in (("get", "getAll"), ("get", "get_all"), ("get", "x.get"), ("Get", "get"), ("$state", "$state"),
+                       ("state", "$state"), ("new", "Doc::new"), ("add", "cognee.add(x)"), ("q", "q2")):
+        assert mod.name_written(name, text) == names_present.name_written(name, text), (name, text)

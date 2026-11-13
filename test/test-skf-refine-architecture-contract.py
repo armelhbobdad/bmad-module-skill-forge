@@ -19,10 +19,13 @@ and pin the prose around them:
   validates, whose run_id is the run's timestamp;
 - every decision a gate documents is one the schema accepts, and every
   warning a step records is a fixed code the schema names;
-- the documented pipeline runs on a fixture: init's inspect sets an earlier
-  pass aside, compile's apply builds the draft and promote renames the earlier
-  output, and the result payload report.md stages from their records writes
-  the result files with the gates' decisions;
+- the documented pipeline runs on a fixture: init's rules check passes the
+  bundled rules, init's inspect sets an earlier pass aside, compile's apply
+  builds the draft from compile's summary, whose Changes Made rows (the VS
+  Coverage row included, naming the report by file name only) the script
+  writes (#1176), promote renames the earlier output, and the result payload
+  report.md stages from their records writes the result files with the
+  gates' decisions;
 - compile writes {outputFile} only through promote, after the preservation
   check, keeps the draft beside the RA state file and deletes it on [X],
   halts a not-preserved build without a retry, shows the summary the script
@@ -34,8 +37,9 @@ and pin the prose around them:
   its failure on a report line, takes every count and name from the build
   record, and finishes the run with no menu (the walkthrough of each
   refinement is [R] at step 5's review, where feedback can still act);
-- init's documented `rules` call and issue detection's `verdicts` call run
-  as written on a fixture, with the bindings the steps give them.
+- init's documented `rules` call and issue detection's `verdicts` and
+  `exports` calls run as written on a fixture, with the bindings the steps
+  give them.
 """
 
 from __future__ import annotations
@@ -447,19 +451,28 @@ def test_the_documented_pipeline_runs_end_to_end(tmp_path):
               "promoteResult": (run_dir / "promote.json").as_posix(),
               "inspectResult": (run_dir / "inspect.json").as_posix()}
 
+    rules = _run([PRESERVATION, *_bind(_call(_read(INIT), "rules"),
+                                       {"refinementRulesData": (REFERENCES / "refinement-rules.md").as_posix()})])
+    assert rules.returncode == 0, rules.stdout
     inspect = _run([PRESERVATION, *_bind(_call(_read(INIT), "inspect"), values)])
     assert inspect.returncode == 0, inspect.stdout
     assert (run_dir / "analysis-doc.md").read_bytes() == ARCH.encode("utf-8")
 
-    summary = "\n".join(line for line in _section(_read(COMPILE), "| Category | Count | Breakdown |", "\n\n")
-                        .splitlines()[:5])
-    summary = "## Refinement Summary\n\n" + summary
+    # Compile §5's summary: the Changes Made header row, its separator and {changes_rows}, then the
+    # Evidence Sources header row, its separator and {evidence_rows}.
+    table = _section(_read(COMPILE), "| Category | Count | Breakdown |", "\n\n")
+    assert table.splitlines()[-1] == "{changes_rows}"
+    summary = f"## Refinement Summary\n\n{table}\n\n| Skill | Refinements |\n|---|---|\n{{evidence_rows}}\n"
+    report = forge / "feasibility-report-app-latest.md"
     plan = {"entries": [
         {"id": "gap-1", "kind": "gap", "anchor": "## Data Layer", "skills": ["loro", "fastapi"],
          "block": "#### RA: Loro <-> FastAPI Integration Path\n\n> [!NOTE] **Gap Identified by Refine Architecture**"},
         {"id": "issue-1", "kind": "issue", "tier": "Major", "anchor": "The API uses FastAPI.", "skills": ["fastapi"],
          "block": "> [!WARNING] **Issue Detected by Refine Architecture** (Major)"},
-    ], "summary": summary, "unverified_technologies": [], "skill_count": 2}
+    ], "summary": summary, "unverified_technologies": [], "skill_count": 2,
+        "tiers": json.loads(rules.stdout)["tiers"],
+        # §6 passes the cached report JSON's path and coverage keys as they are.
+        "vs_report": {"path": report.as_posix(), "coveragePercentage": 80, "coverageMeasured": True}}
     (run_dir / "insertion-plan.json").write_bytes(json.dumps(plan).encode("utf-8"))
     apply = _run([PRESERVATION, *_bind(_call(_read(COMPILE), "apply"), values)])
     assert apply.returncode == 0, apply.stdout
@@ -467,7 +480,18 @@ def test_the_documented_pipeline_runs_end_to_end(tmp_path):
     assert promote.returncode == 0, promote.stdout
     previous = docs / f"refined-architecture-app-{RUN_STAMP}.md"
     assert previous.read_bytes() == b"# my earlier curated refinement\n"
-    assert "| Gaps Filled | 1 |" in output.read_text(encoding="utf-8")
+    refined = output.read_text(encoding="utf-8").splitlines()
+    start = refined.index("| Category | Count | Breakdown |")
+    assert refined[start + 2:start + 9] == [
+        "| Gaps Filled | 1 | - |",
+        "| Issues Flagged | 1 | Critical: 0, Major: 1, Minor: 0 |",
+        "| Improvements Suggested | 0 | High: 0, Medium: 0, Low: 0 |",
+        "| Skills Used as Evidence | 2 | - |",
+        "| Not verified (no skill) | 0 | none |",
+        "| VS Coverage | 80% | technologies with a skill when [VS] ran, from `feasibility-report-app-latest.md` |",
+        "",
+    ]
+    assert forge.as_posix() not in output.read_text(encoding="utf-8"), "the refined document names no local folder"
 
     # The gates that auto-resolved on the way, then report.md's payload from the records.
     for decision in _decisions():
@@ -580,7 +604,10 @@ def test_the_review_shows_the_summary_the_script_filled():
     assert "{Display the `summary` of `{applyResult}`: the Refinement Summary as the draft holds it}" in review
     assert "Display the Refinement Summary section of `{draftFile}`" not in review
     summary = _section(_read(COMPILE), "### 5. Add Refinement Summary Section", "### 6.")
-    assert "`{unverified_count}` and `{unverified_technologies}` from its `unverified_technologies`" in summary
+    assert ("the script writes the Changes Made rows as `{changes_rows}` and the Evidence Sources rows as "
+            "`{evidence_rows}` from the plan's entries, `tiers`, `unverified_technologies`, `skill_count` and "
+            "`vs_report`") in summary
+    assert "refuses a summary that lacks `{changes_rows}` or `{evidence_rows}`" in summary
 
 
 def test_an_issue_claim_is_recorded_as_the_line_compile_anchors_on():
@@ -789,6 +816,34 @@ def test_the_documented_rules_and_verdicts_calls_run(tmp_path):
     values["vs_generated_at"] = "2026-09-30T09:00:00Z"
     stale = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
     assert stale.returncode == 1 and json.loads(stale.stdout)["status"] == "stale"
+
+
+def test_the_documented_exports_call_runs(tmp_path):
+    # #1176: issue detection §3 looks each claim §2 staged up with one call, never by hand.
+    run_dir = _run_dir(tmp_path)
+    inventory = {"skills": [
+        {"name": "loro", "exports": ["LoroDoc", "LoroText"], "exports_source": "metadata",
+         "source_repo_basename": "loro-crdt", "source_root_basename": None},
+        {"name": "stack-app", "exports": [], "exports_source": "metadata", "source_repo_basename": None,
+         "source_root_basename": None},
+    ], "warnings": []}
+    (run_dir / "skill-inventory.json").write_bytes(json.dumps(inventory).encode("utf-8"))
+    claims = [{"skill": "loro", "claimed": "`LoroDoc.import(bytes)`"}, {"skill": "loro-crdt", "claimed": "LoroText"},
+              {"skill": "loro", "claimed": "LoroTree::create()"}, {"skill": "stack-app", "claimed": "mount"},
+              {"skill": "automerge", "claimed": "merge"}]
+    (run_dir / "claimed-names.json").write_bytes(json.dumps(claims).encode("utf-8"))
+    argv = _bind(_call(_read(ISSUES), "exports"), {"run_dir": run_dir.as_posix()})
+    proc = _run([PRESERVATION, *argv])
+    assert proc.returncode == 0, proc.stdout
+    result = json.loads(proc.stdout)
+    assert [(r["name"], r["status"]) for r in result["results"]] == [
+        ("import", "member-unlisted"), ("LoroText", "present"), ("create", "absent"), ("mount", "list-empty"),
+        ("merge", "unknown-skill")]
+    # An inventory that is no longer one exits 2 naming it, which the step turns into exit 8.
+    (run_dir / "skill-inventory.json").write_bytes(b"{}")
+    proc = _run([PRESERVATION, *argv])
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["error"].startswith((run_dir / "skill-inventory.json").as_posix())
 
 
 def _customize_comment(key: str) -> str:

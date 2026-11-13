@@ -20,10 +20,12 @@ These tests keep the step files on that contract:
 - improvements sections 3 and 4 compare in-scope skills and in-scope pairs
   only, and anything that involves an out-of-scope skill goes under
   `[RA-OUT-OF-SCOPE]`, never `[RA-IMPROVEMENTS]`;
-- compile inserts only in-scope improvements, recovers `[RA-SCOPE]`, and
-  writes the "Not verified (no skill)" row, the VS Coverage row (only with a
-  VS report, `not recorded` when that run never reached its coverage step,
-  and naming the report by file name only) and a [CS] or [QS] next step;
+- compile inserts only in-scope improvements, recovers `[RA-SCOPE]`, leaves
+  the Changes Made rows to the preservation script's `{changes_rows}`
+  (#1176), which writes, as apply's output shows, the "Not verified (no
+  skill)" row and the VS Coverage row (only with the plan's `vs_report`,
+  `not recorded` when that run never reached its coverage step, and naming
+  the report by file name only), and adds a [CS] or [QS] next step;
 - the report takes what it shows from the record of the draft's build
   (never from a Refinement Summary), repeats no count table (the review
   showed it, and a headless run reads the counts in its result line) and
@@ -51,14 +53,17 @@ through the shared helpers (#590, #598):
   routes a row naming no skill out of scope, gives each in-scope row the
   tier its token raises (the Plausible rule keys on the token), and reports
   a report [VS] rewrote meanwhile, or rules that no longer pass step 1's
-  check, which halt with exit 8;
+  check, which halt with exit 8; and it looks each claimed export up with
+  the script's `exports` (#1176), never by hand;
 - gap analysis runs skf-comention-pairs.py `mentions` once, on the analysis
   copy that sets an earlier RA pass aside (documented-pair candidates, the
   Mermaid note, the derived scope, the technologies no skill covers),
   splits the pairs once with skf-enumerate-stack-skills.py `scope` (naming
   a `--scope-skills` name that is no inventory skill), and reads
   `language` from the inventory;
-- compile fills the VS Coverage row from the JSON's `coverageMeasured`;
+- compile passes the JSON's `path`, `coveragePercentage` and
+  `coverageMeasured` as the plan's `vs_report`, never read from the report
+  file;
 - the helper calls fit the helpers' CLIs and quote every placeholder they
   pass, and every key the steps read is one the feasibility helper emits.
 
@@ -454,26 +459,78 @@ def test_compile_recovers_the_scope_block():
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
 
+def _summary_table() -> str:
+    return _slice(_compile_summary(), "| Category | Count | Breakdown |", "\n\n")
+
+
+def _apply_compile_summary(tmp_path: Path, **plan) -> tuple[int, dict]:
+    """Run apply on a plan whose summary is compile §5's Changes Made table: one gap, one issue."""
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(b"# App\n\n## Data Layer\n\nLoro stores documents.\n")
+    summary = f"## Refinement Summary\n\n{_summary_table()}\n\n| Skill | Refinements |\n|---|---|\n{{evidence_rows}}\n"
+    plan = {"entries": [
+        {"id": "gap-1", "kind": "gap", "anchor": None, "skills": ["loro", "fastapi"],
+         "block": "#### RA: Loro <-> FastAPI Integration Path"},
+        {"id": "issue-1", "kind": "issue", "tier": "Major", "anchor": None, "skills": ["loro"],
+         "block": "> [!WARNING] **Issue Detected by Refine Architecture**"},
+    ], "summary": summary, "unverified_technologies": ["Redis", "Kafka"], "skill_count": 2, **plan}
+    plan_path = tmp_path / "insertion-plan.json"
+    plan_path.write_bytes(json.dumps(plan).encode("utf-8"))
+    proc = subprocess.run(
+        [sys.executable, str(PRESERVATION_SCRIPT), "apply", "--original", str(doc), "--plan", str(plan_path),
+         "--draft", str(tmp_path / "draft.md")],
+        capture_output=True, text=True, encoding="utf-8", check=False,
+    )
+    return proc.returncode, json.loads(proc.stdout)
+
+
 def test_refinement_summary_rows():
+    # #1176: the script writes the Changes Made rows, so §5 keeps the header row, its separator and
+    # {changes_rows}, and says what the script writes there.
     summary = _compile_summary()
-    rows = _table_rows(summary)
-    labels = list(rows)
-    assert labels[-3:] == ["Skills Used as Evidence", NOT_VERIFIED, VS_COVERAGE], labels
-    assert rows[NOT_VERIFIED][1:] == ["{unverified_count}", "{unverified_technologies}"]
-    assert rows[VS_COVERAGE][1] == "{vs_coverage}"
-    rule = _slice(summary, f"The {NOT_VERIFIED} row is always written", "\n\n")
-    assert "reads `none`" in rule
-    assert "only when a VS report was used (`vs_report_available` is true)" in rule
-    assert "`coveragePercentage`" in rule and "`not recorded`" in rule
+    assert _summary_table().splitlines() == ["| Category | Count | Breakdown |", "|----------|-------|-----------|",
+                                             "{changes_rows}"]
+    rule = _slice(summary, "The script writes the rows in this order", "\n\n")
+    for needle in (f"{NOT_VERIFIED}, always written", "reads `none`", "VS Coverage, only when the plan gives "
+                   "`vs_report`", "`coveragePercentage` followed by `%` when `coverageMeasured` is true",
+                   "`not recorded` when `coverageMeasured` is false", "names the report by the file name of its "
+                   "`path` alone"):
+        assert needle in rule, needle
     # The helper decides whether coverage was measured: a VS run that stopped
     # before its coverage step leaves coveragePercentage: 0, which must not read as 0%.
-    assert "from the report JSON Step 01 §1 cached (`{vs_report}`), never from the report file" in rule
-    assert "followed by `%` when its `coverageMeasured` is true" in rule
-    assert "`not recorded` when `coverageMeasured` is false" in rule
-    assert "frontmatter" not in rule, "the row is filled from the helper's JSON, not the report's frontmatter"
-    assert "{vs_report_path}" not in rows[VS_COVERAGE][2], "the refined document is shared: no local path"
-    assert "`{vs_report_name}`" in rows[VS_COVERAGE][2]
-    assert "`{vs_report_name}` is the file name of the JSON's `path`" in rule
+    build = _slice(_read(COMPILE), "### 6. Build the Draft", "### 7.")
+    assert ("`vs_report` (only when `vs_report_available` is true: the `path`, `coveragePercentage` and "
+            "`coverageMeasured` of the report JSON Step 01 §1 cached as `{vs_report}`, never read from the report "
+            "file)") in build
+    assert "frontmatter" not in rule + build, "the row is filled from the helper's JSON, not the report's frontmatter"
+
+
+@pytest.mark.parametrize(
+    ("vs_report", "vs_row"),
+    [({"path": "/home/me/app/_bmad-output/forge/feasibility-report-app-latest.md", "coveragePercentage": 80,
+       "coverageMeasured": True},
+      ["80%", "technologies with a skill when [VS] ran, from `feasibility-report-app-latest.md`"]),
+     ({"path": "forge/feasibility-report-app-latest.md", "coveragePercentage": 0, "coverageMeasured": False},
+      ["not recorded", "technologies with a skill when [VS] ran, from `feasibility-report-app-latest.md`"]),
+     (None, None)],
+    ids=["measured", "not-measured", "no-report"],
+)
+def test_the_summary_rows_come_from_apply(tmp_path, vs_report, vs_row):
+    code, result = _apply_compile_summary(tmp_path, **({"vs_report": vs_report} if vs_report else {}))
+    assert code == 0, result
+    rows = _table_rows(result["summary"])
+    labels = list(rows)
+    labels = labels[labels.index("Category") + 1:labels.index("Skill")]
+    expected = ["Gaps Filled", "Issues Flagged", "Improvements Suggested", "Skills Used as Evidence", NOT_VERIFIED]
+    assert labels == ([*expected, VS_COVERAGE] if vs_row else expected), labels
+    assert rows["Issues Flagged"][1:] == ["1", "Critical: 0, Major: 1, Minor: 0"]
+    assert rows["Improvements Suggested"][1:] == ["0", "High: 0, Medium: 0, Low: 0"]
+    assert rows[NOT_VERIFIED][1:] == ["2", "Redis, Kafka"]
+    if vs_row:
+        assert rows[VS_COVERAGE][1:] == vs_row
+        assert "/" not in rows[VS_COVERAGE][2], "the refined document is shared: no local path"
+    else:
+        assert VS_COVERAGE not in rows
 
 
 def test_refinement_summary_next_step_points_to_cs_or_qs():
@@ -528,9 +585,10 @@ def test_a_headless_run_keeps_the_counts_in_its_result():
     assert set(HEADLESS_COUNTS) <= set(_schema()["required"])
 
 
-def test_the_summary_rows_live_in_compile_only():
-    compiled = set(_table_rows(_compile_summary()))
-    assert {NOT_VERIFIED, VS_COVERAGE} <= compiled
+def test_the_summary_rows_live_in_the_script_only():
+    # #1176: compile types no row of the Changes Made table, and the report repeats none.
+    assert set(_table_rows(_compile_summary())) == {"Category"}
+    assert "{changes_rows}" in _compile_summary() and "{vs_coverage}" not in _read(COMPILE)
     assert not set(_table_rows(_report_summary())), "the report repeats no row of the Refinement Summary"
 
 
@@ -779,6 +837,8 @@ def test_the_report_keys_the_steps_read_are_the_helpers(tmp_path):
 # --- Step 3: VS verdicts by their token, scoped by the pair lists ---
 
 
+EXPORTS_CALL = ('uv run {preservationScript} exports --inventory "{run_dir}/skill-inventory.json" '
+                '--claims "{run_dir}/claimed-names.json"')
 VERDICTS_CALL = ('uv run {preservationScript} verdicts --report "{vs_report_path}" --generated-at "{vs_generated_at}" '
                  '--skills "{run_dir}/skill-terms.json" --in-scope "{in_scope_names}" --rules "{refinementRulesData}"')
 
@@ -957,11 +1017,56 @@ def test_existence_is_read_from_the_saved_inventory():
         assert needle in surfaces, needle
     assert "Hand each its skill's `exports[]`" not in surfaces, "the parent still types each export list"
     verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
-    for needle in ("membership lookup in the skill's `exports[]` in `{run_dir}/skill-inventory.json`",
-                   "fails on existence only when that list lacks the name",
-                   "judge only the signature, protocol or types the claim states",
-                   "When that list is empty", "never taking a missing name as proof"):
+    # #1176: the preservation script's `exports` looks each claimed export up, so §3 states no lookup by hand.
+    for needle in (EXPORTS_CALL, "Whether a named export exists is never looked up by hand",
+                   "Judge only the signature, protocol or types the claim states",
+                   "`absent`: the list holds neither the name nor the type or module before it. The claim fails on "
+                   "existence", "The list names only top-level exports", "(a stack skill, or `exports_source` "
+                   "`unknown`)", "never taking a missing name as proof"):
         assert needle in verify, needle
+    assert "membership lookup" not in verify and "lacks the name, and for a name it holds" not in verify
+
+
+def test_issue_detection_stages_the_claims_and_branches_on_every_status():
+    # #1176 determinism-1: §2 stages one {skill, claimed} pair per API claim that names an export, and §3 runs the
+    # script once on them, branching on each status it prints and on its exit code.
+    claims = _slice(_read(ISSUES), "### 2. Extract Integration Claims from Architecture", "### 3.")
+    staging = _slice(claims, "**Stage the claimed exports.**", "\n\n")
+    for needle in ("Write `{run_dir}/claimed-names.json`", '`{"skill": "<skill>", "claimed": "<export>"}` pair per '
+                   "API claim that names an export", "by its inventory `name` or an alias `{run_dir}/skill-terms.json` "
+                   "(Step 02 §2) gives it", "the export's name, call or signature alone",
+                   "Write a method the claim calls on an object of a type it names as `Type.method`",
+                   # A variable's method is no top-level export: staged, it would read absent.
+                   "one called on a variable whose type the claim does not name (`doc.getText()`) names no export "
+                   "the list can hold, so stage no pair for it",
+                   "Write `[]` when no claim names an export: §3 then skips its call"):
+        assert needle in staging, needle
+    verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
+    assert _read(ISSUES).count("exports --inventory") == 1
+    assert "unless §2 staged `[]`, one call looks every staged pair up" in verify
+    script = _load("ra_scope_exports_statuses", PRESERVATION_SCRIPT)
+    found = [line.split("`")[1] for line in verify.splitlines() if line.startswith("  - `")]
+    assert sorted(found) == sorted(script.EXPORT_STATUSES), found
+    assert "`list-empty`: the list is empty" in verify and "`unknown-skill`: no inventory skill has" in verify
+    # An alias two skills share names neither, so the step writes the skill's own name.
+    assert "as an alias no other skill shares" in verify and "Write the skill's inventory `name` as `skill`" in verify
+    unreadable = _bullet(verify, "**2** with a JSON")
+    assert "whose `error` names `{run_dir}/claimed-names.json`: stage it again as §2 says" in unreadable
+    # A pair that names no identifier is rewritten by its name or dropped, never staged the same way again.
+    for needle in ("write that export by its name alone", "or drop the pair when the claim names none"):
+        assert needle in unreadable, needle
+    assert ('One whose `error` names `{run_dir}/skill-inventory.json`: the inventory Step 01 §2 saved can no longer be '
+            'read, so HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:exports`, '
+            'naming its `error`, with `"path"` set to `{run_dir}/skill-inventory.json`') in unreadable
+    assert "**2 with no JSON:** a malformed call" in unreadable
+    missing = _bullet(verify, "If `uv` cannot start the script")
+    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `issue-detection:exports`' in missing
+    exit_codes = _slice(_read(RA / "references" / "exit-codes.md"), "| Code |", "## Result Envelope")
+    [exit_3] = [line for line in exit_codes.splitlines() if line.startswith("| 3 ")]
+    assert "step 3 §3 (phase `issue-detection:exports`) and §4" in exit_3
+    [exit_8] = [line for line in exit_codes.splitlines() if line.startswith("| 8 ")]
+    assert ("step 3 §3 (the skill inventory step 1 saved can no longer be read as one, phase "
+            "`issue-detection:exports`)") in exit_8
 
 
 def test_language_comes_from_the_inventory():
@@ -976,7 +1081,7 @@ def test_language_comes_from_the_inventory():
 
 def test_compile_recovers_the_vs_report_block():
     recovery = _compile_recovery()
-    assert "which the VS Coverage row (§5) needs: the `<!-- [RA-VS] -->` block" in recovery
+    assert "which the plan's `vs_report` (§6) needs: the `<!-- [RA-VS] -->` block" in recovery
     assert "`coverageMeasured`" in recovery and "`none`" in recovery
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
@@ -1052,11 +1157,8 @@ def test_the_steps_classify_with_the_loaded_rules():
         text = _read(path)
         for name in BUNDLED_TYPES:
             assert name not in text, f"{path.name} restates the bundled type {name!r}"
-        if path != COMPILE:
-            assert not TIER_RE.search(text), f"{path.name} restates a bundled tier: {TIER_RE.search(text).group(0)}"
-    # Compile shows the bundled tiers only as the example rows of the Changes Made table.
-    rows = [line for line in _read(COMPILE).splitlines() if TIER_RE.search(line)]
-    assert [row.split(" | ")[0] for row in rows] == ["| Issues Flagged", "| Improvements Suggested"]
+        # #1176: compile no longer shows example rows, since the script writes the Changes Made rows.
+        assert not TIER_RE.search(text), f"{path.name} restates a bundled tier: {TIER_RE.search(text).group(0)}"
 
 
 def test_compile_and_the_report_take_the_tiers_from_the_rules():
@@ -1064,9 +1166,8 @@ def test_compile_and_the_report_take_the_tiers_from_the_rules():
     assert "a tier of the Issue Severity table of `{refinementRulesData}`" in _slice(text, "### 3.", "### 4.")
     assert "a tier of the Improvement Value table of `{refinementRulesData}`" in _slice(text, "### 4.", "### 5.")
     summary = _compile_summary()
-    assert "a `{<tier>_count}` for each severity and value tier" in summary
-    # Section 5 and section 6 read the one list Step 01's `rules` check printed.
-    assert "breakdowns name each tier of `{rule_tiers}` (its `issue`, then its `improvement` list)" in summary
+    # Section 6 passes the one list Step 01's `rules` check printed, and the script names every tier of it.
+    assert "whose Breakdowns name every tier of `tiers` in order with its count, `0` included" in summary
     assert "of the Issue Severity and Improvement Value tables" not in summary
     build = _slice(text, "### 6. Build the Draft", "### 7.")
     assert '`tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`' in build
@@ -1100,7 +1201,8 @@ def test_a_copy_learns_the_tier_rules_and_step_1_checks_them():
     # Each tier becomes a {<tier>_count} the preservation script fills, so the
     # names it cannot count are named where a copy is written and checked.
     script = _load("ra_scope_preservation", PRESERVATION_SCRIPT)
-    fixed = sorted({name.removesuffix("_count") for name in script.REQUIRED_PLACEHOLDERS} | {"unverified", "skill"})
+    fixed = sorted({name.removesuffix("_count") for name in script.REQUIRED_PLACEHOLDERS if name.endswith("_count")}
+                   | {"unverified", "skill"})
     copy = _slice(_read(RULES), "## What a Copy Can Change", "\n---")
     check = _slice(_read(INIT), "### 4. Check the Refinement Rules", "### 5.")
     comment = _rules_comment()
@@ -1131,7 +1233,8 @@ def _apply_with_tiers(tmp_path, severity: list[str], value: list[str], raised: s
     doc.write_bytes(b"# App\n\n## Data Layer\n\nLoro stores documents.\n")
     counts = ", ".join(f"{tier}: {{{re.sub(r'[ ]+', '_', tier.lower())}_count}}" for tier in [*severity, *value])
     summary = ("## Refinement Summary\n\nGaps: {gap_count}, issues: {issue_count}, "
-               f"improvements: {{improvement_count}}\n\n{counts}\n")
+               f"improvements: {{improvement_count}}\n\n{counts}\n\n| Category | Count | Breakdown |\n|---|---|---|\n"
+               "{changes_rows}\n\n| Skill | Refinements |\n|---|---|\n{evidence_rows}\n")
     plan = {"entries": [
         {"id": "gap-1", "kind": "gap", "anchor": None, "skills": ["loro", "fastapi"],
          "block": "#### RA: Loro <-> FastAPI Integration Path"},
@@ -1181,6 +1284,9 @@ def test_a_renamed_tier_set_fills_its_own_counts(tmp_path):
     assert result["counts"]["improvement_tiers"] == {"Worth it": 0, "Later on": 0}
     assert "Gaps: 1, issues: 1, improvements: 0" in result["summary"]
     assert "Blocker: 0, Should fix: 1, Worth it: 0, Later on: 0" in result["summary"]
+    # {changes_rows} names the renamed tiers, a tier no finding has included.
+    assert "| Issues Flagged | 1 | Blocker: 0, Should fix: 1 |" in result["summary"]
+    assert "| Improvements Suggested | 0 | Worth it: 0, Later on: 0 |" in result["summary"]
     assert "{" not in result["summary"]
 
 

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-refine-architecture
+summary: |
+  The Refinement Summary's Changes Made rows are now written by the preservation script, so a run can no longer type a tier count, leave a tier out of a breakdown or type the evidence rows. The rows name every severity and value tier of the refinement rules in order with its count, `0` included, and the VS Coverage row reads the coverage of the [VS] report the run used (`80%`, or `not recorded` when that run never measured it) and names the report by its file name only. A summary that does not leave these rows to the script is refused with `summary-count-typed` before the draft is built.
+issues: [1176]

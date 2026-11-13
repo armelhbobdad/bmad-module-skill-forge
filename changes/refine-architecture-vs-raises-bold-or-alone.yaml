@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-refine-architecture
+summary: |
+  A VS Report Integration Raises cell in a team's refinement rules copy (`refinement_rules_path`) that bolds nothing now raises a severity tier, or no issue, only when the whole cell is that tier, No issue or None, ignoring case, extra spaces and one trailing period (`Major`, `major.`, `None`). A cell such as `No Critical issue`, `Not a Major issue` or `A Critical issue: the architecture needs a redesign` used to raise the tier it mentions, negated or not; it now stops Refine Architecture before any analysis with exit `3` (`resolution-failure`, phase `init:rules`) and a `vs-raises` violation. A cell that bolds a tier, No issue or None, as the bundled rules do, raises what it bolds as before.
+migration: |
+  In your `refinement_rules_path` copy, bold the tier or the No issue each VS Report Integration Raises cell raises (`A **Major** issue`), or leave only the tier, No issue or None in the cell.
+issues: [1176]

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-refine-architecture
+summary: |
+  Refine Architecture now checks whether a claimed export exists with a script instead of looking it up by hand. Issue detection stages each API claim that names an export in `claimed-names.json`, and `skf-check-preservation.py exports` looks it up in the skill's export list from the saved skill inventory by its last name, after one fixed normalization: `Doc::new`, `cognee.add()`, the signature `query(sql: str) -> Rows` (backticked or not), `useQuery<Data>()` and `mod/fn` look up `new`, `add`, `query`, `useQuery` and `fn`, matched case-sensitively and never inside a longer name, so `get` is not found in `getAll`. A method of a type the list holds but whose methods it does not list (`member-unlisted`), and a skill whose list is empty or of unknown source, are judged from the skill's API surface and never reported missing for that alone. A skill inventory that can no longer be read at that point stops the run with exit `8` (`recovery-failed`, phase `issue-detection:exports`).
+issues: [1176]

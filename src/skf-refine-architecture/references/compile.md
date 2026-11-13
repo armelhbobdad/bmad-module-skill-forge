@@ -45,7 +45,7 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 The base is `{architecture_doc}` with any earlier Refine Architecture pass set aside, as Step 01 §1b set it aside in `{analysis_doc}`. §6's script reads `{architecture_doc}` itself; read `{analysis_doc}` only to pick each finding's anchor.
 
-**Context recovery check:** read what is no longer in context from the RA state file: `{run_dir}`, `{timestamp}`, `{architecture_doc}` and `{arch_project_name}` from the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md` (`{analysis_doc}` is `{run_dir}/analysis-doc.md`); the findings of Steps 02-04 from its `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->` and `<!-- [RA-IMPROVEMENTS] -->` blocks, and from `<!-- [RA-DISMISSED] -->` when there is one; `{unverified_technologies}` (Step 02 §2b), which the plan (§6) needs: the `<!-- [RA-SCOPE] -->` block; `{vs_report}`, which the VS Coverage row (§5) needs: the `<!-- [RA-VS] -->` block (its `path`, `generatedAt`, `coveragePercentage` and `coverageMeasured`, or `none`). When a block is still missing, or a findings block holds only summary counts, HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `compile:recovery`: "⚠️ Context for the [Gaps|Issues|Improvements|Scope|VS report] analysis was lost and the state file cannot rebuild it. Re-run [RA] from the beginning: step 01 resets the state file and steps 02-04 rebuild every finding."
+**Context recovery check:** read what is no longer in context from the RA state file: `{run_dir}`, `{timestamp}`, `{architecture_doc}` and `{arch_project_name}` from the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md` (`{analysis_doc}` is `{run_dir}/analysis-doc.md`); the findings of Steps 02-04 from its `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->` and `<!-- [RA-IMPROVEMENTS] -->` blocks, and from `<!-- [RA-DISMISSED] -->` when there is one; `{unverified_technologies}` (Step 02 §2b), which the plan (§6) needs: the `<!-- [RA-SCOPE] -->` block; `{vs_report}`, which the plan's `vs_report` (§6) needs: the `<!-- [RA-VS] -->` block (its `path`, `generatedAt`, `coveragePercentage` and `coverageMeasured`, or `none`). When a block is still missing, or a findings block holds only summary counts, HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `compile:recovery`: "⚠️ Context for the [Gaps|Issues|Improvements|Scope|VS report] analysis was lost and the state file cannot rebuild it. Re-run [RA] from the beginning: step 01 resets the state file and steps 02-04 rebuild every finding."
 
 ### 2. Plan the Gap-Fill Subsections
 
@@ -107,28 +107,23 @@ For each in-scope improvement finding from Step 04 (the `[RA-IMPROVEMENTS]` find
 
 ### 5. Add Refinement Summary Section
 
-The plan's `summary` is the `## Refinement Summary` section, which the script appends last. Leave the count placeholders below as they are: the script fills `{gap_count}`, `{issue_count}`, `{improvement_count}`, a `{<tier>_count}` for each severity and value tier and `{evidence_rows}` from the plan's entries, `{unverified_count}` and `{unverified_technologies}` from its `unverified_technologies`, and `{skill_count}`, and it refuses a summary that types the three totals or holds a placeholder it does not know. Fill the others yourself. The section contains:
+The plan's `summary` is the `## Refinement Summary` section, which the script appends last. Leave the placeholders below as they are: the script writes the Changes Made rows as `{changes_rows}` and the Evidence Sources rows as `{evidence_rows}` from the plan's entries, `tiers`, `unverified_technologies`, `skill_count` and `vs_report`, fills `{skill_count}`, and refuses a summary that lacks `{changes_rows}` or `{evidence_rows}` or holds a placeholder it does not know. Fill the others yourself. The section contains:
 
 - **Header:** "Produced by: Refine Architecture workflow using {skill_count} skills" and date
-- **Changes Made table**, whose Issues Flagged and Improvements Suggested breakdowns name each tier of `{rule_tiers}` (its `issue`, then its `improvement` list) in order, each as `<Tier>: {<tier>_count}`; the rows below show the bundled tiers:
+- **Changes Made table:** its header row and separator, then `{changes_rows}` on a line of its own:
 
 | Category | Count | Breakdown |
 |----------|-------|-----------|
-| Gaps Filled | {gap_count} | - |
-| Issues Flagged | {issue_count} | Critical: {critical_count}, Major: {major_count}, Minor: {minor_count} |
-| Improvements Suggested | {improvement_count} | High: {high_count}, Medium: {medium_count}, Low: {low_count} |
-| Skills Used as Evidence | {skill_count} | - |
-| Not verified (no skill) | {unverified_count} | {unverified_technologies} |
-| VS Coverage | {vs_coverage} | technologies with a skill when [VS] ran, from `{vs_report_name}` |
+{changes_rows}
 
-The Not verified (no skill) row is always written: its Breakdown names the technologies comma-separated, or reads `none`. Write the VS Coverage row only when a VS report was used (`vs_report_available` is true), from the report JSON Step 01 §1 cached (`{vs_report}`), never from the report file: `{vs_coverage}` is its `coveragePercentage` followed by `%` when its `coverageMeasured` is true, and `not recorded` when `coverageMeasured` is false. `{vs_report_name}` is the file name of the JSON's `path`: the refined document is shared, so it names no folder.
+The script writes the rows in this order: Gaps Filled; Issues Flagged and Improvements Suggested, whose Breakdowns name every tier of `tiers` in order with its count, `0` included; Skills Used as Evidence (from `skill_count`); Not verified (no skill), always written, whose Breakdown names the technologies comma-separated, or reads `none`; and VS Coverage, only when the plan gives `vs_report`. Its Count is the `coveragePercentage` followed by `%` when `coverageMeasured` is true, and `not recorded` when `coverageMeasured` is false, and its Breakdown names the report by the file name of its `path` alone: the refined document is shared, so it names no folder.
 
 - **Evidence Sources table:** a `| Skill | Refinements |` header row and its separator, then `{evidence_rows}` (the script writes one row per cited skill)
 - **Next Steps:** Review `[!WARNING]` issues, `[!NOTE]` gaps, `[!TIP]` improvements; then run **[SS] Stack Skill** to compose your individual skills into a unified stack skill, providing this refined architecture doc when prompted. When `{unverified_technologies}` is not empty, add one line before [SS] that names them: nothing checked what the architecture says about them, so generate their skills with **[CS] Create Skill** or **[QS] Quick Skill** and re-run **[RA]** first.
 
 ### 6. Build the Draft
 
-Write the plan to `{planFile}`: the `entries` of §2 to §4, the `summary` of §5, `unverified_technologies` (Step 02 §2b's list as written in the document, `[]` when it is empty), `skill_count` (the inventory's `{skill_count}`, Step 01 §2) and `tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`, the `tiers` Step 01 §4's `rules` check printed; run that command again if they are no longer in context). Then run:
+Write the plan to `{planFile}`: the `entries` of §2 to §4, the `summary` of §5, `unverified_technologies` (Step 02 §2b's list as written in the document, `[]` when it is empty), `skill_count` (the inventory's `{skill_count}`, Step 01 §2), `vs_report` (only when `vs_report_available` is true: the `path`, `coveragePercentage` and `coverageMeasured` of the report JSON Step 01 §1 cached as `{vs_report}`, never read from the report file) and `tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`, the `tiers` Step 01 §4's `rules` check printed; run that command again if they are no longer in context). Then run:
 
 ```bash
 uv run {preservationScript} apply --original "{architecture_doc}" --plan "{planFile}" --draft "{draftFile}" -o "{applyResult}"

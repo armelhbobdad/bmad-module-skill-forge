@@ -2,9 +2,9 @@
 nextStepFile: 'improvements.md'
 refinementRulesData: '{refinementRulesPath}'
 findingStorageData: 'references/finding-storage.md'
-# §4 joins the [VS] verdicts to the inventory and the scope with it.
+# §3 looks the claimed exports up and §4 joins the [VS] verdicts to the inventory and the scope with it.
 preservationScript: 'scripts/skf-check-preservation.py'
-# The shared emitter: §4's halts print their envelope with it.
+# The shared emitter: the halts of §3 and §4 print their envelope with it.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -50,9 +50,28 @@ For each claim, record:
 - The section where it appears
 - The libraries referenced
 
+**Stage the claimed exports.** Write `{run_dir}/claimed-names.json`, a JSON array with one `{"skill": "<skill>", "claimed": "<export>"}` pair per API claim that names an export: `skill` the skill the claim's library maps to, by its inventory `name` or an alias `{run_dir}/skill-terms.json` (Step 02 §2) gives it, and `claimed` the export's name, call or signature alone, as the claim writes it (`Doc::new`, `cognee.add()`). Write a method the claim calls on an object of a type it names as `Type.method`; one called on a variable whose type the claim does not name (`doc.getText()`) names no export the list can hold, so stage no pair for it. Write `[]` when no claim names an export: §3 then skips its call.
+
 ### 3. Verify Claims Against Skill API Surfaces
 
-Check each claim against the compact API surfaces Step 02 §4 collected, the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats, capabilities}`), and against each skill's `language` in `skill_inventory`. If the summaries are no longer in context, read them from the `<!-- [RA-SURFACES] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), never from the SKILL.md files. Look at what the claim says about an API and its signature, a protocol or data format, a call across languages, and the types passed between libraries. Whether a named export exists is a membership lookup in the skill's `exports[]` in `{run_dir}/skill-inventory.json` (Step 01 §2), never in the surface: a claim fails on existence only when that list lacks the name, and for a name it holds, judge only the signature, protocol or types the claim states. When that list is empty (a stack skill, or `exports_source` `unknown`), the surface's `exports` were extracted from the files read and may be partial: judge existence from them, never taking a missing name as proof. A claim the skill evidence contradicts is an issue: type it by the Issue Classification of `{refinementRulesData}`.
+Check each claim against the compact API surfaces Step 02 §4 collected, the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats, capabilities}`), and against each skill's `language` in `skill_inventory`. If the summaries are no longer in context, read them from the `<!-- [RA-SURFACES] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), never from the SKILL.md files. Look at what the claim says about an API and its signature, a protocol or data format, a call across languages, and the types passed between libraries. Whether a named export exists is never looked up by hand: unless §2 staged `[]`, one call looks every staged pair up in its skill's `exports[]` in `{run_dir}/skill-inventory.json` (Step 01 §2):
+
+```bash
+uv run {preservationScript} exports --inventory "{run_dir}/skill-inventory.json" --claims "{run_dir}/claimed-names.json"
+```
+
+Branch on its exit code:
+
+- **0:** each entry of `results`, in the order of the staged pairs, gives its claim's `status`:
+  - `present`: the list holds the name. Judge only the signature, protocol or types the claim states, against the `matches` it names.
+  - `absent`: the list holds neither the name nor the type or module before it. The claim fails on existence.
+  - `member-unlisted`: the list lacks the name but holds the type or module before it (`matches`). The list names only top-level exports, so judge existence from the surface's `exports`, never taking a missing name as proof.
+  - `list-empty`: the list is empty (a stack skill, or `exports_source` `unknown`). The surface's `exports` were extracted from the files read and may be partial: judge existence from them, never taking a missing name as proof.
+  - `unknown-skill`: no inventory skill has the pair's `skill` as its name or as an alias no other skill shares (skills built from one repository share its name). Write the skill's inventory `name` as `skill` in `{run_dir}/claimed-names.json`, or drop the pair when no skill covers that library, and run the command again.
+- **2** with a JSON whose `error` names `{run_dir}/claimed-names.json`: stage it again as §2 says and run the command again. When the `error` names a pair whose `claimed` names no identifier, write that export by its name alone (`QueryClientProvider` for `<QueryClientProvider>`), or drop the pair when the claim names none (an operator such as `+`). One whose `error` names `{run_dir}/skill-inventory.json`: the inventory Step 01 §2 saved can no longer be read, so HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:exports`, naming its `error`, with `"path"` set to `{run_dir}/skill-inventory.json`. **2 with no JSON:** a malformed call: fix it and run it again.
+- If `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `issue-detection:exports`.
+
+A claim the skill evidence contradicts is an issue: type it by the Issue Classification of `{refinementRulesData}`.
 
 ### 4. Incorporate VS Report (If Available)
 

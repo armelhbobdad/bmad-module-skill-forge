@@ -14,9 +14,10 @@ writes the draft. The review's [C] promotes the draft through this script
 too, so the output file is never replaced by a draft that lost a line.
 
 Init (references/init.md) checks the refinement rules with `rules`, and
-issue detection (references/issue-detection.md) joins the [VS] report's
-verdict rows to the skill inventory and the document scope with `verdicts`,
-so neither step applies a table rule or a join by hand.
+issue detection (references/issue-detection.md) looks each claimed export up
+in the skill inventory with `exports` and joins the [VS] report's verdict
+rows to the skill inventory and the document scope with `verdicts`, so
+neither step applies a table rule, a lookup or a join by hand.
 
 RA's blocks. Every block the script adds sits between two marker lines, so a
 later pass can set the whole annotation aside and write a fresh one:
@@ -111,11 +112,14 @@ Subcommands:
       Issue, Improvement, Unverified or Skill, whose counts the summary
       already holds. The VS Report Integration table has one row per
       verdict token (Verified, Plausible, Risky, Blocked, case-sensitive),
-      and each row's Raises cell names one tier of Issue Severity, as a
-      whole word, ignoring case, or says No issue or None, never both:
-      what it bolds when it bolds a tier or No issue or None
-      (`A **Major** issue`, as the bundled rows do, or `**No issue**`),
-      else what its text names (`Major`, `No issue`).
+      and each row's Raises cell names one tier of Issue Severity, ignoring
+      case, or says No issue or None, never both: what it bolds when it
+      bolds a tier or No issue or None (`A **Major** issue`, as the bundled
+      rows do, or `**No issue**`), else its whole text when that is one
+      tier, No issue or None, ignoring runs of spaces and one trailing
+      period (`Major`, `major.`, `None`). Any other cell raises neither
+      (`No Critical issue`, `Not a Major issue`), so a tier its prose
+      mentions never counts.
       JSON: {status: "ok" | "violations", rules, missing_tables[], tiers:
       {issue[], improvement[]}, vs_raises: {<token>: <tier> | null},
       violations[]}. A violation is {table, line, rule, detail}, line null
@@ -149,6 +153,39 @@ Subcommands:
       cannot be read), it prints {status: "stale", problems: [{source,
       detail}]} instead, source "report" or "rules".
 
+  exports --inventory PATH --claims PATH
+      Look each claimed export up in its skill's exports[] in the skill
+      inventory (the JSON skf-enumerate-stack-skills.py enumerate wrote,
+      whose skills[] each hold a name, exports[] and exports_source). It
+      writes nothing. --claims is a JSON array of {skill, claimed} pairs.
+      A pair's skill maps to the inventory skill of that name, ignoring
+      case and runs of spaces, else to the one skill that has it as an
+      alias (its source_repo_basename or source_root_basename) that no
+      other skill shares. The
+      claimed text is normalized once: every backtick goes, then each
+      <...> or [...] group (nested ones too; the > of an arrow, -> or =>,
+      closes none) and everything from the first (, ->, => or lone :
+      outside one. What is left is
+      read as identifiers (letters, digits, _ and $, not starting with a
+      digit): the last is the name, the ones before it its qualifiers, so
+      `Doc::new`, cognee.add() and mod/fn look up new, add and fn, and
+      `query(sql: str) -> Rows`, query -> Rows, MAX_SIZE: int and
+      useQuery<Data>() look up query, query, MAX_SIZE and
+      useQuery. An export holds a name when it writes it case-sensitively,
+      never inside a longer identifier, as skf-names-present.py in the
+      shared scripts folder looks names up (get is not in getAll or
+      get_all). Each pair takes the first status that applies:
+      unknown-skill (no skill matched), list-empty (the skill's exports[]
+      is empty or its exports_source is unknown, so the list proves
+      nothing), present (an export holds the name), member-unlisted (none
+      holds the name but one holds a qualifier: exports[] lists top-level
+      names, so a method of a listed type is not proved absent) or absent.
+      JSON: {status: "ok", inventory, results[], counts}, results in claims
+      order, each {skill, claimed, name, status, matched_skill, matches[]}:
+      matched_skill is null for unknown-skill, and matches holds the
+      exports that hold the name (present) or a qualifier
+      (member-unlisted), its first 50; counts holds each status's count.
+
 The insertion plan (apply --plan) is one JSON object:
 
   {
@@ -163,6 +200,8 @@ The insertion plan (apply --plan) is one JSON object:
     "summary": "## Refinement Summary\\n... {gap_count} ...",
     "unverified_technologies": ["Redis"],
     "skill_count": 4,
+    "vs_report": {"path": "forge/feasibility-report-app-latest.md",
+                  "coveragePercentage": 80, "coverageMeasured": true},
     "tiers": {"issue": [...], "improvement": [...]},
     "fallback_headings": {"gap": "...", "issue": "...", "improvement": "..."}
   }
@@ -185,17 +224,35 @@ The insertion plan (apply --plan) is one JSON object:
               code fence. A gap or improvement block opens with its ATX
               heading: the script sets that heading one level below the
               heading that governs the anchor.
-  summary     the Refinement Summary, holding no RA marker. The script fills
-              {gap_count}, {issue_count} and {improvement_count} (all three
-              are required, so no count is typed), {<tier>_count} for every
-              tier (lower case, spaces as '_': {critical_count}),
-              {unverified_count} (the length of unverified_technologies),
-              {unverified_technologies} (their names, comma-separated, or
-              "none"), {skill_count} (the plan's skill_count, the skills the
-              run used as evidence, when the plan gives it) and
-              {evidence_rows} (one `| <skill> | <count> |` row per cited
-              skill, most cited first). Any other {lower_case} placeholder
-              left in it is a problem.
+  vs_report   the [VS] report the run used, as its cached JSON gives it
+              (optional; null or absent when there was none): a path,
+              coverageMeasured (true or false) and, when that is true,
+              coveragePercentage, a whole number from 0 to 100
+  summary     the Refinement Summary, holding no RA marker. It must hold
+              {changes_rows} and {evidence_rows}, so no count or row is
+              typed. The script fills {changes_rows} (the Changes Made
+              rows, below), {evidence_rows} (one `| <skill> | <count> |`
+              row per cited skill, most cited first), and wherever else
+              they stand {gap_count}, {issue_count}, {improvement_count},
+              {<tier>_count} for every tier (lower case, spaces as '_':
+              {critical_count}), {unverified_count} (the length of
+              unverified_technologies), {unverified_technologies} (their
+              names, comma-separated, or "none") and {skill_count} (the
+              plan's skill_count, the skills the run used as evidence, when
+              the plan gives it). Any other {lower_case} placeholder left
+              in it is a problem.
+
+{changes_rows} is one `| <Category> | <Count> | <Breakdown> |` row each, in
+this order: Gaps Filled (`-`); Issues Flagged and Improvements Suggested,
+whose breakdown names every tier of the kind in order with its count, 0
+included (`Critical: 1, Major: 0, Minor: 1`); Skills Used as Evidence
+(`-`), only when the plan gives skill_count; Not verified (no skill), whose
+breakdown names unverified_technologies comma-separated, or reads `none`;
+and VS Coverage, only when the plan gives vs_report: its count is
+coveragePercentage followed by `%` when coverageMeasured is true, else
+`not recorded`, and its breakdown names the report by the text after the
+path's last `/` or `\\`, since the refined document is shared. A `|` in a
+name it writes becomes `\\|`.
 
 Placement. An issue goes right after the block that holds its anchor: a
 heading line, the enclosing paragraph, table or blockquote, the whole list
@@ -223,8 +280,9 @@ heading), occurrence-out-of-range, summary-has-marker,
 summary-unclosed-fence, summary-count-typed and summary-placeholder.
 
 Exit codes:
-  0  inspect, apply, check, promote, context, rules or verdicts succeeded
-     (check: preserved; rules: no violation)
+  0  inspect, apply, check, promote, context, rules, verdicts or exports
+     succeeded (check: preserved; rules: no violation; exports: whatever
+     each pair's status)
   1  apply: the plan has problems, or the draft would not preserve the
      original (status "not-preserved"); check: not preserved; promote: the
      draft does not preserve the original, and nothing was moved; rules:
@@ -233,7 +291,10 @@ Exit codes:
   2  a usage error (argparse prints it, no JSON), or a file that cannot be
      read or is not UTF-8 text, or a context record that is not its
      subcommand's JSON, or a --skills file that is not a JSON array of
-     skills ({status: "error", error})
+     skills, or an --inventory that is not a skill inventory or a
+     --claims file that is not a JSON array of {skill, claimed} pairs
+     whose claimed text names an identifier ({status: "error", error},
+     the error starting with the file's path)
   3  a write failed ({status: "error", error}): the shared atomic writer is
      missing or failed, or promote could not rename or move a file or write
      its -o record (it puts the earlier output back first, and the error
@@ -275,7 +336,10 @@ DEFAULT_FALLBACK_HEADINGS = {
     "issue": "RA: Additional Issues Detected",
     "improvement": "RA: Additional Improvements Suggested",
 }
-REQUIRED_PLACEHOLDERS = ("gap_count", "issue_count", "improvement_count")
+TOTAL_COUNTS = ("gap_count", "issue_count", "improvement_count")
+# {changes_rows} writes the three totals and {unverified_count}, so a summary that holds it holds them.
+CHANGES_COUNTS = (*TOTAL_COUNTS, "unverified_count")
+REQUIRED_PLACEHOLDERS = (*CHANGES_COUNTS, "changes_rows", "evidence_rows")
 LIST_CAP = 50
 
 BEGIN_RE = re.compile(r"^\s{0,3}<!--\s*RA:BEGIN\b.*-->\s*$")
@@ -306,12 +370,20 @@ VS_TOKENS = ("Verified", "Plausible", "Risky", "Blocked")
 # A tier becomes the summary's {<tier>_count}, which PLACEHOLDER_RE fills only
 # for a name of ASCII letters, digits and spaces that starts with a letter.
 TIER_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9 ]*")
-RESERVED_COUNTS = (*REQUIRED_PLACEHOLDERS, "unverified_count", "skill_count")
+RESERVED_COUNTS = (*TOTAL_COUNTS, "unverified_count", "skill_count")
 TABLE_ROW_RE = re.compile(r"^ {0,3}\|")
 TABLE_DELIM_RE = re.compile(r"^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$")
 CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
 NO_ISSUE_RE = re.compile(r"(?<![A-Za-z0-9])(?:no\s+issue|none)(?![A-Za-z0-9])", re.IGNORECASE)
+
+# Characters that continue an identifier: shared/scripts/skf-names-present.py's
+# NAME_CHARS, copied rather than imported so `exports` runs no helper (a test
+# keeps the two equal).
+NAME_CHARS = r"\w$"
+_NAME_CHAR_RE = re.compile(f"[{NAME_CHARS}]")
+IDENT_RE = re.compile(r"(?<![\w$])(?:[^\W\d]|\$)[\w$]*")
+EXPORT_STATUSES = ("present", "member-unlisted", "absent", "list-empty", "unknown-skill")
 
 
 class DocError(Exception):
@@ -741,6 +813,12 @@ def check_plan(plan, base: list[Line]) -> tuple[list[dict], dict]:
                                     or skill_count < 0):
         problems.append(_problem(None, "plan-invalid", "skill_count must be a whole number from 0"))
         skill_count = None
+    vs_report = plan.get("vs_report")
+    if vs_report is not None and not _vs_report_ok(vs_report):
+        problems.append(_problem(None, "plan-invalid", "vs_report must hold the [VS] report's path, coverageMeasured "
+                                 "(true or false) and, when that is true, coveragePercentage, a whole number from "
+                                 "0 to 100"))
+        vs_report = None
     summary = plan.get("summary")
     if not isinstance(summary, str) or not summary.strip():
         problems.append(_problem(None, "plan-invalid", "summary must be the Refinement Summary's Markdown"))
@@ -838,13 +916,14 @@ def check_plan(plan, base: list[Line]) -> tuple[list[dict], dict]:
         if _fence_open(summary_lines):
             problems.append(_problem(None, "summary-unclosed-fence", "the summary opens a code fence it never closes"))
         found = set(PLACEHOLDER_RE.findall(summary))
-        typed = [name for name in REQUIRED_PLACEHOLDERS if name not in found]
+        # {changes_rows} writes the three totals and {unverified_count}, and it is required itself, so a
+        # summary that lacks it is named only it, never counts it would write.
+        typed = [name for name in REQUIRED_PLACEHOLDERS if name not in found | set(CHANGES_COUNTS)]
         if typed:
             problems.append(_problem(None, "summary-count-typed",
-                                     "the summary must leave these counts to the script: "
+                                     "the summary must leave these counts and rows to the script: "
                                      + ", ".join("{" + name + "}" for name in typed)))
-        known = set(REQUIRED_PLACEHOLDERS) | set(placeholders) | {"unverified_count", "unverified_technologies",
-                                                                   "evidence_rows"}
+        known = set(REQUIRED_PLACEHOLDERS) | set(placeholders) | {"unverified_technologies"}
         if skill_count is not None:
             known.add("skill_count")
         unknown = sorted(found - known)
@@ -853,8 +932,18 @@ def check_plan(plan, base: list[Line]) -> tuple[list[dict], dict]:
                                      "fill these yourself or remove them: "
                                      + ", ".join("{" + name + "}" for name in unknown)))
     resolved = {"entries": resolved_entries, "summary": summary, "tiers": tiers, "headings": headings,
-                "unverified": unverified, "skill_count": skill_count}
+                "unverified": unverified, "skill_count": skill_count, "vs_report": vs_report}
     return problems, resolved
+
+
+def _vs_report_ok(report) -> bool:
+    """A plan's vs_report: a path, coverageMeasured, and a whole coveragePercentage when it was measured."""
+    if not isinstance(report, dict):
+        return False
+    path, measured, percent = report.get("path"), report.get("coverageMeasured"), report.get("coveragePercentage")
+    if not isinstance(path, str) or not path.strip() or not isinstance(measured, bool):
+        return False
+    return not measured or (isinstance(percent, int) and not isinstance(percent, bool) and 0 <= percent <= 100)
 
 
 def _heading_hits(anchor: str, texts: list[str], st: Structure) -> list[int]:
@@ -1001,11 +1090,35 @@ def tally(resolved: dict) -> tuple[dict, dict]:
     return counts, evidence
 
 
+def _cell(text: str) -> str:
+    """A name written in a table cell: a `|` in it would end the cell."""
+    return text.replace("|", "\\|")
+
+
+def changes_rows(resolved: dict, counts: dict) -> str:
+    """The Changes Made rows: totals, every tier's count, the evidence and unverified rows, VS Coverage."""
+    breakdown = {kind: ", ".join(f"{_cell(tier)}: {n}" for tier, n in counts[f"{kind}_tiers"].items())
+                 for kind in ("issue", "improvement")}
+    rows = [("Gaps Filled", counts["gap"], "-"), ("Issues Flagged", counts["issue"], breakdown["issue"]),
+            ("Improvements Suggested", counts["improvement"], breakdown["improvement"])]
+    if counts["skills"] is not None:
+        rows.append(("Skills Used as Evidence", counts["skills"], "-"))
+    rows.append(("Not verified (no skill)", counts["unverified"],
+                 ", ".join(_cell(name) for name in resolved["unverified"]) or "none"))
+    report = resolved["vs_report"]
+    if report is not None:
+        coverage = f"{report['coveragePercentage']}%" if report["coverageMeasured"] else "not recorded"
+        name = re.split(r"[/\\]", report["path"].strip())[-1]
+        rows.append(("VS Coverage", coverage, f"technologies with a skill when [VS] ran, from `{_cell(name)}`"))
+    return "\n".join(f"| {label} | {count} | {detail} |" for label, count, detail in rows)
+
+
 def fill_summary(resolved: dict) -> list[str]:
     counts, evidence = tally(resolved)
     values = {"gap_count": counts["gap"], "issue_count": counts["issue"],
               "improvement_count": counts["improvement"], "unverified_count": counts["unverified"],
               "unverified_technologies": ", ".join(resolved["unverified"]) or "none",
+              "changes_rows": changes_rows(resolved, counts),
               "evidence_rows": "\n".join(f"| {skill} | {count} |" for skill, count in evidence.items())}
     if counts["skills"] is not None:
         values["skill_count"] = counts["skills"]
@@ -1075,38 +1188,29 @@ def _violation(table: str, line, rule: str, detail: str) -> dict:
     return {"table": table, "line": line, "rule": rule, "detail": detail}
 
 
-def _named_tiers(text: str, severities: dict[str, str]) -> list[str]:
-    """The tiers `text` names as whole words, ignoring case and runs of spaces, longest name first.
-
-    A longer tier's words are not read again as a shorter one (`Very High` is not also `High`).
-    """
-    found: list[str] = []
-    taken: list[tuple[int, int]] = []
-    for tier in sorted(severities.values(), key=len, reverse=True):
-        words = r"\s+".join(re.escape(word) for word in tier.split())
-        for m in re.finditer(r"(?<![A-Za-z0-9])" + words + r"(?![A-Za-z0-9])", text, re.IGNORECASE):
-            if not any(m.start() < end and start < m.end() for start, end in taken):
-                taken.append(m.span())
-                if tier not in found:
-                    found.append(tier)
-    return found
-
-
 def vs_raised(cell: str, severities: dict[str, str]) -> tuple[list[str], bool]:
     """The tiers a VS Report Integration Raises cell names, and whether it says no issue.
 
     What the cell bolds counts when it bolds a tier or No issue or None (`A **Major** issue`,
     `**No issue**, whatever the rationale says`): the prose around it is not read. Otherwise
-    the tiers its text names as whole words count (`Major`, `A Critical issue`), and it says
-    no issue when its text says No issue or None, ignoring case. A cell that names a tier and
-    also says no issue, both in bold or both in its text, raises neither: check_rules reports it.
+    the whole cell counts only when it is one tier, No issue or None, ignoring case, runs of
+    spaces and one trailing period (`Major`, `major.`, `None`); any other cell raises neither
+    (`No Critical issue`, `Not a Major issue`), so a tier its prose mentions never counts.
+    A cell that bolds a tier and also No issue or None, or two tiers, is returned as it is:
+    check_rules reports it, as it reports a cell that raises neither.
     """
     bold = [(m.group(1) or m.group(2)).strip() for m in BOLD_RE.finditer(cell)]
     named = [severities[_placeholder(b)] for b in bold if TIER_NAME_RE.fullmatch(b) and _placeholder(b) in severities]
     no_issue = any(NO_ISSUE_RE.fullmatch(b) for b in bold)
     if named or no_issue:
         return list(dict.fromkeys(named)), no_issue
-    return _named_tiers(cell, severities), bool(NO_ISSUE_RE.search(cell))
+    text = cell.strip()
+    dot = text.endswith(".")  # one trailing period, outside the markup (`*Major*.`) or inside it (`*Major.*`)
+    text = _plain(text[:-1] if dot else text)
+    text = " ".join((text[:-1] if not dot and text.endswith(".") else text).split())
+    if TIER_NAME_RE.fullmatch(text) and _placeholder(text) in severities:
+        return [severities[_placeholder(text)]], False
+    return [], bool(NO_ISSUE_RE.fullmatch(text))
 
 
 def check_rules(path: str) -> dict:
@@ -1170,7 +1274,8 @@ def check_rules(path: str) -> dict:
                                              f"more than one tier of the Issue Severity table: {', '.join(named)}"))
             else:
                 violations.append(_violation(VS_TABLE, line, "vs-raises", f"VS row `{token}` (line {line}) raises "
-                                             "neither a tier of the Issue Severity table nor No issue"))
+                                             "neither a tier of the Issue Severity table nor No issue: bold the "
+                                             "one it raises, or write only a tier, No issue or None in the cell"))
         for token in VS_TOKENS:
             if token not in rowed:
                 violations.append(_violation(VS_TABLE, None, "vs-token-unmapped",
@@ -1256,6 +1361,98 @@ def skill_matcher(skills: list[tuple[str, list[str]]]):
         return next(iter(owners)) if len(owners) == 1 else None
 
     return match
+
+
+def name_written(name: str, text: str) -> bool:
+    """True when `text` holds `name` case-sensitively, never inside a longer identifier.
+
+    skf-names-present.py's rule: on a side where the name ends in a letter, digit, `_` or
+    `$`, the next character may not be one of those, so `get` is not in `getAll` or `get_all`.
+    """
+    body = re.escape(name)
+    if _NAME_CHAR_RE.match(name[0]):
+        body = f"(?<![{NAME_CHARS}])" + body
+    if _NAME_CHAR_RE.match(name[-1]):
+        body += f"(?![{NAME_CHARS}])"
+    return re.search(body, text) is not None
+
+
+def claimed_identifiers(claimed: str) -> list[str]:
+    """The identifiers of a claimed export, after the one normalization `exports` applies.
+
+    Every backtick goes, then each `<...>` or `[...]` group (nested ones too; the `>` of an
+    arrow, `->` or `=>`, closes none) and everything from the first `(`, `->`, `=>` or lone
+    `:` outside one, so a type written after the name is never read as it. The identifiers
+    are the runs of letters, digits, `_` and `$` left that do not start with a digit:
+    `Doc::new`, `cognee.add()` and `mod/fn` keep their two, `query(sql: str) -> Rows`,
+    `query -> Rows`, `MAX_SIZE: int`, `Queue[Item]` and `useQuery<Data>()` their one.
+    """
+    text = claimed.replace("`", "")
+    kept = []
+    depth = 0
+    for i, char in enumerate(text):
+        if char in "<[":
+            depth += 1
+        elif depth and (char == "]" or char == ">" and text[i - 1] not in "-="):
+            depth -= 1
+        elif not depth:
+            lone_colon = char == ":" and ":" not in (text[i - 1:i], text[i + 1:i + 2])
+            if char == "(" or text[i:i + 2] in ("->", "=>") or lone_colon:
+                break
+            kept.append(char)
+    return IDENT_RE.findall("".join(kept))
+
+
+def _load_json(path: str):
+    try:
+        raw = Path(path).read_bytes().decode("utf-8")
+    except OSError as e:
+        raise DocError(f"{path}: {e.strerror or e}") from e
+    except UnicodeDecodeError as e:
+        raise DocError(f"{path}: not UTF-8 text ({e.reason} at byte {e.start})") from e
+    try:
+        return json.loads(raw)
+    except ValueError as e:
+        raise DocError(f"{path}: not JSON ({e})") from e
+
+
+def read_inventory(path: str) -> list[dict]:
+    """The skills[] of a skill inventory: {name, aliases, exports, exports_source} each."""
+    data = _load_json(path)
+    shape = (f"{path}: not a skill inventory: a JSON object whose skills[] entries each hold a name and an "
+             "exports list of names")
+    skills = data.get("skills") if isinstance(data, dict) else None
+    if not isinstance(skills, list):
+        raise DocError(shape)
+    out = []
+    for item in skills:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
+            raise DocError(shape)
+        exports = item.get("exports")
+        if not isinstance(exports, list) or not all(isinstance(e, str) for e in exports):
+            raise DocError(shape)
+        aliases = [item.get(key) for key in ("source_repo_basename", "source_root_basename")]
+        out.append({"name": item["name"].strip(), "aliases": [a for a in aliases if isinstance(a, str) and a.strip()],
+                    "exports": exports, "exports_source": item.get("exports_source")})
+    return out
+
+
+def read_claims(path: str) -> list[dict]:
+    """The claimed exports: {skill, claimed, identifiers} per pair, in the file's order."""
+    data = _load_json(path)
+    shape = f"{path}: not a JSON array of {{skill, claimed}} pairs, each two strings that are not empty"
+    if not isinstance(data, list):
+        raise DocError(shape)
+    claims = []
+    for index, item in enumerate(data):
+        if not isinstance(item, dict) or not all(isinstance(item.get(k), str) and item[k].strip()
+                                                 for k in ("skill", "claimed")):
+            raise DocError(shape)
+        identifiers = claimed_identifiers(item["claimed"])
+        if not identifiers:
+            raise DocError(f"{path}: pair {index + 1} claims `{item['claimed']}`, which names no identifier")
+        claims.append({"skill": item["skill"], "claimed": item["claimed"], "identifiers": identifiers})
+    return claims
 
 
 def _report_problem(report: dict, code: int, generated_at: str) -> str | None:
@@ -1498,6 +1695,40 @@ def cmd_verdicts(args) -> tuple[dict, int]:
     }, 0
 
 
+def cmd_exports(args) -> tuple[dict, int]:
+    skills = read_inventory(args.inventory)
+    claims = read_claims(args.claims)
+    match = skill_matcher([(skill["name"], skill["aliases"]) for skill in skills])
+    by_name: dict[str, dict] = {}
+    for skill in skills:
+        by_name.setdefault(skill["name"], skill)
+    results = []
+    for claim in claims:
+        *qualifiers, name = claim["identifiers"]
+        matched = match(claim["skill"])
+        found: list[str] = []
+        if matched is None:
+            status = "unknown-skill"
+        elif not by_name[matched]["exports"] or by_name[matched]["exports_source"] == "unknown":
+            status = "list-empty"
+        else:
+            exports = by_name[matched]["exports"]
+            found = [export for export in exports if name_written(name, export)]
+            if found:
+                status = "present"
+            else:
+                found = [export for export in exports if any(name_written(q, export) for q in qualifiers)]
+                status = "member-unlisted" if found else "absent"
+        results.append({"skill": claim["skill"], "claimed": claim["claimed"], "name": name, "status": status,
+                        "matched_skill": matched, "matches": found[:LIST_CAP]})
+    return {
+        "status": "ok",
+        "inventory": Path(args.inventory).as_posix(),
+        "results": results,
+        "counts": {status: sum(1 for r in results if r["status"] == status) for status in EXPORT_STATUSES},
+    }, 0
+
+
 def _timestamp(value: str) -> str:
     if not TIMESTAMP_RE.match(value):
         raise argparse.ArgumentTypeError(f"{value!r} is not YYYYMMDD-HHmmss")
@@ -1512,8 +1743,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "document keeps every line of the original, promote the draft to the output file, "
             "and stage the result contract's payload from the run's records. RA's marked "
             "blocks (and the unmarked annotations of an older pass) are set aside in both "
-            "documents first. Also check the refinement rules, and join the [VS] report's "
-            "verdicts to the skill inventory and the document scope. Prints JSON."
+            "documents first. Also check the refinement rules, join the [VS] report's "
+            "verdicts to the skill inventory and the document scope, and look each claimed "
+            "export up in its skill's inventory exports. Prints JSON."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -1529,7 +1761,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "  uv run skf-check-preservation.py rules --rules references/refinement-rules.md\n"
             "  uv run skf-check-preservation.py verdicts --report forge/feasibility-report-app-latest.md "
             "--generated-at 2026-10-01T10:00:00Z --skills run/skill-terms.json --in-scope loro,yjs "
-            "--rules references/refinement-rules.md"
+            "--rules references/refinement-rules.md\n"
+            "  uv run skf-check-preservation.py exports --inventory run/skill-inventory.json "
+            "--claims run/claimed-names.json"
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1573,6 +1807,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--in-scope", required=True, help="the in-scope skill names, comma-separated")
     p.add_argument("--rules", required=True, help="the refinement rules file")
     p.set_defaults(func=cmd_verdicts)
+    p = sub.add_parser("exports", help="Look each claimed export up in its skill's inventory exports.")
+    p.add_argument("--inventory", required=True, help="the skill inventory JSON skf-enumerate-stack-skills.py wrote")
+    p.add_argument("--claims", required=True, help="JSON array of {skill, claimed} pairs")
+    p.set_defaults(func=cmd_exports)
     return parser
 
 
