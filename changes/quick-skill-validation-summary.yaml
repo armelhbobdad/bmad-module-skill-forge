@@ -3,3 +3,4 @@ scope: skf-quick-skill
 summary: |
   Quick Skill now reports skill-check's quality score and the validation issue counts by one fixed rule, so the same validator results give the same `summary.quality_score` and `summary.validation_issues` on every run. Step 5 saves what skill-check, the frontmatter validator, the output validator and the security scan print in the run folder, and a new shared helper, `skf-summarize-validation.py`, writes the score, the counts and the issues behind them to `validation-summary.json` there; the result envelope copies both values from that file, and the step 5 report lists exactly the issues the counts count. `quality_score` now also reports the top-level `qualityScore` that older skill-check builds print, where it was null. When the helper goes missing after the run started, step 5 stops with exit `3` (`resolution-failure`, `details.cause` `validation-summarizer-missing`) and asks you to re-install SKF.
 issues: [1120]
+prs: [1205]

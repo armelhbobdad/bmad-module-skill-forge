@@ -3,3 +3,4 @@ scope: skf-test-skill, skf-quick-skill
 summary: |
   Test Skill's headless stops that come before its run folder exists and quote a helper's error, such as a config `skf-preflight.py` cannot load, a flat skill `migrate` could not move or a `forge-tier.yaml` it cannot read, no longer have the model type that error into a JSON payload. Each passes its phase, halt reason and skill name to `skf-emit-result-envelope.py emit-halt` as options, the skill name through the new `--skill-name`, and its message on stdin through a quoted heredoc, so a Windows path or a quote in the error no longer stops the `SKF_TEST_RESULT_JSON` line from printing. Quick Skill's stop for a run folder it cannot create now gives `Quick Skill cannot start: the run folder could not be created.` as the message of its `SKF_QUICK_SKILL_RESULT_JSON` line and shows the error it got only on screen, so that line always prints.
 issues: [1119]
+prs: [1205]

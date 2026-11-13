@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Quick Skill now stops with exit `3` naming `sidecar_path`, set `sidecar_path: _bmad/_memory/forger-sidecar` in `_bmad/skf/config.yaml` and run it again.
 issues: [1117]
+prs: [1205]

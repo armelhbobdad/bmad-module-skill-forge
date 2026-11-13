@@ -5,3 +5,4 @@ summary: |
 migration: |
   Reinstall SKF (`npx bmad-module-skill-forge install`) so every helper resolves. A pipeline that branched on a step's `step <N>:helper-missing` phase, on a per-helper Quick Skill cause such as `github-fetch-missing`, or on exit `2` for a missing batch helper branches on `on-activation:helper-missing`, `helpers-missing` and exit `3` instead.
 issues: [1117]
+prs: [1205]

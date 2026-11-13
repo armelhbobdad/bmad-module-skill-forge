@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at phase `on-activation:config` naming `sidecar_path`, set `sidecar_path: _bmad/_memory/forger-sidecar` in `_bmad/skf/config.yaml` and run it again. A pipeline that branched on `error.phase` `init:runtime` for a missing `uv` branches on `on-activation:runtime` instead, and passes `--headless` (or `-H`) so a stop when Test Skill starts still prints its line.
 issues: [1118]
+prs: [1205]
