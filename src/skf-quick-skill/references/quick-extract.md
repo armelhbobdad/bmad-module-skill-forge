@@ -24,12 +24,12 @@ To read the resolved GitHub repository source and extract the public API surface
 - Best-effort extraction — completeness is not required; surface-level reading only, no AST
 - Do not begin compilation or write output files
 - If no exports found, use README content as fallback
-- A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
+- A HARD HALT stages the payload its site gives as `{run_dir}/halt.json` and runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, unless its site names its own command, and a headless gate stages the decision its site gives as `{run_dir}/decision.json` and runs `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 - Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires only when neither the file nor the probe order names a path that exists, as when the helper was removed after activation.
 
 ## Steps
 
-**Reading the repository.** Step 1 §4 wrote the repository's file listing, at the ref this step reads (`source_ref`, or the default branch when it is unset), to `{run_dir}/tree.json`. Every file this step reads is fetched from that listing into `{run_dir}/src/`, laid out as in the repository, and the helpers read it there by path: no file's text passes through a shell string, and none is read by web browsing, which gives a rendered page rather than the file's bytes. Resolve `{githubFetch}` from `{githubFetchProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the files of `{owner}/{repo}`.** SKF's GitHub fetch helper (`skf-github-fetch.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the files of {owner}/{repo}.", "skill_package": null, "details": {"cause": "github-fetch-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. No file is fetched by hand. One call fetches every file a step names:
+**Reading the repository.** Step 1 §4 wrote the repository's file listing, at the ref this step reads (`source_ref`, or the default branch when it is unset), to `{run_dir}/tree.json`. Every file this step reads is fetched from that listing into `{run_dir}/src/`, laid out as in the repository, and the helpers read it there by path: no file's text passes through a shell string, and none is read by web browsing, which gives a rendered page rather than the file's bytes. Resolve `{githubFetch}` from `{githubFetchProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the files of `{owner}/{repo}`.** SKF's GitHub fetch helper (`skf-github-fetch.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the files of {owner}/{repo}.", "skill_package": null, "details": {"cause": "github-fetch-missing"}}` as `{run_dir}/halt.json`. No file is fetched by hand. One call fetches every file a step names:
 
 ```bash
 uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" --dest "{run_dir}/src" [--limit <n>] [--exclude <glob>]... <path or glob>...
@@ -45,7 +45,7 @@ Clear the extraction files an earlier attempt of this step left first (§4.5 [R]
 rm -f "{run_dir}"/extract*.json
 ```
 
-Fetch the root `package.json` (the sniff below reads it; nothing is fetched when the listing has none), then sniff the listing, which §1.5 classifies from. Resolve `{skillsModuleHelper}` from `{skillsModuleProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot classify `{owner}/{repo}`.** SKF's skills-module helper (`skf-skills-module.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot classify {owner}/{repo}.", "skill_package": null, "details": {"cause": "skills-module-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. Otherwise run:
+Fetch the root `package.json` (the sniff below reads it; nothing is fetched when the listing has none), then sniff the listing, which §1.5 classifies from. Resolve `{skillsModuleHelper}` from `{skillsModuleProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot classify `{owner}/{repo}`.** SKF's skills-module helper (`skf-skills-module.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot classify {owner}/{repo}.", "skill_package": null, "details": {"cause": "skills-module-missing"}}` as `{run_dir}/halt.json`. Otherwise run:
 
 ```bash
 uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" --dest "{run_dir}/src" package.json
@@ -66,7 +66,7 @@ If `readme` is null or the README could not be fetched, note and continue.
 
 Quick-skill wraps a library: classify the repo shape before spending effort on extraction.
 
-The signals are the README and `{run_dir}/sniff.json`, which `{skillsModuleHelper}` computed from the whole listing: `root_files` (the files at the repository root), `skills_module` with its `skills_root`, `module_root` and `skill_folders`, the `candidates` it weighed, `suggested_scope`, and `asset_dirs` with `asset_dir_count`. It applies the skills-module rules: a skill folder holds its own `SKILL.md`; a folder that directly holds `module.yaml` or `module-help.csv` (not a copy inside a skill folder) is a module root, whose skill folders sit at any depth below it; when `scope_hint` is set it is the only candidate; and a top-level folder of skill folders counts only when it is a module root or the root ships no code. Read its answer; do not re-derive it from the listing.
+The signals are the README and `{run_dir}/sniff.json`, which `{skillsModuleHelper}` computed from the whole listing; this section reads its `root_files` (the files at the repository root), `skills_module` and `skills_root`. Read its answer; do not re-derive it from the listing.
 
 **Classify as one of:**
 
@@ -85,13 +85,13 @@ Quick-skill is designed to wrap a library's public API. The compiled SKILL.md wi
 Select: [C] Continue anyway · [A] Abort"
 
 - **IF C**: log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape, `awesome-list`, `docs-site` or `examples-only`.
-- **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: a {shape} repo, not a library.", "skill_package": null, "details": {"repo_shape": "{shape}"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`).
+- **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: a {shape} repo, not a library.", "skill_package": null, "details": {"repo_shape": "{shape}"}}` as `{run_dir}/halt.json` (`references/halt-contract.md`).
 
-**GATE [default: C]**: in headless mode, log "headless: detected `{shape}` repo, continuing anyway", set `extraction_inventory.repo_shape` as [C] does, record the decision (stage `{"gate": "quick-extract.repo-shape", "default_action": "C", "taken_action": "C", "reason": "headless: continued with a {shape} repo"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed.
+**GATE [default: C]**: in headless mode, log "headless: detected `{shape}` repo, continuing anyway", set `extraction_inventory.repo_shape` as [C] does, record the decision (stage `{"gate": "quick-extract.repo-shape", "default_action": "C", "taken_action": "C", "reason": "headless: continued with a {shape} repo"}` as `{run_dir}/decision.json`) and proceed.
 
 ### 2. Fetch Source Files
 
-**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the public API of `{repo_name}`.** SKF's public-API extractor (`skf-extract-public-api.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the public API of {repo_name}.", "skill_package": null, "details": {"cause": "public-api-extractor-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
+**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the public API of `{repo_name}`.** SKF's public-API extractor (`skf-extract-public-api.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the public API of {repo_name}.", "skill_package": null, "details": {"cause": "public-api-extractor-missing"}}` as `{run_dir}/halt.json`.
 
 Fetch the manifest for the detected language with the fetch call above, naming every candidate its row lists (the listing decides which exist; §1 already fetched a root `package.json`):
 
@@ -143,16 +143,12 @@ SKF_JSON
 
 Stage it the same way when the extractor exits non-zero, which leaves `{run_dir}/extract.json` empty, with its error line in place of `no source file was fetched` (a JSON string, any `"` or `\` escaped).
 
-The helper writes JSON to `{run_dir}/extract.json` with:
+The helper writes JSON to `{run_dir}/extract.json`: §4 builds the inventory from its `package_name`, `version`, `description`, `exports[]` and `dependencies[]`, and the paragraphs below read:
 
-- `package_name`, `version`, `description`: parsed from the manifest
-- `exports[]`: `{name, type, source_file}` per discovered top-level public symbol
-- `dependencies[]`: declared direct dependencies
-- `modules[]` and `module_folders[]`: for Maven `<modules>` and Gradle `include(...)`, the names of sub-modules to iterate, and the folder of each in the repository
-- `extra`: language-specific extras (e.g. `group_id` for Maven)
-- `warnings[]`: manifest parse failures and scanner errors (advisory only; the envelope is still valid), and each statement whose names the entry file alone cannot give: `export * from`, a star import from the package, an `__all__` built from another module, `pub use x::*`, `module.exports = require(...)`, or an anonymous or conditional export. Each names its file, line and statement.
-- `unlisted[]`: one record per statement that passes on another module's names, `{file, line, statement, specifier, module_file}`: `module_file` is the listed file the statement's module is, null when the listing holds none. A statement whose module the extractor already reads is not listed.
-- `followed[]`: the modules `--follow` read, in the order it read them.
+- `unlisted[]`: one record per statement that passes on another module's names, `{file, line, statement, specifier, module_file}`; `module_file` is null when the listing holds none.
+- `modules[]` and `module_folders[]`: the sub-modules of a Maven or Gradle build, and the folder of each.
+- `warnings[]`: advisory (the envelope is still valid); the paragraph below and §5 read them.
+- `followed[]`: the modules `--follow` read.
 
 Read `{run_dir}/extract.json` into the extraction context. The shape of the envelope is the same for every language; §4 builds the inventory from it without per-language branching.
 
@@ -193,7 +189,7 @@ For a skills module, confidence is the helper's `confidence`: `high` when every 
 - Set confidence to `low`
 - Use README description and features as fallback content
 - Note: "No exports detected: SKILL.md will be based on README content only"
-- If the sniff's `suggested_scope` is set (a folder below the repository root holds skill folders), add to the note: "`{suggested_scope}` holds skill folders: re-run with `--scope-hint {suggested_scope}` (a batch line's `scope={suggested_scope}`) to document them as a skills module." The helper names the module root with the most skill folders or, when the listing shows no module root, the folder with the most.
+- If the sniff's `suggested_scope` is set (a folder below the repository root holds skill folders), add to the note: "`{suggested_scope}` holds skill folders: re-run with `--scope-hint {suggested_scope}` (a batch line's `scope={suggested_scope}`) to document them as a skills module."
 
 ### 4.5. Zero-Exports Soft Gate (rescue mode)
 
@@ -214,9 +210,9 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 
 - **IF R**: prompt for new `scope_hint` ("New scope hint (e.g. `src/server/`):") and optional new `language_hint` ("New language hint (or empty to keep `{language}`):"). A non-empty new language hint sets `language` to it, `language_resolution` to `hint` and `detected_languages` to `[]`, as step 1 §4 does for a hint, so the result contract reports where the language came from. Update the extraction context with the new hints, then **re-execute step 3 from §1** with the new values: §1 sniffs the same `{run_dir}/tree.json` again under the new scope. Discards the prior empty inventory.
 - **IF P**: log "user accepted zero-exports outcome" and proceed to §5. The compiled skill will be README-content-only with confidence `low`. Record `zero_exports_rescue: "user-accepted"` in the inventory so the result contract summary surfaces it.
-- **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: zero exports and no README description.", "skill_package": null, "details": {"exports_found": 0, "description_empty": true, "language": "{language}", "scope": "{scope_hint or 'entire repo'}"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
+- **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: zero exports and no README description.", "skill_package": null, "details": {"exports_found": 0, "description_empty": true, "language": "{language}", "scope": "{scope_hint or 'entire repo'}"}}` as `{run_dir}/halt.json`.
 
-**GATE [default: P]**: in headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill", record `zero_exports_rescue: "auto-proceeded"` in the inventory so the result contract summary lets automators re-run these targets with stricter hints (`--scope-hint` or `--language-hint`, or a batch line's `scope=` or `language=`), record the decision (stage `{"gate": "quick-extract.zero-exports", "default_action": "P", "taken_action": "P", "reason": "headless: compiled a low-confidence skill"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed.
+**GATE [default: P]**: in headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill", record `zero_exports_rescue: "auto-proceeded"` in the inventory so the result contract summary lets automators re-run these targets with stricter hints (`--scope-hint` or `--language-hint`, or a batch line's `scope=` or `language=`), record the decision (stage `{"gate": "quick-extract.zero-exports", "default_action": "P", "taken_action": "P", "reason": "headless: compiled a low-confidence skill"}` as `{run_dir}/decision.json`) and proceed.
 
 ### 5. Report Extraction Summary
 

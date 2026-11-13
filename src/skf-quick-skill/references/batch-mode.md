@@ -71,7 +71,7 @@ Pass `--fail-fast` when it was given. The helper parses the file and writes the 
 uv run {quickBatchHelper} next --run-dir "{batch_dir}"
 ```
 
-- **`"status": "next"`**: the helper printed the target's `start` event on stderr: display it verbatim, then print step 1's `start` event (Headless events below). Bind `{run_dir}` ← its `run_dir` (the target's own run folder, created empty), and set `target`, `language_hint` and `scope_hint` from it. When `{batch_dir}/resolver-warning.txt` exists (SKILL.md On Activation step 3 wrote it, so the customization resolver could not run), record it in the target's sink: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{batch_dir}/resolver-warning.txt")"`. Nothing else carries over from the previous target: its version, repository, extraction, compiled output, `{skill_package}` and summary values all start empty. Then load, read in full and execute `{nextStepFile}`: steps 1 to 6 run for this target.
+- **`"status": "next"`**: the helper printed the target's `start` event on stderr: display it verbatim, then print step 1's `start` event (`references/halt-contract.md`, Headless Events). Bind `{run_dir}` ← its `run_dir` (the target's own run folder, created empty), and set `target`, `language_hint` and `scope_hint` from it. When `{batch_dir}/resolver-warning.txt` exists (SKILL.md On Activation step 3 wrote it, so the customization resolver could not run), record it in the target's sink: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{batch_dir}/resolver-warning.txt")"`. Nothing else carries over from the previous target: its version, repository, extraction, compiled output, `{skill_package}` and summary values all start empty. Then load, read in full and execute `{nextStepFile}`: steps 1 to 6 run for this target.
 - **`"status": "record"`**: target `batch` ended, its payload staged, before §3 recorded it (a compaction came between its envelope and §3): go to §3 with that `batch`, never running it again.
 - **`"status": "done"`**: no target is pending, or `--fail-fast` ended the batch after a failed target. Go to §4.
 
@@ -105,81 +105,12 @@ SKF_JSON
 uv run {quickBatchHelper} summarize --run-dir "{batch_dir}" --output-dir "{batchOutputPath}" --target stderr
 ```
 
-The helper counts the targets, sets the batch status and exit code, writes the summary files below, appends the final status to the batch file (and removes the batch run folder when no target failed), and prints the `batch_summary` event on stderr: display it verbatim. Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow of the session bound, print step 7's `start` event, and load, read in full and execute `{healthCheckStepFile}`: the health check runs once per batch, here. The batch ends with the event's `exit_code`.
+The helper counts the targets, sets the batch status and exit code, writes the batch summary and its `-latest` copy in `{batchOutputPath}`, appends the final status to the batch file (and removes the batch run folder when no target failed), and prints the `batch_summary` event on stderr: display it verbatim. Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow of the session bound, print step 7's `start` event, and load, read in full and execute `{healthCheckStepFile}`: the health check runs once per batch, here. The batch ends with the event's `exit_code`.
 
-If `summarize` exits non-zero (a target is still pending, or the batch file is gone or unreadable), it wrote no summary file: display "**The batch stopped:** {its `message`}" and HARD HALT with **exit code 4 (write-failure)**: the health check does not run. When an earlier `summarize` already printed the `batch_summary` event (a compaction came before the health check), that event stays the batch's result (**Reading a batch.** below). Emit with nothing to stage in, as §1 does:
+If `summarize` exits non-zero (a target is still pending, or the batch file is gone or unreadable), it wrote no summary file: display "**The batch stopped:** {its `message`}" and HARD HALT with **exit code 4 (write-failure)**: the health check does not run. When an earlier `summarize` already printed the `batch_summary` event (a compaction came before the health check), that event stays the batch's result. Emit with nothing to stage in, as §1 does:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'
 {"phase": "batch-mode", "halt_reason": "write-failure", "reason": "The batch stopped: <its message, one line>", "skill_package": null}
 SKF_JSON
 ```
-
-**Reading a batch.** Under `--batch`, a caller reads the batch's `batch_summary` event and the summary file its `summary_path` names, never `quick-skill-batch-latest.json` in its place: that copy holds the last batch summary written, which may be another batch's. The event comes before the health check, so a caller reads it from the session's output stream (`claude -p --output-format stream-json`) or transcript, not from the final message. A printed `batch_summary` event stays the batch's result even if a halt line follows it. A batch that printed no `batch_summary` event has no batch result, whatever the process exit code: a halt line of its own (phase `batch-mode`, or `on-activation`) says why it stopped, and with no halt line it was cut off or could not print its halt line. A target it printed a `done` or `fail` event for ended as that event says; a target with a `start` event and no end event has no result, and a target with no event did not run in this session. When the event's `summary_path` is null, the per-batch file was not written (its `summary_write_failed` warning says why): the event and `{batch_dir}/batch.jsonl`, which the helper then keeps, are the batch's result, never `quick-skill-batch-latest.json`. A `summary_write_failed` warning beside a set `summary_path` means only the `-latest` copy failed: the file it names is still the batch's result. After a cut-off batch, run the batch again: each run takes a new run folder (SKILL.md On Activation step 1), so it starts over from the first target.
-
-## Batch summary contract
-
-`summarize` writes the batch summary at:
-
-```
-{batchOutputPath}quick-skill-batch-{YYYYMMDD-HHmmss}.json
-{batchOutputPath}quick-skill-batch-latest.json   (copy, not symlink)
-```
-
-`{batchOutputPath}` is resolved at SKILL.md On Activation §3 from `workflow.batch_output_path` (bundled default `{skills_output_folder}/_batch/`, trailing slash included). The per-batch name gains `-2`, `-3` and so on when another batch ended in the same second.
-
-Schema:
-
-```json
-{
-  "skill": "skf-quick-skill",
-  "mode": "batch",
-  "status": "success | partial | failed",
-  "timestamp": "<ISO 8601 UTC>",
-  "input_file": "<absolute path of the file passed to --batch>",
-  "targets_total": 0,
-  "succeeded": 0,
-  "failed": 0,
-  "fail_fast_triggered": false,
-  "exit_code": 0,
-  "results": [
-    {
-      "batch": 1,
-      "target": "<line from batch file>",
-      "status": "success | error",
-      "exit_code": 0,
-      "skill_package": "<absolute path or null>",
-      "error_code": null,
-      "quality_score": null
-    }
-  ]
-}
-```
-
-`status` resolves as: `"success"` when `failed == 0`, a batch file with no target included (it ends at once, `targets_total` 0 and exit code `0`); `"partial"` when `failed > 0 && succeeded > 0`; `"failed"` when `failed > 0 && succeeded == 0`. `fail_fast_triggered` is `true` only when `--fail-fast` aborted the loop early; `targets_total` then reflects the count actually attempted, not the file's line count. Each `results[]` entry is one target in file order: its `batch` number, its `exit_code` and `error_code` (the `halt_reason` of its halt envelope, null on success), and its `quality_score`, the skill-check score of its success envelope (null when it failed or skill-check did not run).
-
-## Headless events
-
-Batch mode emits per-target boundary events on stderr in addition to the per-step events of `references/halt-contract.md` (Headless Events):
-
-```
-{"batch":<n>,"target":"<target>","status":"start"}
-{"batch":<n>,"target":"<target>","status":"done","exit":0}
-{"batch":<n>,"target":"<target>","status":"fail","exit":<code>,"error_code":"<class>"}
-```
-
-`<n>` is the 1-based index of the target in the parsed list. `next` prints the `start` event; `record` prints `done` or `fail`. After the loop ends, `summarize` prints one final batch-summary event:
-
-```
-{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>"}
-{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":null,"warnings":["summary_write_failed: <dir>: <reason>"],"batch_file":"<path>"}
-{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>","warnings":["<summary_write_failed or batch_file_write_failed>: <dir>: <reason>"]}
-```
-
-When the per-batch summary file cannot be written, `summary_path` is null and `batch_file` names `{batch_dir}/batch.jsonl`, which then holds the batch's result. When `summary_path` is set and the event still carries `warnings`, a later write failed: `summary_write_failed` means only the `-latest` copy failed, and `batch_file_write_failed` that only the summary line could not be added to `{batch_dir}/batch.jsonl`. The file `summary_path` names stays the batch's result.
-
-## Exit code
-
-Without `--fail-fast`, the batch runs every target, whatever an earlier target's outcome, and exits with the batch summary's `exit_code`: `0` when `failed == 0`, otherwise the highest exit code among the failed targets. Automators that branch on the single-target exit-code map read each target's own code in `results[]`. With `--fail-fast`, the batch stops at the first failed target and exits with that target's code.
-
-A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch` (or `--language-hint` or `--scope-hint`), §1 cannot read the batch file or `skf-quick-batch.py` has gone missing since activation, and with code `4` when §1 cannot write the batch run folder. A run that starts without `skf-quick-batch.py` stops at SKILL.md On Activation step 1 with code `3` (`helpers-missing`), before this file loads. A batch that stops because `next`, a second `record` or `summarize` fails (§2 to §4) exits with code `4` and writes no batch summary then; a `batch_summary` event an earlier `summarize` already printed stays the batch's result.

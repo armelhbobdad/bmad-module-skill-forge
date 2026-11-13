@@ -38,7 +38,7 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Resolve Target | references/resolve-target.md | Conditional (no target, or an ambiguous one) |
-| 2 | Ecosystem Check | references/ecosystem-check.md | Conditional (an official skill matches) |
+| 2 | Ecosystem Check | references/ecosystem-check.md | Yes |
 | 3 | Quick Extract | references/quick-extract.md | Conditional (an unusual repo shape, zero exports) |
 | 4 | Compile | references/compile.md | No (review) |
 | 5 | Write & Validate | references/write-and-validate.md | Conditional (the skill folder exists) |
@@ -47,14 +47,7 @@ These rules apply to every step in this workflow:
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | target (GitHub URL, package name or npm, PyPI or crates.io page URL) [required for single-target mode], language_hint [optional, `--language-hint`], scope_hint [optional, `--scope-hint`] |
-| **Overrides** | `--language-hint`, `--scope-hint`, `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast`: see On Activation step 4 |
-| **Gates** | step 1: target input, ambiguous package name [C/n/U/X] (if another registry also holds the name; headless keeps the first registry's pick), multi-language disambiguation [C/n/A] (pick any detected language); step 2: ecosystem match [P/I/A] (none until agentskills.io has a registry API); step 3: repo-shape [C/A] + zero-exports rescue [R/P/A]; step 4: review [C/E/S/Q]; step 5: overwrite [Y/N] |
-| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy), one `SKF_QUICK_SKILL_RESULT_JSON` line (stdout when the run finishes, stderr at a HARD HALT), and under `--batch` the batch summary. Snippet and active pointer can be skipped per overrides. |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true; each auto-decision is recorded in the envelope's `headless_decisions`. A caller reads the run's own `SKF_QUICK_SKILL_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and the result contract's `-latest` copy may then describe an earlier run, so it is never read in its place. Under `--batch`, a caller reads the batch's `batch_summary` event and the summary file its `summary_path` names, never the batch summary's `-latest` copy in its place: that copy holds the last batch summary written, which may be another batch's. A printed `batch_summary` event stays the batch's result even if a halt line follows it. A batch that printed no `batch_summary` event has no batch result, whatever the process exit code: a halt line of its own (phase `batch-mode`, or `on-activation`) says why it stopped, and with no halt line it was cut off or could not print its halt line. A target it printed a `done` or `fail` event for ended as that event says; a target with a `start` event and no end event has no result, and a target with no event did not run in this session. |
-| **Exit codes** | See `references/halt-contract.md`: the exit-code map and the envelope every HARD HALT emits, except On Activation step 1's check for `python3` and `uv`, which prints none |
+Headless callers and pipelines: the inputs, flags, gates, outputs, exit codes and the `SKF_QUICK_SKILL_RESULT_JSON` and `--batch` reading rules live in `references/invocation-contract.md`. Interactive runs do not need it.
 
 ## On Activation
 
@@ -96,7 +89,7 @@ These rules apply to every step in this workflow:
    uv run {preflightHelper} "{project-root}" --allow-missing-sidecar --helpers "{skill-root}" > "{run_dir}/helpers.json"
    ```
 
-   It writes the same JSON object with a `helpers` map, `{<stem>: <absolute path or null>}`, one key for each `<stem>ProbeOrder` array in the stages' frontmatter; each stage binds its helpers from that file (its Rules). If the call exits non-zero, HARD HALT with **exit code 3 (resolution-failure)**: display "**Quick Skill cannot start: SKF helpers are missing.** {the `error` in `{run_dir}/helpers.json`, which names each missing helper, else its first stderr line, else: the preflight printed no JSON, so re-install SKF.}" Stage `{"phase": "on-activation", "halt_reason": "resolution-failure", "reason": "Quick Skill cannot start: SKF helpers are missing.", "skill_package": null, "details": {"cause": "helpers-missing", "missing": [<its helpers_missing, if any>]}}` as `{run_dir}/halt.json`, with `"details": {"cause": "preflight-error"}` when the file holds no JSON, and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
+   It writes the same JSON object with a `helpers` map, `{<stem>: <absolute path or null>}`, one key for each `<stem>ProbeOrder` array in the stages' frontmatter; each stage binds its helpers from that file (its Rules). If the call exits non-zero, HARD HALT with **exit code 3 (resolution-failure)**: display "**Quick Skill cannot start: SKF helpers are missing.** {the `error` in `{run_dir}/helpers.json`, which names each missing helper, else its first stderr line, else: the preflight printed no JSON, so re-install SKF.}" Stage `{"phase": "on-activation", "halt_reason": "resolution-failure", "reason": "Quick Skill cannot start: SKF helpers are missing.", "skill_package": null, "details": {"cause": "helpers-missing", "missing": [<its helpers_missing, if any>]}}` as `{run_dir}/halt.json`, with `"details": {"cause": "preflight-error"}` when the file holds no JSON, and emit it with the cancel-line rule's command (Workflow Rules).
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if step 1's preflight gave `derived.headless_mode` true (`headless_mode: true` in `{sidecar_path}/preferences.yaml`). Default: false.
 

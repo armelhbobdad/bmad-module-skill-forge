@@ -3,8 +3,9 @@
 
 The batch file grammar is tested against the Input format example of
 skf-quick-skill's references/batch-mode.md, and the summary file and the
-event lines against its schema block and event formats, so the helper and
-the page the agent reads cannot drift apart. Each subcommand runs in-process on a
+event lines against the schema block and event formats of the Quick Skill
+batch section of docs/workflows.md, which a caller reads (#1173), so the
+helper and the pages cannot drift apart. Each subcommand runs in-process on a
 temporary run folder; the outcome of a halted target is checked against
 the exit code the shared emitter gives the same staged halt.json, and a
 whole batch runs once through the script as a program.
@@ -36,6 +37,7 @@ SCRIPT = SCRIPTS / "skf-quick-batch.py"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 SCHEMA = SCRIPTS / "schemas" / "skf-quick-skill-result-envelope.v1.json"
 BATCH_MODE = REPO / "src" / "skf-quick-skill" / "references" / "batch-mode.md"
+DOCS = REPO / "docs" / "workflows.md"
 CREATE_REFS = REPO / "src" / "skf-create-skill" / "references"
 CREATE_SCHEMA = SCRIPTS / "schemas" / "skf-create-skill-result-envelope.v1.json"
 
@@ -448,7 +450,7 @@ def test_summarize_counts_and_takes_the_highest_failed_code(batch, capsys, tmp_p
 
 
 def test_a_batch_with_no_target_ends_at_once_as_a_success(tmp_path, capsys):
-    """batch-mode.md: an empty batch file is a success, targets_total 0 and exit code 0."""
+    """docs/workflows.md: an empty batch file is a success, targets_total 0 and exit code 0."""
     file = tmp_path / "empty.txt"
     file.write_text("# nothing to do\n\n", encoding="utf-8")
     run_dir = tmp_path / "skf-quick-skill-empty"
@@ -459,20 +461,27 @@ def test_a_batch_with_no_target_ends_at_once_as_a_success(tmp_path, capsys):
     assert (event["status"], event["targets_total"], event["succeeded"], event["failed"], event["exit_code"]) == (
         "success", 0, 0, 0, 0)
     assert json.loads(Path(event["summary_path"]).read_text(encoding="utf-8"))["results"] == []
-    rule = BATCH_MODE.read_text(encoding="utf-8").split("`status` resolves as:", 1)[1].split("\n", 1)[0]
+    summary = _docs_section("**Batch summary file.**", "**Batch events.**")
+    rule = summary.split("`status` resolves as:", 1)[1].split("\n", 1)[0]
     assert "a batch file with no target included (it ends at once, `targets_total` 0 and exit code `0`)" in rule
 
 
+def _docs_section(start: str, end: str) -> str:
+    """The text of docs/workflows.md from `start` to `end`, which follows it."""
+    return DOCS.read_text(encoding="utf-8").split(start, 1)[1].split(end, 1)[0]
+
+
 def _documented_summary() -> dict:
-    """The JSON block batch-mode.md's Batch summary contract shows as the schema."""
-    section = BATCH_MODE.read_text(encoding="utf-8").split("## Batch summary contract", 1)[1]
-    [block] = re.findall(r"^```json\n(.*?)^```$", section.split("## Headless events", 1)[0], flags=re.M | re.S)
+    """The JSON block the docs' Batch summary file paragraph shows as the schema."""
+    section = _docs_section("**Batch summary file.**", "**Batch events.**")
+    [block] = re.findall(r"^```json\n(.*?)^```$", section, flags=re.M | re.S)
     return json.loads(block)
 
 
 def _documented_status(failed: int, succeeded: int) -> list[str]:
-    """The statuses batch-mode.md's rule gives these counts, read from its `"<status>"` when `<test>` clauses."""
-    rule = BATCH_MODE.read_text(encoding="utf-8").split("`status` resolves as:", 1)[1].split("\n", 1)[0]
+    """The statuses the docs' rule gives these counts, read from its `"<status>"` when `<test>` clauses."""
+    summary = _docs_section("**Batch summary file.**", "**Batch events.**")
+    rule = summary.split("`status` resolves as:", 1)[1].split("\n", 1)[0]
     counts, ops = {"failed": failed, "succeeded": succeeded}, {"==": int.__eq__, ">": int.__gt__}
     matched = []
     for status, test in re.findall(r'`"([a-z]+)"` when `([^`]+)`', rule):
@@ -496,7 +505,7 @@ def test_the_status_is_the_one_the_documented_rule_gives(tmp_path, capsys, outco
 
 
 def test_the_summary_file_has_the_documented_keys(batch, capsys, tmp_path):
-    """The schema block of batch-mode.md and the record summarize writes keep one shape."""
+    """The docs' schema block and the record summarize writes keep one shape."""
     file, run_dir = batch
     _run(capsys, "start", str(file), "--run-dir", str(run_dir))
     _finish(run_dir, capsys, ["success", "resolution-failure", "success"])
@@ -630,7 +639,7 @@ def test_a_summary_that_cannot_be_written_keeps_the_batch_file(batch, capsys, tm
     assert code == 0 and event["summary_path"] is None
     assert event["warnings"][0].startswith("summary_write_failed:")
     assert (run_dir / "batch.jsonl").is_file(), "with no summary file, the batch file is the only record"
-    # #889: with summary_path null, the event and batch.jsonl are the batch's result (batch-mode.md §4)
+    # #889: with summary_path null, the event and batch.jsonl are the batch's result (docs/workflows.md)
     kept = mod.load(run_dir)
     assert kept["summary"]["summary_path"] is None and sorted(kept["results"]) == [1, 2, 3]
     # #904: the event names that batch file, and a batch summarized again prints the same event
@@ -646,7 +655,7 @@ def test_a_summary_that_cannot_be_written_keeps_the_batch_file(batch, capsys, tm
 
 
 def _documented_events() -> list[str]:
-    section = BATCH_MODE.read_text(encoding="utf-8").split("## Headless events", 1)[1].split("## Exit code", 1)[0]
+    section = _docs_section("**Batch events.**", "**Exception: `/skf-brief-skill`")
     return [line for block in re.findall(r"^```\n(.*?)^```$", section, flags=re.M | re.S)
             for line in block.splitlines()]
 
@@ -694,7 +703,7 @@ def test_the_null_summary_event_has_the_documented_keys(batch, capsys, tmp_path)
 def test_a_set_summary_path_beside_a_warning_is_documented(batch, capsys, tmp_path, monkeypatch, refused,
                                                            warning, meaning):
     """A -latest copy or a batch.jsonl summary line that could not be written leaves summary_path set and
-    adds a warning: batch-mode.md's Headless events show that event and name both warnings."""
+    adds a warning: the docs' Batch events show that event and name both warnings."""
     documented = {tuple(_keys(line)) for line in _documented_events()}
     file, run_dir = batch
     _run(capsys, "start", str(file), "--run-dir", str(run_dir))
@@ -720,7 +729,7 @@ def test_a_set_summary_path_beside_a_warning_is_documented(batch, capsys, tmp_pa
     assert len(event["warnings"]) == 1 and event["warnings"][0].startswith(f"{warning}:")
     assert "batch_file" not in event
     assert tuple(event) in documented, event
-    section = BATCH_MODE.read_text(encoding="utf-8").split("## Headless events", 1)[1].split("## Exit code", 1)[0]
+    section = _docs_section("**Batch events.**", "**Exception: `/skf-brief-skill`")
     assert meaning in section
     assert "The file `summary_path` names stays the batch's result." in section
 

@@ -1229,11 +1229,12 @@ def test_troubleshooting_explains_inventory_unreliable():
 
 
 def test_quick_skill_writes_the_error_result_only_beside_metadata():
-    """SKILL.md must not promise a `-latest.json` at the ownership halt, which writes nothing:
-    it promises none at all and leaves the rule to halt-contract.md, which states it once."""
-    text = _read("src/skf-quick-skill/SKILL.md")
-    assert "-latest.json" not in text
-    assert "| **Exit codes** | See `references/halt-contract.md`" in text
+    """SKILL.md and its contract must not promise a `-latest.json` at the ownership halt, which writes
+    nothing: they promise none at all and leave the rule to halt-contract.md, which states it once."""
+    contract = _read("src/skf-quick-skill/references/invocation-contract.md")
+    for text in (_read("src/skf-quick-skill/SKILL.md"), contract):
+        assert "-latest.json" not in text
+    assert "| **Exit codes** | See `references/halt-contract.md`" in contract
     assert "except the step 5 §1 ownership halt" in _read(QS_HALT_CONTRACT)
 
 

@@ -5,15 +5,16 @@ A HARD HALT must print the workflow's result envelope through the shared
 emitter, so a pipeline learns why the run stopped. A step file meets that in
 one of two ways:
 
-- the HALT carries the emit command inline (create-skill, quick-skill,
-  rename-skill and brief-skill write it at each HALT); or
+- the HALT carries the emit command inline (create-skill, rename-skill and
+  brief-skill write it at each HALT); or
 - the step states the emit command once, in a halt rule ("Halt envelope",
   "Halt procedure", "Halt Envelope", "Halts", a Rules bullet), and every HALT
   in it names that rule's inputs: its `halt_reason` and exit code, its status
   (update-skill) or its phase (setup). Drop's select.md and execute.md
   state theirs in a Halts section, its On Activation HALTs follow the Halt
   Envelope section of references/invocation-contract.md, and rename's
-  select.md and execute.md in their Halt procedure paragraphs. A reference
+  select.md and execute.md in their Halt procedure paragraphs; quick-skill's
+  stage files state theirs in a Rules bullet (#1173). A reference
   file a step loads takes that step's rule, and a step may name the file
   that holds the rule (export's references/result-envelope.md, campaign's
   references/campaign-contracts.md).

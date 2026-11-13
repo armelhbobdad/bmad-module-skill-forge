@@ -334,7 +334,7 @@ async function runTests() {
         'health-check.md',
       ],
       assets: ['skill-template.md'],
-      references: ['registry-resolution.md'],
+      references: ['invocation-contract.md'],
     },
     'create-stack-skill': {
       steps: [

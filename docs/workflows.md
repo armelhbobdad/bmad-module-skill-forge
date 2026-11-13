@@ -557,7 +557,53 @@ Setup is not the only workflow whose result line is the run's final message: a h
 
 4. **Success result contract.** A finished run prints one `SKF_QUICK_SKILL_RESULT_JSON: {…}` line on `stdout`. Its `summary` carries `quality_score` (the skill-check score of the written package, not a Test Skill score), `validation_issues`, `security_result` (the security scan's outcome: `pass` when Snyk Agent Scan analysed the package and reported no risk, `warn` when it reported risks, `skipped` when it did not run or could not finish its analysis, such as without `SNYK_TOKEN`), `repo_shape`, `language_resolution` and `active_pointer`, beside the top-level `headless_decisions` and `warnings`, such as `also_found_in` when a headless run kept the first registry's pick of a package name another registry also holds. The run also writes `quick-skill-result-latest.json` in the skill package.
 
-**Batch mode (`--batch <file>`).** Drives N targets in sequence: each target runs steps 1 to 6, and the health check runs once, after the batch summary. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Each target's output lands in its own `{skill_package}/`; an aggregated summary writes to `{skills_output_folder}/_batch/quick-skill-batch-{ts}.json` (with `quick-skill-batch-latest.json` copy). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. The batch's result is the file that event's `summary_path` names: the `-latest` copy holds the last batch summary written, which may be another batch's. The batch exits with the highest exit code among its failed targets (`0` when none failed); `--fail-fast` stops it at the first failed target and exits with that target's code. A batch refused before its first target writes no summary and exits `2`, `4` when its run folder cannot be written, or `3` when it stops as it starts, on a missing `uv` or `python3`, a config it cannot load or a missing helper, `skf-quick-batch.py` included. A batch whose helper cannot hand out or record a target, or cannot summarize the batch, stops with exit `4` and a `batch-mode` halt line and skips the health check; a `batch_summary` event it already printed stays its result. Full input grammar, summary schema, and exit-code rules in [`src/skf-quick-skill/references/batch-mode.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/references/batch-mode.md).
+**Batch mode (`--batch <file>`).** Drives N targets in sequence: each target runs steps 1 to 6, and the health check runs once, after the batch summary. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Each target's output lands in its own `{skill_package}/`; an aggregated summary writes to `quick-skill-batch-{ts}.json` and its `quick-skill-batch-latest.json` copy (**Batch summary file** below). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. The batch's result is the file that event's `summary_path` names: the `-latest` copy holds the last batch summary written, which may be another batch's. Without `--fail-fast` the batch runs every target, whatever an earlier target's outcome, and exits with the highest exit code among its failed targets (`0` when none failed); `--fail-fast` stops it at the first failed target and exits with that target's code. A batch refused before its first target writes no summary and exits `2`, `4` when its run folder cannot be written, or `3` when it stops as it starts, on a missing `uv` or `python3`, a config it cannot load or a missing helper, `skf-quick-batch.py` included. A batch whose helper cannot hand out or record a target, or cannot summarize the batch, stops with exit `4` and a `batch-mode` halt line and skips the health check; a `batch_summary` event it already printed stays its result. Full input grammar in [`src/skf-quick-skill/references/batch-mode.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/references/batch-mode.md).
+
+**Batch summary file.** When the batch ends, the batch helper (`skf-quick-batch.py summarize`) writes the batch summary to `quick-skill-batch-{YYYYMMDD-HHmmss}.json` in `batch_output_path` (default `{skills_output_folder}/_batch/`; a Quick Skill setting, see [Customizing a Workflow](#customizing-a-workflow)), with `-2`, `-3` and so on when another batch ended in the same second, and copies it to `quick-skill-batch-latest.json` there (a copy, not a symlink):
+
+```json
+{
+  "skill": "skf-quick-skill",
+  "mode": "batch",
+  "status": "success | partial | failed",
+  "timestamp": "<ISO 8601 UTC>",
+  "input_file": "<absolute path of the file passed to --batch>",
+  "targets_total": 0,
+  "succeeded": 0,
+  "failed": 0,
+  "fail_fast_triggered": false,
+  "exit_code": 0,
+  "results": [
+    {
+      "batch": 1,
+      "target": "<line from batch file>",
+      "status": "success | error",
+      "exit_code": 0,
+      "skill_package": "<absolute path or null>",
+      "error_code": null,
+      "quality_score": null
+    }
+  ]
+}
+```
+
+`status` resolves as: `"success"` when `failed == 0`, a batch file with no target included (it ends at once, `targets_total` 0 and exit code `0`); `"partial"` when `failed > 0 && succeeded > 0`; `"failed"` when `failed > 0 && succeeded == 0`. `fail_fast_triggered` is `true` only when `--fail-fast` aborted the loop early; `targets_total` then reflects the count actually attempted, not the file's line count. Each `results[]` entry is one target in file order: its `batch` number, its `exit_code` and `error_code` (the `halt_reason` of its halt envelope, null on success), and its `quality_score`, the skill-check score of its success envelope (null when it failed or skill-check did not run). Automators that branch on the single-target exit-code map read each target's own code in `results[]`.
+
+**Batch events.** Beside the per-step events above, the batch helper prints a target's `start` event when it hands the target out (`next`), its `done` or `fail` event when it records the outcome (`record`) and one final `batch_summary` event (`summarize`), on stderr (`<n>` is the target's 1-based place in the parsed list, and `{batch_dir}` the batch's run folder, `_bmad-output/.skf-run/skf-quick-skill-*`):
+
+```
+{"batch":<n>,"target":"<target>","status":"start"}
+{"batch":<n>,"target":"<target>","status":"done","exit":0}
+{"batch":<n>,"target":"<target>","status":"fail","exit":<code>,"error_code":"<class>"}
+```
+
+```
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>"}
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":null,"warnings":["summary_write_failed: <dir>: <reason>"],"batch_file":"<path>"}
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>","warnings":["<summary_write_failed or batch_file_write_failed>: <dir>: <reason>"]}
+```
+
+When the per-batch summary file cannot be written, `summary_path` is null and `batch_file` names `{batch_dir}/batch.jsonl`, which then holds the batch's result. When `summary_path` is set and the event still carries `warnings`, a later write failed: `summary_write_failed` means only the `-latest` copy failed, and `batch_file_write_failed` that only the summary line could not be added to `{batch_dir}/batch.jsonl`. The file `summary_path` names stays the batch's result.
 
 **Exception: `/skf-brief-skill` headless emits a final result envelope and supports presets.** Headless `/skf-brief-skill` is a first-class building block for scripted brief generation (for example, seeding briefs for N SaaS SDKs that share scope and authority defaults). Three operational contracts go beyond per-gate auto-proceed:
 

@@ -23,33 +23,36 @@ pinned where each file states them.
 
 resolve-target.md hands every target to skf-resolve-package.py parse-target
 through a quoted heredoc, which runs here through bash with a target that
-holds quotes, backticks and `$`. Every example the step and the registry data
-list goes through the parser, every kind and status the script returns has a
-branch, each route names the skill after the script's skill_name, and the
-ambiguous-name gate, the language hint and the tag check through
-skf-github-probe.py are pinned where the step states them.
+holds quotes, backticks and `$`. Every example the step lists goes through
+the parser, every kind and status the script returns has a branch, each
+route names the skill after the script's skill_name, and the ambiguous-name
+gate, the language hint, the web search for a name no registry resolves and
+the tag check through skf-github-probe.py are pinned where the step states
+them.
 
 Every HARD HALT in SKILL.md and the stage files stages its payload and runs
-the shared emitter inline: each payload, filled in, builds an envelope the
+the shared emitter: inline, or through the standard command its file's
+Rules state once (#1173): each payload, filled in, builds an envelope the
 skf-quick-skill schema accepts with the exit code the halt names, and no
 halt is left without a code. Each headless gate records its auto-decision
-under a gate name the schema lists, finalize's success payload builds a
-valid envelope with the summary the schema defines (step 5's validation
-counts in the schema's shape), and under --batch every target's end (step 6,
-and every halt through its stage's Rules) returns to batch-mode.md, which
-runs the health check once. The one halt that emits nothing is activation's
-check for python3 and uv, which the emitter itself needs.
+under a gate name the schema lists, through the record command its file's
+Rules state, finalize's success payload builds a valid envelope with the
+summary the schema defines (step 5's validation counts in the schema's
+shape), and under --batch every target's end (step 6, and every halt
+through its stage's Rules) returns to batch-mode.md, which runs the health
+check once. The one halt that emits nothing is activation's check for
+python3 and uv, which the emitter itself needs.
 
 customize.toml offers only settings a step reads: each path scalar ships the
 default SKILL.md binds, the template comment names the headings the validator
 and the snippet anchors need, and the hook comments say when SKILL.md runs
 them. The ecosystem check makes no web search while agentskills.io has no
-registry API, and keeps its slug, gate and exit 8. A missing resolver or
-language detector halts instead of being worked out by hand, and so does
-every other shipped helper a step runs (the GitHub fetch helper, the
-skills-module helper, the public-API extractor, the atomic writer and the
-two validators): no file is fetched, parsed, copied or left unchecked by
-hand (#599).
+registry API, and keeps its slug; exit 8 and its gate stay reserved. A
+missing resolver or language detector halts instead of being worked out by
+hand, and so does every other shipped helper a step runs (the GitHub fetch
+helper, the skills-module helper, the public-API extractor, the atomic
+writer and the two validators): no file is fetched, parsed, copied or left
+unchecked by hand (#599).
 
 Step 5 takes the validation verdict from skill-check's JSON, not its exit
 code (#885), runs skill-check with --no-security-scan and reads the security
@@ -57,6 +60,14 @@ scan as skipped, warn or pass from the JSON skf-security-scan.py prints,
 since skill-check 1.2.0 passes none of the scanner's findings on (#892). It
 tells a `--fix` rewrite from SKILL.md's hash before and after the call, since
 skill-check 1.2.0's JSON lists no fix (#901).
+
+A run loads no text it never acts on (#1173): each stage file states the
+standard emit-halt and record commands once, in its Rules; step 2 only
+passes through; halt-contract.md's exit-code table keeps Code and Meaning;
+the caller contract lives in references/invocation-contract.md and the batch
+summary schema, status rule and events in docs/workflows.md; the stages name
+only the helper fields they read; and resolve-target §3 holds the web search
+registry-resolution.md held.
 """
 
 from __future__ import annotations
@@ -83,7 +94,8 @@ SKILL = QS / "SKILL.md"
 BATCH_MODE = QS / "references" / "batch-mode.md"
 HALT_CONTRACT = QS / "references" / "halt-contract.md"
 RESOLVE_TARGET = QS / "references" / "resolve-target.md"
-REGISTRY_RESOLUTION = QS / "references" / "registry-resolution.md"
+INVOCATION_CONTRACT = QS / "references" / "invocation-contract.md"
+DOCS = REPO / "docs" / "workflows.md"
 FINALIZE = QS / "references" / "finalize.md"
 HEALTH_CHECK = QS / "references" / "health-check.md"
 RESOLVER = REPO / "src" / "shared" / "scripts" / "skf-resolve-package.py"
@@ -102,6 +114,13 @@ def _section(text: str, start: str, end: str) -> str:
     tail = text.find(end, head + len(start))
     assert tail != -1, f"expected {end!r} after {start!r}"
     return text[head:tail]
+
+
+def _paragraph(text: str, start: str) -> str:
+    """The one blank-line-separated paragraph of `text` that opens with `start`."""
+    found = [p for p in text.split("\n\n") if p.startswith(start)]
+    assert len(found) == 1, f"expected one paragraph opening {start!r}, found {len(found)}"
+    return found[0]
 
 
 def _bash_block(text: str, needle: str) -> str:
@@ -669,10 +688,15 @@ def test_skills_module_is_a_shape_with_no_gate():
                    "record `repo_shape: skills-module` and `skills_root`",
                    "A library with a manifest and one `skill/SKILL.md` stays a library"):
         assert phrase in item, phrase
-    # The rule itself lives in the helper; the step reads its answer.
-    for phrase in ("a folder that directly holds `module.yaml` or `module-help.csv`", "when `scope_hint` is set",
-                   "Read its answer; do not re-derive it from the listing."):
-        assert phrase in sniff, phrase
+    # The rule itself lives in the helper; the step reads its answer and names only the fields it reads (#1173).
+    assert "Read its answer; do not re-derive it from the listing." in sniff
+    assert "this section reads its `root_files` (the files at the repository root), `skills_module` and `skills_root`" \
+        in sniff
+    doc = " ".join(_load(SKILLS_MODULE, "skf_skills_module_for_rules").__doc__.split())
+    for rule in ("A skill folder holds its own SKILL.md.", "A module root is a folder that directly holds module.yaml "
+                 "or module-help.csv and sits in no skill folder", "With --scope-hint, that folder is the only "
+                 "candidate", "a candidate counts only when it is a module root or the root ships no code"):
+        assert rule in doc, rule
     assert "**If an awesome-list, docs-site or examples-only shape is detected**" in sniff
     assert "**If a non-library shape is detected**" not in sniff
 
@@ -682,6 +706,10 @@ def test_a_library_run_with_no_exports_names_the_scope_to_rerun_with():
     rule = _section(inventory, "- If the sniff's `suggested_scope` is set", "\n")
     assert "re-run with `--scope-hint {suggested_scope}` (a batch line's `scope={suggested_scope}`)" in rule
     assert "to document them as a skills module." in rule
+    # How the helper picks the folder is its own rule (#1173).
+    assert "The helper names" not in rule
+    doc = " ".join(_load(SKILLS_MODULE, "skf_skills_module_for_scope").__doc__.split())
+    assert "(the module root with the most skill folders, else the folder with the most)" in doc
 
 
 def test_skills_module_exports_are_skill_names_then_menu_codes():
@@ -708,9 +736,13 @@ def test_extractor_warnings_send_section_3_after_the_module_they_name():
     """W3 handoff: a warning names a statement whose names the entry file alone cannot give."""
     parse = _section(_read(QUICK_EXTRACT), "### 3. Parse Manifest and Scan Exports", "### 4. ")
     [warnings] = [line for line in parse.splitlines() if line.startswith("- `warnings[]`")]
-    for form in ("`export * from`", "a star import from the package", "an `__all__` built from another module",
-                 "`pub use x::*`", "`module.exports = require(...)`", "an anonymous or conditional export"):
-        assert form in warnings, form
+    assert "the paragraph below and §5 read them" in warnings
+    # The forms the extractor warns about are its own to list (#1173): the step reads its warnings.
+    doc = " ".join(_load(EXTRACTOR, "skf_extract_public_api_for_warnings").__doc__.split())
+    for form in ("Warned: `export * from`, `module.exports = require(...)`", "a star import from the package is warned",
+                 "a part that is no literal (another module's `__all__`) is warned", "a glob `pub use x::*` is warned",
+                 "an `export default` that is anonymous or an expression"):
+        assert form in doc, form
     [unlisted] = [line for line in parse.splitlines() if line.startswith("- `unlisted[]`")]
     assert "`{file, line, statement, specifier, module_file}`" in unlisted
     act = _section(parse, "**Read the statements `unlisted[]` still names**", "\n\n")
@@ -782,22 +814,20 @@ SINGLE_TARGET_FLAGS = ("`--language-hint`, `--scope-hint`, `--description` and `
 
 def test_the_hint_flags_are_parsed_at_activation():
     skill = _read(SKILL)
+    contract = _read(INVOCATION_CONTRACT)
     for flag, hint in (("--language-hint <lang>", "language_hint"), ("--scope-hint <path>", "scope_hint")):
         [row] = [line for line in skill.splitlines() if line.startswith(f"   | `{flag}` |")]
         assert f"Sets `{hint}`" in row and "batch mode refuses" not in row
-        assert f"{hint} [optional, `{flag.split()[0]}`]" in skill
+        assert f"{hint} [optional, `{flag.split()[0]}`]" in contract
     assert skill.count(SINGLE_TARGET_FLAGS) == 1
-    [overrides] = [line for line in skill.splitlines() if line.startswith("| **Overrides** |")]
-    assert "`--language-hint`, `--scope-hint`" in overrides
+    [overrides] = [line for line in contract.splitlines() if line.startswith("| **Overrides** |")]
+    assert "`--language-hint`, `--scope-hint`" in overrides and "see SKILL.md On Activation step 4" in overrides
     accept = _section(_read(RESOLVE_TARGET), "### 1. Accept User Input", "### 1b. ")
     assert ("when the invocation carried a target, take it, with `--language-hint` as `language_hint` and "
             "`--scope-hint` as `scope_hint` when they were passed") in accept
     assert "without the prompt below, in either mode" in accept
     before = _section(_read(BATCH_MODE), "## Before the Batch Starts", "## Input format")
     assert "`--language-hint` and `--scope-hint` are single-target flags too" in before
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
-    assert "`--language-hint` or `--scope-hint` passed with `--batch`" in row
     # No step points at a flag activation does not parse.
     for path in HALT_FILES:
         for flag in re.findall(r"`(--[a-z-]+)", _read(path)):
@@ -814,7 +844,7 @@ def test_the_multi_language_gate_offers_every_language():
     assert "set `language` to that entry of `detected_languages`" in pick
     assert 'set `language_resolution: "user-confirmed"`' in pick
     assert "abort and re-run" not in gate
-    [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
+    [gates] = [line for line in _read(INVOCATION_CONTRACT).splitlines() if line.startswith("| **Gates** |")]
     assert "multi-language disambiguation [C/n/A]" in gates
 
 
@@ -855,11 +885,14 @@ def test_the_halt_contract_has_the_input_invalid_code():
     text = _read(HALT_CONTRACT)
     codes = _section(text, "## Exit Codes", "## Result Contract")
     [row] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
-    for needle in ("input-invalid", "batch mode, before any target runs", "`--description`", "`--exports`",
-                   "`--batch`", "`skf-quick-batch.py` missing", "step 1 §1 (a headless run with no target)"):
-        assert needle in row, needle
+    assert row.split("|")[2].strip() == "input-invalid"
+    # #1173: each halt says what raises it at its site; the table keeps Code and Meaning.
+    raised = sorted((name, _filled(_staged(segment, "halt.json"))["phase"])
+                    for name, code, _, segment in _halt_sites() if code == 2)
+    assert raised == [("batch-mode.md", "batch-mode"), ("batch-mode.md", "on-activation"),
+                      ("resolve-target.md", "resolve-target")]
     [row4] = [line for line in codes.splitlines() if line.startswith("| 4 ")]
-    assert "batch mode §1 (the batch run folder cannot be written)" in row4
+    assert row4.split("|")[2].strip() == "write-failure"
     # The envelope's fields moved from a table here to the JSON Schema.
     schema = json.loads(_read(ENVELOPE_SCHEMA))
     assert "input-invalid" in schema["properties"]["halt_reason"]["enum"]
@@ -900,10 +933,14 @@ def test_no_file_applies_the_two_flags_to_every_target():
     [row] = [line for line in skill.splitlines() if line.startswith("   | `--batch <file>`")]
     assert "`--skip-snippet` and `--no-active-pointer` apply to every target in the batch" in row
     assert "`--description` and `--exports` are single-target overrides" in batch
-    exit_code = batch[batch.index("## Exit code"):]
-    assert ("A batch refused before its first target writes no batch summary. It exits with code `2` when "
-            "`--description` or `--exports` was passed with `--batch`") in exit_code
-    assert "and with code `4` when §1 cannot write the batch run folder" in exit_code
+    # #1173: the refusals say their exit code and that no summary is written where they halt.
+    before = _section(batch, "## Before the Batch Starts", "## Input format")
+    assert "HARD HALT with **exit code 2 (input-invalid)** before any target runs" in before
+    assert "no batch summary is written" in before
+    start = _section(batch, "### 1. Start the Batch", "### 2. ")
+    assert "no target runs and no batch summary is written" in start
+    [write] = [line for line in start.splitlines() if line.startswith("- **`write-failure`**")]
+    assert "(the batch run folder cannot be written" in write and "**exit code 4 (write-failure)**" in write
 
 
 # --------------------------------------------------------------------------
@@ -968,22 +1005,23 @@ def test_the_redirect_examples_parse_as_their_kind():
         assert parse(example)["kind"] in ("github", "package"), example
 
 
-def test_the_registry_data_holds_only_the_web_search():
+def test_the_fallthrough_branch_holds_only_the_web_search():
     """#599: the resolver owns the target shapes and the registry chain, so the step never
-    works them out by hand; registry-resolution.md keeps the judgment the script leaves out."""
-    data = _read(REGISTRY_RESOLUTION)
-    for heading in ("## Search", "## Pick the Repository", "## Result"):
-        assert heading in data, heading
-    assert '`"{package_name} github repository"`' in data and "at most 15 seconds" in data
-    for stale in ("registry.npmjs.org", "pypi.org/pypi", "crates.io/api", "Target Shapes", "Fallback Chain",
-                  "by hand"):
-        assert stale not in data, stale
-    frontmatter = _read(RESOLVE_TARGET).split("---\n", 2)[1]
-    assert "registryResolutionData: 'references/registry-resolution.md'\n" in frontmatter
+    works them out by hand; the fallthrough branch keeps the judgment the script leaves out,
+    the web search registry-resolution.md held until #1173."""
     registry = _step("### 3. Registry Resolution", "### 3a. ")
     [fallthrough] = [line for line in registry.splitlines() if line.startswith('- **On `status: "fallthrough"`**')]
-    assert "Load {registryResolutionData} and run its web search for `{package_name}`." in fallthrough
-    assert "§4" not in fallthrough, "the fallback is named by its file, not by a section number"
+    for needle in ('Search the web for `"{package_name} github repository"`, spending at most 15 seconds, and read '
+                   "the top results for a `github.com/<owner>/<repo>` URL.",
+                   "Take a URL only when that repository is the package's source",
+                   "(`uber-go/zap` for `go.uber.org/zap`, `google/guava` for `com.google.guava:guava`)",
+                   "keep a `/tree/<ref>/<folder>` URL whole when the package is one folder of a larger repository.",
+                   "If web search also finds no such URL in those 15 seconds, HARD HALT below."):
+        assert needle in fallthrough, needle
+    for stale in ("registry.npmjs.org", "pypi.org/pypi", "crates.io/api", "by hand", "{registryResolutionData}"):
+        assert stale not in fallthrough, stale
+    assert "registryResolutionData" not in _read(RESOLVE_TARGET).split("---\n", 2)[1]
+    assert "`src/skf-quick-skill/references/resolve-target.md` §3" in _resolver().__doc__
     # The Go and Maven examples it names parse as the kinds that reach the search.
     parse = _resolver().parse_target
     assert parse("go.uber.org/zap")["kind"] == "other-host"
@@ -1011,9 +1049,6 @@ def test_a_missing_helper_halts_instead_of_a_hand_walk():
                    '"details": {"cause": "<detect-language-missing, or detect-language-error after a call that '
                    'printed no JSON>"}'):
         assert needle in delegate, needle
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    assert "package resolver missing or failing §1b" in row3 and "language detector missing or failing" in row3
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's heredoc through a POSIX shell")
@@ -1138,14 +1173,19 @@ def test_the_tag_check_reads_the_github_probe_listing():
         assert needle in unavailable, needle
 
 
-def test_the_contract_lists_the_new_step_1_halts():
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    assert "version tag missing or not checkable §3a" in row3
-    assert "ambiguous" not in row3, "a headless run keeps the first registry's pick of an ambiguous name"
-    [row6] = [line for line in codes.splitlines() if line.startswith("| 6 ")]
-    assert "§3 ([X] at the ambiguous-name gate)" in row6
-    [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
+def test_the_new_step_1_halts_name_their_codes():
+    """#1173: the halt sites, not a Raised by column, say what each step 1 halt raises."""
+    check = _step("### 3a. Verify Target Version Tag", "### 4. ")
+    tag_halts = [(code, reason) for name, code, reason, segment in _halt_sites()
+                 if name == "resolve-target.md" and segment in check]
+    assert tag_halts == [(3, "resolution-failure"), (3, "resolution-failure")]
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    gate = registry[registry.index("**Ambiguous-name gate**"):registry.index("**If all methods fail")]
+    [cancel] = [line for line in gate.splitlines() if line.startswith("- **IF X**")]
+    assert "HARD HALT with **exit code 6 (user-cancelled)**" in cancel
+    [headless] = [line for line in gate.splitlines() if line.startswith("- **GATE [default: C]**")]
+    assert "HARD HALT" not in headless, "a headless run keeps the first registry's pick of an ambiguous name"
+    [gates] = [line for line in _read(INVOCATION_CONTRACT).splitlines() if line.startswith("| **Gates** |")]
     assert "ambiguous package name [C/n/U/X]" in gates and "headless keeps the first registry's pick" in gates
 
 
@@ -1168,6 +1208,11 @@ STEP_1 = "1. **Check the runtime, then load the config and the helpers.**"
 HALT_RE = re.compile(r"HARD HALT(?:(?: the workflow)? with \*\*exit code (\d+) \(([a-z-]+)\)\*\*"
                      r"| \(exit code (\d+), ([a-z-]+)\))")
 EMIT_HALT = 'emit-halt --workflow skf-quick-skill'
+# The standard commands a site that names none of its own takes from its file's Rules (#1173).
+EMIT_COMMAND = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" '
+                '--target stderr < "{run_dir}/halt.json"')
+RECORD_COMMAND = ('uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" '
+                  '--decision < "{run_dir}/decision.json"')
 HALT_FILES = [SKILL, *sorted(p for p in (QS / "references").glob("*.md") if p.name != "halt-contract.md")]
 # The phase a halt in each file names. batch-mode.md refuses --description and
 # --exports for SKILL.md On Activation step 5, before the batch starts.
@@ -1191,6 +1236,13 @@ def _halt_sites() -> list[tuple[str, int, str, str]]:
             code = int(m.group(1) or m.group(3))
             sites.append((path.name, code, m.group(2) or m.group(4), text[m.start():end]))
     return sites
+
+
+def _rules(name: str) -> str:
+    """The rules every site of a HALT_FILES file follows: SKILL.md's Workflow Rules, a stage's ## Rules."""
+    if name == "SKILL.md":
+        return _section(_read(SKILL), "## Workflow Rules", "## Stages")
+    return _section(_read(QS / "references" / name), "## Rules\n", "## Steps")
 
 
 def _staged(segment: str, name: str) -> str:
@@ -1227,10 +1279,10 @@ def test_the_scan_finds_every_hard_halt():
     # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599), and
     # write-and-validate.md the one for a missing validation summarizer (#1120).
     # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
-    assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
-                        "finalize.md": 1, "quick-extract.md": 5, "resolve-target.md": 12,
-                        "write-and-validate.md": 7}
-    assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
+    # ecosystem-check.md lost its two, which no input reached until agentskills.io has a registry API (#1173).
+    assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 1, "finalize.md": 1,
+                        "quick-extract.md": 5, "resolve-target.md": 12, "write-and-validate.md": 7}
+    assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES) - {"ecosystem-check.md"}
 
 
 def _runtime_halt(segment: str) -> bool:
@@ -1251,13 +1303,10 @@ def test_a_missing_runtime_halts_before_the_run_folder():
     [site] = [s for s in _halt_sites() if s[0] == "SKILL.md" and _runtime_halt(s[3])]
     assert site[1:3] == (3, "resolution-failure")
     assert EMIT_HALT not in site[3][:site[3].index("Then resolve `{emitEnvelopeHelper}`")]
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    assert row3.split("|")[3].strip().startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing, ")
     assert ("except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs"
             in _read(HALT_CONTRACT))
-    [exit_row] = [line for line in text.splitlines() if line.startswith("| **Exit codes** |")]
-    assert "except On Activation step 1's check for `python3` and `uv`, which prints none" in exit_row
+    [exit_row] = [line for line in _read(INVOCATION_CONTRACT).splitlines() if line.startswith("| **Exit codes** |")]
+    assert "except SKILL.md On Activation step 1's check for `python3` and `uv`, which prints none" in exit_row
 
 
 def test_no_stage_halts_without_an_exit_code():
@@ -1270,17 +1319,26 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(39), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(37), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
-    """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
-    except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
+    """#593: each HARD HALT runs the emitter, and its payload builds the envelope it names, except the runtime
+    halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder). #1173: a site that
+    names no command of its own stages `{run_dir}/halt.json` for the standard command its file's Rules state."""
     sites = _halt_sites()
-    assert len(sites) == 39
+    assert len(sites) == 37
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
         return
-    assert EMIT_HALT in segment and "--target stderr" in segment, (name, reason)
+    if EMIT_HALT in segment:
+        assert "--target stderr" in segment, (name, reason)
+    else:
+        assert f"`{EMIT_COMMAND}`" in _rules(name), (name, reason)
+        assert re.search(r"[Ss]tage `\{.*?\}` as `\{run_dir\}/halt\.json`", segment), (name, reason)
+        if name == "SKILL.md":
+            # SKILL.md's Workflow Rules hold the command only in the cancel-line bullet, with no rule that a
+            # staged halt runs it, so a SKILL.md site names that bullet's command itself.
+            assert "emit it with the cancel-line rule's command (Workflow Rules)" in segment, reason
     payload = _filled(_staged(segment, "halt.json"))
     expected = {"not-skf-output", "flat-layout"} if code == 9 else {reason}
     if payload["halt_reason"].startswith("<"):
@@ -1339,22 +1397,22 @@ def test_a_missing_shipped_helper_halts_instead_of_a_fallback(name, placeholder,
     resolve = before[before.rindex(f"`{placeholder}`"):]
     assert re.search(r"Resolve (?:\*\*)?`" + re.escape(placeholder) + "`", before), placeholder
     assert "first existing path" in resolve, resolve[:200]
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    assert f"`{script}`" in row3
 
 
-def test_the_helper_halts_follow_the_runtime_halt_in_the_contract():
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    raised_by = row3.split("|")[3].strip()
-    assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing, a config `skf-preflight.py` "
-                                "cannot load, or a helper of any stage missing, `details.cause` `helpers-missing`); "
-                                "a shipped helper missing, "
-                                "named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, "
-                                "`skf-skills-module.py` §1, `skf-extract-public-api.py` §2; step 5: "
-                                "`skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is "
-                                "unavailable, `skf-validate-output.py` §5, `skf-summarize-validation.py` §6)")
+def test_the_activation_halts_name_their_codes_in_order():
+    """#1173: the halt sites, not a Raised by column, say what SKILL.md On Activation step 1 raises: exit 3 for a
+    missing runtime and a config the preflight cannot load, exit 4 for the run folder, exit 3 for a missing
+    helper of any stage."""
+    step1 = _section(_read(SKILL), STEP_1, "\n2. ")
+    activation = [(code, reason, segment) for name, code, reason, segment in _halt_sites()
+                  if name == "SKILL.md" and segment[:200] in step1]
+    expected = [(3, "**Quick Skill needs `{the missing tool}`"), (3, "**Quick Skill cannot load its config.**"),
+                (4, "**Quick Skill cannot start: the run folder could not be created.**"),
+                (3, "**Quick Skill cannot start: SKF helpers are missing.**")]
+    assert [code for code, _, _ in activation] == [code for code, _ in expected]
+    for (_, reason, segment), (code, message) in zip(activation, expected):
+        assert reason == ("write-failure" if code == 4 else "resolution-failure")
+        assert segment.index(message) < 120, message
 
 
 def test_the_output_validator_runs_through_uv():
@@ -1477,15 +1535,13 @@ def test_a_missing_batch_helper_stops_at_activation_with_exit_3():
     """#1117 review 1: `skf-quick-batch.py` is in the activation's helpers map, so a run that starts
     without it stops at SKILL.md On Activation step 1 with exit 3; batch mode's exit 2 stays only for
     a batch helper gone after activation."""
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row2] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
-    assert ("`skf-quick-batch.py` missing after activation, since a run that starts without it stops at SKILL.md "
-            "On Activation step 1 with exit `3`, `helpers-missing`)") in row2
-    exit_code = _read(BATCH_MODE)[_read(BATCH_MODE).index("## Exit code"):]
-    assert "§1 cannot read the batch file or `skf-quick-batch.py` has gone missing since activation" in exit_code
-    assert ("A run that starts without `skf-quick-batch.py` stops at SKILL.md On Activation step 1 with code `3` "
-            "(`helpers-missing`), before this file loads.") in exit_code
-    assert "or `skf-quick-batch.py` is missing, and with code `4`" not in exit_code
+    start = _section(_read(BATCH_MODE), "### 1. Start the Batch", "### 2. ")
+    [refused] = [line for line in start.splitlines() if line.startswith("- **`input-invalid`**")]
+    assert ("or no path in `{quickBatchProbeOrder}` exists (an incomplete install): HARD HALT with **exit code 2 "
+            "(input-invalid)**") in refused
+    batch = _paragraph(_read(DOCS), "**Batch mode (`--batch <file>`).**")
+    assert ("or `3` when it stops as it starts, on a missing `uv` or `python3`, a config it cannot load or a missing "
+            "helper, `skf-quick-batch.py` included") in batch
     assert "quickBatch" in _probe_stems()["batch-mode.md"]
 
 
@@ -1515,6 +1571,10 @@ def test_a_missing_helper_halts_at_activation_with_exit_3(tmp_path):
     assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**")
     assert '`"details": {"cause": "preflight-error"}` when the file holds no JSON' in site
     assert "{the `error` in `{run_dir}/helpers.json`, which names each missing helper" in site
+    # #1173: the cancel-line rule states the command once; this halt names it instead of restating it.
+    assert "and emit it with the cancel-line rule's command (Workflow Rules)." in site and EMIT_HALT not in site
+    [cancel] = [line for line in _rules("SKILL.md").splitlines() if line.startswith("- **Universal cancel-line")]
+    assert f"`{EMIT_COMMAND}`" in cancel
     payload = _filled(_staged(site, "halt.json"))
     assert payload == {"phase": "on-activation", "halt_reason": "resolution-failure",
                        "reason": "Quick Skill cannot start: SKF helpers are missing.", "skill_package": None,
@@ -1579,6 +1639,9 @@ def test_the_halt_contract_defines_the_payload_and_the_batch_rule():
     assert block.endswith('uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" '
                           '--target stderr < "{run_dir}/halt.json"\n')
     assert "`shared/scripts/schemas/skf-quick-skill-result-envelope.v1.json`" in text
+    # A halt whose emitter fails twice, or has no path, still shows its message (#1173's matrix: a Rules-command site).
+    assert ("If it exits non-zero, fix `halt.json` once (its `message` names the problem) and run it again; if it "
+            "still fails, or no path resolved for `{emitEnvelopeHelper}`, display the halt message alone.") in text
     batch = text[text.index("## In `--batch`"):]
     for needle in ("ends the current target, not the batch", "return to `references/batch-mode.md` §3",
                    "control returns there even when the halt message reads as the end of the run",
@@ -1617,8 +1680,13 @@ def test_the_exit_code_table_is_the_schemas():
 GATE_RE = re.compile(r"\*\*GATE \[default: ([A-Z])\]\*\*")
 
 
+# Gates the schema keeps for a step that raises none yet (#1173).
+RESERVED_GATES = {"ecosystem-check.ecosystem-match"}
+
+
 def test_every_headless_gate_records_its_decision():
-    """SKILL.md's rule: a gate that resolves on its own records the decision the moment it decides."""
+    """SKILL.md's rule: a gate that resolves on its own records the decision the moment it decides. #1173: the
+    gate stages `{run_dir}/decision.json` and its file's Rules run the standard record command on it."""
     schema = _schema()
     item = schema["properties"]["headless_decisions"]["items"]
     emitter = _emitter()
@@ -1628,14 +1696,17 @@ def test_every_headless_gate_records_its_decision():
         for m in GATE_RE.finditer(text):
             line = text[m.start():text.index("\n", m.start())]
             decision = _filled(_staged(line, "decision.json"))
-            assert 'record --workflow skf-quick-skill --run-dir "{run_dir}" --decision' in line, path.name
+            assert "record --workflow" not in line, (path.name, "the Rules state the command once")
+            assert f"`{RECORD_COMMAND}`" in _rules(path.name), path.name
             assert decision["default_action"] == decision["taken_action"] == m.group(1), path.name
             assert emitter._validate_against_schema(decision, item) == [], decision
             recorded.append((decision["gate"], m.group(1)))
     # The overwrite gate has two defaults: Y over a quick skill, N over another generator's build.
-    assert sorted({gate for gate, _ in recorded}) == sorted(item["properties"]["gate"]["enum"])
+    gates = set(item["properties"]["gate"]["enum"])
+    assert RESERVED_GATES < gates and "reserved" in item["properties"]["gate"]["description"]
+    assert sorted({gate for gate, _ in recorded}) == sorted(gates - RESERVED_GATES)
     assert sorted(default for gate, default in recorded if gate == "write-and-validate.overwrite") == ["N", "Y"]
-    assert len(recorded) == len(item["properties"]["gate"]["enum"]) + 1
+    assert len(recorded) == len(gates - RESERVED_GATES) + 1
     rules = _section(_read(SKILL), "## Workflow Rules", "## Stages")
     assert 'record --workflow skf-quick-skill --run-dir "{run_dir}" --decision' in rules
     assert "log each auto-decision" not in rules
@@ -1843,7 +1914,7 @@ def test_every_target_of_a_batch_returns_to_batch_mode():
                    "Control returns here even when the step that ended the target reads as the end of the run",
                    "uv run {quickBatchHelper} record --run-dir \"{batch_dir}\" --batch {batch}"):
         assert needle in record, needle
-    summary = _section(batch, "### 4. Batch Summary", "## Batch summary contract")
+    summary = batch[batch.index("### 4. Batch Summary"):]
     assert "execute `{healthCheckStepFile}`: the health check runs once per batch, here" in summary
     # #1113: a batch target binds no result line, so a line an earlier workflow of the session bound is cleared first.
     empty = "Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow"
@@ -1857,7 +1928,7 @@ def test_every_target_of_a_batch_returns_to_batch_mode():
     assert "return to `references/batch-mode.md` §3 instead of {nextStepFile}" in chain
     assert "control returns there even though this step reads as the end of the run" in chain
     assert "runs once per batch" in _read(HEALTH_CHECK)
-    execution = _section(batch, "## Execution", "## Batch summary contract")
+    execution = batch[batch.index("## Execution"):]
     for stale in ("After step 7 completes", "exit the batch loop immediately", "batch result list"):
         assert stale not in batch, stale
     assert "Nothing else carries over from the previous target" in execution
@@ -1874,8 +1945,8 @@ def test_the_batch_survives_a_compaction_and_the_helper_prints_its_events():
     [record] = [line for line in take.splitlines() if line.startswith('- **`"status": "record"`**')]
     assert "go to §3 with that `batch`, never running it again" in record
     for step, command in (("### 3. Record the Target", " record "), ("### 4. Batch Summary", " summarize ")):
-        block = _bash_block(_section(batch, step, "\n### " if step.startswith("### 3") else "## Batch summary"),
-                            command)
+        section = _section(batch, step, "\n### ") if step.startswith("### 3") else batch[batch.index(step):]
+        block = _bash_block(section, command)
         assert block.rstrip("\n").endswith(" --target stderr"), step
     for line in ("prints the target's `done` or `fail` event on stderr: display it verbatim",
                  "prints the `batch_summary` event on stderr: display it verbatim"):
@@ -1900,7 +1971,7 @@ def test_a_failing_batch_helper_call_halts_the_batch():
     sections = {
         "next": _section(batch, "### 2. Take the Next Target", "### 3. "),
         "record": _section(batch, "### 3. Record the Target", "### 4. "),
-        "summarize": _section(batch, "### 4. Batch Summary", "## Batch summary contract"),
+        "summarize": batch[batch.index("### 4. Batch Summary"):],
     }
     sites = [site for site in _halt_sites() if site[0] == "batch-mode.md"]
     opener = "uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'"
@@ -1935,15 +2006,10 @@ def test_a_failing_batch_helper_call_halts_the_batch():
     summary = sections["summarize"]
     assert ("If `summarize` exits non-zero (a target is still pending, or the batch file is gone or unreadable), it "
             "wrote no summary file") in summary
-    assert (summary.index("The batch ends with the event's `exit_code`.") < summary.index("HARD HALT with **exit")
-            < summary.index("\n**Reading a batch.**"))
+    assert summary.index("The batch ends with the event's `exit_code`.") < summary.index("HARD HALT with **exit")
     assert ("When an earlier `summarize` already printed the `batch_summary` event (a compaction came before the "
-            "health check), that event stays the batch's result") in summary
+            "health check), that event stays the batch's result. Emit") in summary
     contract = _read(HALT_CONTRACT)
-    codes = _section(contract, "## Exit Codes", "## Result Contract")
-    [row4] = [line for line in codes.splitlines() if line.startswith("| 4 ")]
-    assert ("batch mode §1 (the batch run folder cannot be written) and §2 to §4 (a failing `next`, a second "
-            "failing `record`, a failing `summarize`)") in row4
     assert "or `batch-mode` for batch mode §1 to §4.\n" in contract
     in_batch = contract.split("## In `--batch`", 1)[1]
     assert ("A batch mode §2 to §4 halt ends the run too and writes no batch summary, though a `batch_summary` "
@@ -1951,20 +2017,19 @@ def test_a_failing_batch_helper_call_halts_the_batch():
             "keep the `done` and `fail` events they printed.") in in_batch
     assert ("batch-mode for a batch that cannot start or go on (batch mode sections 1 to 4)"
             in _schema()["properties"]["phase"]["description"])
-    exit_code = batch[batch.index("## Exit code"):]
-    assert ("A batch that stops because `next`, a second `record` or `summarize` fails (§2 to §4) exits with code "
-            "`4` and writes no batch summary then; a `batch_summary` event an earlier `summarize` already printed "
-            "stays the batch's result.") in exit_code
+    docs = _paragraph(_read(DOCS), "**Batch mode (`--batch <file>`).**")
+    assert ("A batch whose helper cannot hand out or record a target, or cannot summarize the batch, stops with exit "
+            "`4` and a `batch-mode` halt line and skips the health check; a `batch_summary` event it already printed "
+            "stays its result.") in docs
 
 
 def test_every_way_out_of_a_step_prints_its_events():
-    """Headless events: the [P] path out of an ecosystem match chains with its done and start events,
+    """Headless events: step 2's pass-through chains with its done and start events (#1173: it has no gate),
     and the health check's one paragraph leaves room for its own done event (#1114)."""
     eco = _read(QS / "references" / "ecosystem-check.md")
     [proceed] = [line for line in eco.splitlines() if line.startswith("- IF P:")]
     assert "print this step's `done` event and step 3's `start` event" in proceed
-    [gate] = [line for line in eco.splitlines() if line.startswith("- **GATE [default: P]**")]
-    assert gate.endswith("then go on as IF P does, its events included.")
+    assert eco.rstrip("\n").endswith(proceed) and "GATE" not in eco
     relay = _read(HEALTH_CHECK)
     assert ("When `{headless_mode}` is true, print this step's `done` event (`references/halt-contract.md`) "
             "first. Load `{nextStepFile}`, read it fully, then execute it. Apart from that event, do nothing "
@@ -1981,12 +2046,13 @@ def test_finalize_never_writes_the_result_contract_by_hand():
 
 
 def test_the_batch_exit_code_is_the_highest_failed_code():
-    exit_code = _read(BATCH_MODE).split("## Exit code", 1)[1]
-    assert "Without `--fail-fast`, the batch runs every target" in exit_code
-    assert "otherwise the highest exit code among the failed targets" in exit_code
+    """#1173: the docs' batch paragraph states the exit rule batch-mode.md's Exit code section held."""
+    exit_code = _paragraph(_read(DOCS), "**Batch mode (`--batch <file>`).**")
+    assert ("Without `--fail-fast` the batch runs every target, whatever an earlier target's outcome, and exits with "
+            "the highest exit code among its failed targets (`0` when none failed)") in exit_code
     assert "the exit code of the first failed target" not in exit_code
-    assert "With `--fail-fast`, the batch stops at the first failed target and exits with that target's code" \
-        in exit_code
+    assert "`--fail-fast` stops it at the first failed target and exits with that target's code" in exit_code
+    assert "## Exit code" not in _read(BATCH_MODE)
 
 
 def test_stage_files_carry_their_own_formats():
@@ -2182,19 +2248,30 @@ def test_the_ecosystem_check_makes_no_web_search():
         assert stale not in text, stale
 
 
-def test_the_ecosystem_gate_keeps_its_slug_and_exit_8():
-    sites = [(code, reason) for name, code, reason, _ in _halt_sites() if name == "ecosystem-check.md"]
-    assert sorted(sites) == [(6, "user-cancelled"), (8, "ecosystem-redirect")]
+def test_the_ecosystem_check_keeps_its_slug_and_reserves_exit_8():
+    """#1173: no input reaches step 2's [P]/[I]/[A] gate until agentskills.io has a registry API, so the step
+    keeps only its pass-through; its slug stays, and exit 8 and the gate stay reserved in the contract."""
+    assert [site for site in _halt_sites() if site[0] == "ecosystem-check.md"] == []
     text = _read(ECOSYSTEM)
-    assert text.count('"phase": "ecosystem-check"') == 2 and text.count('"skill_package": null') == 2
-    assert '"gate": "ecosystem-check.ecosystem-match"' in text
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    for code in ("6", "8"):
-        [row] = [line for line in codes.splitlines() if line.startswith(f"| {code} ")]
-        assert "step 2 (" in row and "step 2 §3" not in row, code
-    assert "2 `ecosystem-check`" in _read(HALT_CONTRACT)
-    [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
-    assert "step 2: ecosystem match [P/I/A] (none until agentskills.io has a registry API)" in gates
+    steps = text[text.index("## Steps"):]
+    for stale in ("HALT", "GATE", "[I] Install", "Once a registry API lists", "exit code"):
+        assert stale not in steps, stale
+    assert "GATE" not in text
+    contract = _read(HALT_CONTRACT)
+    codes = _section(contract, "## Exit Codes", "## Result Contract")
+    [row8] = [line for line in codes.splitlines() if line.startswith("| 8 ")]
+    assert row8.split("|")[2].strip() == "ecosystem-redirect"
+    assert ("Exit 8 (`ecosystem-redirect`) is reserved, as is the `ecosystem-check.ecosystem-match` gate: step 2 "
+            "raises neither until agentskills.io has a registry API.") in codes
+    assert "2 `ecosystem-check`" in contract
+    schema = _schema()
+    assert schema["$defs"]["skf-envelope"]["const"]["exit_codes"]["ecosystem-redirect"] == 8
+    assert "ecosystem-redirect 8 (reserved until agentskills.io has a registry API)" in \
+        schema["properties"]["exit_code"]["description"]
+    [gates] = [line for line in _read(INVOCATION_CONTRACT).splitlines() if line.startswith("| **Gates** |")]
+    assert "step 2" not in gates and "ecosystem" not in gates
+    [row2] = [line for line in _read(SKILL).splitlines() if line.startswith("| 2 | Ecosystem Check |")]
+    assert row2 == "| 2 | Ecosystem Check | references/ecosystem-check.md | Yes |"
 
 
 # --------------------------------------------------------------------------
@@ -2372,12 +2449,12 @@ def test_finalize_relays_the_flip_helpers_message():
     for stale in ("flock", "rename-over-symlink", "existing path is not a symlink or junction",
                   "Reuse the same values here"):
         assert stale not in flip, stale
-    # The exit-code map tells an automator that a held lock also ends in exit 7.
-    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
-    [row7] = [line for line in codes.splitlines() if line.startswith("| 7 ")]
-    assert ("step 6 §1 (the flip helper refused or failed: something that is not a link is at "
-            "`{skill_group}/active`, or another process holds its lock)") in row7
-    assert "non-link in place" not in row7
+    # The halt site tells an automator that a held lock also ends in exit 7 (#1173: no Raised by column).
+    [(_, code, reason, segment)] = [site for site in _halt_sites() if site[0] == "finalize.md"]
+    assert (code, reason) == (7, "finalize-blocked") and segment in flip
+    assert ("(something that is not a link is at `{skill_group}/active`, or another process holds its lock)"
+            in segment)
+    assert "non-link in place" not in segment
 
 
 def test_skill_md_keeps_one_home_per_rule():
@@ -2422,10 +2499,6 @@ def test_the_overwrite_question_names_the_build_from_the_write_check():
     assert 'leave out " ({existing_tier})" when only `{existing_tier}` is null' in gate
     halt = _staged(_section(gate, "- **If user selects N:**", "**GATE [default: Y]**"), "halt.json")
     assert _filled(halt)["details"] == {"existing_generator": "{existing_generator}"}
-    [row5] = [line for line in _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result").splitlines()
-              if line.startswith("| 5 ")]
-    assert "a headless run reached a version another SKF workflow built" in row5
-    assert "`details.existing_generator`" in row5
     summary = _section(_read(FINALIZE), "### 2. Display Completion Summary", "### 3. ")
     assert "{If step 5 §1 set `{replaced_build}`, add:} **Replaced:** the `{replaced_build}` build" in summary
     assert "`{forge_data_folder}/{repo_name}/{version}/`, is left in place" in summary
@@ -2480,3 +2553,115 @@ def test_a_headless_run_hands_its_envelope_line_to_the_health_check():
     final = next(line for line in docs.splitlines()
                  if line.startswith("Setup is not the only workflow whose result line is the run's final message"))
     assert "Quick Skill (one target, not `--batch`)" in final and "`SKF_QUICK_SKILL_RESULT_JSON`" in final
+
+
+# --------------------------------------------------------------------------
+# #1173: a run loads no text it never acts on
+# --------------------------------------------------------------------------
+
+# How often each file states each standard command: once in each stage file's Rules, once in SKILL.md's Workflow
+# Rules (the cancel-line and headless bullets) and once at batch-mode.md's one standard site; every other site
+# names its own command (a `--result-dir` or `{batch_dir}` variant, or a heredoc with no run folder).
+STANDARD_COMMAND_HOMES = {
+    EMIT_COMMAND: {"SKILL.md": 1, "batch-mode.md": 1, "compile.md": 1, "quick-extract.md": 1, "resolve-target.md": 1,
+                   "write-and-validate.md": 1},
+    RECORD_COMMAND: {"SKILL.md": 1, "compile.md": 1, "quick-extract.md": 1, "resolve-target.md": 1,
+                     "write-and-validate.md": 1},
+}
+RULES_STAGES = ("compile.md", "quick-extract.md", "resolve-target.md", "write-and-validate.md")
+
+
+def test_each_file_states_each_standard_command_once():
+    files = [SKILL, *sorted((QS / "references").glob("*.md"))]
+    for command, homes in STANDARD_COMMAND_HOMES.items():
+        counts = {path.name: _read(path).count(f"`{command}`") for path in files}
+        assert {name: n for name, n in counts.items() if n} == homes, command
+    for name in RULES_STAGES:
+        [bullet] = [line for line in _rules(name).splitlines() if line.startswith("- A HARD HALT stages")]
+        assert bullet.startswith(f"- A HARD HALT stages the payload its site gives as `{{run_dir}}/halt.json` and "
+                                 f"runs `{EMIT_COMMAND}`, unless its site names its own command, and a headless gate "
+                                 f"stages the decision its site gives as `{{run_dir}}/decision.json` and runs "
+                                 f"`{RECORD_COMMAND}`. A HARD HALT prints, after its envelope, this step's `halt` "
+                                 "event"), name
+    rules = _rules("SKILL.md")
+    [cancel] = [line for line in rules.splitlines() if line.startswith("- **Universal cancel-line affordance**")]
+    [record] = [line for line in rules.splitlines() if line.startswith("- If `{headless_mode}` is true, auto-proceed")]
+    assert f"`{EMIT_COMMAND}`" in cancel and f"`{RECORD_COMMAND}`" in record
+    before = _section(_read(BATCH_MODE), "## Before the Batch Starts", "## Input format")
+    assert f"`{EMIT_COMMAND}`" in before
+
+
+def test_skill_md_points_to_the_contract_it_no_longer_holds():
+    text = _read(SKILL)
+    assert "\n| **" not in text and len(text) < 14000
+    section = _section(text, "## Invocation Contract\n", "## On Activation")
+    assert section.split("\n\n")[1] == (
+        "Headless callers and pipelines: the inputs, flags, gates, outputs, exit codes and the "
+        "`SKF_QUICK_SKILL_RESULT_JSON` and `--batch` reading rules live in `references/invocation-contract.md`. "
+        "Interactive runs do not need it.")
+    contract = _read(INVOCATION_CONTRACT)
+    assert contract.startswith("# Invocation Contract: skf-quick-skill\n\nThe inputs, flags, gates, outputs, exit "
+                               "codes and result-reading rules of `skf-quick-skill`, for headless callers and "
+                               "pipelines. Interactive runs do not need this file.\n\n| Aspect | Detail |\n")
+    rows = [line.split("|")[1].strip() for line in contract.splitlines() if line.startswith("| **")]
+    assert rows == ["**Inputs**", "**Overrides**", "**Gates**", "**Outputs**", "**Headless**", "**Exit codes**"]
+
+
+def test_the_exit_code_table_keeps_code_and_meaning():
+    contract = _read(HALT_CONTRACT)
+    codes = _section(contract, "## Exit Codes", "## Result Contract")
+    rows = [line for line in codes.splitlines() if line.startswith("|")]
+    assert len(rows) == 11 and all(line.count("|") == 3 for line in rows), rows
+    for stale in ("Raised by", "compacted away"):
+        assert stale not in contract, stale
+    assert _paragraph(contract, "The exit-code map") == ("The exit-code map, the envelope every HARD HALT emits, the "
+                                                         "headless progress events and the `--batch` rule.")
+
+
+def test_batch_mode_keeps_only_what_the_batch_does():
+    """The summary schema, the status rule, the events and the reading rules are the caller's (docs/workflows.md
+    and references/invocation-contract.md); the helper computes them, so batch-mode.md does not carry them."""
+    batch = _read(BATCH_MODE)
+    for moved in ("**Reading a batch.**", "## Batch summary contract", "## Headless events", "## Exit code",
+                  "`status` resolves as:"):
+        assert moved not in batch, moved
+    docs = _read(DOCS)
+    summary = _paragraph(docs, "**Batch summary file.**")
+    assert ("the batch helper (`skf-quick-batch.py summarize`) writes the batch summary to "
+            "`quick-skill-batch-{YYYYMMDD-HHmmss}.json` in `batch_output_path` (default "
+            "`{skills_output_folder}/_batch/`; a Quick Skill setting, see [Customizing a Workflow]"
+            "(#customizing-a-workflow))") in summary
+    events = _paragraph(docs, "**Batch events.**")
+    assert ("the batch helper prints a target's `start` event when it hands the target out (`next`), its `done` "
+            "or `fail` event when it records the outcome (`record`) and one final `batch_summary` event "
+            "(`summarize`), on stderr") in events
+    assert "and `{batch_dir}` the batch's run folder, `_bmad-output/.skf-run/skf-quick-skill-*`" in events
+    # The Batch mode paragraph points at the summary file paragraph, which names the batch_output_path setting.
+    assert "(**Batch summary file** below)" in _paragraph(docs, "**Batch mode (`--batch <file>`).**")
+    # The contract names where the batch reading rules it does not hold live.
+    assert "Quick Skill's **Batch mode**, **Batch summary file** and **Batch events** paragraphs and " \
+           "**Reading the result lines**" in _read(INVOCATION_CONTRACT)
+    assert docs.index("**Batch mode (`--batch <file>`).**") < docs.index("**Batch summary file.**") \
+        < docs.index("**Batch events.**") < docs.index("**Exception: `/skf-brief-skill`")
+    assert "Full input grammar in [`src/skf-quick-skill/references/batch-mode.md`]" in docs
+
+
+def test_no_file_names_the_registry_data_file():
+    assert not (QS / "references" / "registry-resolution.md").exists()
+    for path in [*sorted(p for p in QS.rglob("*") if p.is_file()), RESOLVER]:
+        text = _read(path)
+        for stale in ("registry-resolution", "registryResolution"):
+            assert stale not in text, (path.name, stale)
+
+
+def test_the_stages_name_only_the_helper_fields_they_read():
+    assert "module.yaml" not in _sniff()
+    parse = _section(_read(QUICK_EXTRACT), "### 3. Parse Manifest and Scan Exports", "### 4. ")
+    assert "pub use" not in parse and "`extra`" not in parse
+    assert ("The helper writes JSON to `{run_dir}/extract.json`: §4 builds the inventory from its `package_name`, "
+            "`version`, `description`, `exports[]` and `dependencies[]`, and the paragraphs below read:") in parse
+    detect = _section(_read(RESOLVE_TARGET), "### 4. Detect Language", "### 5. ")
+    delegate = _section(detect, "2. **Delegate the rule walk", "3. **Auto-pick**")
+    assert "folder depth" not in delegate and "detection_source" not in delegate
+    assert ("Read its `language` and `detected_languages`: `detected_languages[0]` is the helper's pick, `language`, "
+            "and the list holds every other language a manifest or the source files name.") in delegate

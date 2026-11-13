@@ -53,7 +53,7 @@
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 5, 6, 7, 8, 9],
-      "description": "The exit code of the halt-contract.md table, derived from halt_reason: null gives 0, input-invalid 2, resolution-failure 3, write-failure 4, overwrite-cancelled 5, user-cancelled 6, finalize-blocked 7, ecosystem-redirect 8, not-skf-output and flat-layout 9."
+      "description": "The exit code of the halt-contract.md table, derived from halt_reason: null gives 0, input-invalid 2, resolution-failure 3, write-failure 4, overwrite-cancelled 5, user-cancelled 6, finalize-blocked 7, ecosystem-redirect 8 (reserved until agentskills.io has a registry API), not-skf-output and flat-layout 9."
     },
     "phase": {
       "type": ["string", "null"],
@@ -231,7 +231,7 @@
               "compile.review",
               "write-and-validate.overwrite"
             ],
-            "description": "The gate that resolved without a person, named after its step and the gate the step file labels."
+            "description": "The gate that resolved without a person, named after its step and the gate the step file labels. `ecosystem-check.ecosystem-match` is reserved: step 2 records it only once agentskills.io has a registry API."
           },
           "default_action": {
             "type": "string",

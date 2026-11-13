@@ -1009,7 +1009,10 @@ def test_bound_inputs_are_inputs_the_first_workflow_takes(skill, name):
     input contract lives in (invocation-contract.md, or brief's headless-args.md)."""
     root = REPO / "src" / skill
     skill_md = _read(root / "SKILL.md")
-    if re.search(rf"(?:^\| `{name}`|\*\*Inputs\*\* \|[^\n]*\b{name}\b)", skill_md, re.M):
+    row = rf"(?:^\| `{name}`|\*\*Inputs\*\* \|[^\n]*\b{name}\b)"
+    if re.search(row, skill_md, re.M):
         return
+    # An Inputs row lifted into the contract file reads as it did in SKILL.md (Quick Skill's, #1173).
     contracts = [root / "references" / f for f in ("invocation-contract.md", "headless-args.md")]
-    assert any(f.exists() and f"`{name}`" in _read(f) for f in contracts), (skill, name)
+    assert any(f.exists() and (f"`{name}`" in _read(f) or re.search(row, _read(f), re.M)) for f in contracts), (
+        skill, name)
