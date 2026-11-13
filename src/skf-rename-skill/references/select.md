@@ -2,14 +2,18 @@
 nextStepFile: 'execute.md'
 # §1 resolves each probe order below (installed SKF module path first,
 # src/ dev-checkout fallback; the first existing path wins).
-# {manifestOpsHelper}: the §2 `read` and the §7 `affected-versions`.
+# {manifestOpsHelper}: the §7 `affected-versions`.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
-# {skillInventoryHelper}: the §3 listing, §4a `--rename-check`, §6 `resolve`.
+# {skillInventoryHelper}: §4a `--rename-check` and §6 `resolve`.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# {skillRosterHelper}: the §2 roster.
+skillRosterProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-roster.py'
+  - '{project-root}/src/shared/scripts/skf-skill-roster.py'
 # {renameNameValidator}: this skill's own new-name gate, run in §5.
 renameNameValidator: 'scripts/skf-validate-rename-name.py'
 # {runLockHelper} and {emitEnvelopeHelper}: §4b and the halt procedure.
@@ -66,7 +70,7 @@ The halt leaves `{run_dir}` in place.
 
 ### 1. Start the Run
 
-Resolve, as one batch of file-existence checks, `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`, `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` and `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`; all four stay bound for the rest of the run. From `{project-root}`, take the run id:
+Resolve, as one batch of file-existence checks, `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`, `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`, `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and `{skillRosterHelper}` ← first existing path in `{skillRosterProbeOrder}`; all five stay bound for the rest of the run. From `{project-root}`, take the run id:
 
 ```bash
 uv run {runLockHelper} run-id
@@ -81,41 +85,35 @@ for dir in "{run_dir}" "{skills_output_folder}" "{forge_data_folder}"; do
 done
 ```
 
-- When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py` or `skf-skill-inventory.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
+- When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py`, `skf-skill-inventory.py` or `skf-skill-roster.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
 - When the loop exits non-zero: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:write-probe`, with the folder its stderr names as `path`) with "**Cannot write to `{that folder}`.** Nothing was changed. Check that the path exists as a folder you can write to and that the disk has free space, then re-run."
 
 Neither halt has a run folder to save stderr in: its heredoc holds the helper's error, or the folder, as displayed, with no `--stderr-from`.
 
 Once the loop passes and `{customization_resolver_unavailable}` is set (SKILL.md On Activation step 3), record the reason in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`, and delete that file (`rm -f "{run_dir}/resolver-warning.txt"`), so the report step's `rmdir` still finds the folder empty.
 
-### 2. Read Export Manifest
+### 2. Read the Skill Roster
 
-Read the manifest through `{manifestOpsHelper}`, never by eye: it migrates v1 to v2, normalizes `platforms` to `ides`, and reports a file that does not parse:
+Take the roster from `{skillRosterHelper}`, never by eye: it reads the export manifest through the manifest helper (a v1 manifest migrates), scans `{skills_output_folder}` and joins the two:
 
 ```bash
-uv run {manifestOpsHelper} {skills_output_folder} read 2> "{run_dir}/call.err"
+uv run {skillRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}" 2> "{run_dir}/call.err"
 ```
 
-- **`status == "error"`** (the file exists but does not parse): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, `emit-halt` phase `select:read-manifest`, with the manifest as `path`).
-- **`status == "ok"`**: use `result.manifest` (already in the v2 shape) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing file reads back as an empty `exports`). With no entry, §3's on-disk scan is the whole roster: drafted or never-exported skills can still be renamed, and step 2 §6 has no manifest entry to re-key.
-- **No JSON on stdout** (the helper could not run): HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:read-manifest`) with "**Rename Skill cannot read the export manifest:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
+- **`code` is `manifest-corrupt`** (the manifest does not parse, or is not a manifest): halt with "**Export manifest is corrupt** at `{path}`: {error}. Fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, `emit-halt` phase `select:read-manifest`, with its `path` as `path`).
+- **Any other error, or no JSON on stdout** (a helper it reads is missing, the scan failed, or it could not run): HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:list-skills`) with "**Rename Skill cannot list the skills:** {its `error`, or the helper's stderr}. Nothing was changed. Re-install SKF, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
+- **`status` is `ok`**: §3 lists its `skills`. A skill the manifest does not list (a draft, or one never exported) can still be renamed.
 
 ### 3. List Available Skills
 
-Enumerate every skill available for rename deterministically:
+The roster's `skills` holds only the skills SKF generated: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}".
 
-```bash
-uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder} 2> "{run_dir}/call.err"
-```
-
-Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `skf_skill`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle: annotate it "(not in manifest)". The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}". When the call prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:list-skills`) with "**Rename Skill cannot list the skills:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
-
-**If the list to display is empty** (no `skills[]` entry whose `skf_skill` is true):
+**If `empty` is true** (no skill SKF generated):
 
 - When `{old_name_arg}` is set and it is in `{not_skf_output}`, take the §4a refusal for a folder SKF did not generate first, in either mode (exit code 5, `halt_reason: "not-skf-output"`, `emit-halt` phase `select:ownership-check`, with `--old-name "{old_name}"`).
 - Otherwise halt with "**Rename Skill: nothing to rename.** No skill SKF generated was found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." When `{not_skf_output}` is non-empty, append: "Left untouched (not SKF output): {not_skf_output}." HALT (exit code 3, `halt_reason: "nothing-to-rename"`, `emit-halt` phase `select:list-skills`).
 
-Display the list only when §4 asks for the skill, one line per skill as `{name} ({n} versions, active: {active_version})` (append "(not in manifest)" for orphans):
+Display the list only when §4 asks for the skill, one line per entry of `skills` as `{name} ({version_count} versions, active: {active_version})`, with "(not in manifest)" appended when its `in_manifest` is false:
 
 ```
 **Rename Skill — select target**
@@ -229,13 +227,13 @@ Read `valid`, `first_failure`, `checks`, `interrupted_rename`, `interrupted_afte
 
 ### 6. Source Authority Check
 
-Read `source_authority` from the `metadata.json` of the version `resolve` picks (the manifest's `active_version`, or the `active` link's when the manifest lags it):
+Take `source_authority` from the `metadata.json` of the version `resolve` picks (the manifest's `active_version`, or the `active` link's when the manifest lags it), never by opening the file:
 
 ```bash
 uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {old_name} --forge-data-folder "{forge_data_folder}"
 ```
 
-From its `resolve` object bind `{source_metadata}` ← `paths.metadata.path` and read the `source_authority` field of that file (if present). When the call fails or `{source_metadata}` is null, there is no `metadata.json` to read: treat `source_authority` as absent.
+From its `resolve` object bind `{source_authority}` ← `source_authority` (null when that version has no `metadata.json`, or the file gives no such string). When the call fails, treat `source_authority` as absent.
 
 **If `source_authority == "official"`:**
 
@@ -361,7 +359,6 @@ Store the following decisions in workflow context for step 2:
 - `forge_move`: boolean from §4a (true when this rename moves the forge folder)
 - `forge_left_in_place`: the forge folder §4a leaves under the old name because SKF did not generate it, or null
 - `same_folder`: boolean from §4a (true when `skills_output_folder` and `forge_data_folder` name one folder)
-- `manifest_exists`: boolean from §2 (step 2 §6 re-keys the manifest only when it is true)
 - `source_authority_override`: boolean (true if the user acknowledged the `"official"` warning, false/absent otherwise)
 - `run_id` and `run_dir`: the run id and the run folder from §1
 - `lock_owner`: the run lock's owner from §4b

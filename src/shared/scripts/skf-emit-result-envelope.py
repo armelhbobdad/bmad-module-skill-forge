@@ -278,6 +278,16 @@ in the sidecar folder) and `forge_data_folder`, each written with `/`.
 The emitter reads no config.yaml value itself, so preflight stays the one
 place that resolves them. The derived values replace the payload's own.
 
+skf-rename-skill. Step 2 stages skf-rewrite-skill-name.py's record as
+rename-rewrite.json in the run folder. For a finished rename (`emit` with
+payload `status` "success"), the emitter takes `versions_renamed` and the
+summary's `versions_renamed` from the record's `renamed_versions`, and
+`result_contract.outputs` from its `files_rewritten`, one {"type": "skill",
+"path"} each, the path written with `/`, so no step types those values. No
+--run-dir, no record, or a record of another shape exits 1 before any
+result file is written, with a message that names the record. A dry run
+and a halt read no record.
+
 Context payload shape (consumed by `emit` for skf-setup):
 
   {
@@ -427,6 +437,7 @@ CCC_NO_RESULT = "the ccc settings helper wrote no result"
 
 SCHEMA_DIR = SCHEMA_FILE.parent
 SETUP_WORKFLOW = "skf-setup"
+RENAME_WORKFLOW = "skf-rename-skill"
 # The `$defs` entry whose `const` holds a schema's emitter settings.
 META_KEY = "skf-envelope"
 META_FIELDS = ("workflow", "prefix", "wrapper", "halt_status", "exit_codes",
@@ -1885,6 +1896,42 @@ def _result_record(payload: dict, envelope: dict, timestamp, run_id, decisions: 
     return record
 
 
+def fold_rename_record(payload: dict, run_dir: Path | None, label: str) -> dict:
+    """A finished rename's payload, its versions and outputs taken from the rewrite record.
+
+    The record is {run_dir}/rename-rewrite.json (see "skf-rename-skill" in the
+    module docstring). Its `renamed_versions` replace `versions_renamed` and
+    `result_contract.summary.versions_renamed`, and one {"type": "skill",
+    "path"} per `files_rewritten` entry, written with `/`, replaces
+    `result_contract.outputs`; the fold creates `result_contract` and
+    `summary` when the payload has none. No --run-dir, no record, or a record
+    of another shape exits 1 before any result file is written.
+    """
+    if run_dir is None:
+        _die(1, f"{label}: a finished {RENAME_WORKFLOW} run reads its rewrite record, rename-rewrite.json, "
+                "from --run-dir: pass the run folder")
+    path = run_dir / "rename-rewrite.json"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        _die(1, f"{label}: no rewrite record at {path.as_posix()}: a finished {RENAME_WORKFLOW} run takes "
+                "versions_renamed and its outputs from it")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        _die(1, f"{label}: cannot read the rewrite record {path.as_posix()}: {getattr(e, 'strerror', None) or e}")
+    versions = record.get("renamed_versions") if isinstance(record, dict) else None
+    files = record.get("files_rewritten") if isinstance(record, dict) else None
+    if (not isinstance(versions, list) or not all(isinstance(v, str) for v in versions)
+            or not isinstance(files, list)
+            or not all(isinstance(f, dict) and isinstance(f.get("path"), str) for f in files)):
+        _die(1, f"{label}: the rewrite record {path.as_posix()} is not an object with a list of strings "
+                "`renamed_versions` and a list `files_rewritten` of objects that each have a string `path`")
+    contract = dict(payload.get("result_contract") or {})
+    summary = contract.get("summary")
+    contract["summary"] = {**(summary if isinstance(summary, dict) else {}), "versions_renamed": list(versions)}
+    contract["outputs"] = [{"type": "skill", "path": f["path"].replace("\\", "/")} for f in files]
+    return {**payload, "versions_renamed": list(versions), "result_contract": contract}
+
+
 # ─── subcommands ────────────────────────────────────────────────────────────
 
 
@@ -1948,6 +1995,8 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     if finished_setup:
         payload = setup_payload(payload, read_staged(run_path), (orphan_action, headless, quiet) if orphan_flags
                                 else None, project_root, sidecar_path, forge_data_folder)
+    if workflow == RENAME_WORKFLOW and not halt and payload.get("status") == "success":
+        payload = fold_rename_record(payload, run_path, label)
     result_path_dir = Path(result_dir) if result_dir else None
     if result_path_dir is not None and not stem:
         # Refusing would leave a halt that passed the flag by mistake with no line.

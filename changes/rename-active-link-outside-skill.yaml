@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-rename-skill
+summary: |
+  Rename Skill now rolls the rename back (exit `4`, `write-failed`, phase `execute:active-link`) when the old skill's `active` link leads outside the skill's own folder, for example into another skill's version folder of the same name. Before, it pointed the renamed skill's link at that version. A headless run whose skill roster helper cannot run now stops at phase `select:list-skills`, where a manifest read that could not run stopped at `select:read-manifest`. A run whose export manifest is not UTF-8, or is JSON but not a manifest, now stops with `manifest-corrupt` (exit `3`) in place of `write-failed` (exit `4`), and a missing `skf-skill-roster.py` stops the run at `select:start-run`.
+issues: [1180]

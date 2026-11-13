@@ -6,7 +6,7 @@ nextStepFile: 'report.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# {manifestOpsHelper}: the §6 re-key.
+# {manifestOpsHelper}: the §6 `get` and re-key.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
@@ -22,7 +22,7 @@ rewriteSkillNameProbeOrder:
 verifyNoTraceProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-no-trace.py'
   - '{project-root}/src/shared/scripts/skf-verify-no-trace.py'
-# {skillInventoryHelper}: the §8 guarded delete.
+# {skillInventoryHelper}: the §4 `resolve` and the §8 guarded delete.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
@@ -90,7 +90,7 @@ The halt leaves `{run_dir}` in place.
 - `{verifyNoTraceHelper}` ← first existing path in `{verifyNoTraceProbeOrder}` (used in §5)
 - `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §6)
 - `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used in §7)
-- `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` (used in §8)
+- `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` (used in §4 and §8)
 - `{runLockHelper}` and `{emitEnvelopeHelper}`: bound since step 1 §1 (when a binding was lost, ← first existing path in `{runLockProbeOrder}` and `{emitEnvelopeProbeOrder}`)
 
 If any helper has no existing candidate, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:resolve-helpers`) before anything is copied: no section does a helper's write, transform or check by hand.
@@ -164,18 +164,15 @@ Report: "**Renamed {the number of renamed_versions} inner directories** to `{new
 
 The §1 copy carries `{old_skill_group}/active` into `{new_skill_group}` as it found it: an absolute link, or a relative one that climbs out of the skill folder, still points into `{old_skill_group}`, which §8 deletes, and a shell that cannot create links may have copied the folder. So this section removes whatever the copy made at `{new_skill_group}/active` and creates the link again with the `flip-link` action of `{atomicWriteHelper}`, the call create-skill, quick-skill and create-stack-skill use; it refuses to replace an `active` that is a real folder, so remove the copied entry first. Never create the link with `ln -s`: Git Bash on Windows without symlink rights writes a copy of the folder instead. `{new_skill_group}` is this run's own copy, which no manifest entry or context file names until §6 and §7, so removing the copied entry before the flip is safe.
 
-1. If nothing is at `{old_skill_group}/active`, not even a broken link (`[ ! -e "{old_skill_group}/active" ] && [ ! -L "{old_skill_group}/active" ]`), skip to the report at the end of this section: there is no link to carry over.
-2. If `{old_skill_group}/active` is not a link (`[ ! -L "{old_skill_group}/active" ]`), take the rollback below with the reason: "`{old_skill_group}/active` is a real folder or file, not a link. Check that it only copies a version folder, remove it and re-run the rename, then point the renamed skill's link at a version with `uv run {atomicWriteHelper} flip-link --link "{new_skill_group}/active" --target <version>`."
-3. Read the link. Set `{old_active_link}` to what the first line prints, the link text as stored, and `{target_version}` to what the second line prints, its last path component:
+1. Read the old link through `{skillInventoryHelper}`, never by hand: `resolve` names the version only for a link that leads to a version folder directly in `{old_skill_group}`:
 
    ```bash
-   readlink "{old_skill_group}/active"
-   basename "$(readlink "{old_skill_group}/active")"
+   uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {old_name} --forge-data-folder "{forge_data_folder}" 2> "{run_dir}/call.err"
    ```
 
-   For an `{old_active_link}` of `0.6.0`, of `{old_skill_group}/0.6.0`, or of a relative path that climbs out of the skill folder and back into its `0.6.0` folder, `{target_version}` is `0.6.0`.
-4. If `{target_version}` is not one of `renamed_versions` (§2), the link does not name a version folder holding the package this rename moved: it is broken, or it names a folder §2 skipped. Take the rollback below with the reason: "`{old_skill_group}/active` points at `{old_active_link}`, which is not one of the versions this rename moved ({renamed_versions}). Point it at one of them with `uv run {atomicWriteHelper} flip-link --link "{old_skill_group}/active" --target <version>`, or remove it, then re-run the rename."
-5. Remove what the copy made at `{new_skill_group}/active`. A link is removed as a link, so nothing it points to is touched; only a real folder, which the copy made from the link, is removed with its contents:
+   When it exits non-zero or prints no JSON, take the rollback below with its `error`, or its stderr read from `{run_dir}/call.err`, as the reason. When an entry of `resolve.errors` starts with `` `active` `` (a real folder, a broken link, or a link that leads anywhere else), take the rollback below with the reason: "{that entry}. Remove `{old_skill_group}/active` (a folder only once you have checked that it just copies a version folder), or point it at one of the skill's version folders with `uv run {atomicWriteHelper} flip-link --link "{old_skill_group}/active" --target <version>`, then re-run the rename." Otherwise, when `resolve.symlink_target` is null, skip to the report at the end of this section: there is no link to carry over. Else set `{target_version}` ← `symlink_target`.
+2. If `{target_version}` is not one of `renamed_versions` (§2), the link names a version folder whose package §2 did not move. Take the rollback below with the reason: "`{old_skill_group}/active` points at `{target_version}`, which is not one of the versions this rename moved ({renamed_versions}). Point it at one of them with `uv run {atomicWriteHelper} flip-link --link "{old_skill_group}/active" --target <version>`, or remove it, then re-run the rename."
+3. Remove what the copy made at `{new_skill_group}/active`. A link is removed as a link, so nothing it points to is touched; only a real folder, which the copy made from the link, is removed with its contents:
 
    ```bash
    if [ -L "{new_skill_group}/active" ]; then rm -f "{new_skill_group}/active"
@@ -183,7 +180,7 @@ The §1 copy carries `{old_skill_group}/active` into `{new_skill_group}` as it f
    fi
    ```
 
-6. Create the link:
+4. Create the link:
 
    ```bash
    uv run {atomicWriteHelper} flip-link \
@@ -193,12 +190,12 @@ The §1 copy carries `{old_skill_group}/active` into `{new_skill_group}` as it f
 
    On exit 0, bind `{active_link_kind}` ← `kind` (`symlink` or `junction`) from the JSON it prints on stdout. On any other exit, bind `{flip_error}` ← `message` from the `{"status": "error", "message": …}` line it prints on stderr, or set it to the helper's whole stderr when there is no such line, reading both from `{run_dir}/call.err`, and take the rollback below with `{flip_error}` as the reason.
 
-**Rollback on a failure in step 2, 4 or 6:**
+**Rollback on a failure in step 1, 2 or 4:**
 
 - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
 - Halt with: "**Failed to repair the `active` link** in `{new_skill_group}`: {reason}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:active-link`).
 
-Report: "**`active` link:** `{new_skill_group}/active` → `{target_version}` ({active_link_kind}).{if `{old_active_link}` is not `{target_version}`: ' Repointed from `{old_active_link}`.'}" When step 1 skipped this section: "**`active` link:** none in `{old_skill_group}`, nothing to carry over."
+Report: "**`active` link:** `{new_skill_group}/active` → `{target_version}` ({active_link_kind})." When step 1 skipped this section: "**`active` link:** none in `{old_skill_group}`, nothing to carry over."
 
 ### 5. Verify — No Trace of `{old_name}` Inside the New Location
 
@@ -224,13 +221,17 @@ Report: "**Verified:** no structural references to `{old_name}` remain inside th
 
 ### 6. Update Export Manifest
 
-**If `manifest_exists = false` (step 1 read no entry in the manifest):**
+Ask the manifest helper whether the manifest has an entry for `{old_name}`, never reading the file by eye:
 
-Skip this section entirely. Set `manifest_rekeyed = false`. There is no manifest entry to re-key: the skill was never exported. Section 7 still rebuilds any managed section it finds, which drops a row of `{old_name}` if one is there.
+```bash
+uv run {manifestOpsHelper} {skills_output_folder} get {old_name} 2> "{run_dir}/call.err"
+```
 
-Report: "**Manifest update skipped:** the export manifest has no entries. The rename is a pure on-disk operation."
+Branch on the `status` it prints, whatever its exit code:
 
-**If `manifest_exists = true`:** when the manifest has no `exports.{old_name}` (the skill was on disk but never exported), skip both items below: the manifest has nothing to change. Otherwise:
+- **`not_found`** (no manifest, or no `exports.{old_name}`: the skill was never exported): set `manifest_rekeyed = false` and skip both items below. Section 7 still rebuilds any managed section it finds, which drops a row of `{old_name}` if one is there.
+- **`error`, or no JSON on stdout** (the manifest does not parse, or the helper could not run): bind `{manifest_error}` ← its `error`, or the helper's stderr read from `{run_dir}/call.err`, and take the rollback below with `{manifest_restore}` set to `unchanged`.
+- **`ok`**: go on with both items below.
 
 1. **Back up the manifest file** into the run folder, byte for byte, for the rollback below. A halt keeps the run folder, so the backup stays with the user too:
 
@@ -266,7 +267,7 @@ Report: "**Manifest update skipped:** the export manifest has no entries. The re
 - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
 - Halt with: "**Manifest update failed:** {manifest_error}. {if `{manifest_restore}` is `unchanged`: 'This run did not change the manifest.'}{if `restored`: 'Restored the manifest from the backup.'}{if `restore-failed`: 'Could not restore the manifest, which may still list `{new_name}` in place of `{old_name}`: re-key it back with `uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}`, or copy `{run_dir}/export-manifest.backup.json` back over it.'} Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`, `emit-halt` phase `execute:manifest`).
 
-Set context flag `manifest_rekeyed = true` when the helper ran and exited 0, else `false` (no `exports.{old_name}` to re-key).
+Set context flag `manifest_rekeyed = true` when the re-key ran and exited 0.
 
 Report: "**Manifest updated:** re-keyed `exports.{old_name}` → `exports.{new_name}`." When it skipped the call: "**Manifest unchanged:** it has no `exports.{old_name}` entry."
 

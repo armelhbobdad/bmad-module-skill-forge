@@ -367,8 +367,8 @@ def test_drop_and_rename_take_the_verdict_from_the_helper_and_never_scan_top_lev
         assert stale not in text, "the helper returns the verdict: the prose no longer joins the scan by hand"
     if rel == DROP_SELECT:  # drop-roster.py offers only the skills SKF generated
         assert "uv run {dropRosterHelper} skills " in text and "which the roster never offers" in text
-    else:
-        assert "`skf_skill` is true" in text
+    else:  # #1180: skf-skill-roster.py lists only the skills SKF generated
+        assert "uv run {skillRosterHelper} skills " in text and "`skf_skill`" not in text
     assert "Not offered (not SKF output)" in text
     assert "top-level directories" not in text, "the in-prompt fallback must not offer unchecked folders"
     # The roster lists skills; it never predicts the verdict the check returns once one is picked.
@@ -537,8 +537,8 @@ def test_drop_names_a_foreign_folder_before_the_empty_roster_halt():
 
 def test_rename_names_a_foreign_folder_before_the_empty_list_halt():
     roster = _section(_read(RENAME_SELECT), "### 3. List Available Skills", "### 4. Ask Which Skill")
-    empty = _section(roster, "**If the list to display is empty**", "Display the list")
-    assert "`skf_skill` is true" in empty, "the halt must match the filtered list"
+    empty = _section(roster, "**If `empty` is true**", "Display the list")
+    assert "`skf_skill`" not in roster, "the halt keys on the roster's `empty`, the list it displays"
     refusal = empty.index("is in `{not_skf_output}`")
     assert refusal < empty.index('"nothing-to-rename"')
     assert "§4a refusal" in empty and "in either mode" in empty
@@ -595,19 +595,22 @@ def test_rename_recreates_active_with_flip_link():
     assert ('uv run {atomicWriteHelper} flip-link \\\n'
             '     --link "{new_skill_group}/active" \\\n'
             '     --target "{target_version}"') in fix
-    assert 'basename "$(readlink "{old_skill_group}/active")"' in fix, "an absolute or ../ link points into the old group"
-    assert ('   readlink "{old_skill_group}/active"\n'
-            '   basename "$(readlink "{old_skill_group}/active")"') in fix, "step 3's fence yields both values it names"
-    assert "`{old_active_link}` to what the first line prints" in fix
-    assert "`{target_version}` to what the second line prints" in fix
-    # The shell tests that pick each branch, verbatim: `[ ! -e ]` alone skips a broken link,
-    # and `[ -d ]` follows the link, so it would refuse every skill that has one.
-    assert ('If nothing is at `{old_skill_group}/active`, not even a broken link '
-            '(`[ ! -e "{old_skill_group}/active" ] && [ ! -L "{old_skill_group}/active" ]`), skip') in fix
-    assert 'If `{old_skill_group}/active` is not a link (`[ ! -L "{old_skill_group}/active" ]`), take the rollback' in fix, \
-        "a real active folder is refused, never carried over"
-    assert "`{target_version}` is not one of `renamed_versions`" in fix, "a broken link is refused, not copied"
-    rollback = _section(fix, "**Rollback on a failure in step 2, 4 or 6:**", "Report:")
+    # #1180 determinism-4: the version comes from `resolve`, which names it only for a link to a version
+    # folder of the old skill's own folder; a link anywhere else, a broken one or a real folder rolls back.
+    for stale in ("readlink", "basename", "{old_active_link}", "Repointed from", "[ ! -L"):
+        assert stale not in fix, stale
+    assert _fenced_calls(fix, "{skillInventoryHelper}") == [
+        'uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {old_name} '
+        '--forge-data-folder "{forge_data_folder}"' + CALL_ERR]
+    assert ("When it exits non-zero or prints no JSON, take the rollback below with its `error`, or its stderr read "
+            "from `{run_dir}/call.err`, as the reason.") in fix
+    assert "When an entry of `resolve.errors` starts with `` `active` `` (a real folder, a broken link, or a link" in fix
+    assert ("Otherwise, when `resolve.symlink_target` is null, skip to the report at the end of this section: there "
+            "is no link to carry over. Else set `{target_version}` ← `symlink_target`.") in fix
+    assert "`{target_version}` is not one of `renamed_versions`" in fix, "a link to a version §2 skipped rolls back"
+    assert fix.index("{skillInventoryHelper} resolve") < fix.index("is not one of `renamed_versions`") < fix.index(
+        'then rm -f "{new_skill_group}/active"') < fix.index("{atomicWriteHelper} flip-link \\")
+    rollback = _section(fix, "**Rollback on a failure in step 1, 2 or 4:**", "Report:")
     assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
     # The halt procedure releases the run lock after the rollback, through the helper.
     assert "Release the lock" not in rollback
@@ -628,6 +631,52 @@ def test_rename_recreates_active_with_flip_link():
     assert "skf-rename-skill/references/execute.md" not in drop, "rename no longer uses the symlink helper"
     assert "When no candidate exists, or the helper prints no JSON, record the same way the manual repair" in drop, (
         "drop §4 records a missing helper, it does not halt")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the fixtures are symlinks")
+@pytest.mark.parametrize("case", ["in-group", "elsewhere", "broken", "real-folder", "none", "not-renamed"])
+def test_rename_reads_the_active_link_through_resolve(tmp_path, case):
+    """#1180 determinism-4: the documented §4 call names the link's version only for a version folder of the
+    old skill's own folder; any other `active` comes back as an `errors` entry that starts with `active`."""
+    fix = _section(_read(RENAME_EXECUTE), "### 4. Fix the `active` Symlink", "### 5. Verify")
+    [call] = _fenced_calls(fix, "{skillInventoryHelper} resolve")
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for name, version in (("cognee", "0.6.0"), ("other", "0.6.0")):
+        _write_bytes(skills / name / version / name / "metadata.json", json.dumps({"generated_by": "create-skill"}))
+    (skills / "cognee" / "0.7.0").mkdir()  # a version folder whose package §2 has nothing to move
+    active = skills / "cognee" / "active"
+    target = {"in-group": "0.6.0", "elsewhere": os.path.join("..", "other", "0.6.0"), "broken": "gone",
+              "not-renamed": "0.7.0"}.get(case)
+    if target is not None:
+        active.symlink_to(target, target_is_directory=True)
+    elif case == "real-folder":
+        (active / "cognee").mkdir(parents=True)
+    values = {"skills_output_folder": str(skills), "old_name": "cognee", "forge_data_folder": str(forge)}
+    words = shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call.removesuffix(CALL_ERR)))
+    assert words[:3] == ["uv", "run", "@@skillInventoryHelper@@"]
+    argv = [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w) for w in words[3:]]
+    proc = _run_py(INVENTORY_PY, argv)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)["resolve"]
+    linked = [e for e in out["errors"] if e.startswith("`active`")]
+    expected = {"in-group": ("0.6.0", None), "elsewhere": (None, "`active` link does not lead to a version folder"),
+                "broken": (None, "`active` link is broken"), "real-folder": (None, "`active` is a folder, not a link"),
+                "none": (None, None), "not-renamed": ("0.7.0", None)}[case]
+    assert out["symlink_target"] == expected[0]
+    if expected[1] is None:
+        assert linked == [], "§4 takes `symlink_target`, or skips to its report when it is null"
+    else:
+        assert len(linked) == 1 and linked[0].startswith(expected[1]), "§4 rolls back with this entry as the reason"
+    if case == "not-renamed":
+        # §2's record names only the versions whose package it moved, so §4's check refuses 0.7.0.
+        copy = skills / "cognee-ai"
+        shutil.copytree(skills / "cognee", copy, symlinks=True)
+        moved = _run_py(SRC / "shared" / "scripts" / "skf-rewrite-skill-name.py",
+                        ["--skill-group", str(copy), "--versions", "0.7.0,0.6.0", "--old-name", "cognee",
+                         "--new-name", "cognee-ai", "--moved-folder", str(skills)])
+        assert moved.returncode == 0, moved.stderr
+        assert json.loads(moved.stdout)["renamed_versions"] == ["0.6.0"]
+        assert "`{target_version}` is not one of `renamed_versions`" in fix
 
 
 def test_rename_restores_the_manifest_with_write_target():
@@ -922,8 +971,8 @@ def test_drop_checks_the_forge_folder_before_any_change():
 
 def test_rename_checks_the_forge_folder_before_the_lock():
     text = _read(RENAME_SELECT)
-    roster = _section(text, "### 3. List Available Skills", "### 4. Ask Which Skill")
-    assert "uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}" in roster
+    roster = _section(text, "### 2. Read the Skill Roster", "### 3. List Available Skills")
+    assert 'uv run {skillRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}"' in roster
     check = _section(text, "### 4a. Ownership Check", "### 4b. Concurrency Guard")
     for needle in ('--rename-check --forge-data-folder "{forge_data_folder}"', "`{same_folder}` ← `same_folder`",
                    "`{forge_move}` ← `forge_move`", "`{forge_left_in_place}` ← `forge_left_in_place`",
@@ -973,7 +1022,7 @@ def test_rename_deletes_the_old_folders_through_the_guarded_delete():
     execute = _read(RENAME_EXECUTE)
     assert PROBE_ORDER in execute.split("\n---\n", 1)[0] + "\n"
     resolve = _section(execute, "### 0. Resolve Helpers", "### 1. ")
-    assert "`{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` (used in §8" in resolve
+    assert "`{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` (used in §4 and §8)" in resolve
     assert 'HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:resolve-helpers`)' in resolve
     delete = _section(execute, "### 8. Delete Old Directories", "### 9. ")
     assert _inventory_call(RENAME_EXECUTE, "### 8. Delete Old Directories", "### 9. ") == (
@@ -1415,8 +1464,8 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert ('python3 {rebuildManagedSectionsHelper} gotchas prior "{resolved_skill_package}/context-snippet.md" '
             '--skills-folder "{skills_output_folder}" --skill {skill-name}') in snippet
     assert "{manifestOpsHelper}" not in snippet
-    assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
-        _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
+    assert "uv run {skillRosterHelper} skills " in _section(
+        _read(RENAME_SELECT), "### 2. Read the Skill Roster", "### 3. ")
     verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 7. ")
     # #1158: drop-roster.py verify reads the manifest through skf-manifest-ops.py.
     assert 'uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill}' in verify
@@ -2124,15 +2173,16 @@ def test_rename_saves_the_stderr_each_quoting_halt_reads():
     """#1119: each call whose halt quotes its stderr saves it in `{run_dir}/call.err`, which the
     halt's `--stderr-from` and an interactive run read; the run folder's deletes remove it."""
     redirected = {
-        RENAME_SELECT: [("### 2. ", "### 3. ", "{manifestOpsHelper} {skills_output_folder} read"),
-                        ("### 3. ", "### 4. ", "{skillInventoryHelper} {skills_output_folder} --forge-data-folder"),
+        RENAME_SELECT: [("### 2. ", "### 3. ", "{skillRosterHelper} skills"),
                         ("### 4b. ", "### 5. ", "{runLockHelper} acquire"),
                         ("### 5. ", "### 6. ", "{renameNameValidator}"),
                         ("### 6. ", "### 7. ", "{emitEnvelopeHelper} record"),
                         ("### 7. ", "### 8. ", "affected-versions")],
         RENAME_EXECUTE: [("### 1. ", "### 2. ", "{runLockHelper} acquire"),
                          ("### 2. ", "### 3. ", "{rewriteSkillNameHelper}"),
+                         ("### 4. ", "### 5. ", "{skillInventoryHelper} resolve"),
                          ("### 4. ", "### 5. ", "flip-link --link \"{new_skill_group}/active\""),
+                         ("### 6. ", "### 7. ", "{skills_output_folder} get {old_name} 2>"),
                          ("### 6. ", "### 7. ", 'cp "{skills_output_folder}/.export-manifest.json"'),
                          ("### 6. ", "### 7. ", "{skills_output_folder} rename {old_name} {new_name}")],
     }
@@ -2232,15 +2282,11 @@ RENAME_PAYLOAD_VALUES = {
     '"{old_name}"': '"demo"',
     '"{new_name}"': '"demo-kit"',
     "<affected_versions as a JSON array>": '["2.0.0", "1.0.0"]',
-    "<renamed_versions as a JSON array>": '["2.0.0"]',
-    "<renamed_versions>": '["2.0.0"]',
     "<manifest_rekeyed>": "true",
     "<context_files_updated as a JSON array>": '["CLAUDE.md"]',
     "<context_files_updated>": '["CLAUDE.md"]',
     "<context_files_failed>": "[]",
     "<forge_left_in_place, or null>": "null",
-    '<one {"type": "skill", "path": "<path>"} per path in files_rewritten>':
-        '[{"type": "skill", "path": "skills/demo-kit/2.0.0/demo-kit/SKILL.md"}]',
 }
 
 
@@ -2319,8 +2365,16 @@ def test_rename_report_writes_its_result_files_through_the_emitter(tmp_path):
     decision = _record_the_override(run_dir)
     group = tmp_path / "skills" / "demo-kit"
     group.mkdir(parents=True)
+    # #1180 determinism-3: step 2's rewrite record, with Windows paths, is where the versions and outputs come from.
+    files = [{"kind": "skill-md", "path": "C:\\s\\demo-kit\\2.0.0\\demo-kit\\SKILL.md"},
+             {"kind": "metadata-json", "path": "C:\\s\\demo-kit\\2.0.0\\demo-kit\\metadata.json"}]
+    (run_dir / "rename-rewrite.json").write_text(json.dumps(
+        {"renamed_versions": ["2.0.0"], "files_rewritten": files, "counts": {"skill-md": 1, "metadata-json": 1},
+         "package_warnings": [], "missing_files": []}), encoding="utf-8")
     payload = _filled(_heredoc(write, "SKF_RESULT"))
     assert "headless_decisions" not in payload and "headless_decisions" not in payload["result_contract"]["summary"]
+    assert "versions_renamed" not in payload and "versions_renamed" not in payload["result_contract"]["summary"]
+    assert "outputs" not in payload["result_contract"], "the step types no value the record holds"
     proc = _run_py(EMITTER_PY, ["emit", "--workflow", "skf-rename-skill", "--run-dir", str(run_dir),
                                 "--result-dir", str(group)], json.dumps(payload).encode("utf-8"))
     assert proc.returncode == 0, proc.stderr
@@ -2335,6 +2389,8 @@ def test_rename_report_writes_its_result_files_through_the_emitter(tmp_path):
     assert latest == json.loads(per_run.read_text(encoding="utf-8"))
     assert latest["headless_decisions"] == [decision] and latest["run_id"] == "20261001T000000Z-0123abcd"
     assert latest["summary"]["versions_renamed"] == ["2.0.0"]
+    assert latest["outputs"] == [{"type": "skill", "path": "C:/s/demo-kit/2.0.0/demo-kit/SKILL.md"},
+                                 {"type": "skill", "path": "C:/s/demo-kit/2.0.0/demo-kit/metadata.json"}]
     # The hook reads the file the emitter named, never a timestamp the run typed.
     hook = _section(report, "### 3. Post-Completion Hook (optional)", "### 4. ")
     assert '{onCompleteCommand} --result-path="{result_path}"' in hook
@@ -2378,7 +2434,7 @@ def test_rename_report_runs_one_terminal_sequence():
             "holds the run's decisions, its warnings and the payload the emitter refused.") in release
     write = _section(report, order[0], order[1])
     assert "No result file was written, and §4 keeps the run folder." in write
-    assert "escape `\"`, `\\` and control characters, and write every path with `/`" in write
+    assert "escape `\"`, `\\` and control characters), and `forge_left_in_place` with `/`" in write
     for mechanics in ("-latest.json", "`-2`", "a copy, not a symlink"):
         assert mechanics not in write, "output-contract-schema.md owns how the emitter writes the files"
     skill = _read(RENAME_SKILL)
@@ -2402,7 +2458,8 @@ def test_rename_counts_come_from_the_helper_results():
                    "- `manifest_rekeyed`: true only when section 6 ran the re-key and the helper exited 0"):
         assert bullet in results, bullet
     decisions = _section(_read(RENAME_SELECT), "### 9. Store Decisions in Context", "### 10. ")
-    for bullet in ("- `manifest_exists`: boolean from §2", "- `lock_owner`:", "- `run_id` and `run_dir`:"):
+    assert "manifest_exists" not in decisions, "#1180: step 2 §6 asks the manifest helper itself"
+    for bullet in ("- `lock_owner`:", "- `run_id` and `run_dir`:"):
         assert bullet in decisions, bullet
     for section in (results, decisions):
         assert "- `headless_decisions`" not in section, "the run sink holds the decisions"
@@ -2417,8 +2474,8 @@ def test_rename_counts_come_from_the_helper_results():
     assert "across the {number of `renamed_versions`} version(s) it checked" in verify
     # §6's flag and report line say whether the re-key ran, as §9's manifest_rekeyed does.
     manifest = _section(execute, "### 6. Update Export Manifest", "### 7. ")
-    assert "Set context flag `manifest_rekeyed = true` when the helper ran and exited 0, else `false`" in manifest
-    assert "Skip this section entirely. Set `manifest_rekeyed = false`." in manifest
+    assert "Set context flag `manifest_rekeyed = true` when the re-key ran and exited 0." in manifest
+    assert "set `manifest_rekeyed = false` and skip both items below" in manifest
     for rel in (RENAME_EXECUTE, RENAME_REPORT):
         assert "manifest_updated" not in _read(rel), f"{rel}: one manifest flag name (#600)"
     assert 'When it skipped the call: "**Manifest unchanged:** it has no `exports.{old_name}` entry."' in manifest
@@ -2434,7 +2491,7 @@ def test_rename_reads_the_version_through_the_inventory_helper(tmp_path):
     [call] = [c for c in _fenced_calls(source, "{skillInventoryHelper}")]
     assert call == ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {old_name} '
                     '--forge-data-folder "{forge_data_folder}"')
-    assert "bind `{source_metadata}` ← `paths.metadata.path`" in source
+    assert "bind `{source_authority}` ← `source_authority`" in source
     # The documented call picks the manifest's version, and the link's when the manifest lags it.
     skills, forge = tmp_path / "skills", tmp_path / "forge"
     for version, authority in (("1.0.0", "community"), ("2.0.0", "official")):
@@ -2446,16 +2503,15 @@ def test_rename_reads_the_version_through_the_inventory_helper(tmp_path):
     argv = [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w)
             for w in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call))[3:]]
 
-    def metadata_path():
-        out = json.loads(_run_py(INVENTORY_PY, argv).stdout)
-        return Path(out["resolve"]["paths"]["metadata"]["path"])
+    def authority():
+        return json.loads(_run_py(INVENTORY_PY, argv).stdout)["resolve"]["source_authority"]
 
-    assert metadata_path() == skills / "demo" / "1.0.0" / "demo" / "metadata.json"
+    assert authority() == "community"
     try:
         (skills / "demo" / "active").symlink_to("2.0.0", target_is_directory=True)
     except (OSError, NotImplementedError):
         return
-    assert metadata_path() == skills / "demo" / "2.0.0" / "demo" / "metadata.json"
+    assert authority() == "official"
 
 
 def test_rename_names_the_recovery_after_the_rekey(tmp_path):
