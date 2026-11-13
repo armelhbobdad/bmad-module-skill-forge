@@ -28,8 +28,9 @@ verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
 # stage; resolve them again when a binding was lost: first existing path wins.
-# §6b's warnings and §8's gate decision go to the run log through the first;
-# the halt procedure and §6b's record of what this run writes run the second.
+# §4's gate decisions and warnings and §6b's warnings go to the run log
+# through the first; the halt procedure and §6b's record of what this run
+# writes run the second.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -62,7 +63,7 @@ Merge freshly extracted export data into the existing SKILL.md and its reference
 - Focus only on merging extractions into existing skill content
 - Never delete or modify [MANUAL] section content without the user's section 4 [R]/[E] decision
 - Write the merged files to disk at section 6b, once §6b has recorded what this run writes (`{runStateHelper}` `begin`), and verify the merged SKILL.md against the [MANUAL] inventory the user approved before it is published: in a staged version folder outside gap-driven mode, in `{run_dir}` in gap-driven mode. Later steps verify the files on disk
-- If [MANUAL] conflicts detected: halt and present to user (headless: HALT, nothing written). If clean merge: auto-proceed
+- If [MANUAL] conflicts detected: halt and present to user (headless: HALT, nothing written, on any ORPHAN or STALE_REFERENCE conflict; otherwise keep each POSITION block). A clean or resolved merge goes on to write
 - When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{runStateHelper}` in `{runStateProbeOrder}` and `{runLockHelper}` in `{runLockProbeOrder}`.
 
 ## Steps
@@ -205,7 +206,16 @@ Scan all merge operations for flagged conflicts.
 
 **If ZERO conflicts:** report a clean merge.
 
-**GATE [default: HALT]**: **if conflicts are detected, headless (`{headless_mode}` true):** conflicts require human judgment, and nothing is written yet. HALT with status `halted-for-manual-mismatch` (halt procedure: `phase: "merge:conflict-resolution"`, `reason: "{N} [MANUAL] conflict(s) need a person: {each conflict_type and section}"`). No `headless_decisions[]` entry is added.
+**GATE [default: K for POSITION, HALT otherwise]**: **if conflicts are detected, headless (`{headless_mode}` true):** the conflicts' types decide what the run does:
+
+- **Any ORPHAN or STALE_REFERENCE conflict:** it requires human judgment, and nothing is written yet. HALT with status `halted-for-manual-mismatch` (halt procedure: `phase: "merge:conflict-resolution"`, `reason: "{N} [MANUAL] conflict(s) need a person: {each conflict_type and section}"`), where `{N}` and the list count the ORPHAN and STALE_REFERENCE conflicts alone. No `headless_decisions[]` entry is added.
+- **Otherwise** (every conflict is POSITION): keep each block as [K]eep below does, recording `{"name": "<block>", "action": "keep"}` in `{run_dir}/manual-plan.json` once per block name `{manual_inventory}` holds, and none for a block in a `references/*.md` file, which the inventory does not hold and the merge leaves untouched: `manual-inventory-amend` refuses a name the inventory lacks or one the plan decides twice. The block moves with its section, which §6b's `manual-verify` reports in `moved` without failing. For a POSITION conflict Priority 8 flagged, make no edit and add `structural-fix-skipped: {gap_id}: the edit at {file}:{line} overlaps the [MANUAL] block {block}, kept as it is` to `warnings[]`. Record one decision per block, from `{project-root}`:
+
+  ```bash
+  uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+  {"gate": "merge.manual-conflict", "default_action": "K", "taken_action": "K", "reason": "headless: a POSITION conflict keeps the [MANUAL] block, which moves with its section", "evidence": {"block": "<block>", "section": "<its parent section heading before the merge>"}}
+  SKF_JSON
+  ```
 
 **If conflicts detected, interactive:** present each conflict to user:
 
@@ -401,14 +411,4 @@ Display one line from §6's counts: "**Merged:** {exports_updated} updated, {exp
 
 ### 8. Route to Write
 
-**Clean merge (no conflicts):** display "**Clean merge: proceeding to write...**", then load, read the full file, and execute {nextStepFile} (auto-proceed).
-
-**Conflicts were resolved (user interaction occurred):** present "**Merge complete with conflict resolution. Select:** [C] Continue to Write" and wait for the user to confirm before loading {nextStepFile}.
-
-**GATE [default: C]** (`{headless_mode}` true): a headless run reaches this gate only with a clean merge (§4 halts on a conflict before anything is written). Auto-continue and record the decision, from `{project-root}`:
-
-```bash
-uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
-{"gate": "merge.clean-merge-gate", "default_action": "C", "taken_action": "C", "reason": "headless: clean merge, no conflicts to resolve"}
-SKF_JSON
-```
+Display "**Merge written: proceeding to write...**", then load, read the full file, and execute {nextStepFile}: a clean merge and one whose conflicts §4 resolved go straight on, since §6b has written the merge.

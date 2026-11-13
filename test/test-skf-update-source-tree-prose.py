@@ -43,7 +43,7 @@ what it did:
 And they pin the helpers update-skill hands its deterministic work to:
 
 - skf-run-lock.py takes the run lock in init.md, renews it before merge.md
-  and write.md write the skill (halting when this run no longer holds it,
+  writes the skill (halting when this run no longer holds it,
   even when the renewal took the lock again), and releases it at every exit
   after it (init.md §1b's release contract, SKILL.md's Workflow Rules and the
   health check), by the owner acquire printed; no step keeps a PID, `kill -0`
@@ -128,7 +128,7 @@ And the #901 fix: write.md §7 hashes SKILL.md before and after the guarded
 1.2.0's JSON lists no fix.
 
 And the #1116 fix: every step file declares `emitEnvelopeProbeOrder` and
-`runStateProbeOrder` (merge.md and write.md, which renew the run lock, also
+`runStateProbeOrder` (merge.md, which renews the run lock, also
 `runLockProbeOrder`) and resolves a helper a compaction unbound from them,
 each halt procedure runs the `{runStateHelper}` `halt` call itself, and
 report.md §5b binds a lost `{onCompleteCommand}` through the customization
@@ -167,7 +167,7 @@ RE_EXTRACT = REFS / "re-extract.md"
 GAP = REFS / "gap-driven.md"
 MERGE = REFS / "merge.md"
 WRITE = REFS / "write.md"
-# where write.md §2 starts on the write inputs, after its run-lock renewal
+# where write.md §2 starts: on the write inputs, with no run-lock renewal before them (#1194)
 WRITE_TWO_LEAD = "Prepare what §3's `apply` and §3b's `metadata` call read"
 REPORT = REFS / "report.md"
 HEALTH = REFS / "health-check.md"
@@ -217,13 +217,14 @@ NEW_WARNINGS = ("source-tree:", "source-not-fetched", "source-version-lower", "f
                 "workspace-clone-not-updated", "target-ref-not-recorded")
 # The envelope enums: no new status; init.degraded-rebuild, which init.md §4 records under --allow-degraded,
 # joined the gates when the emitter began to check every decision against the schema, and gap-driven.rescope,
-# which gap-driven.md's rule R1 records headless, in step 5b fix round 3.
+# which gap-driven.md's rule R1 records headless, in step 5b fix round 3. #1194 dropped merge.clean-merge-gate with
+# merge.md §8's [C], and added merge.manual-conflict, the [K] merge.md §4 records for a headless POSITION conflict.
 STATUS_ENUM = ["success", "no-changes", "detect-only", "dry-run", "halted-for-workspace-drift",
                "halted-for-brief-refinement", "halted-for-audit", "halted-for-remediation-path",
                "halted-for-manual-mismatch", "halted-for-write-failure", "halted-for-concurrent-run", "blocked"]
 GATE_ENUM = ["init.update-confirmation", "init.degraded-rebuild", "detect-changes.promoted-doc-prompt",
              "detect-changes.scope-expansion", "detect-changes.deletion-ratio", "gap-driven.rescope",
-             "merge.clean-merge-gate"]
+             "merge.manual-conflict"]
 FLAG_RE = re.compile(r"--[a-z][a-z-]*")
 GIT_MOVE_RE = re.compile(r"^\s*git\b.*\b(fetch|checkout|clone|worktree)\b")
 
@@ -753,9 +754,10 @@ def test_report_surfaces_source_commit():
                   "(file list unavailable: every tracked file re-checked)",
                   "(source clone not moved: {advance_skip_reason})", "Several fired"):
         assert token in two, token
-    five_b = _slice(text, "### 5b. Result Contract", "### 6.")
+    # #1194: report.md §5b points at the schema's warnings description, which names each kind
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     for token in NEW_WARNINGS:
-        assert token in five_b, token
+        assert token in warnings, token
 
 
 def test_clone_not_updated_names_commands_that_work():
@@ -859,8 +861,9 @@ def test_skill_md_contract():
 LOST_BINDING_RULE = ("- When a helper is not bound, it resolves to the first existing path in its probe order: "
                      "`{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in "
                      "`{runStateProbeOrder}`.")
-# merge.md §6b and write.md §2 renew the run lock init.md §1b took, so their line names `{runLockHelper}` too.
-RENEWING_STEPS = (MERGE, WRITE)
+# merge.md §6b renews the run lock init.md §1b took, so its line names `{runLockHelper}` too; write.md renews
+# nothing since #1194, as nothing waits between §6b's renewal and it.
+RENEWING_STEPS = (MERGE,)
 RENEWING_LOST_BINDING_RULE = ("- When a helper is not bound, it resolves to the first existing path in its probe "
                               "order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{runStateHelper}` in "
                               "`{runStateProbeOrder}` and `{runLockHelper}` in `{runLockProbeOrder}`.")
@@ -886,8 +889,8 @@ def test_every_stage_resolves_its_helpers_and_the_hook_after_a_lost_binding():
     """#1116: SKILL.md On Activation binds `{emitEnvelopeHelper}` and `{runStateHelper}` once, and a context
     compaction can drop either before a later stage runs. Each step file declares both probe orders and its Rules
     resolve a helper that is not bound from them; each halt procedure, init.md §1b's cleanup and merge.md §6b's
-    record run `{runStateHelper}` with no pointer back at SKILL.md. merge.md and write.md, whose renewals run the
-    `{runLockHelper}` init.md §1b bound, declare its probe order too. report.md, which runs no `{runStateHelper}`,
+    record run `{runStateHelper}` with no pointer back at SKILL.md. merge.md, whose renewal runs the
+    `{runLockHelper}` init.md §1b bound, declares its probe order too. report.md, which runs no `{runStateHelper}`,
     declares the emitter's and the customization helper's, and §5b binds a lost `{onCompleteCommand}` from the
     resolver before it decides whether the hook runs, so a team's hook is never skipped as if it were empty."""
     for path in STEP_FILES:
@@ -1031,16 +1034,14 @@ def _argv(call: str, helper: str, values: dict, optional: bool = False) -> list[
 
 
 def _lock_calls() -> dict[str, str]:
-    """Each documented run-lock call: init's acquire, the renewals in merge and write, the release the halt
-    helper runs for the halt procedure of each step file (`halt-<file>`: its --lock and --owner, handed to
-    skf-run-lock.py release as skf-update-run-state.py halt does), and the health check's release."""
+    """Each documented run-lock call: init's acquire, the renewal in merge, the release the halt helper runs for
+    the halt procedure of each step file (`halt-<file>`: its --lock and --owner, handed to skf-run-lock.py release
+    as skf-update-run-state.py halt does), and the health check's release."""
     guard = _slice(_read(INIT), "### 1b. Concurrency Guard", "### 2.")
     calls = {
         "acquire": _fence(guard, "uv run {runLockHelper} acquire"),
         "renew": _fence(_slice(_read(MERGE), "**Renew the run lock**", "**Choose the version this update writes**"),
                         "uv run {runLockHelper} acquire"),
-        "renew-write": _fence(_slice(_read(WRITE), "**Renew the run lock first:**", "`{lock_recovery}` is"),
-                              "uv run {runLockHelper} acquire"),
         "release": _fence(_slice(_read(HEALTH), "1. **Release the concurrency lock**", "1b. **"),
                           "uv run {runLockHelper} release"),
     }
@@ -1052,7 +1053,7 @@ def _lock_calls() -> dict[str, str]:
 
 
 def test_run_lock_replaces_the_pid_guard():
-    """init takes the lock through skf-run-lock.py, merge and write renew it, every exit releases it by owner (#588).
+    """init takes the lock through skf-run-lock.py, merge renews it, every exit releases it by owner (#588, #1194).
 
     A PID written by one Bash call is dead by the next, so the old guard never saw a live run. A renewal that
     exits 0 has taken the lock again even when this run had lost it, so only `refreshed` true lets the run write.
@@ -1070,9 +1071,8 @@ def test_run_lock_replaces_the_pid_guard():
         if name != "acquire":
             assert '--owner "{lock_owner}"' in calls[name], name
     # the stale time is stated once, as the flag every acquire passes, never restated in the prose
-    for name in ("acquire", "renew", "renew-write"):
+    for name in ("acquire", "renew"):
         assert "--stale-after 60" in calls[name], name
-    assert calls["renew"] == calls["renew-write"]
     released = {name: " ".join(calls[name].replace("\\\n", " ").split())
                 for name in calls if name == "release" or name.startswith("halt-")}
     assert len(released) == 1 + len(STEP_FILES) and len(set(released.values())) == 1, released
@@ -1091,7 +1091,7 @@ def test_run_lock_replaces_the_pid_guard():
                   "every later step's halts",
                   "`run-lock-not-released: " + LOCK_FILE + "`",
                   "A release deletes the lock only while `{lock_owner}` holds it",
-                  "merge.md §6b and write.md §2 renew the lock before the run writes the skill"):
+                  "merge.md §6b renews the lock before the run writes the skill"):
         assert token in guard, token
     for gone in ("pid=", "self-heal", "never blocks the next one", "a held `flock`", "adds a run id"):
         assert gone not in guard, gone
@@ -1099,38 +1099,25 @@ def test_run_lock_replaces_the_pid_guard():
     assert "as SKILL.md's Workflow Rules say" not in _read(INIT)
     lost = ('reason: "run-lock-lost: this run\'s lock lapsed while it waited; another update may have changed the '
             'skill since this run read it"')
-    renewals = {
-        "merge": (_slice(_read(MERGE), "**Renew the run lock**", "**Choose the version this update writes**"),
-                  "before this section writes anything", 'phase: "merge:run-lock"'),
-        "write": (_slice(_read(WRITE), "**Renew the run lock first:**", WRITE_TWO_LEAD),
-                  "before writing `metadata.json`", 'phase: "write:run-lock"'),
-    }
-    for name, (renewal, before, phase) in renewals.items():
-        for token in ("- **Exit 0 with `refreshed` true:**", "- **Exit 0 with `refreshed` false, or exit 3:**",
-                      "HALT with status `halted-for-concurrent-run` " + before, phase, lost,
-                      'or on exit 3 `reason: "another update in progress: {message}"`',
-                      "- **Any other exit, or no JSON:** HALT with status `blocked`", 'reason: "run-lock-failed:'):
-            assert token in renewal, (name, token)
-        assert "- **Exit 0:**" not in renewal and "- **Exit 3:**" not in renewal, name
-    merge_renewal = renewals["merge"][0]
+    merge_renewal = _slice(_read(MERGE), "**Renew the run lock**", "**Choose the version this update writes**")
+    for token in ("- **Exit 0 with `refreshed` true:**", "- **Exit 0 with `refreshed` false, or exit 3:**",
+                  "HALT with status `halted-for-concurrent-run` before this section writes anything",
+                  'phase: "merge:run-lock"', lost, 'or on exit 3 `reason: "another update in progress: {message}"`',
+                  "- **Any other exit, or no JSON:** HALT with status `blocked`", 'reason: "run-lock-failed:'):
+        assert token in merge_renewal, token
+    assert "- **Exit 0:**" not in merge_renewal and "- **Exit 3:**" not in merge_renewal
     for token in ("On exit 0 the lock was gone, or `stale_replaced` names another update's stale lock, and this "
                   "acquire took it again", "wrote nothing to the skill package",
                   "The halt's release (step 3 of the halt procedure) removes a lock this acquire took"):
         assert token in merge_renewal, token
-    write_renewal = _slice(_read(WRITE), "**Renew the run lock first:**", WRITE_TWO_LEAD)
-    # the halt's rollback undoes what the run wrote: no recovery by hand (#587)
-    for token in ("step 4 §8 may have waited at its gate", "`{lock_recovery}` is, outside gap-driven mode",
-                  "the halt removed `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`",
-                  "which step 4 created for this update", "in gap-driven mode",
-                  "the halt restored the package and the skill brief from the snapshot step 4 took"):
-        assert token in write_renewal, token
-    assert "manual recovery" not in write_renewal
     merge = _read(MERGE)
     assert (merge.index("### 6b. Write Merged Files to Disk") < merge.index("**Renew the run lock**")
             < merge.index("**Choose the version this update writes**") < merge.index("stage-dir --target"))
+    # #1194: nothing waits between merge.md §6b's renewal and write.md, so write.md renews nothing
     write = _read(WRITE)
-    assert (write.index("### 2. Prepare the Write Inputs") < write.index("**Renew the run lock first:**")
-            < write.index(WRITE_TWO_LEAD) < write.index("### 3."))
+    for gone in ("**Renew the run lock", "{runLockHelper}", "runLockProbeOrder", "{lock_recovery}", "write:run-lock"):
+        assert gone not in write, gone
+    assert write.index("### 2. Prepare the Write Inputs") < write.index(WRITE_TWO_LEAD) < write.index("### 3.")
     rule = _slice(_slice(_read(SKILL), "## Workflow Rules", "## Stages"),
                   "- Every HALT, ABORT or other exit before step 7", "\n")
     assert "releases the run lock" in rule and "A halt never falls through to step 6" in rule
@@ -1164,7 +1151,8 @@ def test_run_lock_replaces_the_pid_guard():
             assert not ("rm " in line and ".skf-update.lock" in line), (rel, line)
     props = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]
     status = props["status"]["description"]
-    for token in ("'init:concurrency-guard'", "'merge:run-lock' or 'write:run-lock'", "'run-lock-lost: ...'",
+    assert "write:run-lock" not in status
+    for token in ("'init:concurrency-guard'", "(error.phase 'merge:run-lock'; error.reason 'run-lock-lost: ...'",
                   "never a PID",
                   "after write.md §6's provenance fixes and after write.md §7's skill-check edits (all error.phase "
                   "'write:verify-manual-integrity')", "a failed write in write.md §2 to §5 (error.phase "
@@ -1214,10 +1202,9 @@ def test_the_documented_run_lock_calls_hold_across_runs(tmp_path, capsys):
     code, b = _lock_main(lock_module, calls["acquire"], {**base, "run_id": "e5F6g7H8"}, capsys)
     assert code == 3 and b["acquired"] is False and b["held_by"] == a["owner"]
     assert str(lock) in b["message"] and "stale" in b["message"]
-    # the first renews before merge.md and write.md write (`refreshed` true: still its lock), and releases at the end
-    for renewal in ("renew", "renew-write"):
-        code, renewed = _lock_main(lock_module, calls[renewal], run_a, capsys)
-        assert code == 0 and renewed["refreshed"] is True, renewal
+    # the first renews before merge.md writes (`refreshed` true: still its lock), and releases at the end
+    code, renewed = _lock_main(lock_module, calls["renew"], run_a, capsys)
+    assert code == 0 and renewed["refreshed"] is True
     code, released = _lock_main(lock_module, calls["release"], run_a, capsys)
     assert code == 0 and released["released"] is True and not lock.exists()
     code, again = _lock_main(lock_module, calls["halt-write.md"], run_a, capsys)
@@ -1237,9 +1224,9 @@ def test_the_documented_run_lock_calls_hold_across_runs(tmp_path, capsys):
     assert code == 0 and released["released"] is True and not lock.exists()
     # B finished and released while A still waited: A's renewal exits 0 but takes the lock anew (`refreshed`
     # false, nothing replaced), so A halts before it writes, and A's halt releases the lock that renewal took
-    code, renewed = _lock_main(lock_module, calls["renew-write"], run_a, capsys)
+    code, renewed = _lock_main(lock_module, calls["renew"], run_a, capsys)
     assert code == 0 and (renewed["acquired"], renewed["refreshed"], renewed["stale_replaced"]) == (True, False, None)
-    code, released = _lock_main(lock_module, calls["halt-write.md"], run_a, capsys)
+    code, released = _lock_main(lock_module, calls["halt-merge.md"], run_a, capsys)
     assert code == 0 and released["released"] is True and not lock.exists()
 
     # B's lock went stale too while B waited: A's renewal replaces it (`refreshed` false, `stale_replaced` names
@@ -1253,9 +1240,9 @@ def test_the_documented_run_lock_calls_hold_across_runs(tmp_path, capsys):
     assert renewed["stale_replaced"] == {"held_by": b["owner"], "held_since": stale_since}
     code, released = _lock_main(lock_module, calls["halt-merge.md"], run_a, capsys)
     assert code == 0 and released["released"] is True
-    code, renewed = _lock_main(lock_module, calls["renew-write"], run_b, capsys)
+    code, renewed = _lock_main(lock_module, calls["renew"], run_b, capsys)
     assert code == 0 and (renewed["refreshed"], renewed["stale_replaced"]) == (False, None)
-    code, released = _lock_main(lock_module, calls["halt-write.md"], run_b, capsys)
+    code, released = _lock_main(lock_module, calls["halt-merge.md"], run_b, capsys)
     assert code == 0 and released["released"] is True and not lock.exists()
 
     # the PID and time lines an older SKF version wrote name no owner and go stale the same way
@@ -1562,7 +1549,7 @@ def test_documented_helper_calls_quote_every_path():
     assert not re.findall(r"`(uv run \{" + verifier + r"\} kind-at [^`]*)`", _read(WRITE))
     calls += [(call, verifier) for call in _relabel_calls()]
     calls += [(call, verifier) for call in _move_calls()]
-    assert len(calls) == 20
+    assert len(calls) == 19  # #1194 dropped write.md's renewal
     for call, helper in calls:
         assert _unquoted_placeholders(call, helper) == [], call
 
@@ -2217,7 +2204,7 @@ def test_write_counts_the_public_api_with_the_runner():
 def test_a_runner_input_error_in_write_counts_by_hand_and_warns():
     """#694: on the runner's exit 2 write §3b keeps its hand count and adds `public-api-counted-by-hand: {line}`,
     the runner's `error:` line, to `warnings[]` through the run log (the line can hold quotes), shown to the user
-    and listed where the report and the envelope list the warnings."""
+    and listed where the envelope lists the warnings."""
     bullet = _slice(_slice(_read(WRITE), "### 3b. Write Updated metadata.json", "### 4."),
                     "  - `exports_public_api` and `exports_internal`", "\n")
     hand = ("on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count them by "
@@ -2232,10 +2219,9 @@ def test_a_runner_input_error_in_write_counts_by_hand_and_warns():
             "procedure: `phase: \"write:public-api\"`, its `error:` line, or the helper that does not resolve, as "
             "`reason`).")
     assert halt in bullet and bullet.index(warn) < bullet.index(halt)
-    # the names were found without the runner; the counts are still the script's
-    assert "so the public names were found without it" in _read(REPORT)
+    # the names were found without the runner; the counts are still the script's (the schema says so, which
+    # report.md §5b points at since #1194)
     assert "**Warnings go to the run log.** Record each warning this step adds to `warnings[]`" in _read(WRITE)
-    assert "`public-api-counted-by-hand:` (write.md §3b" in _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     assert "public-api-counted-by-hand: entries (write.md §3b" in warnings
     assert "so the public names were found without it" in warnings and "counts were made by hand" not in warnings
@@ -2929,7 +2915,8 @@ def test_new_entry_labels_pass_the_stats_helper():
 
 
 def test_report_shows_the_override_once():
-    """The Mode row is the report's one override text; §5b names the warning and the spot-check WARNs (#530)."""
+    """The Mode row is the report's one override text; the schema names the warning and the spot-check WARNs (#530,
+    #1194: report.md §5b points at the schema)."""
     report = _read(REPORT)
     two = _slice(report, "### 2. Present Change Summary", "### Changes Applied")
     row = _slice(two, "- `gap-driven.md §3` accepted a drifted workspace", "\n")
@@ -2937,9 +2924,9 @@ def test_report_shows_the_override_once():
     assert ("(workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; "
             "no provenance line moved or pinned)") in row
     assert "WARN, provenance entry left for a person to decide (write.md §3)" in report
-    five_b = _slice(report, "### 5b. Result Contract", "### 6.")
-    assert "`workspace_drift_overridden` (gap-driven.md §3)" in five_b
-    assert "spot-check entries §3 left for a person to decide" in five_b and "left unchanged" not in five_b
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert "workspace_drift_overridden" in warnings
+    assert "spot-check entries left for a person to decide" in warnings and "left unchanged" not in warnings
 
 
 def _doc_line(name: str, *needles: str) -> str:
@@ -4199,7 +4186,6 @@ def test_gap_routing_keys_on_the_ledger_category():
     written = _slice(_zero(), "   - **`written`:** set `gap_count`", "\n")
     assert "`test-report: not routed: {id} ({category}): {reason}` for each gap not routed" in written
     assert "the `id`, `title`, `category` and `reason` of each gap the table does not route" in written
-    assert "`test-report: not routed: {id} ({category}): {reason}`" in _slice(_read(REPORT), "### 5b.", "### 6.")
     summary = _slice(_read(REPORT), "### 2. Present Change Summary", "### 3.")
     assert "**Not repaired by this run:** each `{id}: {title} ({category}): {reason}`" in summary
     # a run that translated no gap reports there instead, each gap with its reason too
@@ -4489,13 +4475,9 @@ def test_the_no_change_report_points_at_the_unconsumed_report():
                   "`--allow-workspace-drift`"):
         assert token in pointer, token
     assert "In gap-driven mode (gap-driven.md §1 translated none of the report's gaps)" in one
-    five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
-    for token in ("`unconsumed-test-report` (init.md §4b)", "`test-report:` entries", "`no-baseline-time`",
-                  "`moved-check-skipped`", "`unknown-language`"):
-        assert token in five_b, token
     # the flag's cell stays the flag's: the offer is listed with the gates
     flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
-    assert "`--from-test-report` (gap-driven mode);" in flags and "§2b" not in flags and "§4b" not in flags
+    assert "`--from-test-report` (gap-driven mode; " in flags and "§2b" not in flags and "§4b" not in flags
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     for token in ("unconsumed-test-report (init.md §4b", "test-report:", "no-baseline-time", "moved-check-skipped",
                   "unknown-language"):
@@ -4854,8 +4836,7 @@ def test_category_d_keeps_new_files_to_the_brief(tmp_path):
     assert "On exit 2" in after_pipe and "no JSON, or no candidate resolves: HALT with status `blocked`" in after_pipe
     pipe = _fence(category_d, "uv run {detectScriptsAssetsHelper} detect")
     assert '| uv run {newFileDiffHelper} "{provenance_map_path}" [--brief "{brief_path}"]' in pipe
-    # the warning is listed where the report and the envelope list them
-    assert "`new-files-not-checked`" in _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    # the warning is listed where the envelope lists them, which report.md §5b points at (#1194)
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     assert "new-files-not-checked" in warnings
     assert "`new-files.json` when step 2 wrote it" in _read(WRITE)
@@ -5182,7 +5163,8 @@ def test_every_halt_line_validates_against_the_schema(tmp_path):
     for expected in ("init:skill-name", "init:concurrency-guard", "init:stack-skill-guard", "init:validate-artifacts",
                      "init:forge-tier", "init:source-tree", "detect-changes:doc-hashes", "detect-changes:category-c",
                      "re-extract:workspace-drift", "re-extract:rescope", "merge:verify-manual-integrity",
-                     "merge:snapshot", "merge:manual-plan", "write:provenance-map", "write:active-symlink"):
+                     "merge:snapshot", "merge:manual-plan", "write:provenance-map", "write:active-symlink",
+                     "init:test-report"):
         assert expected in phases, expected
     assert len(phases) >= 17
     for path in (SKILL, *STEP_FILES):
@@ -5343,7 +5325,9 @@ def test_a_headless_rescope_answer_is_recorded(tmp_path):
     gates = _slice(_read(CONTRACT), "| **Gates** |", "\n")
     assert ("| step 2g (gap-driven): gap-driven.md §1 rule R1's [D]/[R] for each gap whose remediation names "
             "removal (headless: [D], or [R] only when the export is internal or `#[doc(hidden)]`) |") in gates
-    assert "gap-driven.md §1 rule R1, merge.md §8)" in _slice(_read(REPORT), "- `headless_decisions[]`:", "\n")
+    # #1194: report.md §5b names no gate: it points at the schema's gate enum, which lists gap-driven.rescope
+    assert "with a `gate` from the schema's gate enum (`headless_decisions[].gate`" in _slice(
+        _read(REPORT), "- `headless_decisions[]`:", "\n")
 
 
 def test_a_headless_run_needs_the_skill_name(tmp_path):
@@ -6597,23 +6581,28 @@ def test_the_invocation_contract_is_lifted_from_skill_md():
     for token in ("init.md §4's degraded-rebuild gate [D]/[X]", "Confirm Gate [C] (init.md §8)",
                   "detect-changes.md §1b's promote prompt and §1c's scope-expansion prompt [P]/[S]/[U]",
                   "§2.2's deletion-ratio gate [C]/[B]/[A]",
-                  "step 4: Confirm Gate [C] only after the user resolved [MANUAL] conflicts",
-                  "a headless run with conflicts halts `halted-for-manual-mismatch`"):
+                  "step 4: merge.md §4's [K]/[R]/[E] for each [MANUAL] conflict (headless: [K] for a POSITION "
+                  "conflict, recorded as `merge.manual-conflict`; an ORPHAN or STALE_REFERENCE conflict halts "
+                  "`halted-for-manual-mismatch` before anything is written); a clean or resolved merge goes straight "
+                  "to write |"):
         assert token in gates, token
+    assert "Confirm Gate [C] only after" not in gates  # #1194: merge.md §8 asks nothing
     assert "[C if clean merge" not in contract
     assert "at step 6 or at a HALT" in _slice(contract, "| **Headless** |", "\n")
     stages = _slice(skill, "## Stages", "## Invocation Contract")
     assert "| 2 | Detect Changes | references/detect-changes.md | Conditional" in stages
-    assert "| 4 | Merge | references/merge.md | Conditional" in stages
+    assert "| 4 | Merge | references/merge.md | Conditional (§4 asks on a [MANUAL] conflict) |" in stages
 
 
 def test_merge_routes_to_write_with_one_progress_line():
-    """merge §7 shows one line, not a table report.md repeats; §8 routes to write (#599 leanness-9)."""
+    """merge §7 shows one line, not a table report.md repeats; §8 routes to write (#599 leanness-9), asking nothing
+    (#1194)."""
     merge = _read(MERGE)
     seven = _slice(merge, "### 7. Report Progress", "### 8.")
     assert "| Metric | Count |" not in seven and "The report (step 6) shows the full counts" in seven
-    eight = _slice(merge, "### 8. Route to Write", "```bash")
-    assert "[C] Continue to Write" in eight and "Validation" not in eight
+    assert merge.count("### 8. Route to Write") == 1
+    eight = merge[merge.index("### 8. Route to Write"):]
+    assert "go straight on, since §6b has written the merge" in eight and "Validation" not in eight
     assert "Edit/Write tools commit on call" not in merge
     for path, heading, end in ((DETECT, "### 5. Display Change Summary and Route", "This step auto-proceeds"),
                                (RE_EXTRACT, "### 5. Display Extraction Summary and Auto-Proceed", "### 6.")):
@@ -7220,3 +7209,238 @@ def test_brief_decisions_escape_their_values_and_track_only_what_the_brief_recor
     assert ("for each amendment `amend` appended (its `appended`), never for one it skipped as a duplicate "
             "(`skipped_duplicates`)") in brief
     assert "as you write it" not in brief
+
+
+# --------------------------------------------------------------------------
+# #1194: the gates halt, continue and ask where the run's state calls for it
+# --------------------------------------------------------------------------
+
+
+def test_a_headless_repair_with_no_test_report_halts(tmp_path):
+    """enhancement-1: a headless `--from-test-report` run that finds no finished test report halts `blocked` at
+    `init:test-report` before the §1b lock, so the forger's repair call never becomes a source update nobody asked
+    for; an interactive run still warns and runs a normal update, and records the warning."""
+    init = _read(INIT)
+    otherwise = _slice(init, "- **Otherwise** (`not-found`;", "**If `--allow-workspace-drift` was provided:**")
+    for token in ('`<cause>` is, for `not-found`, "no finished test report of {skill_name} {active_version}" (with '
+                  '", {n} unfinished passed over" when `skipped[]` is not empty',
+                  'for `found` with `report_exists` false, "the report a result file names, {path}, is gone"',
+                  'with no candidate, "skf-find-test-report.py is missing; re-install SKF"',
+                  'else the command\'s first stderr line, or "no JSON"'):
+        assert token in otherwise, token
+    headless = _slice(otherwise, "  - **Headless** (`{headless_mode}` true):", "\n")
+    for token in ('halt procedure: `status: "blocked"`, `phase: "init:test-report"`, '
+                  '`path: "{forge_data_folder}/{skill_name}"`, `reason: "input-missing: --from-test-report found no '
+                  'finished test report: <cause>"`, with `version` and `previous_version` `"unknown"`',
+                  '"**No finished test report of {skill_name} to repair from:** <cause>. Run `@Ferris TS {skill_name}` '
+                  'first, or re-run without `--from-test-report` to check the source for changes."',
+                  "This runs before the §1b lock, so there is no lock to release."):
+        assert token in headless, token
+    assert "continue" not in headless and init.index(headless) < init.index("### 1b. Concurrency Guard")
+    interactive = _slice(otherwise, "  - **Interactive:**", "\n")
+    assert ("warn that no test report was found, with the cause, add `test-report-missing: <cause>` to `warnings[]`, "
+            "and continue in normal source drift mode.") in interactive
+    assert "§1 halts a headless run and warns an interactive one, which keeps" in _comment_before(
+        _frontmatter(init), "findTestReportProbeOrder")
+    assert "keeps `{target_ref_override}` (interactive only: a headless run halted above)" in _slice(
+        init, "**If `--target-ref` was provided:**", "\n")
+    # the helper's `not-found`, the first cause, on a skill with no test report
+    call = _fence(_slice(init, "**If `--from-test-report` was provided", "**If `--allow-workspace-drift`"),
+                  "uv run {findTestReportHelper} find")
+    code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", {
+        "forge_data_folder": str(tmp_path / "forge"), "skill_name": "lib", "active_version": "1.0.0"}))
+    assert code == 0 and (out["status"], out["skipped"]) == ("not-found", []), out
+    # the halt line, as init.md's halt procedure hands it to the emitter, carries the phase and the reason
+    block = _fence(_halt_procedure(INIT), HALT_CALL)
+    run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
+    run_dir.mkdir()
+    reason = "input-missing: --from-test-report found no finished test report: no finished test report of lib 1.0.0"
+    payload = {**_sample(_heredoc(block)), "status": "blocked", "phase": "init:test-report", "reason": reason,
+               "path": "forge/lib", "skill_name": "lib", "version": "unknown", "previous_version": "unknown",
+               "update_mode": "normal"}
+    code, line, err = _module(RUN_STATE, "skf_update_run_state_test_report").emit_halt(run_dir, payload, [])
+    assert code == 0, err
+    update = json.loads(line.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
+    assert (update["status"], update["error"]["phase"], update["files_written"]) == ("blocked", "init:test-report", [])
+    assert update["error"]["reason"].startswith("input-missing: ")
+    # the contract, the schema, the report and the docs say the same
+    flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
+    assert ("`--from-test-report` (gap-driven mode; with no finished test report a headless run halts `blocked` at "
+            "`init:test-report` and an interactive one warns `test-report-missing` and runs a normal update);") in flags
+    props = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]
+    assert ("a headless --from-test-report run that found no finished test report (error.phase 'init:test-report', "
+            "error.reason starting 'input-missing')") in props["status"]["description"]
+    assert "test-report-missing: entries (init.md §1)" in props["warnings"]["description"]
+    fallback = _slice(_read(REPORT), "- `--from-test-report` was passed", "\n")
+    assert "(an interactive run's fallback: a headless run halts `blocked` at `init:test-report` instead)" in fallback
+    docs = _slice(_slice(_read(REPO_ROOT / "docs" / "workflows.md"), "### Update Skill (US)", "**Agent:**"),
+                  "**Headless:**", "\n")
+    assert ("It also needs a finished test report: without one a headless run stops `blocked` before it takes the run "
+            "lock (`error.phase` `init:test-report`, with an `error.reason` that starts `input-missing`), so run Test "
+            "Skill first or re-run without the flag, while an interactive run warns `test-report-missing` and checks "
+            "the source for changes.") in docs
+
+
+def test_a_merge_goes_straight_to_write(tmp_path):
+    """enhancement-3: once merge.md §6b has written the merge, §8 asks nothing and records nothing, so a clean or
+    resolved merge goes straight to write.md, which no longer renews the run lock; `merge.clean-merge-gate` is gone
+    from the schema, the prose and the docs, and the emitter refuses it."""
+    merge = _read(MERGE)
+    eight = merge[merge.index("### 8. Route to Write"):]
+    assert eight.startswith('### 8. Route to Write\n\nDisplay "**Merge written: proceeding to write...**", then load, '
+                            "read the full file, and execute {nextStepFile}: a clean merge and one whose conflicts §4 "
+                            "resolved go straight on, since §6b has written the merge.\n"), eight
+    for gone in ("[C]", "record", "GATE", "wait"):
+        assert gone not in eight, gone
+    assert "[C]" not in _slice(merge, "### 4. Check for Conflicts", "### 6. Compile Merge Results")
+    assert ("A clean or resolved merge goes on to write" in _slice(merge, "## Rules", "## Steps")
+            and "auto-proceed" not in _slice(merge, "## Rules", "## Steps"))
+    assert "# §4's gate decisions and warnings and §6b's warnings go to the run log" in _frontmatter(merge)
+    for root in (SRC, REPO_ROOT / "docs"):
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and path.suffix in (".md", ".json", ".py", ".yaml", ".toml", ".js", ".csv"):
+                assert "merge.clean-merge-gate" not in path.read_text(encoding="utf-8"), path
+    write = _read(WRITE)
+    for gone in ("**Renew the run lock", "{lock_recovery}", "{runLockHelper}", "runLockProbeOrder"):
+        assert gone not in write, gone
+    assert "runLockProbeOrder" not in yaml.safe_load(_frontmatter(write))
+    assert _slice(write, "### 2. Prepare the Write Inputs", "\n- ").startswith(
+        "### 2. Prepare the Write Inputs\n\n" + WRITE_TWO_LEAD)
+    assert _slice(_read(SKILL), "## Stages", "## Invocation Contract").count(
+        "| 4 | Merge | references/merge.md | Conditional (§4 asks on a [MANUAL] conflict) |") == 1
+    assert "so merge.md §6b renews the lock before the run writes the skill" in _read(INIT)
+    status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["description"]
+    assert "at the renewal before merge.md §6b writes (error.phase 'merge:run-lock'; " in status
+    lost = _slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"), "**`run-lock-lost`:**", "\n")
+    assert "write:run-lock" not in lost and "delete it first" not in lost
+    # the emitter refuses the retired gate, so no step can record it again
+    run_dir = tmp_path / "run"
+    code, _out, err = _emit(["record", "--workflow", "skf-update-skill", "--run-dir", str(run_dir), "--decision"],
+                            {"gate": "merge.clean-merge-gate", "default_action": "C", "taken_action": "C",
+                             "reason": "headless: clean merge, no conflicts to resolve"})
+    assert code == 1, err
+    assert not (run_dir / "headless-decisions.jsonl").exists()
+
+
+def test_a_headless_position_conflict_keeps_the_block(tmp_path):
+    """enhancement-4: a headless run keeps each POSITION block (a `keep` row and one `merge.manual-conflict`
+    decision per block), skips a Priority 8 edit that overlaps one with a warning, and halts only when an ORPHAN or
+    STALE_REFERENCE conflict remains; the kept block, moved with its section, passes §6b's `manual-verify`."""
+    merge = _read(MERGE)
+    four = _slice(merge, "### 4. Check for Conflicts", "### 6. Compile Merge Results")
+    assert "**GATE [default: K for POSITION, HALT otherwise]**: **if conflicts are detected, headless" in four
+    halt = _slice(four, "- **Any ORPHAN or STALE_REFERENCE conflict:**", "\n")
+    for token in ("it requires human judgment, and nothing is written yet.",
+                  'HALT with status `halted-for-manual-mismatch` (halt procedure: `phase: "merge:conflict-resolution"`',
+                  "where `{N}` and the list count the ORPHAN and STALE_REFERENCE conflicts alone",
+                  "No `headless_decisions[]` entry is added."):
+        assert token in halt, token
+    keep = _slice(four, "- **Otherwise** (every conflict is POSITION):", "```bash")
+    for token in ('keep each block as [K]eep below does, recording `{"name": "<block>", "action": "keep"}` in '
+                  "`{run_dir}/manual-plan.json`", "§6b's `manual-verify` reports in `moved` without failing",
+                  # one row per name the inventory holds, which the amend below takes (it refuses any other plan)
+                  "`{run_dir}/manual-plan.json` once per block name `{manual_inventory}` holds, and none for a block "
+                  "in a `references/*.md` file, which the inventory does not hold",
+                  "For a POSITION conflict Priority 8 flagged, make no edit and add `structural-fix-skipped: {gap_id}: "
+                  "the edit at {file}:{line} overlaps the [MANUAL] block {block}, kept as it is` to `warnings[]`",
+                  "Record one decision per block"):
+        assert token in keep, token
+    # the halt comes first, the keep only when every conflict is POSITION; Priority 8 still flags, never edits
+    assert four.index(halt) < four.index(keep) < four.index("**If conflicts detected, interactive:**")
+    assert "if the fix location overlaps a [MANUAL] block, flag as a POSITION conflict instead of editing" in merge
+    assert "or flags as a POSITION conflict, adds none" in merge
+    block = _fence(four, "uv run {emitEnvelopeHelper} record")
+    decision = _sample(_heredoc(block))
+    assert (decision["gate"], decision["default_action"], decision["taken_action"]) == ("merge.manual-conflict",
+                                                                                       "K", "K")
+    assert decision["reason"].startswith("headless: ") and set(decision["evidence"]) == {"block", "section"}
+    run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
+    argv = _cmd_args(block, "emitEnvelopeHelper", {"run_dir": str(run_dir)})
+    assert argv[:3] == ["record", "--workflow", "skf-update-skill"]  # the emitter checks the gate against the enum
+    for name in ("tips", "notes"):
+        code, _out, err = _emit(argv, {**decision, "evidence": {"block": name, "section": "Usage"}})
+        assert code == 0, err
+    # the decisions go out on the run's line, which the emitter checks against the schema
+    five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    forge_version = tmp_path / "forge" / "lib" / "1.0.1"
+    forge_version.mkdir(parents=True)
+    payload = {**_sample(_heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"'))), "version": "1.0.1",
+               "previous_version": "1.0.0", "update_mode": "normal", "security_result": "pass",
+               "files_written": ["SKILL.md", "metadata.json"]}
+    payload["result_contract"]["summary"]["security_result"] = "pass"
+    code, out, err = _emit(_cmd_args(_emit_line(five_b), "emitEnvelopeHelper", {
+        "run_dir": str(run_dir), "forge_version": str(forge_version)}), payload)
+    assert code == 0, err
+    line = json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
+    assert [(d["gate"], d["taken_action"], d["evidence"]["block"]) for d in line["headless_decisions"]] == [
+        ("merge.manual-conflict", "K", "tips"), ("merge.manual-conflict", "K", "notes")]
+    # a `keep` plan amends the inventory to the same blocks, and the block moved under a new heading passes
+    hashes = _module(HASH_CONTENT, "skf_hash_content_position_keep")
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "SKILL.md").write_bytes(b"# lib\n\n## Usage\n\nold(a)\n\n<!-- [MANUAL:tips] -->\nT\n"
+                                       b"<!-- [/MANUAL:tips] -->\n")
+    inventory = run_dir / "step1.json"
+    inventory.write_bytes(json.dumps(hashes.manual_inventory(package / "SKILL.md")).encode("utf-8"))
+    (run_dir / "manual-plan.json").write_bytes(json.dumps({"decisions": [{"name": "tips", "action": "keep"}]})
+                                               .encode("utf-8"))
+    amend = _fence(four, "uv run {hashContentHelper} manual-inventory-amend")
+    assert hashes.main(_cmd_args(amend, "hashContentHelper", {"manual_inventory": str(inventory),
+                                                              "run_dir": str(run_dir)})) == 0
+    staging = tmp_path / "1.0.1.skf-tmp"
+    (staging / "lib").mkdir(parents=True)
+    (staging / "lib" / "SKILL.md").write_bytes(b"# lib\n\n## Usage\n\nnew(a, b)\n\n## Usage Notes\n\n"
+                                               b"<!-- [MANUAL:tips] -->\nT\n<!-- [/MANUAL:tips] -->\n")
+    staged = _fence(_slice(merge, "**Write and verify the merged SKILL.md in the staged package**", "5. **Publish"),
+                    "manual-verify")
+    proc = subprocess.run([sys.executable, str(HASH_CONTENT), *_cmd_args(staged, "hashContentHelper", {
+        "version_staging": str(staging), "skill_name": "lib", "manual_inventory": str(run_dir / "manual-inventory.json")
+    })], capture_output=True, encoding="utf-8")
+    verdict = json.loads(proc.stdout)
+    assert (verdict["ok"], verdict["moved"], verdict["modified"], verdict["missing"]) == (True, ["tips"], [], [])
+    # a keep row for a block of a references/*.md file, or a second row for one name, would halt the run blocked
+    for decisions in ([{"name": "tips", "action": "keep"}, {"name": "ref-notes", "action": "keep"}],
+                      [{"name": "tips", "action": "keep"}, {"name": "tips", "action": "keep"}]):
+        (run_dir / "manual-plan.json").write_bytes(json.dumps({"decisions": decisions}).encode("utf-8"))
+        assert hashes.main(_cmd_args(amend, "hashContentHelper", {"manual_inventory": str(inventory),
+                                                                  "run_dir": str(run_dir)})) == 1, decisions
+    props = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]
+    assert "structural-fix-skipped: entries (merge.md §4)" in props["warnings"]["description"]
+    assert ("from a headless merge that meets an ORPHAN or STALE_REFERENCE [MANUAL] conflict (error.phase "
+            "'merge:conflict-resolution')") in props["status"]["description"]
+    assert ("at merge.manual-conflict one per [MANUAL] block a headless merge kept (evidence.block and "
+            "evidence.section)") in props["headless_decisions"]["description"]
+    assert ("(headless: HALT, nothing written, on any ORPHAN or STALE_REFERENCE conflict; otherwise keep each "
+            "POSITION block)") in _slice(merge, "## Rules", "## Steps")
+
+
+def test_the_result_contract_points_at_the_schema():
+    """leanness-8: report.md §5b names no gate and lists no warning: its two lines point at the schema's gate enum
+    and warnings description and at the run log the emitter folds, and the schema names the five kinds the old §5b
+    list missed, `provenance:` and the two kinds #1194 adds."""
+    five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    assert ("\n- `headless_decisions[]`: the gate decisions this run recorded in its decision log, which the emitter "
+            "folds into the line, each `{gate, default_action, taken_action, reason, evidence?}` with a `gate` from "
+            "the schema's gate enum (`headless_decisions[].gate` in "
+            "`shared/scripts/schemas/skf-update-result-envelope.v1.json`). Empty when no gate auto-resolved.\n"
+            ) in five_b
+    assert ("\n- `warnings[]`: every entry of `{run_dir}/warnings.jsonl`, which the emitter folds into the line; the "
+            "schema's `warnings` description names each kind. One decides the hook below: `result_file_write_failed` "
+            "(a result file the emitter could not write; the hook then does not run).\n") in five_b
+    for gone in ("`source-tree:`", "merge.md §8", "`unconsumed-test-report`", "detect-changes.md §1b / §1c"):
+        assert gone not in five_b, gone
+    props = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]
+    warnings = props["warnings"]["description"]
+    for token in ("provenance: entries (merge.md §6b's citation moves, and write.md §3 and §6: provenance findings "
+                  "and spot-check entries left for a person to decide)", "test-report-missing:",
+                  "structural-fix-skipped:", "run-lock-replaced", "customization_resolver_unavailable",
+                  "source-tree-not-removed", "run-lock-not-released", "rollback-incomplete"):
+        assert token in warnings, token
+    assert warnings.endswith("result_file_write_failed (a result file not written, or a version forge folder not "
+                             "created), etc. Empty when none.")
+    # each gate the enum lists is a label a stage file records, so the enum is the list §5b points at
+    gates = props["headless_decisions"]["items"]["properties"]["gate"]["enum"]
+    assert gates == GATE_ENUM
+    for gate in gates:
+        assert any(gate in _read(path) for path in STEP_FILES), gate
+    assert "merge.clean-merge-gate" not in props["headless_decisions"]["description"]

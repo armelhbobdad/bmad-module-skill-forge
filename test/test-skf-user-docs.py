@@ -1164,16 +1164,18 @@ def test_troubleshooting_names_the_run_lock_halts():
                   '`status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`',
                   "Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true"):
         assert token in guard, token
-    for name, phase in (("merge.md", "merge:run-lock"), ("write.md", "write:run-lock")):
-        text = _read(refs / name)
-        assert f'`phase: "{phase}"`' in text and '"run-lock-lost: ' in text, name
+    # #1194: merge.md §6b renews the lock; nothing waits after it, so write.md renews nothing
+    merge = _read(refs / "merge.md")
+    assert '`phase: "merge:run-lock"`' in merge and '"run-lock-lost: ' in merge
+    assert "run-lock" not in _read(refs / "write.md").replace("run-lock-not-released", "")
     doc = _read(TROUBLESHOOTING)
     update = _slice(doc, "### Update Skill stops with `halted-for-concurrent-run`", "\n### ")
     for token in ("`.skf-update.lock` in `<forge_data_folder>/<name>/`", "`init:concurrency-guard`",
                   "60 minutes after it was taken or renewed", "`--detect-only` and `--dry-run` take no lock",
                   "delete the lock file the message names", "**`run-lock-lost`:**",
-                  "`merge:run-lock` or `write:run-lock`"):
+                  "(`error.phase` is `merge:run-lock`). It stops before it writes anything to the skill package."):
         assert token in update, token
+    assert "write:run-lock" not in update
     # #723: another run's flip of `active` held the flip lock for the update's whole wait
     busy = _slice(update, "**`busy`:**", "\n")
     for token in ("another run's flip of the skill's `active` link (Create Skill, Quick Skill or Drop Skill) held "

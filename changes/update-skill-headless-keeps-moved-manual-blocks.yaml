@@ -1,0 +1,5 @@
+type: added
+scope: skf-update-skill
+summary: |
+  A headless Update Skill run whose only `[MANUAL]` conflicts are position conflicts, where new generated content shifts a `[MANUAL]` block, now keeps each block, which moves with its section, and goes on, recording one `merge.manual-conflict` decision per block in `headless_decisions`. A headless repair from a test report whose structural fix would edit inside a `[MANUAL]` block leaves that edit out and warns `structural-fix-skipped`. A headless run still stops `halted-for-manual-mismatch`, writing nothing, when a conflict is an orphaned block or a block that names a renamed export.
+issues: [1194]

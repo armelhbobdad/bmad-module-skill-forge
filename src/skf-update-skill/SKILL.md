@@ -47,7 +47,7 @@ These rules apply to every step in this workflow:
 | 2 | Detect Changes | references/detect-changes.md | Conditional (§1b, §1c and §2.2 ask when triggered) |
 | 2g | Gap-Driven Repair (only when `update_mode` is gap-driven: in place of steps 2 and 3) | references/gap-driven.md | Conditional (§1 rule R1 asks [D]/[R] when a gap's remediation names removal) |
 | 3 | Re-Extract | references/re-extract.md | Yes |
-| 4 | Merge | references/merge.md | Conditional ([C] after resolved [MANUAL] conflicts) |
+| 4 | Merge | references/merge.md | Conditional (§4 asks on a [MANUAL] conflict) |
 | 5 | Write | references/write.md | Yes |
 | 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |

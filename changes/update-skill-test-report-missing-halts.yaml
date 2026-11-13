@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-update-skill
+summary: |
+  A headless Update Skill run with `--from-test-report` that finds no finished test report of the skill, or cannot look for one because `skf-find-test-report.py` is missing or fails, now stops `blocked` before it takes the run lock (`error.phase` `init:test-report`, an `error.reason` that starts `input-missing`) and writes nothing. Before, it went on as a normal update that checked the source for changes and reported `success` or `no-changes`, so a pipeline's repair call ran an update nobody asked for. An interactive run still warns and checks the source for changes, and now records a `test-report-missing` warning.
+migration: |
+  Run Test Skill on the skill before a headless `--from-test-report` run, or drop the flag to check the source for changes. A pipeline that repairs a skill from its test report branches on `error.phase` `init:test-report` to run Test Skill first, unless the `error.reason` names `skf-find-test-report.py`, which asks for a re-install of SKF.
+issues: [1194]

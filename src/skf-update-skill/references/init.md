@@ -32,7 +32,8 @@ sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
 # `{findTestReportHelper}`: §1 and §4b find the test report. If neither
-# exists, §1 warns and keeps normal mode and §4b offers nothing.
+# exists, §1 halts a headless run and warns an interactive one, which keeps
+# normal mode, and §4b offers nothing.
 findTestReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
   - '{project-root}/src/shared/scripts/skf-find-test-report.py'
@@ -149,13 +150,15 @@ uv run {findTestReportHelper} find \
 Pass `--version`: §1 always binds `{active_version}`. Never glob, sort or read a report's frontmatter by hand.
 
 - **`status` is `found` and `report_exists` is true:** set `test_report_path` ← `path`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`. Name the report the helper picked (its file name, such as `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`, with its `testResult`, `score` and `source`) and each newer one it passed over as unfinished (`skipped[]`), so an operator can find them from the log, and add each of its `warnings[]` to `warnings[]` as `test-report: <entry>`.
-- **Otherwise** (`not-found`; `found` with `report_exists` false, a result file naming a report that is gone; no candidate resolves; or the command fails or prints no JSON): warn that no test report was found, with the cause, and continue in normal source drift mode.
+- **Otherwise** (`not-found`; `found` with `report_exists` false, a result file naming a report that is gone; no candidate resolves; or the command fails or prints no JSON): `<cause>` is, for `not-found`, "no finished test report of {skill_name} {active_version}" (with ", {n} unfinished passed over" when `skipped[]` is not empty, `{n}` its length); for `found` with `report_exists` false, "the report a result file names, {path}, is gone"; with no candidate, "skf-find-test-report.py is missing; re-install SKF"; else the command's first stderr line, or "no JSON".
+  - **Headless** (`{headless_mode}` true): HALT (halt procedure: `status: "blocked"`, `phase: "init:test-report"`, `path: "{forge_data_folder}/{skill_name}"`, `reason: "input-missing: --from-test-report found no finished test report: <cause>"`, with `version` and `previous_version` `"unknown"`) and display "**No finished test report of {skill_name} to repair from:** <cause>. Run `@Ferris TS {skill_name}` first, or re-run without `--from-test-report` to check the source for changes." This runs before the §1b lock, so there is no lock to release.
+  - **Interactive:** warn that no test report was found, with the cause, add `test-report-missing: <cause>` to `warnings[]`, and continue in normal source drift mode.
 
 **If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by gap-driven.md §3's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
 
 **If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown), when a provenance map is present, or in gap-driven mode, where §4 halts `blocked` instead.
 
-**If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`; when §4b switches a run to gap-driven mode, it unsets it with the same warning.
+**If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}` (interactive only: a headless run halted above); when §4b switches a run to gap-driven mode, it unsets it with the same warning.
 
 **If `--source-root` was provided:** set `{source_root_override}` to its path, made absolute (a relative path is read from `{project-root}`) and written with `/`. §6 applies it in every mode: it replaces the `source_root` metadata.json records for a skill read from a local folder, and halts for any other.
 
@@ -201,7 +204,7 @@ It finds that run's folder by the run id in the owner (`update-skill:{skill_name
 **Release contract:**
 
 - Every exit after this section releases the lock, so a run that halts does not block the next one: step 7 on a run that reaches it, and every other exit through the halt procedure of the step file it fires in: in this step §2's ABORTs, the Stack Skill Guard, §3, the §4 and §6 halts and the §6b source tree halts, and every later step's halts through their own. The release never stops on the result: when it fails or prints no JSON, the halt helper adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to its envelope's `warnings[]`. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
-- A crashed or killed run leaves its lock until it goes stale. A run that waits at a gate past that time can lose its lock to the next update, so merge.md §6b and write.md §2 renew the lock before the run writes the skill, and halt `halted-for-concurrent-run` when this run no longer holds it.
+- A crashed or killed run leaves its lock until it goes stale. A run that waits at a gate past that time can lose its lock to the next update, so merge.md §6b renews the lock before the run writes the skill, and halts `halted-for-concurrent-run` when this run no longer holds it.
 - The private source tree §6b prepares has its own contract: step 7 removes it, every HALT or ABORT after §6b removes it first (the halt procedure of its step file), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
 
 ### 2. Validate Required Artifacts

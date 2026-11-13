@@ -123,11 +123,6 @@ emitEnvelopeProbeOrder:
 runStateProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
   - '{project-root}/src/shared/scripts/skf-update-run-state.py'
-# init.md §1b binds `{runLockHelper}`; §2's renewal resolves it again when
-# the binding was lost: first existing path wins.
-runLockProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
-  - '{project-root}/src/shared/scripts/skf-run-lock.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -144,7 +139,7 @@ Verify the merged SKILL.md that step 4 section 6b wrote to disk, write the deriv
 - Do not modify merged SKILL.md or `references/` content, apart from §6's citation line and prefix fixes outside `[MANUAL]` blocks, and §7's `skill-check check --fix` edits and body split, which moves no section that holds a `[MANUAL]` block; §7 re-checks the [MANUAL] blocks after them. Any mismatch detected during verification triggers HALT, not repair
 - Do not skip provenance map update — critical for future audits
 - HALT immediately on verification failure: §1 halts before any derived artifact is written, and §8 points the `active` link at the new version only after §6 and §7, the last checks that can halt, so every halt in this step rolls back a version no reader sees yet. A partial-write skill package is worse than an unchanged one
-- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{runStateHelper}` in `{runStateProbeOrder}` and `{runLockHelper}` in `{runLockProbeOrder}`.
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in `{runStateProbeOrder}`.
 
 ## Steps
 
@@ -201,21 +196,6 @@ SKILL.md was written in step 4 section 6b. Verify the write landed intact before
   - **Gap-driven mode** (the repair edited the current version in place): "The halt restored the package, with its [MANUAL] blocks, its provenance map and evidence report, and the skill brief, from the snapshot step 4 took before its first write: the skill is as it was. Re-run update-skill."
 
 ### 2. Prepare the Write Inputs
-
-**Renew the run lock first:** step 4 §8 may have waited at its gate since step 4 §6b renewed it. From `{project-root}`, run the renewal step 4 §6b ran:
-
-```bash
-uv run {runLockHelper} acquire \
-    --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
-    --owner "{lock_owner}" \
-    --stale-after 60
-```
-
-- **Exit 0 with `refreshed` true:** continue.
-- **Exit 0 with `refreshed` false, or exit 3:** this run's lock lapsed while it waited, so another update may have changed the skill since this run read it (on exit 3 that update holds the lock). HALT with status `halted-for-concurrent-run` before writing `metadata.json`: display "**This update of {skill_name} lost its run lock while it waited.** {lock_recovery}", with the helper's `message` on exit 3. The halt procedure takes `phase: "write:run-lock"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "run-lock-lost: this run's lock lapsed while it waited; another update may have changed the skill since this run read it"`, or on exit 3 `reason: "another update in progress: {message}"`.
-- **Any other exit, or no JSON:** HALT with status `blocked` the same way: display "**The run lock could not be renewed:** {the message the helper printed on stderr}. {lock_recovery}", with `reason: "run-lock-failed: {that message}"`.
-
-`{lock_recovery}` is, outside gap-driven mode, "The previous version is unchanged, and the halt removed `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`, which step 4 created for this update: re-run update-skill once no other update of {skill_name} runs." and, in gap-driven mode, "This repair already wrote SKILL.md in place; the halt restored the package and the skill brief from the snapshot step 4 took, so the skill is as it was: re-run update-skill once no other update of {skill_name} runs."
 
 Prepare what §3's `apply` and §3b's `metadata` call read, before either runs:
 - **Apply the queued metadata patches.** When merge Priority 8b wrote `{run_dir}/metadata-patches.json` (gap-driven `metadata update` entries; no file, no patch), set in `{skill_package}/metadata.json`, before §3's `apply` reads it, each field of the `set` of each of its `metadata_patches[]` (`a.b` names a nested field). Leave out a field §3b's `metadata` call writes (its `--help` lists them, e.g., `exports_documented`), whose value it would overwrite, and `exports[]`, which §3's `apply` builds from the list it reads. For each field, append the record `metadata_patch_outcome: {gap_id, field, outcome, why}` to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `metadata_patch_outcome`: `outcome` `applied` with `why` null, or `left-out` with `why` the reason (`the metadata call writes it`, `apply builds exports[]`). §3b adds a `dropped` line for an applied field the call drops, so a still-stale value surfaces in both reports rather than being silently overwritten.
