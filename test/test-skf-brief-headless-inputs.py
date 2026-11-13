@@ -54,6 +54,7 @@ SKILL_DIR = REPO / "src" / "skf-brief-skill"
 REFERENCES = SKILL_DIR / "references"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 CUSTOMIZE = SKILL_DIR / "customize.toml"
+PREFLIGHT = REFERENCES / "preflight.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
@@ -161,17 +162,22 @@ def _recommend(payload: dict) -> dict:
 # --------------------------------------------------------------------------
 
 
-def test_step_one_routes_every_mode_before_the_interactive_flow():
-    text = _read(GATHER_INTENT)
-    routes = _section(text, "### 1b. Route by Mode")
+def test_step_zero_routes_every_mode_before_the_interactive_flow():
+    """#1135 (architecture-3): the routing is stage 0's §1b, so a headless or [auto] run never loads the
+    interactive stage, which starts at §2."""
+    routes = _section(_read(PREFLIGHT), "### 1b. Route by Mode")
     bullets = [line for line in routes.splitlines() if line.startswith("- **")]
     assert [b.split("**")[1] for b in bullets] == ["`{auto_mode}` is true", "`{headless_mode}` is true:",
                                                    "Otherwise"], bullets
     auto = routes[routes.index(bullets[0]):routes.index(bullets[1])]
     assert "`{autoBriefFile}`" in auto and "`{headlessArgsFile}`" in bullets[1] and "§2" in bullets[2]
-    front = _frontmatter(GATHER_INTENT)
+    assert "`{nextStepFile}` (gather-intent.md)" in bullets[2]
+    front = _frontmatter(PREFLIGHT)
     assert "headlessArgsFile: 'references/headless-args.md'" in front
     assert "autoBriefFile: 'references/step-auto-brief.md'" in front
+    assert re.search(r"^nextStepFile: 'gather-intent\.md'$", front, re.M)
+    text = _read(GATHER_INTENT)
+    assert "headlessArgsFile" not in _frontmatter(GATHER_INTENT) and "autoBriefFile" not in _frontmatter(GATHER_INTENT)
     # Past the routing, the file is the interactive flow, so nothing there says "interactive only" or
     # names the headless route.
     interactive = text[text.index("### 2. Welcome and Explain"):]
@@ -216,19 +222,21 @@ def test_the_argument_table_lists_what_the_validator_knows():
 
 
 def test_the_headless_gate_and_the_ratify_branch_load_only_on_their_route():
-    """#600: SKILL.md loads gather-intent.md alone; the carved files load from the one place that routes to
-    them, and gather-intent.md stays under the single-file budget."""
+    """#600: the carved files load from the one place that routes to them, and gather-intent.md stays under the
+    single-file budget. #1135 (architecture-3): SKILL.md loads preflight.md alone, whose §1b routes each mode."""
     activation = _section(_read(SKILL_MD), "## On Activation")
     assert re.findall(r"`references/[a-z-]+\.md`", activation) == ["`references/invocation-contract.md`",
-                                                                    "`references/gather-intent.md`"]
+                                                                    "`references/preflight.md`"]
+    preflight = _read(PREFLIGHT)
+    routes = preflight.index("### 1b. Route by Mode")
+    uses = [m.start() for m in re.finditer(re.escape("`{headlessArgsFile}`"), preflight)]
+    assert uses and all(routes < at for at in uses)
     text = _read(GATHER_INTENT)
     assert len(text) < GATHER_INTENT_MAX_CHARS, len(text)
-    uses = {name: [m.start() for m in re.finditer(re.escape(f"`{{{name}}}`"), text)]
-            for name in ("headlessArgsFile", "ratifyFile")}
-    routes = text.index("### 1b. Route by Mode")
+    assert "`{headlessArgsFile}`" not in text
+    uses = [m.start() for m in re.finditer(re.escape("`{ratifyFile}`"), text)]
     ratify_branch = text.index("#### 3.1a Branch: Ratify an Existing Brief")
-    assert uses["headlessArgsFile"] and all(routes < at < text.index("### 2. ") for at in uses["headlessArgsFile"])
-    assert len(uses["ratifyFile"]) == 1 and ratify_branch < uses["ratifyFile"][0] < text.index("#### 3.1b")
+    assert len(uses) == 1 and ratify_branch < uses[0] < text.index("#### 3.1b")
     # The source-authority detection is part of the gate now, not a third hop.
     assert not (REFERENCES / "headless-source-authority-detection.md").exists()
     assert "headless-source-authority-detection" not in "".join(_read(path) for path in SKILL_FILES)
@@ -440,7 +448,8 @@ def test_component_library_detection_runs_the_registry_helper():
     rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
     assert "component library detection below" in rows["component-library"]
     templates = _read(TEMPLATES)
-    component = templates[templates.index("### Component Library Boundaries"):templates.index("## Scripts & Assets")]
+    # #1135 (leanness-7): the file ends with the component library section.
+    component = templates[templates.index("### Component Library Boundaries"):]
     assert component.count("component library detection found") == 2
     for scan in ("Scan source tree", "Directories: `demo/`", "Files named `registry.ts`"):
         assert scan not in component, scan
@@ -771,7 +780,8 @@ def test_customize_toml_header_and_hook_comments_match_activation():
     assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in _read(SKILL_MD)
 
 
-@pytest.mark.parametrize("path", [pytest.param(path, id=path.name) for path in (GATHER_INTENT, HEADLESS_ARGS, RATIFY)])
+@pytest.mark.parametrize("path", [pytest.param(path, id=path.name)
+                                  for path in (PREFLIGHT, GATHER_INTENT, HEADLESS_ARGS, RATIFY)])
 def test_step_one_files_resolve_each_helper_they_call(path):
     """Moving a section between files moves the probe order its helper call needs."""
     text = _read(path)

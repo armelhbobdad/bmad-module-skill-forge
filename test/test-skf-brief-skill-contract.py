@@ -58,6 +58,18 @@ command that reads no stdin and takes the mode and the skill name from
 resolve the name rewrite; the success sites run `emit --run-dir`. SKILL.md
 stays under its 2,500-token budget.
 
+#1135: every run starts in stage 0, references/preflight.md, which holds
+the old gather-intent.md §1 (run folder, halt state, forge tier) and §1b
+(route by mode), so a headless or [auto] run never loads the interactive
+stage and gather-intent.md starts at §2. qmd-collection-registration.md
+resolves `skf-forge-tier-rw.py` itself and handles a missing one, so
+write-brief.md §3b and step-auto-validate.md §3 both load it directly and
+the [auto] route never loads write-brief.md; `{skill-name}` is the brief's
+name. The copies other files own are cut: the tier glosses are one set,
+version-resolution.md keeps its Detection Algorithm and one precedence
+line, and the [auto] files say `## Goal` and `## Sequence` and state each
+rule as the failure it prevents.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -86,6 +98,7 @@ WRITE_BRIEF = REFERENCES / "write-brief.md"
 AUTO_BRIEF = REFERENCES / "step-auto-brief.md"
 AUTO_VALIDATE = REFERENCES / "step-auto-validate.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
+PREFLIGHT = REFERENCES / "preflight.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
@@ -104,7 +117,7 @@ BASH = shutil.which("bash")
 POSIX_BASH = BASH is not None and sys.platform != "win32"
 
 HEREDOC_RE = re.compile(r"<<'(?P<tag>[A-Z_]+)'\n(?P<body>.*?)\n(?P=tag)\n", re.DOTALL)
-# The halt command each halt site writes, its halt_reason in it; step 1 §1's write probe runs before the run
+# The halt command each halt site writes, its halt_reason in it; step 0 §1's write probe runs before the run
 # folder exists, so it alone leaves `--run-dir` out.
 HALT_CALL = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr '
              '--halt-reason <halt_reason>`')
@@ -112,8 +125,8 @@ HALT_CALL_RE = re.compile(r'`uv run \{emitEnvelopeHelper\} emit-halt --workflow 
                           r'(?P<run_dir>--run-dir "\{run_dir\}" )?--target stderr '
                           r'--halt-reason (?P<reason><halt_reason>|[a-z]+(?:-[a-z]+)*)`')
 # The step files whose halts call the emitter where they stop.
-HALT_SITE_FILES = (GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_DEFINITION, AUTO_BRIEF, AUTO_VALIDATE,
-                   WRITE_BRIEF)
+HALT_SITE_FILES = (PREFLIGHT, GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_DEFINITION, AUTO_BRIEF,
+                   AUTO_VALIDATE, WRITE_BRIEF)
 # The [auto] success path: the envelope, the hook, the run folder's removal, the chain.
 AUTO_SUCCESS = "### 3. Envelope, Hook and Chain"
 HALT_LINE_RE = re.compile(HALT_CALL_RE.pattern + r".*?\bthen (?:HARD )?HALT\b \(exit code (?P<code>\d+)\)")
@@ -193,7 +206,7 @@ def _envelope(line: str) -> dict:
 
 
 def _run_folder(tmp_path: Path, state: dict | None, warnings=()) -> Path:
-    """A run folder as step 1 §1 creates it, holding a halt state and the warnings the run recorded."""
+    """A run folder as step 0 §1 creates it, holding a halt state and the warnings the run recorded."""
     run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-brief-skill-abc12345"
     run_dir.mkdir(parents=True)
     if state is not None:
@@ -280,7 +293,7 @@ def _activation_steps() -> dict[int, str]:
 def test_activation_resolves_the_emitter_before_the_first_stage_loads():
     steps = _activation_steps()
     [resolve] = [n for n, body in steps.items() if "`{emitEnvelopeHelper}` ←" in body]
-    [first_stage] = [n for n, body in steps.items() if "`references/gather-intent.md`" in body]
+    [first_stage] = [n for n, body in steps.items() if "`references/preflight.md`" in body]
     assert resolve < first_stage
     for path in ("_bmad/skf/shared/scripts/", "src/shared/scripts/"):
         assert f"`{{project-root}}/{path}{EMITTER.name}`" in steps[resolve]
@@ -390,10 +403,10 @@ def test_every_halt_site_emits_its_envelope_before_it_stops():
             reason, code = match.group("reason"), int(match.group("code"))
             reasons = ("input-missing", "input-invalid") if reason == "<halt_reason>" else (reason,)
             assert {SETTINGS["exit_codes"][r] for r in reasons} == {code}, where
-            # Only step 1 §1's write probe runs before the run folder exists.
-            probe = "**On any non-zero exit:**" in line and path == GATHER_INTENT
+            # Only step 0 §1's write probe runs before the run folder exists.
+            probe = "**On any non-zero exit:**" in line and path == PREFLIGHT
             assert (match.group("run_dir") is None) is probe, where
-    # gather-intent 3, headless-args 1, gather-intent-ratify 2, analyze-target 4, scope-definition 1,
+    # preflight 3, headless-args 1, gather-intent-ratify 2, analyze-target 4, scope-definition 1,
     # step-auto-brief 4, step-auto-validate 2, write-brief 3
     assert sites == 20, sites
 
@@ -409,16 +422,16 @@ def test_write_brief_leaves_each_halt_to_its_own_command():
 def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
     """The halt state says whether the run prints an envelope, so no step 1 halt narrows the command to headless,
     points at write-brief.md section 4b, or types the mode; only the write probe, with no run folder, says when."""
-    step_one = (GATHER_INTENT, HEADLESS_ARGS, RATIFY)
+    step_one = (PREFLIGHT, GATHER_INTENT, HEADLESS_ARGS, RATIFY)
     for path in step_one:
         text = _read(path)
         assert "In headless mode, emit" not in text, path.name
         assert "§4b" not in text and "step 5 section 4b" not in text and "placeholder convention" not in text
-    [auto] = [line for line in _read(GATHER_INTENT).splitlines() if "brief_path` is not available" in line]
+    [auto] = [line for line in _read(PREFLIGHT).splitlines() if "brief_path` is not available" in line]
     match = HALT_CALL_RE.search(auto)
     assert match and match.group("reason") == "input-missing" and match.group("run_dir"), auto
     assert '`"auto"`' not in auto and "`mode`" not in auto
-    [probe] = [line for line in _read(GATHER_INTENT).splitlines() if "**On any non-zero exit:**" in line]
+    [probe] = [line for line in _read(PREFLIGHT).splitlines() if "**On any non-zero exit:**" in line]
     for needle in ("in a headless or `[auto]` run, emit the halt envelope first",
                    "(no `--run-dir`: the run folder does not exist; add `--mode auto` in an `[auto]` run)"):
         assert needle in probe, needle
@@ -450,7 +463,7 @@ HALT_STATE_RE = re.compile(r"""^cat > "\{run_dir\}/halt-state\.json" <<'SKF_JSON
                            re.M | re.S)
 # Each file that writes the halt state, the keys it writes and the values it gives in a run that reaches it.
 HALT_STATES = (
-    (GATHER_INTENT, {"interactive": False, "mode": "auto"}),
+    (PREFLIGHT, {"interactive": False, "mode": "auto"}),
     (HEADLESS_ARGS, {"interactive": False, "mode": None, "skill_name": "demo"}),
     (RATIFY, {"interactive": False, "mode": None, "skill_name": "demo"}),
     (AUTO_BRIEF, {"interactive": False, "mode": "auto", "skill_name": "demo"}),
@@ -473,7 +486,7 @@ def test_each_halt_state_is_written_whole_with_the_keys_the_run_knows(tmp_path, 
     assert envelope["skill_name"] == values.get("skill_name", "unknown")
 
 
-def test_step_one_writes_the_halt_state_before_its_first_halt_that_can_read_it():
+def test_step_zero_writes_the_halt_state_before_its_first_halt_that_can_read_it():
     section = _forge_tier_section()
     bind = section.index("Bind `{run_dir}` ← the path the last command prints.")
     state = section.index('cat > "{run_dir}/halt-state.json"')
@@ -481,7 +494,7 @@ def test_step_one_writes_the_halt_state_before_its_first_halt_that_can_read_it()
     body = HALT_STATE_RE.search(section).group("body")
     assert ('"interactive": <true when neither {headless_mode} nor {auto_mode} is true, else false>' in body
             and '"mode": <"auto" when {auto_mode} is true, else null>' in body)
-    interactive = _halt_state(GATHER_INTENT, {"interactive": True, "mode": None})
+    interactive = _halt_state(PREFLIGHT, {"interactive": True, "mode": None})
     assert interactive == {"interactive": True, "mode": None}
     # The name is written where it resolves: the input gate on the derive route, the ratify route in a headless
     # run, and the upstream brief on the [auto] route.
@@ -615,19 +628,33 @@ def test_write_brief_builds_the_envelope_after_the_qmd_registration():
     assert "### 5. " not in text
     # Every pointer at the registration names its new place.
     assert "Loaded by step 5 §3b " in _read(QMD_REGISTRATION)
-    assert "registered by step 5 §3b " in _read(PORTFOLIO_CHECK)
+    assert ("one `<name>-brief` collection per existing brief, registered by step 5 §3b (step-auto-validate.md §3 "
+            "on an `[auto]` run) ") in _read(PORTFOLIO_CHECK)
     assert "Used by skf-brief-skill step 5 §3b" in FORGE_TIER_RW.read_text(encoding="utf-8")
     stale = [path.name for path in sorted(SKILL_DIR.rglob("*.md")) if "step 5 §5" in _read(path)]
     assert not stale, stale
 
 
 def test_qmd_registration_never_halts_after_the_write():
-    """A missing skf-forge-tier-rw.py costs the registry update, not the envelope of a brief already written."""
+    """A missing skf-forge-tier-rw.py costs the registry update, not the envelope of a brief already written.
+    #1135 (architecture-2): the registration file resolves the helper and handles a missing one itself, so either
+    route that loads it gets the same fallback."""
     section = _section(_read(WRITE_BRIEF), "### 3b. QMD Collection Registration (Deep Tier Only)")
-    assert "HALT if no candidate exists" not in section
-    assert (f'record the warning: `{RECORD}--warning "QMD registry not updated: skf-forge-tier-rw.py not found"`'
-            in section)
-    assert "skip the Registry Update" in _section(_read(QMD_REGISTRATION), "## Error Handling")
+    assert "HALT if no candidate exists" not in section and "{forgeTierRwHelper}" not in section
+    qmd = _read(QMD_REGISTRATION)
+    assert "HALT if no candidate exists" not in qmd
+    registry = _flow(_section(qmd, "## Registry Update (Delegated to Script)"))
+    assert registry.startswith("## Registry Update (Delegated to Script) Resolve `{forgeTierRwHelper}` from "
+                               "`{forgeTierRwProbeOrder}` (first existing path wins; with no path, see Error "
+                               "Handling).")
+    [missing] = [line for line in _section(qmd, "## Error Handling").splitlines()
+                 if line.startswith("- If `{forgeTierRwHelper}` has no path")]
+    for needle in ("the brief is already written, so do not HALT", "Skip the Registry Update",
+                   f'record the warning: `{RECORD}--warning "QMD registry not updated: skf-forge-tier-rw.py '
+                   'not found"`'):
+        assert needle in missing, needle
+    # The brief is indexed before the registry update, so a missing helper still leaves it searchable.
+    assert qmd.index("## Collection Creation") < qmd.index("## Registry Update")
 
 
 # --------------------------------------------------------------------------
@@ -746,41 +773,61 @@ def test_ratify_version_line_names_the_r_pass():
 
 def test_auto_stays_a_separate_route_by_design():
     """Step 5b gate run 3 (enhancement-1), a written exception the maintainer accepted on 2026-10-03: [auto]
-    keeps its own stages, because the forge-auto contract gives it doc enrichment the other routes lack."""
-    [line] = [line for line in _read(SKILL_MD).splitlines() if line.startswith("Every run starts in gather-intent.md")]
+    keeps its own stages, because the forge-auto contract gives it doc enrichment the other routes lack. #1135
+    (architecture-3): every run starts in stage 0, so [auto] runs in place of stages 1 to 5."""
+    [line] = [line for line in _read(SKILL_MD).splitlines() if line.startswith("Every run starts in preflight.md")]
+    assert line.startswith("Every run starts in preflight.md (run folder, forge tier), which routes by mode.")
     assert ("It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment "
             "(step-auto-brief.md §2-§3), which the ratify and derive routes do not run") in line
-    assert ("in place of stages 2-5 except stage 5's §3b QMD registration, which step-auto-validate.md runs at "
-            "Deep tier") in line
+    assert ("in place of stages 1-5; at Deep tier step-auto-validate.md loads stage 5's QMD registration file."
+            in line)
+    assert "Interactive: gather-intent.md." in line and "the rest of gather-intent.md" not in line
     assert "skf-detect-docs.py" in _read(AUTO_BRIEF)
     for path in (WRITE_BRIEF, RATIFY):
         assert "skf-detect-docs.py" not in _read(path), path.name
 
 
 def test_the_auto_path_registers_the_brief_in_qmd_before_its_envelope():
-    """Step 5b gate run 3 (enhancement-1, drift 1): an [auto] run at Deep tier runs write-brief.md §3b, the one
-    QMD registration procedure, before it builds its envelope, so a warning the registration raises reaches it."""
+    """Step 5b gate run 3 (enhancement-1, drift 1): an [auto] run at Deep tier runs the one QMD registration
+    procedure before it builds its envelope, so a warning the registration raises reaches it. #1135
+    (architecture-2): it loads qmd-collection-registration.md directly, as write-brief.md §3b does, and never
+    loads write-brief.md, a stage whose overwrite gate, envelope and hook must not run on this route."""
     text = _read(AUTO_VALIDATE)
-    assert re.search(r"^writeBriefFile: 'write-brief\.md'$", text, re.M)
+    assert re.search(r"^qmdRegistrationFile: 'references/qmd-collection-registration\.md'$", text, re.M)
+    assert _frontmatter(AUTO_VALIDATE)["qmdRegistrationFile"] == _frontmatter(WRITE_BRIEF)["qmdRegistrationFile"]
+    assert "writeBriefFile" not in text and "write-brief.md" not in text
     approve = _section(text, AUTO_SUCCESS)
     [qmd] = [line for line in approve.splitlines() if line.startswith("**QMD registration.**")]
-    for needle in ("When the run's forge tier (step 1 §1) is Deep, load `{writeBriefFile}` and run its §3b (QMD "
-                   "Collection Registration) alone", "with `{skill-name}` ← `{skill_name}`",
-                   "Run nothing else of that file.", "is recorded in the run sink before the envelope below is built",
-                   "At any other tier, skip this."):
+    for needle in ("When the run's forge tier (step 0 §1) is Deep and QMD is available, load "
+                   "`{qmdRegistrationFile}` and follow it", "is recorded in the run sink before the envelope below is "
+                   "built", "Otherwise skip this."):
         assert needle in qmd, needle
+    # SKILL.md defines {skill-name} as the brief's name, so this route binds it once, where the name resolves.
+    assert "{skill-name}` ←" not in text and "`{skill_name}`" not in qmd
     assert approve.index("**QMD registration.**") < approve.index("<<'SKF_BRIEF_RESULT'")
-    assert "register it in QMD at Deep tier" in _section(text, "## STEP GOAL:")
-    # The section it runs is the one copy of the procedure: only write-brief.md loads the registration file.
+    assert "register it in QMD at Deep tier" in _section(text, "## Goal")
+    # Both routes load the one copy of the procedure, and no stage holds a copy of its steps.
     write = _read(WRITE_BRIEF)
     assert "\n### 3b. QMD Collection Registration (Deep Tier Only)\n" in write
     loaders = sorted(path.name for path in REFERENCES.glob("*.md") if "{qmdRegistrationFile}" in _read(path))
-    assert loaders == ["write-brief.md"], loaders
-    assert "qmd collection add" not in text
-    # No file still says an [auto] run never loads write-brief.md, and the procedure names both callers.
+    assert loaders == ["step-auto-validate.md", "write-brief.md"], loaders
+    assert "qmd collection add" not in text and "qmd collection add" not in write
+    # No file still says an [auto] run loads part of write-brief.md, and the procedure names both callers.
     assert "An `[auto]` run never loads this file" not in write
-    assert "An `[auto]` run runs only §3b of this file" in write
-    assert "(which step-auto-validate.md §3 also runs for an `[auto]` brief)" in _read(QMD_REGISTRATION)
+    assert "An `[auto]` run runs only §3b of this file" not in write
+    assert ("Loaded by step 5 §3b and, for an `[auto]` brief, step-auto-validate.md §3, only when forge tier is "
+            "Deep AND QMD is available") in _read(QMD_REGISTRATION)
+
+
+def test_skill_name_is_the_briefs_name_bound_once_on_the_auto_route():
+    """#1135 (leanness-2): `{skill-name}` names the brief, never this skill's folder, and the [auto] route binds it
+    with `skill_name` where the upstream brief resolves the name."""
+    [rule] = [line for line in _read(SKILL_MD).splitlines() if line.startswith("- `{skill-name}`")]
+    assert rule == "- `{skill-name}` is the brief's approved `name`, never this skill's folder name."
+    auto = _read(AUTO_BRIEF)
+    binds = [line for line in auto.splitlines() if "`{skill-name}`" in line]
+    assert len(binds) == 1 and "`skill_name` ← `brief.name` (bind `{skill-name}` to it too)" in binds[0], binds
+    assert auto.index("- **`valid: true`**") < auto.index(binds[0]) < auto.index("### 2. ")
 
 
 def test_the_module_pick_stays_step_2s_judgment():
@@ -798,15 +845,15 @@ def test_the_module_pick_stays_step_2s_judgment():
 
 
 # --------------------------------------------------------------------------
-# #1118: step 1 reads the forge tier through skf-forge-tier-rw.py effective
+# #1118: step 1 reads the forge tier through skf-forge-tier-rw.py effective (#1135: in stage 0, preflight.md)
 # --------------------------------------------------------------------------
 
 
 EFFECTIVE_CALL = "uv run {forgeTierRwHelper} effective "
 # The step files that read a tool flag, and the binding each one names.
-TOOL_READERS = ((GATHER_INTENT, "`tools.qmd` is true in the `tools` §1 bound"),
-                (PORTFOLIO_CHECK, "`tools.qmd` is true in the `tools` step 1 §1 bound"),
-                (ANALYZE_TARGET, "`tools.ccc` is true in the `tools` step 1 §1 bound"))
+TOOL_READERS = ((GATHER_INTENT, "`tools.qmd` is true in the `tools` step 0 §1 bound"),
+                (PORTFOLIO_CHECK, "`tools.qmd` is true in the `tools` step 0 §1 bound"),
+                (ANALYZE_TARGET, "`tools.ccc` is true in the `tools` step 0 §1 bound"))
 
 
 def _flow(text: str) -> str:
@@ -821,7 +868,7 @@ def _frontmatter(path: Path) -> dict:
 
 
 def _forge_tier_section() -> str:
-    return _section(_read(GATHER_INTENT), "### 1. Discover Forge Tier")
+    return _section(_read(PREFLIGHT), "### 1. Discover Forge Tier")
 
 
 def _branch(label: str) -> str:
@@ -837,7 +884,7 @@ def _run_documented_effective(sidecar: Path) -> subprocess.CompletedProcess:
     blocks = [m.group(1).strip() for m in re.finditer(r"```bash\n(.*?)```", _forge_tier_section(), re.S)
               if EFFECTIVE_CALL in m.group(1)]
     assert len(blocks) == 1, blocks
-    command = blocks[0].replace("{forgeTierFile}", _frontmatter(GATHER_INTENT)["forgeTierFile"])
+    command = blocks[0].replace("{forgeTierFile}", _frontmatter(PREFLIGHT)["forgeTierFile"])
     command = command.replace("{sidecar_path}", sidecar.as_posix())
     assert command.startswith(EFFECTIVE_CALL) and "{" not in command[len(EFFECTIVE_CALL):], command
     argv = shlex.split(command[len("uv run {forgeTierRwHelper} "):])
@@ -845,19 +892,24 @@ def _run_documented_effective(sidecar: Path) -> subprocess.CompletedProcess:
                           encoding="utf-8", timeout=30, check=False)
 
 
-def test_step_one_resolves_the_forge_tier_helper_as_step_five_does():
-    front = _frontmatter(GATHER_INTENT)
-    assert front["forgeTierRwProbeOrder"] == _frontmatter(WRITE_BRIEF)["forgeTierRwProbeOrder"] == [
+def test_step_zero_resolves_the_forge_tier_helper_as_the_qmd_registration_does():
+    """#1135 (architecture-2): the two files that run skf-forge-tier-rw.py hold the same probe order and target, and
+    the stages that loaded them for those files do not."""
+    front = _frontmatter(PREFLIGHT)
+    qmd = _frontmatter(QMD_REGISTRATION)
+    assert front["forgeTierRwProbeOrder"] == qmd["forgeTierRwProbeOrder"] == [
         "{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py",
         "{project-root}/src/shared/scripts/skf-forge-tier-rw.py",
     ]
-    assert front["forgeTierFile"] == "{sidecar_path}/forge-tier.yaml"
+    assert front["forgeTierFile"] == qmd["forgeTierFile"] == "{sidecar_path}/forge-tier.yaml"
+    for path in (GATHER_INTENT, WRITE_BRIEF):
+        assert not {"forgeTierRwProbeOrder", "forgeTierFile"} & set(_frontmatter(path)), path.name
     section = _flow(_forge_tier_section())
     assert ("`{forgeTierRwHelper}`, resolved from `{forgeTierRwProbeOrder}` (first existing path wins; HALT if no "
             "candidate exists)") in section
 
 
-def test_step_one_binds_the_tier_and_the_tools_the_documented_call_prints(tmp_path):
+def test_step_zero_binds_the_tier_and_the_tools_the_documented_call_prints(tmp_path):
     (tmp_path / "forge-tier.yaml").write_text(
         "tools:\n  ast_grep: true\n  qmd: true\n  ccc: false\ntier: Forge\n", encoding="utf-8")
     (tmp_path / "preferences.yaml").write_text("tier_override: Deep\n", encoding="utf-8")
@@ -869,7 +921,7 @@ def test_step_one_binds_the_tier_and_the_tools_the_documented_call_prints(tmp_pa
     assert payload["tools"]["qmd"] is True and payload["tools"]["ccc"] is False
     found = _flow(_branch("**If found**"))
     assert "(exit 0 with `exists` true): bind `tier`, `detected_tier`, `tier_source` and `tools` from its JSON" in found
-    assert "`tier_source` `override` is §2's \"tier override was applied\"" in found
+    assert "`tier_source` `override` is step 1 §2's \"tier override was applied\"" in found
     # Each key the branch reads is one the helper prints.
     for key in ("override_rejected", "tier_override", "preferences_error", "detected_tier"):
         assert re.search(rf"[`{{]{key}[`}}]", found) and key in payload, key
@@ -880,7 +932,7 @@ def test_step_one_binds_the_tier_and_the_tools_the_documented_call_prints(tmp_pa
     assert "`warn: tier_override {tier_override} is not one of Quick, Forge, Forge+, Deep" in found
 
 
-def test_step_one_warns_on_an_override_that_names_no_tier(tmp_path):
+def test_step_zero_warns_on_an_override_that_names_no_tier(tmp_path):
     (tmp_path / "forge-tier.yaml").write_text("tools: {}\ntier: Forge\n", encoding="utf-8")
     (tmp_path / "preferences.yaml").write_text("tier_override: deep\n", encoding="utf-8")
     payload = json.loads(_run_documented_effective(tmp_path).stdout)
@@ -888,7 +940,7 @@ def test_step_one_warns_on_an_override_that_names_no_tier(tmp_path):
     assert payload["override_rejected"] is True and payload["tier_override"] == "deep"
 
 
-def test_step_one_halts_forge_tier_missing_when_the_documented_call_finds_no_file(tmp_path):
+def test_step_zero_halts_forge_tier_missing_when_the_documented_call_finds_no_file(tmp_path):
     (tmp_path / "preferences.yaml").write_text("tier_override: Deep\n", encoding="utf-8")
     done = _run_documented_effective(tmp_path)
     assert done.returncode == 0 and json.loads(done.stdout)["exists"] is False
@@ -900,7 +952,7 @@ def test_step_one_halts_forge_tier_missing_when_the_documented_call_finds_no_fil
 
 @pytest.mark.parametrize("content", ["tools:\n  ast_grep: true\n  qmd: tr", "tools:\n  qmd: true\ntier: De",
                                      "tier: [\n"], ids=["cut-before-tier", "cut-inside-tier", "unparseable"])
-def test_step_one_falls_back_to_quick_when_the_documented_call_exits_2(tmp_path, content):
+def test_step_zero_falls_back_to_quick_when_the_documented_call_exits_2(tmp_path, content):
     """A forge-tier.yaml cut short or not YAML holds no tier it can use: exit 2, and the run goes on at Quick."""
     (tmp_path / "forge-tier.yaml").write_text(content, encoding="utf-8")
     done = _run_documented_effective(tmp_path)
@@ -928,3 +980,151 @@ def test_no_step_reads_the_forge_tier_or_its_tools_by_eye():
     assert ('{If `tier_source` is `fallback-corrupted-config`:}\n'
             '"**Note:** Forge tier defaulted to Quick (forge-tier.yaml could not be read)."') in confirm
     assert "no forge-tier.yaml found" not in confirm
+
+
+# --------------------------------------------------------------------------
+# #1135: every run starts in stage 0, and each rule is stated once
+# --------------------------------------------------------------------------
+
+
+def _headings(text: str, level: str) -> list[str]:
+    """The headings of one level, outside the frontmatter."""
+    return re.findall(rf"^{re.escape(level)} (.+)$", text, re.M)
+
+
+def test_preflight_holds_the_run_folder_the_tier_and_the_routing():
+    """#1135 (architecture-3): stage 0 is the old gather-intent.md §1 and §1b, which every mode runs; the interactive
+    stage starts at §2 and holds nothing a headless or [auto] run needs."""
+    preflight = _read(PREFLIGHT)
+    assert _headings(preflight, "###") == ["1. Discover Forge Tier", "1b. Route by Mode"]
+    assert _headings(preflight, "#") == ["Step 0: Preflight"] and _headings(preflight, "##") == ["Sequence"]
+    front = _frontmatter(PREFLIGHT)
+    assert front["nextStepFile"] == "gather-intent.md"
+    assert (front["autoBriefFile"], front["headlessArgsFile"]) == ("references/step-auto-brief.md",
+                                                                   "references/headless-args.md")
+    routes = _section(preflight, "### 1b. Route by Mode")
+    [otherwise] = [line for line in routes.splitlines() if line.startswith("- **Otherwise**")]
+    assert otherwise == ("- **Otherwise** the run is interactive: load, read fully, and execute `{nextStepFile}` "
+                         "(gather-intent.md) at its §2.")
+    gather = _read(GATHER_INTENT)
+    assert _headings(gather, "###")[0] == "2. Welcome and Explain"
+    assert "### 1. " not in gather and "### 1b. " not in gather
+    for gone in ("{headlessArgsFile}", "{autoBriefFile}", "{forgeTierRwHelper}", "halt-state.json"):
+        assert gone not in gather, gone
+    assert not {"autoBriefFile", "headlessArgsFile", "forgeTierFile", "forgeTierRwProbeOrder"} & set(
+        _frontmatter(GATHER_INTENT))
+    assert ("Step 0 (`references/preflight.md`) ran §1 and §1b, and it sends only an interactive run here."
+            in _section(gather, "## Sequence"))
+    # SKILL.md loads stage 0 for every mode, and its Stages table lists it first.
+    assert "5. Load, read the full file, and execute `references/preflight.md`." in _read(SKILL_MD)
+    stages = _section(_read(SKILL_MD), "## Stages")
+    rows = [line for line in stages.splitlines() if re.match(r"^\| \d", line)]
+    assert rows[0] == "| 0 | Preflight (every run) | references/preflight.md | Yes |", rows[0]
+
+
+# A citation of the sections stage 0 now holds, under their old step.
+OLD_STEP_RE = re.compile(r"(?i)step[ -]0?1 §1b?\b|gather-intent(?:\.md)? §1b?\b")
+
+
+def test_no_brief_file_cites_the_moved_sections_under_their_old_step():
+    stale = [f"{path.relative_to(SKILL_DIR).as_posix()}:{number}" for path in sorted(SKILL_DIR.rglob("*"))
+             if path.is_file() for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+             if OLD_STEP_RE.search(line)]
+    assert not stale, stale
+    assert not OLD_STEP_RE.search(FORGE_TIER_RW.read_text(encoding="utf-8"))
+    assert "Used by skf-brief-skill step 0 §1 and" in FORGE_TIER_RW.read_text(encoding="utf-8")
+
+
+TIERS = ["Quick", "Forge", "Forge+", "Deep"]
+
+
+def test_the_tier_glosses_are_one_set():
+    """#1135 (leanness-7): step 1's welcome and step 4's review gloss each tier the same way."""
+    [welcome] = [line for line in _read(GATHER_INTENT).splitlines() if line.startswith("(Substitute `{tier_gloss}`")]
+    step_one = dict(re.findall(r'`(Quick|Forge\+?|Deep)` → "([^"]+)"', welcome))
+    confirm = _read(REFERENCES / "confirm-brief.md")
+    block = confirm[confirm.index("- **Forge tier glosses**"):confirm.index("- **`scripts_intent` / `assets_intent`")]
+    step_four = dict(re.findall(r"^  - `(Quick|Forge\+?|Deep)`: (.+)$", block, re.M))
+    assert list(step_one) == list(step_four) == TIERS, (step_one, step_four)
+    assert step_one == step_four
+    # The note that explained why the glosses are shown is gone, and the quote ends on the last gloss.
+    assert "the gloss just clarifies" not in confirm
+    assert "create-skill treats it as the user's spec\"\n" in confirm
+
+
+AUTO_AND_QMD = (AUTO_BRIEF, AUTO_VALIDATE, QMD_REGISTRATION)
+SCRIPTS_RULE = "- Let the scripts render the YAML and the envelope: one written by hand drifts from the schema."
+
+
+@pytest.mark.parametrize("path", [pytest.param(path, id=path.stem) for path in AUTO_AND_QMD])
+def test_the_auto_and_qmd_files_state_each_rule_as_the_failure_it_prevents(path):
+    """#1135 (leanness-13, leanness-12): no all-caps rule or heading, and no rule a section of the file handles."""
+    text = _read(path)
+    for gone in ("Do NOT", "MUST", "STEP GOAL", "MANDATORY"):
+        assert gone not in text, gone
+    if path == QMD_REGISTRATION:
+        assert "The brief is already written, so go on." in _section(text, "## Error Handling")
+        return
+    assert _headings(text, "##") == ["Goal", "Rules", "Sequence"]
+    assert SCRIPTS_RULE in _section(text, "## Rules").splitlines()
+    if path == AUTO_BRIEF:
+        assert ("- Keep AN's scope fields as they are: AN derived them from the analysis this route skips."
+                in _section(text, "## Rules").splitlines())
+        [failed] = [line for line in text.splitlines() if line.startswith("- **Exit 2 (error):**")]
+        assert failed.endswith("Go on to §4 without doc enrichment: it is best-effort.")
+    else:
+        assert [line for line in _section(text, "## Rules").splitlines() if line.startswith("- ")] == [
+            SCRIPTS_RULE, "- The summary is always displayed, even in headless mode, for logging transparency"]
+        summary = _section(text, "### 2. Present the Summary")
+        assert "Pipeline:" not in summary and "quality target" not in summary
+        rows = re.findall(r"^([A-Z][A-Za-z -]+):", summary.split("```", 2)[1], re.M)
+        assert rows == ["Auto-Brief Summary", "Source", "Language", "Scope", "Docs", "Version", "Forge Tier",
+                        "Description"], rows
+
+
+# Text a brief file no longer holds: a key, a heading or a restatement #1135 cut.
+CUT = ("writeBriefFile", "18 fields", "Scripts & Assets Detection", "STEP GOAL", "MANDATORY SEQUENCE", "Do NOT", "MUST",
+       "Determinism delegation", "fsync", "translates flat", "Scope guidance for first-time users",
+       "documented rule table")
+
+
+def test_no_brief_file_keeps_a_rule_another_file_or_helper_owns():
+    """#1135 (leanness-5, -6, -8, -10): each rule is stated where it is used, or left to the helper that applies it."""
+    for path in sorted(SKILL_DIR.rglob("*")):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            for gone in CUT:
+                assert gone not in text, (path.relative_to(SKILL_DIR).as_posix(), gone)
+    holders = sorted(path.relative_to(SKILL_DIR).as_posix() for path in sorted(SKILL_DIR.rglob("*.md"))
+                     if "versionResolutionFile" in _read(path))
+    assert holders == ["references/analyze-target.md"], holders
+    resolution = _read(REFERENCES / "version-resolution.md")
+    assert _headings(resolution, "##") == ["Detection Algorithm", "Precedence"]
+    assert resolution.endswith("\n## Precedence\n\n`target_version`, else the detected version, else 1.0.0: "
+                               "`skf-write-skill-brief.py` applies it and keeps `target_version == version`.\n")
+    assert "Loaded by step 2 §4b when §4.2's fallback read the source.\n" in resolution
+    # Step 4 points at the fields instead of listing them, and states the 1.0.0 default where it shows the version.
+    confirm = _read(REFERENCES / "confirm-brief.md")
+    assemble = _section(confirm, "### 1. Assemble Complete Brief")
+    assert "- **name:**" not in assemble and "Compile all gathered data" not in assemble
+    assert "§2 shows the fields the user reviews, and step 5 §3 names every key the writer takes." in assemble
+    # The bindings the cut list alone stated: §2 shows these before step 5 runs.
+    assert ("On a derive run, `forge_tier` is the `tier` step 0 §1 bound, `created` is today's date and `created_by` "
+            "is `{user_name}`; an unset `scripts_intent` or `assets_intent` is `detect`.") in assemble
+    assert "Version:    {version; a derive run's is the detected version, else 1.0.0}\n" in confirm
+    # Step 5 passes the payload and branches on the result; the writer's internals are its own.
+    write = _section(_read(WRITE_BRIEF), "### 3. Write the Brief")
+    assert "Pass every key, `null` when unset: the writer decides what reaches the YAML." in write
+    assert ("Either way, on success the writer prints `{status, brief_path, version, bytes, warnings}`, which the "
+            "call saves in `{run_dir}/brief-write.json`.") in write
+    assert ("It returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, "
+            "detected_languages}`: use them directly, §5 shows them.") in _read(ANALYZE_TARGET)
+    assert "The script upserts the entry by `name`.\n" in _read(QMD_REGISTRATION)
+    assert ("**Recommend a scope type.** Present the recommender's pick as the marked default, not five equal "
+            "options.") in _read(SCOPE_DEFINITION)
+    # The ratify force rule is stated in the Inputs cell, and the Headless row points at it.
+    [headless] = [line for line in _read(CONTRACT).splitlines() if line.startswith("| **Headless** |")]
+    assert ("routes step 1 to the ratify path described in the `from_brief` Inputs cell rather than deriving a new "
+            "brief.") in headless and "`force`" not in headless.split("from_brief <path>", 1)[1]
+    assert _read(SKILL_DIR / "assets" / "scope-templates.md").endswith(
+        'Prompt: "Does this component library scope look right? Adjust before continuing."\n')

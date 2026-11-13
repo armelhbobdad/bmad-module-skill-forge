@@ -18,7 +18,7 @@ detectDocsProbeOrder:
 
 # Step 1a: Auto-Brief Generation
 
-## STEP GOAL:
+## Goal
 
 To enrich an upstream skill brief (produced by AN auto-scope) with documentation URLs discovered via `skf-detect-docs.py`, validate the enriched brief, and write it through the canonical writer. Envelope emission is deferred to step-auto-validate.md, which checks the written brief and summarizes it first. This step replaces the interactive gather-intent → analyze-target → scope-definition → confirm-brief → write-brief chain when `[auto]` mode is active.
 
@@ -28,10 +28,10 @@ To enrich an upstream skill brief (produced by AN auto-scope) with documentation
 - This step is conditional — only loaded when `[auto]` flag is present in the pipeline context
 - Must produce the same output artifact as the interactive chain: a validated `skill-brief.yaml`
 - Doc detection is best-effort — failures do not halt the pipeline
-- Do NOT re-derive scope fields from the upstream brief — AN already set them correctly
-- Do NOT render YAML or JSON envelopes in the LLM — delegate to deterministic scripts
+- Keep AN's scope fields as they are: AN derived them from the analysis this route skips.
+- Let the scripts render the YAML and the envelope: one written by hand drifts from the schema.
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Load Upstream Brief
 
@@ -60,7 +60,7 @@ cat > "{run_dir}/halt-state.json" <<'SKF_JSON'
 SKF_JSON
 ```
 
-Nothing the upstream brief carries is rebuilt or dropped: §4's writer starts from the upstream brief file itself. That covers the top-level fields (`name`, `version`, `source_type`, `source_repo`, `language`, `description`, `forge_tier`, `created`, `created_by`, `source_authority`, `doc_urls`, `target_version`, `target_ref`, `source_ref`, `scripts_intent`, `assets_intent`) and all scope fields: `scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scope.amendments`, `scope.tier_a_include`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`. The sections below read `skill_name` ← `brief.name`, `source_repo` ← `brief.source_repo`, `scope_type` ← `brief.scope.type` and `source_type` ← `brief.source_type`.
+Nothing the upstream brief carries is rebuilt or dropped: §4's writer starts from the upstream brief file itself. That covers the top-level fields (`name`, `version`, `source_type`, `source_repo`, `language`, `description`, `forge_tier`, `created`, `created_by`, `source_authority`, `doc_urls`, `target_version`, `target_ref`, `source_ref`, `scripts_intent`, `assets_intent`) and all scope fields: `scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scope.amendments`, `scope.tier_a_include`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`. The sections below read `skill_name` ← `brief.name` (bind `{skill-name}` to it too), `source_repo` ← `brief.source_repo`, `scope_type` ← `brief.scope.type` and `source_type` ← `brief.source_type`.
 
 **Docs-only check:** If `source_type` is `docs-only` in the parsed brief, skip §2 (Run Doc Detection) and §3 (Enrich Brief with Detected Docs): the doc URL is already in the brief's `doc_urls`. Log: "Docs-only brief: skipping repo-based doc detection. Doc URLs provided by upstream." Proceed directly to §4 (Write Enriched Brief). All brief fields (`source_type`, `source_authority`, `doc_urls`, `scope_type`) must pass through unmodified.
 
@@ -80,7 +80,7 @@ uv run {detectDocsHelper} --repo-url "{source_repo}" > "{run_dir}/detected.json"
 
 - **Exit 0 (found docs):** Proceed to §3, which reads `{run_dir}/detected.json`.
 - **Exit 1 (none found):** Log: "No external documentation found — brief generated from source analysis only." Proceed to §4 with no doc enrichment.
-- **Exit 2 (error):** Log the warning "Doc detection failed: proceeding without doc enrichment." and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "Doc detection failed: proceeding without doc enrichment."`. Do NOT halt: doc enrichment is best-effort. Proceed to §4 with no doc enrichment.
+- **Exit 2 (error):** Log the warning "Doc detection failed: proceeding without doc enrichment." and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "Doc detection failed: proceeding without doc enrichment."`. Go on to §4 without doc enrichment: it is best-effort.
 
 ### 3. Enrich Brief with Detected Docs
 

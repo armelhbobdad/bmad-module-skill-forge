@@ -282,7 +282,15 @@ async function runTests() {
       ],
     },
     'brief-skill': {
-      steps: ['gather-intent.md', 'analyze-target.md', 'scope-definition.md', 'confirm-brief.md', 'write-brief.md', 'health-check.md'],
+      steps: [
+        'preflight.md',
+        'gather-intent.md',
+        'analyze-target.md',
+        'scope-definition.md',
+        'confirm-brief.md',
+        'write-brief.md',
+        'health-check.md',
+      ],
       assets: ['scope-templates.md', 'skill-brief-schema.md'],
     },
     'create-skill': {

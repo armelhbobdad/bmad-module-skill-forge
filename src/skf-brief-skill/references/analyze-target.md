@@ -30,7 +30,7 @@ validatePinsProbeOrder:
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
 - **One display.** The §5 summary is this step's one display of the analysis. Before it, §2 to §4.3 show one progress line each, besides any warning, the truncation choice (§1), the monorepo pick (§1b) and §4.4's semantic signals; the values they compute stay in context for §5.
-- **Staged inputs.** The helpers of this step read the repository from files in the run folder `{run_dir}` that step 1 §1 created, never from a list or a file's text typed into a command: `{run_dir}/tree.json` (the file list, §1), `{run_dir}/files/` (manifests and entry points fetched at `{analysis_ref}`, laid out like the repository), `{run_dir}/snapshot.json` (the tree's counts and module candidates, §2) and `{run_dir}/extract.json` (the exports, §4). Step 3 reads the same files.
+- **Staged inputs.** The helpers of this step read the repository from files in the run folder `{run_dir}` that step 0 §1 created, never from a list or a file's text typed into a command: `{run_dir}/tree.json` (the file list, §1), `{run_dir}/files/` (manifests and entry points fetched at `{analysis_ref}`, laid out like the repository), `{run_dir}/snapshot.json` (the tree's counts and module candidates, §2) and `{run_dir}/extract.json` (the exports, §4). Step 3 reads the same files.
 - **Ratify run (`ratify_mode: true`):** this step runs only from step 4 `[R] Revise Scope`, to give step 3 an analysis of the brief's repository, and never replaces the hydrated `name`, `version` or `language`. §1 treats the hydrated `target_ref` and `target_version` as set in step 01, and a hydrated `version` without either as an implicit `target_version`: §1 resolves it to a tag the same way, and with no match analyzes `HEAD` without the zero-match warning. §1b selects, without asking, the workspace whose path begins the hydrated `scope.include` globs (the repo root when none does). §3 runs only to choose §4's path: the brief keeps the hydrated `language`, which the §5 summary shows with the hydrated `version`. Skip §4b. At §5, set `ratify_analyzed: true` in workflow context, so a later `[R]` goes straight to step 3.
 
 ## Sequence
@@ -170,7 +170,7 @@ Pass the §1b `manifest_kind` as `--workspace-signal` (leave the flag out when i
 
 **When §1b surfaced a `cross-ecosystem workspace ignored` warning and the operator chose the ignored ecosystem:** pass that ignored kind as `--workspace-signal` (not the surfaced kind), so a co-located `cargo-workspace`/`python-multi-package` root resolves to rust/python instead of being pinned to the surfaced ecosystem's language by the workspace that won detection priority.
 
-The script returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}` after walking the documented rule table: the `workspace_signal` precedence above first, then the manifests nearest the tree's root, by folder depth and then rule order (package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, Package.swift, Gemfile, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln), where a manifest in a docs, examples, tests or other non-core folder, or in a hidden one, decides only when no other exists, then extension-frequency fallback. With no manifest at the root, the nearest one decides at `medium` confidence and `source_language` names the language most source files are in. Use the returned values directly: §5 shows them.
+It returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}`: use them directly, §5 shows them.
 
 **Headless language override.** If `language_hint` was supplied as a headless argument, use it as the confirmed `{language}` (overriding the detected value) and carry it forward to §4 and step 03. The detector still runs so §5's Detected-language line reflects what the source signals, but the explicit hint wins and the step 03 §4 low-confidence override does not fire. When `language_hint` is absent, carry the detected `{language}` forward.
 
@@ -231,7 +231,7 @@ The number of modules picked is `module_count`, which step 3 §2c passes the sco
 
 **Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC discovery will run automatically during create-skill after the source is cloned."
 
-If `tools.ccc` is true in the `tools` step 1 §1 bound, supplement the module listing with a semantic discovery pass:
+If `tools.ccc` is true in the `tools` step 0 §1 bound, supplement the module listing with a semantic discovery pass:
 
 **CCC Semantic Discovery:**
 - **Claude Code:** Use `/ccc search "{repo_name} public API exports modules"` from `{source_path}` — the query is variadic, so a trailing path is swallowed into the search string rather than selecting a project

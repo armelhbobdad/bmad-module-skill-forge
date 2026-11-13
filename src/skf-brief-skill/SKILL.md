@@ -15,12 +15,12 @@ A pre-authored brief can be ratified instead: reviewed and written to `{forge_da
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `reviseStepFile`, `analyzeStepFile`, `ratifyTargetFile` and `writeBriefFile` name a file beside it.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `reviseStepFile`, `analyzeStepFile` and `ratifyTargetFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `knowledge/tool-resolution.md` and `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
-- `{skill-name}` resolves to the skill directory's basename.
+- `{skill-name}` is the brief's approved `name`, never this skill's folder name.
 
 ## Role
 
@@ -48,7 +48,7 @@ Every HALT that names a `halt_reason`, except an interactive `[X]` cancel, runs 
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
-   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 1 §1b routes to the auto stages), else false.
+   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 0 §1b routes to the auto stages), else false.
 
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
@@ -56,7 +56,7 @@ Every HALT that names a `halt_reason`, except an interactive `[X]` cancel, runs 
    uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
-   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-brief-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` for gather-intent.md §1 to record once it has created `{run_dir}`.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-brief-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` for preflight.md §1 to record once it has created `{run_dir}`.
 
    Bind the values the stage files use, taking the bundled default when the merged value is empty or absent:
 
@@ -68,12 +68,13 @@ Every HALT that names a `halt_reason`, except an interactive `[X]` cancel, runs 
 
 4. **Resolve the envelope emitter** before any stage can halt: `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line, which `references/invocation-contract.md` defines.
 
-5. Load, read the full file, and execute `references/gather-intent.md`.
+5. Load, read the full file, and execute `references/preflight.md`.
 
 ## Stages
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
+| 0 | Preflight (every run) | references/preflight.md | Yes |
 | 1 | Gather Intent | references/gather-intent.md | No (interactive) |
 | 1h | Headless Input Gate (headless only) | references/headless-args.md | Yes |
 | 1r | Ratify an Existing Brief (ratify only) | references/gather-intent-ratify.md | No (interactive menu; headless takes [R]) |
@@ -85,7 +86,7 @@ Every HALT that names a `halt_reason`, except an interactive `[X]` cancel, runs 
 | 5 | Write Brief | references/write-brief.md | Conditional (the brief exists) |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
-Every run starts in gather-intent.md, whose §1 (run folder, forge tier) serves every mode; its §1b routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 2-5 except stage 5's §3b QMD registration, which step-auto-validate.md runs at Deep tier. It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment (step-auto-brief.md §2-§3), which the ratify and derive routes do not run, and an envelope with `mode: "auto"`. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: the rest of gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
+Every run starts in preflight.md (run folder, forge tier), which routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 1-5; at Deep tier step-auto-validate.md loads stage 5's QMD registration file. It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment (step-auto-brief.md §2-§3), which the ratify and derive routes do not run, and an envelope with `mode: "auto"`. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
 
 ## Invocation Contract
 

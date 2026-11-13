@@ -105,13 +105,14 @@ RECORD_RE = re.compile(r"\brecord\b", re.IGNORECASE)
 
 # Sections a headless run never reaches, with the text that sends it
 # elsewhere: brief-skill's interactive intake, which a headless run skips
-# for references/headless-args.md (SKILL.md's Stages row 1h), and the draft
+# for references/headless-args.md (SKILL.md's Stages row 1h, routed to by
+# stage 0, references/preflight.md), and the draft
 # resume offer that intake's §3 loads, whose file says headless runs skip it.
 INTERACTIVE_ONLY = {
     ("skf-brief-skill", "references/gather-intent.md"): (
         ("### 3. Gather Target Repository", "### 3b. Gather Target Version", "### 4. Gather User Intent",
          "### 6. Derive Skill Name", "### 8. Present MENU OPTIONS"),
-        ("references/gather-intent.md", "headless-args.md"),
+        ("references/preflight.md", "headless-args.md"),
     ),
     ("skf-brief-skill", "references/draft-checkpoint.md"): (
         ("## Half 1: Resume Check (loaded from §3 after the target is confirmed)",),

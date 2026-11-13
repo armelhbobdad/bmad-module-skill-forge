@@ -10,7 +10,7 @@ validateBriefInputsProbeOrder:
 
 # Step 1 (Headless): Input Gate
 
-Step 1 §1b loads this file when `{headless_mode}` is true outside `[auto]` mode, in place of step 1's interactive §2 to §8. The arguments are merged and validated here, before any section uses them, and every later value the run takes from an argument comes from the validated `normalized` object.
+Step 0 §1b loads this file when `{headless_mode}` is true outside `[auto]` mode, in place of step 1's interactive §2 to §8. The arguments are merged and validated here, before any section uses them, and every later value the run takes from an argument comes from the validated `normalized` object.
 
 ## Arguments
 

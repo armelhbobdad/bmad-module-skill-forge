@@ -1,16 +1,12 @@
 # Portfolio-Similarity Check
 
-Loaded by step 1 §6 only when **all three** preconditions hold:
-
-1. Forge tier is `Deep`
-2. `tools.qmd` is true in the `tools` step 1 §1 bound
-3. The flow is interactive (the headless path skips this check entirely — it would either need to HALT on duplicates [over-aggressive for an automator] or silently log [no operator to act on it]; either choice has a side effect on the QMD index that is best avoided headlessly)
+Loaded by step 1 §6 at Deep tier when `tools.qmd` is true in the `tools` step 0 §1 bound.
 
 This check catches **semantic near-duplicates** that exact-name collision misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Exact-name collision is handled separately at §6 before this check runs.
 
 ## Procedure
 
-The brief portfolio is already indexed in QMD collections, one `{skill-name}-brief` collection per existing brief, registered by step 5 §3b of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first (capping the sweep), then query the capped set per collection in **bounded parallel batches (≈4 concurrent Bash calls at a time)**, because each `qmd query` cold-starts an embedding model and issuing all of them at once on a large portfolio thrashes memory and stalls:
+The brief portfolio is already indexed in QMD collections, one `<name>-brief` collection per existing brief, registered by step 5 §3b (step-auto-validate.md §3 on an `[auto]` run) of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first (capping the sweep), then query the capped set per collection in **bounded parallel batches (≈4 concurrent Bash calls at a time)**, because each `qmd query` cold-starts an embedding model and issuing all of them at once on a large portfolio thrashes memory and stalls:
 
 ```bash
 # 1. Enumerate brief collections (one per existing brief), capping the sweep.

@@ -99,7 +99,7 @@ RECORD = ('`uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
 # Where each workflow sends the reason: the route its result takes.
 ROUTES = {
     "skf-analyze-source": ("for step 5 to record in the run sink", RECORD),
-    "skf-brief-skill": ("keep the reason as `{customization_resolver_unavailable}` for gather-intent.md §1 to record "
+    "skf-brief-skill": ("keep the reason as `{customization_resolver_unavailable}` for preflight.md §1 to record "
                         "once it has created `{run_dir}`",),
     "skf-campaign": ("log `customization_resolver_unavailable: <reason>` as an `event` in the decision log",
                      "unless the invocation is `campaign status` (which writes nothing)"),
@@ -220,7 +220,7 @@ CREATE_STACK_INIT = REFERENCES["skf-create-stack-skill"] / "init.md"
 # The stage that creates or binds each run folder records the reason there, so the record never waits in
 # context: (file, section start, section end, the line that creates or binds the folder).
 BIND_SITES = {
-    "skf-brief-skill": (REFERENCES["skf-brief-skill"] / "gather-intent.md", "### 1. Discover Forge Tier", "### 1b. ",
+    "skf-brief-skill": (REFERENCES["skf-brief-skill"] / "preflight.md", "### 1. Discover Forge Tier", "### 1b. ",
                         "Bind `{run_dir}` ← the path the last command prints"),
     "skf-create-skill": (REFERENCES["skf-create-skill"] / "load-brief.md", "### 0. Start the Run Folder", "### 1. ",
                          "Bind `{run_dir}` ← the path it prints"),
@@ -270,10 +270,10 @@ def test_the_record_command_keeps_a_hostile_reason_as_text(tmp_path, command, na
 def test_every_file_route_documents_its_record_command():
     """Each sink route records the reason from a file: in the activation of analyze-source, quick and
     refine-architecture, which create their run folder there, and else in the stage that does."""
-    # Brief's gather-intent.md also records two forge-tier warnings from `{run_dir}/warning.txt` (#1134).
+    # Brief's preflight.md also records two forge-tier warnings from `{run_dir}/warning.txt` (#1134, #1135).
     assert sorted(param.id for param in _record_commands()) == [
-        "create-stack/init.md#1", "skf-analyze-source#1", "skf-brief-skill/gather-intent.md#1",
-        "skf-brief-skill/gather-intent.md#2", "skf-brief-skill/gather-intent.md#3", "skf-create-skill/load-brief.md#1",
+        "create-stack/init.md#1", "skf-analyze-source#1", "skf-brief-skill/preflight.md#1",
+        "skf-brief-skill/preflight.md#2", "skf-brief-skill/preflight.md#3", "skf-create-skill/load-brief.md#1",
         "skf-create-skill/load-brief.md#2", "skf-quick-skill#1", "skf-quick-skill/batch-mode.md#1",
         "skf-refine-architecture#1", "skf-rename-skill/select.md#1", "skf-verify-stack/init.md#1"]
 
@@ -468,7 +468,7 @@ def test_headless_mode_reads_the_sidecar_preferences(skill):
 FIRST_STAGE = {
     "skf-analyze-source": (6, "references/init.md"),
     "skf-audit-skill": (5, "references/init.md"),
-    "skf-brief-skill": (5, "references/gather-intent.md"),
+    "skf-brief-skill": (5, "references/preflight.md"),
     "skf-campaign": (5, "**dispatch**"),
     "skf-create-skill": (5, "references/load-brief.md"),
     "skf-create-stack-skill": (4, "references/init.md"),

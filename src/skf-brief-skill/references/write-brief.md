@@ -1,14 +1,9 @@
 ---
-versionResolutionFile: 'references/version-resolution.md'
 qmdRegistrationFile: 'references/qmd-collection-registration.md'
 nextStepFile: 'health-check.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
-forgeTierRwProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
-  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
-forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -20,7 +15,6 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 - Focus only on writing the file — all decisions have been made
 - Do not change any field values without user request — the brief was already approved
 - All user-facing output in `{communication_language}`; written artifact (`description`, `notes`) in `{document_output_language}`
-- **Determinism delegation:** YAML rendering, version-precedence, atomic write, the headless result envelope, and the QMD-collection registry mutation are all delegated to shared SKF scripts. The LLM's job in this step is to assemble inputs, branch on script results, and surface user-facing prose — not to render YAML, JSON envelopes, or YAML-mutation diffs in the model.
 
 ## Sequence
 
@@ -28,7 +22,7 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 
 **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-`assets/skill-brief-schema.md` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefHelper}` and its JSON Schema artifact at `shared/scripts/schemas/skill-brief.v1.json`. Load `assets/skill-brief-schema.md` only if you need to explain a specific field to the user during inline adjustments; otherwise skip the read: the script is the source of truth.
+The writer enforces the brief schema, so load `assets/skill-brief-schema.md` only to explain a field to the user.
 
 ### 2. Resolve Output Path
 
@@ -115,7 +109,7 @@ SKF_JSON
 uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat < "{run_dir}/brief-context.json" > "{run_dir}/brief-write.json"
 ```
 
-The script translates flat → nested internally, drops the null optional fields, and runs the same schema validation and atomic write as before — pass every key always, the writer decides what reaches the YAML.
+Pass every key, `null` when unset: the writer decides what reaches the YAML.
 
 **Ratify run (`ratify_mode: true`):** write from the brief step 1 ratified, `{ratify_source_path}`, so nothing it holds is retyped. The writer keeps every field of that brief that it renders and the patch below does not name, such as its version, which step 2 never re-derives on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version), its git refs and its `scope.amendments` log. The patch holds the fields step 4 or a step 3 `[R]` pass can change: write each `<field>` as its current value in JSON, `null` when it is unset, which removes the key (an `[R]` pass that moved `scope.type` off `component-library` unsets the three component-library fields). Add any other field the user changed at step 4 under its brief key; a changed `version` sets `target_version` too when the brief holds one, because the writer keeps the two equal:
 
@@ -128,13 +122,7 @@ SKF_JSON
 uv run {writeSkillBriefHelper} write --target {resolved-target-path} --base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json" > "{run_dir}/brief-write.json"
 ```
 
-Either way, the script:
-- Validates the context against `shared/scripts/schemas/skill-brief.v1.json`
-- Applies the version-precedence rule from `{versionResolutionFile}`
-- Enforces the `target_version == version` invariant (refuses to write a brief that violates it)
-- Renders YAML in canonical key order (byte-stable across runs)
-- Atomically writes the file via temp + fsync + rename (no half-written file ever visible)
-- Emits a JSON success envelope on stdout, which the call saves in `{run_dir}/brief-write.json`: `{"status":"ok","brief_path":"…","version":"…","bytes":…,"warnings":[…]}`
+Either way, on success the writer prints `{status, brief_path, version, bytes, warnings}`, which the call saves in `{run_dir}/brief-write.json`.
 
 **On script failure (non-zero exit):**
 - Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
@@ -150,7 +138,7 @@ Either way, the script:
 
 ### 3b. QMD Collection Registration (Deep Tier Only)
 
-**IF forge tier is Deep AND QMD tool is available:** resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` (first existing path wins), then load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. If neither path exists, do not HALT: the brief is already written, and a QMD problem never fails the run. Index the brief all the same, skip the procedure's registry update, and record the warning: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "QMD registry not updated: skf-forge-tier-rw.py not found"`. The procedure records each warning it raises the same way, which is why this runs before §4b builds the envelope.
+**IF forge tier is Deep AND QMD tool is available:** load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. A QMD problem never fails the run, and the procedure records each warning it raises, which is why this runs before §4b builds the envelope.
 
 **IF forge tier is NOT Deep OR QMD is not available:** skip this section silently: do not load `{qmdRegistrationFile}`. No messaging.
 
@@ -209,11 +197,11 @@ where `{brief_path}` is the absolute path captured from the §3 response envelop
 - **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run bound its envelope at §4b, so the envelope does not carry this line.
 - On success, add nothing: the hook's own output is its report.
 
-When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. An `[auto]` run runs only §3b of this file: step-auto-validate.md §3 runs the same hook right after its envelope.
+When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked.
 
 ### 7. Chain to Health Check
 
-Once the brief file has been written (and, outside headless mode, the success summary displayed), remove the run folder step 1 §1 created, with what the run staged in it (the guard keeps the command to that folder):
+Once the brief file has been written (and, outside headless mode, the success summary displayed), remove the run folder step 0 §1 created, with what the run staged in it (the guard keeps the command to that folder):
 
 ```bash
 case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac

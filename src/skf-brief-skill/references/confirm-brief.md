@@ -18,34 +18,11 @@ partyModeSkill: '/bmad-party-mode'
 
 ### 1. Assemble Complete Brief
 
-Use the values already accepted in steps 01-03 directly: do not load `assets/skill-brief-schema.md` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
+Use the values steps 1 to 3 accepted, all in conversation, without loading `assets/skill-brief-schema.md` (§4 loads it only to cite a field's rule): §2 shows the fields the user reviews, and step 5 §3 names every key the writer takes. On a derive run, `forge_tier` is the `tier` step 0 §1 bound, `created` is today's date and `created_by` is `{user_name}`; an unset `scripts_intent` or `assets_intent` is `detect`.
 
 **Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (step 1 ratified a brief through `references/gather-intent-ratify.md`: a brief path at the first prompt, or a headless `from_brief`), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output: the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it).
 
 After a `[R]` pass on a ratify run, take `scope.*`, `scripts_intent`, `assets_intent` and `doc_urls` from step 3, except `scope.amendments`, which step 3 never writes; every other field, `scope.amendments` included, stays hydrated.
-
-Compile all gathered data from steps 01-03 into the complete brief:
-
-- **name:** {skill name from step 01}
-- **version:** {auto-detected from source, or "1.0.0" if not found — see schema for detection rules}
-- **target_version:** {target_version from step 01, if set}
-- **source_repo:** {target repo from step 01}
-- **language:** {detected/confirmed language from steps 02-03}
-- **description:** {derived from user intent in step 01}
-- **forge_tier:** {tier from step 01}
-- **created:** {current date}
-- **created_by:** {user_name from config}
-- **scope.type:** {scope type from step 03}
-- **scope.include:** {include patterns from step 03}
-- **scope.exclude:** {exclude patterns from step 03}
-- **scope.notes:** {any scope notes from step 03}
-- **scope.tier_a_include:** {tier-A authoring-surface patterns from step 03 §3c — omit if unset}
-- **scope.rationale:** {recommended -> chosen, reason — from step 03}
-- **source_type:** {source or docs-only, from step 01}
-- **doc_urls:** {collected documentation URLs with labels, from steps 01/03 — include if source_type is "docs-only" or supplemental URLs were collected}
-- **scripts_intent:** {detect/none/description from step 03, or "detect" if not explicitly set}
-- **assets_intent:** {detect/none/description from step 03, or "detect" if not explicitly set}
-- **source_authority:** {official/community/internal from step 01 — default "community"}
 
 ### 2. Present Brief for Review
 
@@ -91,7 +68,7 @@ Source Authority: {source_authority}
 Target Version: {target_version} (user-specified)
 Detected Version: {detected_version or "N/A"}
 {Else:}
-Version:    {version}
+Version:    {version; a derive run's is the detected version, else 1.0.0}
 
 Created:    {created}
 Created by: {created_by}
@@ -105,14 +82,12 @@ Glosses (substitute the matching one-liner for `{tier_gloss}`, `{scripts_gloss}`
   - `Quick`: text-only extraction; AST and semantic discovery off
   - `Forge`: AST-grep on; semantic and re-ranking off
   - `Forge+`: AST-grep + ccc semantic discovery; re-ranking off
-  - `Deep`: full pipeline — AST + ccc + qmd portfolio search + LLM re-ranking
+  - `Deep`: full pipeline: AST + ccc + qmd portfolio search + LLM re-ranking
 
 - **`scripts_intent` / `assets_intent` glosses** —
   - `detect`: SKF will scan source for the standard `scripts/`/`bin/`/`tools/`/`cli/` (or `assets/`/`templates/`/`schemas/`/`configs/`) directories during create-skill and decide automatically (when one of the four script folders is a Python package, holding `__init__.py`, only its `__main__.py` and the modules with a shebang or a `__main__` block count as scripts)
   - `none`: no script/asset packaging — create-skill will skip the detection pass
-  - free-text (anything else): a description of what to package; create-skill treats it as the user's spec
-
-(For `docs-only` and `public-api` scope types the scripts/assets prompt is skipped in step 3 §5b — the values default to `detect` but the create-skill detection pass also no-ops for these scope types, so the gloss just clarifies that the recorded value will not actually fire any scan.)"
+  - free-text (anything else): a description of what to package; create-skill treats it as the user's spec"
 
 ### 3. Highlight Items Needing Attention
 

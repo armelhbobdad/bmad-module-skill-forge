@@ -69,6 +69,7 @@ SKILL_DIR = REPO / "src" / "skf-brief-skill"
 REFERENCES = SKILL_DIR / "references"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 SKILL_MD = SKILL_DIR / "SKILL.md"
+PREFLIGHT = REFERENCES / "preflight.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
 INVOCATION_CONTRACT = REFERENCES / "invocation-contract.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
@@ -212,8 +213,9 @@ def _json_objects(text: str) -> list:
 
 
 @needs_bash
-def test_step_one_creates_the_run_folder(tmp_path):
-    section = _section(_read(GATHER_INTENT), "### 1. Discover Forge Tier")
+def test_step_zero_creates_the_run_folder(tmp_path):
+    # #1135: the run folder is made in stage 0, which every mode runs.
+    section = _section(_read(PREFLIGHT), "### 1. Discover Forge Tier")
     [block] = _blocks(section, "mktemp -d")
     forge = tmp_path / "forge-data"
     block = block.replace("{forge_data_folder}", forge.as_posix()).replace("{project-root}", tmp_path.as_posix())
@@ -287,8 +289,8 @@ def test_staged_payloads_are_quoted_heredocs_a_helper_reads(path):
         staged_file = rf'"\{{run_dir\}}/{re.escape(name)}"'
         assert re.search(rf'^uv run \{{[A-Za-z]+\}} [^\n]*(?:< |--[a-z-]+-file ){staged_file}'
                          rf'(?: > "\{{run_dir\}}/[a-z-]+\.json")?$', text, re.M), name
-    # the heredoc's reason is stated once, where step 1 creates the run folder
-    assert "needs no escaping" not in text or path == GATHER_INTENT, path.name
+    # the heredoc's reason is stated once, where step 0 creates the run folder
+    assert "needs no escaping" not in text or path == PREFLIGHT, path.name
 
 
 def test_every_heredoc_delimiter_starts_its_line():
@@ -340,7 +342,6 @@ def test_a_target_version_resolves_to_a_tag_through_validate_pins():
     # the ratify rule resolves its implicit version the same way, not by a prose tag match
     rules = _section(text, "## Rules")
     assert "it matches the tag" not in rules and "resolves it to a tag the same way" in rules
-    assert "skf-validate-pins.py" in _read(VERSION_RESOLUTION)
     # an exit 1 with no suggestions may be a listing that failed, so its warning claims no missing tag
     [empty] = [line for line in text.splitlines() if "Exit 1 with an empty `suggestions`" in line]
     assert "Could not find or list the tags" in empty

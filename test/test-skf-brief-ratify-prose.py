@@ -121,7 +121,7 @@ def test_revise_scope_keeps_the_hydrated_component_library_fields_and_amendments
         assert field in preserved, field
     assert "dropped only when this pass changes `scope.type` away from `component-library`" in reentry
     templates = _read(SKILL_DIR / "assets" / "scope-templates.md")
-    component = templates[templates.index("### Component Library Boundaries"):templates.index("## Scripts & Assets")]
+    component = templates[templates.index("### Component Library Boundaries"):]  # the file's last section (#1135)
     assert "On a step 4 `[R]` re-entry" in component
     for field in ("`scope.registry_path`", "`scope.demo_patterns`", "`scope.ui_variants`"):
         assert component.count(field) >= 2, field  # re-presented, and recorded by its phase

@@ -20,7 +20,7 @@
 activation_steps_prepend = []
 
 # Steps to run once activation completes (the envelope emitter resolved),
-# just before step 1 (references/gather-intent.md) loads. Overrides append.
+# just before step 0 (references/preflight.md) loads. Overrides append.
 # Use for context loads or banner customization.
 
 activation_steps_append = []

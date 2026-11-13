@@ -91,13 +91,11 @@ HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` ca
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
 
-**Scope guidance for first-time users:** A well-scoped skill covers one cohesive capability with 3-8 primary functions. If the scope includes unrelated concerns (e.g., authentication AND data visualization), suggest splitting into separate briefs. If the scope is too narrow (single utility function), suggest expanding to the surrounding capability surface.
-
 ### 2c. Offer Scope Templates
 
 Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R]) and their descriptions.
 
-**Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step 2 and the user's intent from step 1 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
+**Recommend a scope type.** Present the recommender's pick as the marked default, not five equal options.
 
 **Resolve `{recommendScopeTypeHelper}`** from `{recommendScopeTypeProbeOrder}`; first existing path wins. HALT if no candidate exists.
 

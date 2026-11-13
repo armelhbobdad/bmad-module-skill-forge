@@ -130,7 +130,3 @@ Prompt: "I detected {count} design system variants: {list with counts}. Which is
 
 Summary showing: component count, excluded demo count, variant summary, include/exclude patterns.
 Prompt: "Does this component library scope look right? Adjust before continuing."
-
-## Scripts & Assets Detection (Optional Refinement)
-
-When `scripts_intent` or `assets_intent` is `detect` (default), SKF auto-detects from source directories matching: `scripts/`, `bin/`, `tools/`, `cli/` (for scripts; when one of these four folders is a Python package, holding `__init__.py`, only its `__main__.py` and the modules with a shebang or a `__main__` block count) and `assets/`, `templates/`, `schemas/`, `configs/`, `examples/` (for assets). Detection applies to all scope types except `docs-only`.
