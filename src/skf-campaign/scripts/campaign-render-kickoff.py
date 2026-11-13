@@ -69,6 +69,9 @@ Exit codes:
        FACTS_FILE_NOT_FOUND  a `file:` path with no glob character names no
                              file (a glob that matches nothing adds no fact)
        FACTS_UNREADABLE      a facts file cannot be read
+       HELPER_MISSING        a `file:` or `!` entry needs
+                             shared/scripts/skf-resolve-customization.py,
+                             which is not installed
        DIRECTIVE_UNREADABLE  the directive file cannot be read
 """
 
@@ -95,6 +98,9 @@ RESOLVER_KEY = "workflow.persistent_facts"
 RESOLVE_CUSTOMIZATION_SCRIPT = (
     Path(__file__).resolve().parent.parent.parent / "shared" / "scripts" / "skf-resolve-customization.py"
 )
+# The entries that need the helper; a list of sentences alone, Campaign's empty default included, does not.
+FILE_PREFIX = "file:"
+DROP_PREFIX = "!"
 # Target fields shown first, in this order; any other field of the entry
 # follows in the entry's own order.
 BRIEF_FIELDS = ("name", "repo_url", "tier", "pin", "depends_on")
@@ -192,9 +198,18 @@ def _facts_list(facts: List[str]) -> str:
     return "\n".join(bullets) if bullets else NO_FACTS
 
 
+class HelperMissing(Exception):
+    """The customization helper is not where an SKF install puts it."""
+
+
 @functools.cache
 def _resolve_customization() -> Any:
-    """The customization helper as a module, loaded on first use."""
+    """The customization helper as a module, loaded on first use; raises HelperMissing when it is not there."""
+    if not RESOLVE_CUSTOMIZATION_SCRIPT.is_file():
+        raise HelperMissing(
+            f"SKF's customization helper is not at {RESOLVE_CUSTOMIZATION_SCRIPT.as_posix()}: a `file:` or `!` "
+            "persistent_facts entry needs it, re-install SKF"
+        )
     spec = importlib.util.spec_from_file_location("skf_resolve_customization", RESOLVE_CUSTOMIZATION_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -211,8 +226,12 @@ def load_facts(entries: List[str], project_root: Optional[str] = None) -> List[s
     adds one fact, headed by its path. Raises ValueError on an entry that
     keeps a placeholder (as `{project-root}` does when project_root is None),
     FileNotFoundError on a path that names no file, OSError on a file that
-    cannot be read.
+    cannot be read. A list with no `file:` or `!` entry has nothing for the
+    helper to do and is returned as it is, so it renders without the helper;
+    any other list raises HelperMissing when the helper is not installed.
     """
+    if not any(isinstance(e, str) and e.startswith((FILE_PREFIX, DROP_PREFIX)) for e in entries):
+        return list(entries)
     resolver = _resolve_customization()
     facts: List[str] = []
     for entry in resolver.resolve_facts(entries, project_root):
@@ -385,6 +404,8 @@ def run(
         return _err(f"--project-root is not a directory: '{project_root}'", "BAD_FACTS")
     try:
         facts = load_facts(entries, project_root)
+    except HelperMissing as exc:
+        return _err(str(exc), "HELPER_MISSING")
     except ValueError as exc:
         return _err(f"{'--facts-toml' if facts_toml else '--facts-json'}: {exc}", "BAD_FACTS")
     except FileNotFoundError as exc:

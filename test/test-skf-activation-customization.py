@@ -73,10 +73,13 @@ COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
            "--project-root {project-root} --key workflow --facts")
 # What the resolved list holds, in every activation's step (a skill whose bundled list is empty, Setup, Drop Skill,
 # Campaign and Ferris since #1107, carries it alone, in parentheses).
-FACTS_POINTER = ("`--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each "
-                 "glob, so a `file:` entry names one file to load, never one under "
-                 "`{project-root}/_bmad-output/.skf-run/`")
-FACTS_NOTE = f"(the bundled default loads every `project-context.md` under `{{project-root}}`; {FACTS_POINTER})"
+# The helper exits 1 before its facts pass when BMAD core's resolver is missing (a project with SKF alone), so the
+# pointer holds only if it ran, and the bundled default, which the activation then reads as written, names the
+# folder it never loads from.
+FACTS_POINTER = ("if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, "
+                 "and expanded each glob, so a `file:` entry names one file")
+FACTS_NOTE = ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+              f"`{{project-root}}/_bmad-output/.skf-run/`; {FACTS_POINTER})")
 BINDING = (f"Bind `{{resolveCustomizationHelper}}` ← `{{project-root}}/_bmad/skf/shared/scripts/{HELPER}`, "
            f"else `{{project-root}}/src/shared/scripts/{HELPER}` (the first that exists)")
 CORE_RESOLVER = "{project-root}/_bmad/scripts/resolve_customization.py"

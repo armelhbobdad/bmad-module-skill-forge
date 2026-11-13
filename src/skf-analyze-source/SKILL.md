@@ -94,7 +94,7 @@ These rules apply to every step in this workflow:
    - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` (the bundled `templates/analysis-report-template.md` when an override leaves it empty)
    - `{onCompleteCommand}` ← `workflow.on_complete` (empty: no hook)
 
-   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`).
+   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
 5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
 

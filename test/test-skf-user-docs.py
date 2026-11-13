@@ -2035,6 +2035,10 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "SKF's customization helper applies each such entry and expands each glob before a workflow "
                   "reads the list", "a `**` never enters a hidden folder or a folder reached through a link",
                   "never loads a file under `_bmad-output/.skf-run/`",
+                  # The helper exits before its facts pass when BMAD core's resolver is missing.
+                  "When the customization script cannot run, as in a project with SKF alone, the workflow reads the "
+                  "bundled list as written and loads each file its glob matches itself, again none under "
+                  "`_bmad-output/.skf-run/`.",
                   "Campaign's kickoff loader runs the same code"):
         assert token in facts, token
     assert "Brief, Create, Update and Rename Skill" not in facts

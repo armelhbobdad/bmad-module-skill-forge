@@ -706,6 +706,33 @@ class TestRun:
             "  Ctx rule.",
         ])
 
+    def test_a_kickoff_without_the_shared_helper(self, tmp_path):
+        """#1106 review: copied where no shared/ folder sits beside it, the script still renders a kickoff whose
+        facts need neither a `!` drop nor a file, as Campaign's empty default does, and names the missing helper
+        when an entry needs it, instead of calling the helper a missing facts file."""
+        script = tmp_path / "skf-campaign" / "scripts" / SCRIPT.name
+        script.parent.mkdir(parents=True)
+        script.write_bytes(SCRIPT.read_bytes())
+        sf, bf, tf = self._files(tmp_path)
+
+        def kickoff(facts: list) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                [sys.executable, str(script), "--state-file", str(sf), "--brief-file", str(bf), "--skill", "auth",
+                 "--template", str(tf), "--facts-json", json.dumps(facts)],
+                capture_output=True, encoding="utf-8", timeout=60,
+            )
+
+        for facts, listed in (([], "None"), (["Use tabs."], "- Use tabs.")):
+            proc = kickoff(facts)
+            assert proc.returncode == 0, proc.stderr
+            assert _section(proc.stdout, "Campaign Facts").strip() == listed
+        for entry in (f"file:{(tmp_path / 'ctx.md').as_posix()}", "!Use tabs."):
+            proc = kickoff(["Use tabs.", entry])
+            assert proc.returncode == 2
+            err = json.loads(proc.stderr)
+            assert err["code"] == "HELPER_MISSING", err
+            assert "skf-resolve-customization.py" in err["error"] and "re-install SKF" in err["error"]
+
 
 def _step05_pipeline() -> list[str]:
     """step-05's kickoff call, split at its pipe."""

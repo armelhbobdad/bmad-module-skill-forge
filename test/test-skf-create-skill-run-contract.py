@@ -1011,8 +1011,9 @@ def test_customize_names_its_override_files_and_how_to_drop_the_default():
     assert tomllib.loads(text)["workflow"]["persistent_facts"] == [default]
     assert f'#   persistent_facts = ["!{default}"]' in text
     activation = _section(_read(SKILL), "## On Activation", None)
-    assert ("(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied "
-            "each `!` entry, which drops each earlier entry it names") in activation
+    assert ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+            "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, "
+            "which drops each earlier entry it names") in activation
     assert "except a `!` entry and the entry it names" not in activation
     assert "`{project-root}/_bmad/custom/skf-create-skill.toml` (team overrides, committed)" in activation
     assert "`_bmad/custom/skf-create-skill.toml` under `{project-root}`" not in activation

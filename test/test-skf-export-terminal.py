@@ -530,9 +530,10 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   'write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
                   'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
                   '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`',
-                  "(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each "
-                  "`!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry "
-                  "names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`)",
+                  "(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+                  "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` "
+                  "entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names "
+                  "one file)",
                   "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
         assert token in activation, token
     assert "\u2014" not in _section(_read(SKILL_MD), "3. **Resolve workflow customization.**", "4. **Resolve")

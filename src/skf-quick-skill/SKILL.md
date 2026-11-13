@@ -114,7 +114,7 @@ These rules apply to every step in this workflow:
    - `{batchOutputPath}` ← `workflow.batch_output_path`, else `{skills_output_folder}/_batch/`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 §3 then runs no hook)
 
-   Run each `workflow.activation_steps_prepend` entry now, in order. Hold every `workflow.persistent_facts` entry as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`). Once On Activation step 4 has parsed the flags, before On Activation step 5 or 6 starts the run, run each `workflow.activation_steps_append` entry in order.
+   Run each `workflow.activation_steps_prepend` entry now, in order. Hold every `workflow.persistent_facts` entry as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file). Once On Activation step 4 has parsed the flags, before On Activation step 5 or 6 starts the run, run each `workflow.activation_steps_append` entry in order.
 
 4. **Parse CLI overrides** into the workflow context as `{overrides}`:
 

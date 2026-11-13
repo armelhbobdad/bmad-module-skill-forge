@@ -627,9 +627,9 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                   "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
                   "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran)",
-                  "keep `workflow.persistent_facts` as standing context (`--facts` has applied each "
-                  "`!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry "
-                  "names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`)"):
+                  "keep `workflow.persistent_facts` as standing context (if the resolver ran, `--facts` has "
+                  "applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a "
+                  "`file:` entry names one file)"):
         assert token in resolve, token
     # Drop ships no default, so the step names none.
     assert "the bundled default loads" not in resolve

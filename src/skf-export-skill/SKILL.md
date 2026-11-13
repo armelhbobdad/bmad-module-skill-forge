@@ -72,7 +72,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
    - `{snippetFormatPath}` ← `workflow.snippet_format_path`, else `assets/snippet-format.md`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 then runs no hook)
 
-   Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`).
+   Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
 4. **Resolve the helpers and create the run folder.** Resolve each helper to the first of its two paths that exists, the installed module first, all in parallel:
 

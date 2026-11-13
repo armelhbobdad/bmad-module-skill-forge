@@ -628,9 +628,9 @@ RESOLVER_WARNING = ("When it exits non-zero, prints no JSON or is missing, print
                     "script is missing, `no JSON` when it printed none).")
 RESOLVER_FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                      "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
-DROP_CLAUSE = ("(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied "
-               "each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry "
-               "names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`)")
+DROP_CLAUSE = ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+               "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, "
+               "which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file)")
 
 
 def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():
