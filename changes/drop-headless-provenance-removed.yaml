@@ -5,3 +5,4 @@ summary: |
 migration: |
   Read `headless_decisions` instead of `summary.headless_provenance`, finding each entry by its `gate` (a run given `keep` also records `select.active-guard`, before `select.mode`): `mode_source` is the `select.mode` entry's `reason`, `headless: true` is the presence of a `select.mode` entry, and `confirm: "headless-auto"` that of a `select.confirm` entry. `headless: false`, `mode_source: "interactive-prompt"` and `confirm: "user-explicit"`, which an interactive run carried, have no counterpart.
 issues: [1161]
+prs: [1216]

@@ -3,3 +3,4 @@ scope: skf-drop-skill, skf-rename-skill
 summary: |
   A version purge now repairs the `active` link only when it names the version it deleted: a link that names another version, such as a newer one you have not exported yet, stays as it is, and a link it repairs points at the version the export manifest lists as active, else the newest one the manifest does not list as deprecated, else it is removed. The drop report lists only the versions in the export manifest, so a stray folder in the skill folder no longer shows as a version. The context-file rebuild, the headless purge guard and the final-state checks now run through SKF's helpers, so each context file keeps the skill root of its own IDE, and Rename Skill rebuilds each context file with its own skill root too, where it used to pass one that nothing set.
 issues: [1158]
+prs: [1216]

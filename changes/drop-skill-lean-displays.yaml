@@ -3,3 +3,4 @@ scope: skf-drop-skill
 summary: |
   Drop Skill's skill list, its version details and its final report now state the facts they show instead of following a fixed layout, so their headings, column names and line order can differ from one run to the next. Each still shows what it showed before: the list marks the active version with `*`, versions only on disk and the skills it does not offer; the report keeps each `rm -rf` fix for a folder it could not delete, the steps that reverse a deprecate, and the manual fix for each failed check. The version details of a skill with no manifest entry no longer carry the note that only a purge applies; the run still says so when it forces the purge. When the sizing helper fails after a purge, the report now shows the disk space freed as `unknown`.
 issues: [1159]
+prs: [1216]
