@@ -2706,8 +2706,21 @@ def test_the_active_pointer_gate_keeps_another_generators_build():
     safety = next(line for line in _section(_read(DOCS), "### Quick Skill (QS)", "**Agent:**").splitlines()
                   if line.startswith("**Safety:**"))
     for needle in ("(`[F]`) or keep it (`[K]`)", "a headless run keeps it", "`finalize.active-pointer`",
-                   "`kept-prior-active`"):
+                   "`kept-prior-active`", "so a `forge-quick` chain then tests and exports that other build, not the "
+                   "quick skill"):
         assert needle in safety, needle
+    # A pipeline runs QS headless and hands TS and EX the skill name alone, so they act on the kept build.
+    [row] = [line for line in _read(REPO / "src" / "shared" / "references" / "pipeline-contracts.md").splitlines()
+             if line.startswith("| QS | TS |")]
+    assert "QS keeps it there (`summary.active_pointer` `kept-prior-active`) and TS tests that build" in row
+    assert "so `forge-quick` on such a skill tests and exports that build, not the quick skill" in _read(DOCS)
+    # The cancel rule and the writers' list name this question's exception.
+    [cancel] = [line for line in _rules("SKILL.md").splitlines() if line.startswith("- **Universal cancel-line")]
+    assert cancel.endswith("Step 6 §1 comes after the write: a cancel there keeps the pointer, as its [K] does.")
+    [writer] = [line for line in _read(REPO / "src" / "knowledge" / "version-paths.md").splitlines()
+                if line.startswith("6. Create or update the `active` symlink")]
+    assert writer.endswith("(QS asks first when `active` names another workflow's build, and a headless run keeps "
+                           "it there)")
 
 
 @pytest.mark.parametrize("generator, asks", [("create-skill", True), ("quick-skill", False)])

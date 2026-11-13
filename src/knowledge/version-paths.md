@@ -128,7 +128,7 @@ When writing artifacts, resolve `{version}` from the skill brief's `version` fie
 3. Write all deliverables to `{skill_package}`
 4. Create `{forge_version}` if it does not exist
 5. Write all workspace artifacts to `{forge_version}`
-6. Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}`
+6. Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}` (QS asks first when `active` names another workflow's build, and a headless run keeps it there)
 
 **Update-skill (US)** writes each new version into a folder of its own and never into the previous one. Before it writes the merged `SKILL.md`, it stages a copy of the current package with `skf-atomic-write.py stage-dir`, renames it into `{skill_group}/{new_version}/{skill-name}/` with `commit-dir`, creates `{forge_data_folder}/{skill-name}/{new_version}/` with copies of the provenance map, evidence report and extraction rules, and writes every artifact of the update there. It stops (`halted-for-write-failure`) rather than overwrite a version folder that already exists. `{new_version}` is the source's version when the update detected a higher one, else the next patch version. It updates the version the `active` link names when the manifest lags it (the Manifest-lag guard under Reading Workflows), so a second update before an export builds on the first. A gap-driven repair (`--from-test-report`) keeps its version and writes in place; `--detect-only` and `--dry-run` create nothing.
 
