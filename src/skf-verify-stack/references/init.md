@@ -114,13 +114,7 @@ uv run {previousReportScript} --folder "{outputFolderPath}" --slug "{project_slu
 
 It never returns a file this run writes (`{outputFile}` or `{outputFileLatest}`); without `--provided` it picks the newest earlier report that finished. When it prints no JSON (exit 2, a usage error), the line it prints names the flag it rejected: fix that flag's value and run it again. Otherwise branch on `status`:
 
-- `discovered`: line 3 of the prompt below offers the returned `previousReport` as its Enter default, and an empty answer there sets `previousReport` to it.
-  **GATE [default: Y]**: if `{headless_mode}`, set `previousReport` to the returned `previousReport`, log: "headless: delta comparison against `{previousReport}`", and record the decision in the run sink the moment it is taken. Stage `{run_dir}/decision.json` as `{"gate": "init.previous-report", "default_action": "Y", "taken_action": "Y", "reason": "headless: delta comparison against <previousReport>", "evidence": {"previous_report": "<previousReport>"}}` and run:
-
-  ```bash
-  uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
-  ```
-
+- `discovered`: line 3 of the prompt below offers the returned `previousReport` as its Enter default, and an empty answer there sets `previousReport` to it. A headless run takes that default at the gate after the architecture document's validation below.
 - `none`: leave `previousReport` empty (no finished earlier report, no delta).
 - `reader-missing` (exit 3): the shared report reader the helper loads is not installed: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:previous-report`, naming the file its `error` gives.
 
@@ -143,6 +137,12 @@ When the prompt shows, wait for user input, and bind each answer to its variable
 - Confirm the file exists and is readable
 - If missing or unreadable → "Architecture document not found at `{path}`. Provide a valid path."
 - HALT (exit code 2, `halt_reason: "input-invalid"`) at phase `init:architecture-doc`, with `"path"` set to the path given, if the user cannot provide a valid path; a headless run has no one to ask, so it halts at once.
+
+**GATE [default: Y]**: when the find block above returned `discovered` and `{headless_mode}` is true, set `previousReport` to the returned `previousReport`, log: "headless: delta comparison against `{previousReport}`", and record the decision in the run sink the moment it is taken. The gate waits for the architecture document's checks above, so a run that halts on them reports no comparison it never made. Stage `{run_dir}/decision.json` as `{"gate": "init.previous-report", "default_action": "Y", "taken_action": "Y", "reason": "headless: delta comparison against <previousReport>", "evidence": {"previous_report": "<previousReport>"}}` and run:
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+```
 
 **Validate the PRD (when `{prd_path}` is set):**
 - Confirm the file exists and is readable

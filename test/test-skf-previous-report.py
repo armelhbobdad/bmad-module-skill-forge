@@ -537,6 +537,11 @@ def _find_block(text):
     return text[text.index("**Find the previous report first.**"):text.index("**Ask only for what no flag answered.**")]
 
 
+def _headless_gate(text):
+    """init.md §1's headless gate on a found report, after the architecture document's checks."""
+    return text[text.index("**GATE [default: Y]**"):text.index("**Validate the PRD")]
+
+
 def _given_block(text):
     """init.md §1's run of the helper on a path the flag or the prompt gave."""
     return text[text.index("**Resolve a given previous report**"):text.index("**Record a path that was not found.**")]
@@ -580,10 +585,10 @@ def test_init_skips_unfinished_reports_and_records_the_headless_pick():
     assert "lists `synthesize`" in mod.__doc__ and "read_report()" in mod.__doc__
     assert "§4 overwrites `{outputFile}` and `{outputFileLatest}`" not in section
     # The headless pick is recorded in the run sink, so the envelope lists it.
-    discovered = section[section.index("`discovered`"):section.index("`none`")]
-    assert '"gate": "init.previous-report"' in discovered
+    gate = _headless_gate(text)
+    assert '"gate": "init.previous-report"' in gate
     assert ('uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" '
-            '--decision < "{run_dir}/decision.json"') in discovered
+            '--decision < "{run_dir}/decision.json"') in gate
     # A missing shared reader halts as any helper that cannot run does.
     missing = section[section.index("`reader-missing` (exit 3)"):]
     assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `init:previous-report`' in missing
@@ -603,11 +608,20 @@ def test_init_offers_a_found_report_once_and_none_skips_it(tmp_path, monkeypatch
             "answer there sets `previousReport` to it") in discovered
     # No second offer once line 3 settled it, but the headless default and its decision record stay.
     assert "compare against it? **[Y]**" not in text and "**[skip]**" not in text
-    gate = discovered[discovered.index("**GATE [default: Y]**"):]
-    assert gate.startswith("**GATE [default: Y]**: if `{headless_mode}`, set `previousReport` to the returned")
+    assert ("A headless run takes that default at the gate after the architecture document's validation below."
+            in discovered)
+    assert "**GATE [default: Y]**" not in found and text.count("**GATE [default: Y]**") == 1
+    gate = _headless_gate(text)
+    assert gate.startswith("**GATE [default: Y]**: when the find block above returned `discovered` and "
+                           "`{headless_mode}` is true, set `previousReport` to the returned")
     assert '`{"gate": "init.previous-report", "default_action": "Y", "taken_action": "Y", ' in gate
     assert ('uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" '
             '--decision < "{run_dir}/decision.json"') in gate
+    # The decision is recorded only once the architecture document passed, so a headless run that halts on a
+    # missing or invalid one lists no comparison it never made (a halt reports the decisions taken before it).
+    at = text.index(gate)
+    assert text.index('(exit code 2, `halt_reason: "input-missing"`) at phase `init:input-documents`') < at
+    assert text.index('(exit code 2, `halt_reason: "input-invalid"`) at phase `init:architecture-doc`') < at
     prompt = text[text.index("**Ask only for what no flag answered.**"):text.index("**Validate the architecture")]
     assert ("3. **Previous feasibility report** (OPTIONAL), for delta comparison: {IF the helper found one:}Found the "
             "report from {previousTimestamp}: press Enter to compare against it, paste another path, or type `none` "

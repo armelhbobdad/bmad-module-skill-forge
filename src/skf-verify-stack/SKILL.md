@@ -46,7 +46,7 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load Inputs | references/init.md | Conditional (asks only for inputs no flag gave) |
+| 1 | Initialize & Load Inputs | references/init.md | Conditional (asks only for inputs no flag gave, or whose path was not found) |
 | 2 | Coverage Analysis | references/coverage.md | Yes |
 | 3 | Integration Verification | references/integrations.md | Yes |
 | 4 | Requirements Mapping | references/requirements.md | Yes |

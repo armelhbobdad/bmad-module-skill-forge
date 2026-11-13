@@ -123,7 +123,7 @@
           "gate": {
             "type": "string",
             "enum": ["init.previous-report"],
-            "description": "The gate that auto-resolved: step 1's offer to compare against the newest earlier report. The gate records its decision in the run sink the moment it decides."
+            "description": "The gate that auto-resolved: step 1's default of comparing against the newest earlier report (the previous-report line's Enter default), which a headless run takes once the architecture document has passed its checks. The gate records its decision in the run sink the moment it decides."
           },
           "default_action": {
             "type": "string",

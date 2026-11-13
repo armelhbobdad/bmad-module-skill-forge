@@ -159,14 +159,25 @@ def test_stages_table_matches_the_gate_annotations():
     assert len(rows) == 7
     for file, auto_proceed in rows.items():
         gated = "**GATE [default:" in _read(SKILL / file)
-        # Step 1 waits only for the inputs no flag gave, so it never reads "No (confirm)" (#1200).
-        expected = "Conditional (asks only for inputs no flag gave)" if gated else "Yes"
+        # Step 1 waits only for the inputs no flag gave, so it never reads "No (confirm)" (#1200), and for a
+        # path a flag gave that an interactive run does not find.
+        expected = "Conditional (asks only for inputs no flag gave, or whose path was not found)" if gated else "Yes"
         assert auto_proceed == expected, f"{file}: {auto_proceed}"
     contract = _read(REFERENCES / "invocation-contract.md")
+    flags = next(line for line in contract.splitlines() if line.startswith("| **Flags** |"))
+    assert flags.endswith("; an interactive run still asks for another path when the one a flag gives is not "
+                          "found |"), flags
+    assert ("unless an interactive run finds no file there (the validation below then asks once)"
+            in _read(REFERENCES / "init.md"))
     gates = next(line for line in contract.splitlines() if line.startswith("| **Gates** |"))
     assert "step 1 Input Gate" in gates and "step 6" not in gates
     assert "whose previous-report line offers the newest earlier report as its Enter default" in gates
     assert "| **Gates** |" not in _read(SKILL / "SKILL.md")
+    # The envelope schema names the gate as its sibling copies do: no separate offer is left (#1200).
+    schema = _read(REPO / "src" / "shared" / "scripts" / "schemas" / "skf-verify-stack-result-envelope.v1.json")
+    assert "step 1's offer" not in schema
+    assert ("step 1's default of comparing against the newest earlier report (the previous-report line's Enter "
+            "default)") in schema
 
 
 # --- The slug comes from the shared helper ----------------------------------------
