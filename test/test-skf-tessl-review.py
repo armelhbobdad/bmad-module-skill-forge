@@ -834,8 +834,9 @@ COUNT_WORDS = {3: ("three", "third"), 4: ("four", "fourth"), 5: ("five", "fifth"
 VALIDATOR_CMD = 'uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md" --forbid-angle-brackets'
 SANITIZE_CMD = 'uv run {descriptionGuardHelper} sanitize "<staging-skill-dir>/SKILL.md"'
 HALT_MESSAGE = "Description sanitization failed: "
-# The summary a stopped call sets: create-skill's moved line names it with a colon (#1147), test-skill keeps its own.
-STOPPED = {VALIDATE: "failed: stopped before skf-tessl-review.py reported a result",
+# The summary a stopped call sets: create-skill's moved line names its em dash in words (#1147), so both write
+# the `failed` prefix the shared reference documents.
+STOPPED = {VALIDATE: "failed {an em dash} stopped before skf-tessl-review.py reported a result",
            EXTERNAL: "failed \u2014 stopped before skf-tessl-review.py reported a result"}
 
 
@@ -1147,9 +1148,11 @@ class TestWorkflowWiring:
                        "did not answer within", "stopped before skf-tessl-review.py reported a result",
                        "something that is not a run id", "letters, digits, `.`, `_` and `-`"):
             assert needle in trouble
-        # the shared reference quotes test-skill's literal; create-skill's moved line uses a colon (#1147)
+        # the shared reference quotes test-skill's literal; create-skill's moved line names the same dash in words
+        # (#1147), so a stopped call and a failure the helper reports share the `failed` prefix in both reports
         assert f"`{STOPPED[EXTERNAL]}`" in reference and "letters, digits, `.`, `_` and `-`" in reference
         assert STOPPED[EXTERNAL].startswith(_reference_prefixes()["failed"])
+        assert STOPPED[VALIDATE].replace("{an em dash}", "\u2014") == STOPPED[EXTERNAL]
 
     def test_every_call_fits_a_two_minute_shell_limit(self):
         """Hosts whose shell tool stops a command after two minutes must get every result.

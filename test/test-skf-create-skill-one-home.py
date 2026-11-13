@@ -127,7 +127,9 @@ def test_the_collect_file_loads_only_after_a_review_was_submitted():
     assert six_b.index("If neither path exists, set `{tessl_summary}`") < six_b.index("{tesslReviewCollectData}")
     collect = _read(REFS / "tessl-review-collect.md")
     assert re.findall(r"^## (.+)$", collect, re.M) == ["Collect the Review", "Report the Review"]
-    assert "`failed: stopped before skf-tessl-review.py reported a result`" in collect
+    # the stopped summary keeps the `failed` prefix the shared reference and the helper write, its dash in words
+    assert "`failed {an em dash} stopped before skf-tessl-review.py reported a result`" in collect
+    assert "failed: stopped" not in collect
     # a cached answer (`submit` returned `reviewed`) needs no `collect` call, and its suggestions are still marked
     assert "While `{tessl_status}` is `pending`, collect the review" in collect
     assert "When `{tessl_status}` is `reviewed`, resolve `{tesslReviewRules}`" in collect
