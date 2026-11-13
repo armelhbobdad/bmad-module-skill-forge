@@ -1,4 +1,4 @@
-type: fixed
+type: changed
 scope: skf-analyze-source
 summary: |
   A step-by-step Analyze Source run that resumes an unfinished report now continues in the run folder of the session before it, so its result keeps the decisions and warnings recorded before the resume, and that folder is deleted when the analysis ends. Before, every session made a new run folder, so a resumed run's `headless_decisions` and `warnings` held only what the last session recorded, and the earlier folder stayed behind in `_bmad-output/.skf-run/`. When the earlier folder is gone, or the report names none (a report an older SKF wrote), the run goes on in its new folder and its result carries a `resumed-without-run-folder` warning. The brief step now fetches a gone scan root again for each project path its briefs come from, before it checks their sources and reads the path's manifests, and the resume announces its next step in one line.
