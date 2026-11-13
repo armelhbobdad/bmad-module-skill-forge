@@ -30,6 +30,7 @@ SRC = REPO_ROOT / "src"
 PARSER = SRC / "shared" / "scripts" / "skf-setup-args.py"
 EMIT_HELPER = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
 SKILL_MD = SRC / "skf-setup" / "SKILL.md"
+HALT_CONTRACT = SRC / "skf-setup" / "references" / "halt-contract.md"
 QUIET_OUTPUT_TEST = REPO_ROOT / "test" / "test-skf-setup-quiet-output.py"
 DETECT_HELPER = SRC / "shared" / "scripts" / "skf-detect-tools.py"
 ENVELOPE_PREFIX = "SKF_SETUP_RESULT_JSON: "
@@ -243,14 +244,18 @@ def test_the_item_1_loop_prints_the_object_with_only_python3_on_path(tmp_path):
 
 
 def test_a_parser_that_printed_nothing_halts_once_uv_is_found():
-    """Items 2 and 3 keep their reasons for a folder without SKF or a machine without uv; after them, a run
+    """Items 2 and 3 keep their halts for a folder without SKF or a machine without uv; after them, a run
     that could not read its flags halts rather than drop --require-tier and --orphan-action."""
     text = SKILL_MD.read_text(encoding="utf-8")
     item_3 = text[text.index("3. **Probe `uv` runtime.**"):text.index("4. **Load config and preferences.**")]
     assert ("Once `uv` is present, if item 1's parser printed no object, halt with phase "
-            "`on-activation:helper-missing`, `path` its installed path, reason `Setup cannot proceed: "
-            "skf-setup-args.py could not read the flags. Reinstall SKF, then re-run /skf-setup.`") in item_3
+            "`on-activation:helper-missing` for the parser.") in item_3
     assert item_3.index("`on-activation:uv-missing`") < item_3.index("`on-activation:helper-missing`")
+    # The halt contract, loaded on the halt, holds its path and reason (#1184).
+    halts = HALT_CONTRACT.read_text(encoding="utf-8")
+    assert ("- `on-activation:helper-missing` for the parser (item 3): `path` "
+            "`{project-root}/_bmad/skf/shared/scripts/skf-setup-args.py`, reason `Setup cannot proceed: "
+            "skf-setup-args.py could not read the flags. Reinstall SKF, then re-run /skf-setup.`") in halts
 
 
 @pytest.mark.parametrize("arguments,value", [("--require-tier --headless", ""), ("--quiet --require-tier=-x", "-x")],

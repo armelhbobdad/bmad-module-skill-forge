@@ -133,6 +133,12 @@ def _halt_contract() -> str:
     return line
 
 
+def _activation_halts() -> str:
+    """The halt contract's list of each On Activation halt's path and reason, which SKILL.md names by phase
+    only, so only a halt reads them (#1184)."""
+    return _section(_read(HALT_CONTRACT), "## On Activation Halts")
+
+
 # ---------------------------------------------------------------- setup step files
 
 
@@ -435,20 +441,22 @@ def test_blocked_reason_rules_stated():
     assert '--path "<path>"` (`<path>` written with `/`; no `--path` for a halt without one)' in halt_contract
     headings = re.findall(r'^### "(Setup cannot proceed: .+)"$', _read(TROUBLESHOOTING), re.MULTILINE)
     assert len(headings) >= 2
-    activation = _on_activation(text)
+    halts = _activation_halts()
     for heading in headings:
         rendered = heading.replace("`", "")
-        assert f"reason `{rendered}" in activation, rendered
-    reasons = re.findall(r"reason `([^`]+)`", activation)
+        assert f"reason `{rendered}" in halts, rendered
+    reasons = re.findall(r"reason `([^`]+)`", halts)
     assert len(reasons) >= 3
     assert all("'" not in r and "\\" not in r for r in reasons), reasons
+    assert "passed as the contract above says" in halts
     # A malformed config halts with the parser's own message, as Ferris shows it.
-    load = next(line for line in activation.splitlines() if "Any other `hard-halt`" in line)
-    assert "phase `on-activation:config-malformed`" in load
-    assert "reason `Setup cannot proceed: <message>`" in load
-    assert "its `error` without the leading `Cannot initialize. `" in load
-    assert "passed as the halt contract says, never preflight's whole JSON" in load
-    assert "sanitized per the halt contract" not in load
+    load = next(line for line in _on_activation(text).splitlines() if "Any other `hard-halt`" in line)
+    assert load.endswith("halt with phase `on-activation:config-malformed`."), load
+    malformed = next(line for line in halts.splitlines() if "`on-activation:config-malformed`" in line)
+    assert "reason `Setup cannot proceed: <message>`" in malformed
+    assert "its `error` without the leading `Cannot initialize. `" in malformed
+    assert "never preflight's whole JSON" in malformed
+    assert "sanitized per the halt contract" not in load + malformed
 
 
 def test_config_missing_reason_names_the_installer():
@@ -458,7 +466,8 @@ def test_config_missing_reason_names_the_installer():
     `_bmad/` path), and it travels in a single-quoted `--reason` from a code
     span, so it holds no quote, backslash or backtick and the helper carries
     it through unchanged."""
-    m = re.search(r"phase `on-activation:config-missing`[^\n]*?reason `([^`]+)`", _on_activation(_read(SKILL_MD)))
+    assert "halt with phase `on-activation:config-missing`." in _on_activation(_read(SKILL_MD))
+    m = re.search(r"`on-activation:config-missing` \(item 2\)[^\n]*?reason `([^`]+)`", _activation_halts())
     assert m, "config-missing halt not found"
     reason = m.group(1)
     assert reason.startswith("Setup cannot proceed: the SKF config file was not found. ")
@@ -764,7 +773,7 @@ def test_step_files_leave_the_reason_to_the_emitter():
         assert f'2> "{source}"' in text, (name, source)
         halt = next(b for _, _, b in _prose_blocks(text) if f"`{phase}`" in b)
         assert re.search(r"\breads? that file\b", halt), (name, phase)
-    [pipe] = [c for p, c in _blocked_calls(_read(SKILL_MD)).items() if p == "on-activation:run-folder"]
+    [pipe] = [c for p, c in _blocked_calls(_activation_halts()).items() if p == "on-activation:run-folder"]
     assert pipe.endswith('--reason "Setup cannot proceed: the run folder could not be created: <message>" '
                          "--stderr-from -"), pipe
 
@@ -844,7 +853,7 @@ def test_the_run_folder_halt_pipes_the_failed_command_to_the_emitter(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "_bmad-output").write_bytes(b"a file where the folder goes\n")
-    [pipe] = [c for p, c in _blocked_calls(_read(SKILL_MD)).items() if p == "on-activation:run-folder"]
+    [pipe] = [c for p, c in _blocked_calls(_activation_halts()).items() if p == "on-activation:run-folder"]
     assert "resolver" not in pipe, pipe
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
@@ -863,14 +872,14 @@ def test_a_run_folder_repeat_that_succeeds_leaves_no_folder(tmp_path):
     and the reason says the stderr held nothing."""
     project = tmp_path / "project"
     project.mkdir()
-    [pipe] = [c for p, c in _blocked_calls(_read(SKILL_MD)).items() if p == "on-activation:run-folder"]
+    [pipe] = [c for p, c in _blocked_calls(_activation_halts()).items() if p == "on-activation:run-folder"]
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
     command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
     error = _blocked_error(subprocess.run(["bash", "-c", command], capture_output=True, timeout=20))
     assert error["reason"] == "Setup cannot proceed: the run folder could not be created: (no error message)"
     assert list((project / "_bmad-output" / ".skf-run").iterdir()) == []
-    assert "a repeat that succeeds removes the folder it made" in _run_folder_item()
+    assert "a repeat that succeeds removes the folder it made" in _activation_halts()
 
 
 def test_the_notices_say_a_tier_miss_builds_no_index():
@@ -1367,8 +1376,10 @@ def test_run_folder_is_made_at_activation_and_removed_in_step_4():
     item = _run_folder_item()
     assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX"' in item
     assert "Bind `{run_dir}` ← the path it prints" in item
-    assert "halt with phase `on-activation:run-folder`, `path` `{project-root}/_bmad-output/.skf-run`" in item
-    assert "Item 3 proved `uv` and item 4 bound the helper, so this halt runs its own pipe, not the loop" in item
+    assert "halt with phase `on-activation:run-folder`." in item and "emit-blocked" not in item
+    halts = _activation_halts()
+    assert "`on-activation:run-folder` (item 5b): `path` `{project-root}/_bmad-output/.skf-run`" in halts
+    assert "Item 3 proved `uv` and item 4 bound the helper, so this halt runs its own pipe, not the loop" in halts
     activation = _on_activation(_read(SKILL_MD))
     assert activation.index("5. **Reconcile") < activation.index("5b. **Create the run folder.**") < \
         activation.index("6. **Resolve workflow customization.**")
@@ -1825,10 +1836,26 @@ HALT_POINTER = "On any halt that names a phase, load `references/halt-contract.m
 
 
 def test_stage_files_stay_under_their_budgets():
-    """#1184: the halt contract, which only a halt reads, has its own file, so SKILL.md stays under 3,000 tokens
-    and the single-purpose reference under 9,000, on the chars/4 fallback (len // 4, the SKF convention)."""
-    for path, budget in ((SKILL_MD, 3000), (HALT_CONTRACT, 9000)):
+    """#1184: the halt contract, which only a halt reads, has its own file with each On Activation halt's path
+    and reason, so SKILL.md stays under BMad's 2,500 tokens and the single-purpose reference under 9,000, on
+    the chars/4 fallback (len // 4, the SKF convention)."""
+    for path, budget in ((SKILL_MD, 2500), (HALT_CONTRACT, 9000)):
         assert len(_read(path)) // 4 < budget, (path.name, len(_read(path)) // 4)
+
+
+def test_every_activation_halt_has_its_path_and_reason_in_the_halt_contract():
+    """#1184: On Activation names each halt by its phase alone, and the halt contract it loads on a halt lists
+    that phase's path and reason, except item 1's, whose reason is the parser's own."""
+    named = re.findall(r"halt with phase `(on-activation:[a-z-]+)`(?: for (the parser|preflight|the helpers))?",
+                       _on_activation(_read(SKILL_MD)))
+    listed = re.findall(r"^- `(on-activation:[a-z-]+)`(?: for (the parser|preflight|the helpers))? \(item \d+b?[,)]",
+                        _activation_halts(), re.M)
+    assert len(listed) == len(set(listed)) == 7, listed
+    assert sorted(set(named) - {("on-activation:orphan-action-invalid", "")}) == sorted(listed)
+    for line in _activation_halts().splitlines():
+        if line.startswith("- `on-activation:"):
+            assert "`path` `{project-root}/" in line or "no `path`" in line, line
+            assert "reason `Setup cannot proceed: " in line, line
 
 
 def test_on_activation_loads_the_halt_contract_only_on_a_halt():
@@ -2033,10 +2060,12 @@ def test_a_missing_helper_halts_at_item_4_naming_it(tmp_path):
     file loads, with the error that names it as the reason."""
     item = _item_4()
     [bullet] = [line for line in item.splitlines() if "`code` starting `HELPERS_`" in line]
-    for needle in ("halt with phase `on-activation:helper-missing`", "`path` `{project-root}/_bmad/skf/shared/scripts`",
-                   "reason `Setup cannot proceed: <message>`: its `error` without the leading `Cannot initialize. `",
-                   "passed as the halt contract says", "No step file loads."):
-        assert needle in bullet, needle
+    assert "halt with phase `on-activation:helper-missing` for the helpers. No step file loads." in bullet
+    [halt] = [line for line in _activation_halts().splitlines()
+              if line.startswith("- `on-activation:helper-missing` for the helpers")]
+    for needle in ("`path` `{project-root}/_bmad/skf/shared/scripts`",
+                   "reason `Setup cannot proceed: <message>`: its `error` without the leading `Cannot initialize. `"):
+        assert needle in halt, needle
     assert item.index(bullet) < item.index("`code` `CONFIG_MISSING`")
     project = _project(tmp_path, f"sidecar_path: {(tmp_path / 'sidecar').as_posix()}\n")
     proc = subprocess.run([sys.executable, str(PREFLIGHT), str(project), "--allow-missing-sidecar", "--helpers",
