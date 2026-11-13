@@ -669,4 +669,4 @@ You have two recovery options:
 
 Option 1 routes findings the same way a normal health check does (a GitHub issue, or your local queue). With option 2, you file the issue on GitHub yourself.
 
-> **Note:** Some gates cannot be skipped even in headless mode. For example, merge conflicts in Update Skill always need human judgment.
+> **Note:** Some gates cannot be skipped even in headless mode. For example, Update Skill stops for a person when its merge leaves a `[MANUAL]` block orphaned or naming a renamed export. A headless run keeps a block that new content only moved, and records that decision.

@@ -7534,6 +7534,15 @@ def test_a_headless_position_conflict_keeps_the_block(tmp_path):
             "evidence.section)") in props["headless_decisions"]["description"]
     assert ("(headless: HALT, nothing written, on any ORPHAN or STALE_REFERENCE conflict; otherwise keep each "
             "POSITION block)") in _slice(merge, "## Rules", "## Steps")
+    # the user docs and the [MANUAL] knowledge file say the same, not that every conflict needs a person
+    docs = (REPO_ROOT / "docs" / "workflows.md").read_text(encoding="utf-8")
+    assert "merge conflicts in Update Skill always need human judgment" not in docs
+    assert ("Update Skill stops for a person when its merge leaves a `[MANUAL]` block orphaned or naming a renamed "
+            "export. A headless run keeps a block that new content only moved, and records that decision.") in docs
+    knowledge = _read(SRC / "knowledge" / "manual-section-integrity.md")
+    assert "HIGH conflicts always require user input" not in knowledge
+    assert ("| HIGH | Regenerated content overlaps \\[MANUAL\\] position | Present both versions, user chooses; a "
+            "headless Update Skill run keeps the block, which moves with its section |") in knowledge
 
 
 def test_the_result_contract_points_at_the_schema():
