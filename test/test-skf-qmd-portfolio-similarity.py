@@ -294,8 +294,33 @@ def test_windows_kill_uses_taskkill_tree(monkeypatch):
             self.killed = True
 
     proc = Proc()
+    monkeypatch.delenv("SystemRoot", raising=False)
+    monkeypatch.delenv("windir", raising=False)
     mod._kill_tree(proc, windows=True)
     assert calls == [(["taskkill", "/F", "/T", "/PID", "4242"], mod.KILL_WAIT_SEC)] and proc.killed
+
+
+def test_windows_kill_finds_taskkill_in_the_system_folder_when_path_lacks_it(monkeypatch, tmp_path):
+    """A PATH without System32 (the e2e tests run with PATH set to the fake qmd's folder) still stops the tree."""
+    system32 = tmp_path / "System32"
+    system32.mkdir()
+    (system32 / "taskkill.exe").write_bytes(b"")
+    calls = []
+    classify = mod._load(mod.CLASSIFY)
+    monkeypatch.setattr(classify, "_resolve_outside_cwd", lambda name: None)
+    monkeypatch.setattr(mod.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    monkeypatch.setenv("SystemRoot", str(tmp_path))
+
+    class Proc:
+        pid = 4242
+        killed = False
+
+        def kill(self):
+            self.killed = True
+
+    proc = Proc()
+    mod._kill_tree(proc, windows=True)
+    assert calls == [[str(system32 / "taskkill.exe"), "/F", "/T", "/PID", "4242"]] and proc.killed
 
 
 def test_queries_run_at_most_concurrency_at_a_time(monkeypatch):

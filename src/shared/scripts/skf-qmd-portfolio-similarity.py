@@ -131,11 +131,22 @@ def find_qmd() -> str:
     return qmd
 
 
+def _taskkill() -> str | None:
+    """taskkill.exe from the Windows system folder, else from PATH: a PATH that leaves System32 out must not leave
+    the CLI qmd started running past the time limit."""
+    root = os.environ.get("SystemRoot") or os.environ.get("windir")
+    if root:
+        candidate = os.path.join(root, "System32", "taskkill.exe")
+        if os.path.isfile(candidate):
+            return candidate
+    return _load(CLASSIFY)._resolve_outside_cwd("taskkill")
+
+
 def _kill_tree(proc: subprocess.Popen, windows: bool = os.name == "nt") -> None:
     """Kill qmd and everything it started: its launcher runs the CLI that loads the models as a child."""
     try:
         if windows:
-            taskkill = _load(CLASSIFY)._resolve_outside_cwd("taskkill")
+            taskkill = _taskkill()
             if taskkill:
                 subprocess.run([taskkill, "/F", "/T", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL,
                                capture_output=True, timeout=KILL_WAIT_SEC, check=False)
