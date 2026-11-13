@@ -445,6 +445,9 @@ def test_the_export_run_log_rule_records_each_displayed_warning():
 def test_each_export_step_names_a_code_at_its_display_site():
     load = _read(EXPORT / "references" / "load-skill.md")
     assert '- `fail`: warn (code `test_report_fail`) "**Warning:** This skill failed its last test' in load
+    # Review of #1166: a report that records no verdict is a warning too, so a headless envelope carries it.
+    assert ('- no `testResult` (a result file that records no verdict): warn (code `test_report_no_verdict`) '
+            '"**Note:** This skill\'s last test report records no verdict.') in load
     snippet = _read(EXPORT / "references" / "generate-snippet.md")
     assert ("In the run log, these warnings take the codes `gotchas_left_off`, `gotchas_carried` and "
             "`gotchas_dropped_stale`, in the order of the bullets.") in snippet
@@ -459,7 +462,7 @@ def test_the_run_folder_lists_every_code_the_steps_name_at_its_site():
     assert named == listed
     assert set(listed) == {
         "unknown_ide", "test_report_fail", "test_report_pass_with_drift", "test_report_inconclusive",
-        "test_report_not_found", "test_report_unchecked", "test_report_warning", "export_gate_warnings",
+        "test_report_no_verdict", "test_report_not_found", "test_report_unchecked", "test_report_warning", "export_gate_warnings",
         "gotchas_left_off", "gotchas_carried", "gotchas_dropped_stale", "snippet_trimmed", "orphan_context_malformed",
         "managed_section_skipped_integrity", "managed_section_skipped_deprecated",
         "managed_section_skipped_missing_snippet", "managed_section_skipped_malformed_snippet",

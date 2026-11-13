@@ -19,7 +19,7 @@ Bind `{run_dir}` ← the path it prints. Step 5 deletes it once the run's envelo
 The Run log rule of SKILL.md's Workflow Rules records each warning a step displays as `<code>: <skill>: <detail>`: `<skill>` is the skill the warning names, `-` when it names none, and `<detail>` is the displayed text on one line, with each `'` written as a backtick. A warning about the skill a step is processing, such as "This skill failed its last test" or a gotchas warning, names that skill, and a `'` in `<skill>` is written as a backtick too. The emitter folds them into every line as `warnings`. Each code, where its warning is displayed:
 
 - `unknown_ide`: load-skill §1, each `resolve-targets` warning
-- `test_report_fail`, `test_report_pass_with_drift`, `test_report_inconclusive`, `test_report_not_found`, `test_report_unchecked` and `test_report_warning`: load-skill §4b
+- `test_report_fail`, `test_report_pass_with_drift`, `test_report_inconclusive`, `test_report_no_verdict`, `test_report_not_found`, `test_report_unchecked` and `test_report_warning`: load-skill §4b
 - `export_gate_warnings`: load-skill §5
 - `gotchas_left_off`, `gotchas_carried` and `gotchas_dropped_stale`: generate-snippet §3a
 - `snippet_trimmed`: generate-snippet §4

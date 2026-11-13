@@ -300,6 +300,20 @@ def test_the_confirm_screen_renders_the_export_gate_verdict_without_restating_it
     gate = _section(_read(LOAD), "**Validation (the export gate):**", "### 3. Read Skill Metadata")
     assert "**Retain this JSON as the export verdict**: §5 renders each skill's package status from it" in gate
     assert "`package`, the metadata fields and the reference count §3 binds" in gate
+    # #1162 leanness-3: the gate's line names the verdict fields to read, not the checks its docstring lists.
+    [verdict] = [line for line in gate.splitlines() if line.startswith("The script emits one JSON verdict")]
+    assert verdict.startswith("The script emits one JSON verdict. Read `result` (PASS/FAIL), `export_status` "
+                              "(READY/WARNINGS/NOT_READY), the issue arrays under "
+                              "`validation.metadata.{issues,enum_issues,recommended_missing}` and "
+                              "`validation.crossref_7b.{missing,orphans}`")
+    for restated in ("docstring lists every check", "present and valid", "agentskills.io fields",
+                     "Quick/Forge/Forge+/Deep", "low orphan warning"):
+        assert restated not in gate, restated
+    # load-skill §2 names what §3 and §5 read in one line, before the gate, and loads no package file itself.
+    before_gate = _read(LOAD).split("**Validation (the export gate):**", 1)[0]
+    assert ("The export gate below reads what §3 and §5 show: `metadata.json` and `SKILL.md`, each a high issue "
+            "when it is missing, and the files under `references/`. Step 2 reads the prior `context-snippet.md` "
+            "itself.") in before_gate
 
 
 def test_step_1_confirms_with_one_table_holding_the_version_and_the_package_status():
