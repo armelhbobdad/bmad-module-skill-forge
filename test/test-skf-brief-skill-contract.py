@@ -80,6 +80,17 @@ message and its summary does not wait, so step 4 is the one scope
 confirmation: it shows the scripts and assets intent as `detect` defaults
 and notes a defaulted 1.0.0 version.
 
+#1137: what the user or an earlier run decided reaches the brief. Step 1's
+draft-resume check takes the draft from skf-brief-drafts.py `find`, which
+matches a normalized target, and then offers `[U] Revise` of a finished
+brief that `briefs` lists, through the ratify route; draft-checkpoint.md
+Half 1 reads the name, the mtime and `holds_scope` from that result and
+binds `{draft_name}`. Step 4 §4 writes the draft after each adjustment, a
+rename moves it, and step 5 §3 removes a draft a failed rename left. Asides
+noted at step 1 are `scope_note_candidates`, which §7 shows, the draft
+holds and step 3 §5 seeds into `scope.notes`. Step 4's menu has no `[A]` or
+`[P]`, whose results never reached the brief.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -1293,3 +1304,143 @@ def test_step_four_marks_the_defaults_it_shows():
     model = _read(REPO / "docs" / "skill-model.md")
     assert "Brief Skill asks whether you maintain the library" not in model
     assert "An interactive run shows the pick in its summary for you to change" in model
+
+
+# --------------------------------------------------------------------------
+# #1137: drafts found by a normalized target, a finished brief to revise, step 4 edits checkpointed, asides noted
+# --------------------------------------------------------------------------
+
+
+ATOMIC_WRITE = REPO / "src" / "shared" / "scripts" / "skf-atomic-write.py"
+BASH_BLOCK_RE = re.compile(r"^```bash\n(?P<body>.*?)^```\n", re.DOTALL | re.M)
+HALF_1 = "## Half 1: Resume Check (loaded from §3 after the target is confirmed)"
+HALF_2 = "## Half 2: Checkpoint Write (loaded from step 1 §8, step 3 §5c and step 4 §4)"
+RENAME_RM = 'rm -f "{forge_data_folder}/{draft_name}/.brief-draft.json"'
+
+
+def _bash_blocks(text: str, needle: str) -> list[str]:
+    return [m.group("body") for m in BASH_BLOCK_RE.finditer(text) if needle in m.group("body")]
+
+
+def test_no_brief_file_matches_a_target_by_hand_or_offers_the_unread_menu_items():
+    """#1137 (determinism-4, enhancement-5, enhancement-6): no grep, no sort by eye, no [A] or [P] item whose
+    result never reached the brief, and no aside left "carried forward" with nothing reading it."""
+    for path in sorted(SKILL_DIR.rglob("*")):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            for gone in ("grep -lF", "most-recently-modified", "advancedElicitationSkill", "partyModeSkill",
+                         "[A] Advanced Elicitation", "[P] Party Mode", "carried forward into the brief's"):
+                assert gone not in text, (path.relative_to(SKILL_DIR).as_posix(), gone)
+    confirm = _read(CONFIRM_BRIEF)
+    assert "Display: **Select an Option:** [R] Revise Scope [C] Approve and Write [X] Cancel and exit\n" in confirm
+    assert not re.search(r"^- IF [AP]:", confirm, re.M)
+    synergy = _read(REPO / "docs" / "bmad-synergy.md")
+    assert "Brief Skill's scope and confirmation menus offer them" not in synergy
+    assert "Analyze Source's recommendation menu offers them as `[A]` and `[P]`." in synergy
+
+
+def test_the_draft_resume_check_takes_the_draft_and_its_fields_from_the_helper():
+    """#1137 (determinism-4): step 1 runs `find` and hands its result to Half 1, which takes the name, the mtime and
+    `holds_scope` from it and binds `{draft_name}`; with no helper the check offers nothing and goes on."""
+    gather = _read(GATHER_INTENT)
+    assert re.search(r"^briefDraftsProbeOrder:$", gather, re.M)
+    check = gather[gather.index("**Draft-resume check.**"):gather.index("### 3b. Gather Target Version")]
+    for needle in ("Resolve `{briefDraftsHelper}` from `{briefDraftsProbeOrder}` (first existing path wins).",
+                   "letter case, a trailing slash, `.git`, `owner/repo` or a relative path",
+                   "the repo URL (for a package, §3.1b's `resolved_url`, not the name typed)",
+                   "a docs-only draft whose `doc_urls` do", "the docs-only briefs whose `doc_urls` do",
+                   "When `{briefDraftsHelper}` has no path, or a call prints no JSON, offer nothing, warn nothing and "
+                   "continue at §3b", "It prints `{name, path, mtime, holds_scope}`, or `null`.",
+                   "load `{draftCheckpointFile}` and follow Half 1 (Resume Check) with that result"):
+        assert needle in check, needle
+    assert "warn:" not in check
+    half_1 = _section(_read(DRAFT_CHECKPOINT), HALF_1)
+    assert ("passes the result of its `find` call: the draft folder's `name`, which is the candidate skill name, the "
+            "draft's `path`, its `mtime` (UTC) and `holds_scope`") in half_1
+    assert "(last updated: {mtime})" in half_1
+    [resume] = [line for line in half_1.splitlines() if line.startswith("Bind the skill name and `{draft_name}`")]
+    assert "read the JSON at its `path`" in resume and "`scope_note_candidates`" in resume
+    for prefix, flag in (("- **A draft written after step 3**", "(`holds_scope` is true)"),
+                         ("- **A draft written by step 1**", "(`holds_scope` is false)")):
+        [line] = [line for line in half_1.splitlines() if line.startswith(prefix)]
+        assert line.startswith(f"{prefix} {flag}"), line
+    [fresh] = [line for line in half_1.splitlines() if line.startswith("Leave the draft in place")]
+    assert "go on to the check's finished-brief step (gather-intent §3), then to §3b" in fresh
+
+
+def test_step_four_checkpoints_each_adjustment_and_a_rename_moves_the_draft():
+    """#1137 (enhancement-8): step 4 §4 follows Half 2 after an adjustment on an interactive derive run, Half 2
+    removes the draft under the old name once the write under the new one succeeds, and step 5 removes a draft a
+    failed rename write left."""
+    half_2 = _section(_read(DRAFT_CHECKPOINT), HALF_2)
+    # The step 3 fields, scope included, even when the step 3 §5c write failed (review of #1137).
+    assert "- At step 4 (§4), the same fields as after step 3, with the adjustment applied." in half_2
+    [step_one] = [line for line in half_2.splitlines() if line.startswith("- From step 1 (§8):")]
+    assert "`scope_note_candidates` (if any)" in step_one
+    assert half_2.index("{atomicWriteHelper} write") < half_2.index(RENAME_RM)
+    assert ("**A new name.** After a write that succeeds, when `{draft_name}` is set and differs from `{skill-name}`"
+            in half_2) and "then bind `{draft_name}` to `{skill-name}`; a first write only binds it" in half_2
+    assert "A failed write keeps `{draft_name}` and its draft, which step 5 §3 removes" in half_2
+    confirm = _read(CONFIRM_BRIEF)
+    assert re.search(r"^draftCheckpointFile: 'references/draft-checkpoint\.md'$", confirm, re.M)
+    steps = _section(confirm, "### 4. Handle Inline Adjustments").splitlines()
+    follow = ("- On an interactive run that is not a ratify run, load `{draftCheckpointFile}` and follow Half 2 "
+              "(Checkpoint Write)")
+    [checkpoint] = [i for i, line in enumerate(steps) if line.startswith(follow)]
+    assert steps[checkpoint - 1] == "- Make the adjustment"
+    assert steps[checkpoint + 1] == "- Re-present the updated brief"
+    [other] = [line for line in confirm.splitlines() if line.startswith("- IF Any other comments or queries:")]
+    assert "apply any field adjustments as §4 does" in other
+    cleanup = [line for line in _read(WRITE_BRIEF).splitlines() if line.startswith("**Draft cleanup.**")]
+    assert len(cleanup) == 1 and ("`{forge_data_folder}/{draft_name}/.brief-draft.json` too when `{draft_name}` is "
+                                  "set and differs from `{skill-name}`") in cleanup[0]
+
+
+@pytest.mark.skipif(not POSIX_BASH, reason="runs the documented blocks in a POSIX bash")
+def test_a_rename_writes_the_draft_under_the_new_name_and_removes_the_old_one(tmp_path):
+    """The step 4 rename of the I/O matrix: Half 2's write under `zod-v4`, then its rename rule for `zod`."""
+    text = _section(_read(DRAFT_CHECKPOINT), HALF_2)
+    [write] = _bash_blocks(text, "{atomicWriteHelper}")
+    [rename] = _bash_blocks(text, RENAME_RM)
+    forge, run_dir = tmp_path / "forge", tmp_path / "run"
+    run_dir.mkdir()
+    old = forge / "zod" / ".brief-draft.json"
+    old.parent.mkdir(parents=True)
+    old.write_text('{"target_repo": "https://github.com/colinhacks/zod"}', encoding="utf-8")
+    draft = {"target_repo": "https://github.com/colinhacks/zod", "intent": "zod's v4 API", "scope": {"type": "x"}}
+    script = (write + rename).replace("<the draft, as one JSON object>", json.dumps(draft))
+    for placeholder, value in (("{run_dir}", run_dir.as_posix()), ("{forge_data_folder}", forge.as_posix()),
+                               ("{skill-name}", "zod-v4"), ("{draft_name}", "zod"),
+                               ("uv run {atomicWriteHelper}", f'"{sys.executable}" "{ATOMIC_WRITE.as_posix()}"')):
+        script = script.replace(placeholder, value)
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, encoding="utf-8", timeout=120,
+                          check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads((forge / "zod-v4" / ".brief-draft.json").read_text(encoding="utf-8")) == draft
+    assert not old.exists()
+
+
+def test_noted_asides_reach_the_summary_the_draft_and_scope_notes():
+    """#1137 (enhancement-6): the asides step 1 notes are `scope_note_candidates`: §7 shows them, the draft holds
+    them, and step 3 §5 adds each one `scope.notes` lacks before its summary, then clears the list, so step 4, the
+    one scope confirmation, is where the user drops any."""
+    gather = _read(GATHER_INTENT)
+    [prefill] = [line for line in _section(gather, "#### 3.1 Collect target").splitlines()
+                 if line.startswith("Wait for user response. **Parse the response")]
+    assert "plus each out-of-scope aside as a `scope_note_candidates` line (§4)" in prefill
+    intent = _section(gather, "### 4. Gather User Intent")
+    assert ("Add it as one line to `scope_note_candidates`, which §7 shows and step 3 seeds into "
+            "`scope.notes`") in intent
+    [capture] = [line for line in intent.splitlines() if line.startswith("**Capture, don't interrupt.**")]
+    assert "\u2014" not in capture
+    summary = _section(gather, "### 7. Summarize Gathered Intent")
+    assert ('{If scope_note_candidates is not empty:}\n- **Noted for scope notes:** {the lines, joined with "; "}\n'
+            in summary)
+    scope = _section(_read(SCOPE_DEFINITION), "### 5. Summarize Scope Decisions")
+    seed = scope.index("**Noted asides.** When `scope_note_candidates` (step 1 §3.1 and §4) is not empty")
+    assert seed < scope.index("Show this summary with no wait")
+    assert ("append each of its lines that `scope.notes` does not already hold to `scope.notes`, each on a line of "
+            "its own after the notes this step set") in scope
+    assert "then clear the list, so a step 4 `[R]` pass does not add back a line the user dropped there" in scope
+    assert ("{If this section added lines from scope_note_candidates:}\n**Noted in step 1:** {those lines} (drop any "
+            "at step 4)") in scope

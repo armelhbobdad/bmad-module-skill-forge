@@ -1,6 +1,6 @@
 # Invocation Contract — skf-brief-skill
 
-Full argument set, gate map, exit codes, and headless result envelope for `skf-brief-skill`. Interactive callers can ignore this file; headless automators and pipeline integrators consult it. This is the canonical statement of the `from_brief` ratify contract, which `references/gather-intent-ratify.md` carries out for both ratify paths: a brief path given when invoking the skill or at the first interactive prompt, and a headless `from_brief`.
+Full argument set, gate map, exit codes, and headless result envelope for `skf-brief-skill`. Interactive callers can ignore this file; headless automators and pipeline integrators consult it. This is the canonical statement of the `from_brief` ratify contract, which `references/gather-intent-ratify.md` carries out for every ratify path: a brief path given when invoking the skill or at the first interactive prompt, step 1's `[U] Revise` of a finished brief for the target, and a headless `from_brief`.
 
 ## Invocation Contract
 

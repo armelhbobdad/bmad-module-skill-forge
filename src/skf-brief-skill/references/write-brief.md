@@ -4,6 +4,9 @@ nextStepFile: 'health-check.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
+validateBriefSchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -36,7 +39,7 @@ The script's atomic-write helper creates parent directories as needed (`mkdir -p
 
 Before writing, check whether the resolved target path already exists.
 
-**Ratify path (`ratify_mode: true` in workflow context):** step 1 (`references/gather-intent-ratify.md`) authorized overwriting only the brief it read, `ratify_source_path`: interactively by `[R] Ratify`, then reviewed and approved at step 4, or headlessly by a `from_brief` argument. Check whether the target is that file (the same file through any path or link), each path written as it is on its line between the markers:
+**Ratify path (`ratify_mode: true` in workflow context):** step 1 (`references/gather-intent-ratify.md`) authorized overwriting only the brief it read, `ratify_source_path`: interactively by `[R] Ratify` or step 1's `[U] Revise`, then reviewed and approved at step 4, or headlessly by a `from_brief` argument. Check whether the target is that file (the same file through any path or link), each path written as it is on its line between the markers:
 
 ```bash
 uv run python -c 'import os, sys; a, b = sys.stdin.read().splitlines()[:2]; print("same" if os.path.exists(a) and os.path.exists(b) and os.path.samefile(a, b) else "different")' <<'SKF_PATHS'
@@ -48,14 +51,24 @@ SKF_PATHS
 - **`same`:** skip both gates below, with no `force` needed: log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3.
 - **`different`** (the brief lives outside `{forge_data_folder}/<name>/`, or step 4 renamed it): an existing file at the target is another brief, so the gates below apply as on the derive route.
 
+**Derive run** (any run but a ratify run), when the file exists: read the scope amendments it holds, create-skill's log of scope changes, so the new brief keeps them. Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then run:
+
+```bash
+uv run {validateBriefSchemaHelper} "{resolved-target-path}" > "{run_dir}/existing-brief.json"
+```
+
+Bind `existing_amendments` to the `brief.scope.amendments` it writes when that is a non-empty list, whatever `valid` says; a `brief` that is null leaves it unset. §3 passes it as `scope_amendments` whenever the run overwrites the file, on `[Y]` below or on a headless `force`.
+
 **Interactive (`{headless_mode}` is false), unless the ratify check printed `same`:**
 
 If the file exists, present:
 
 "**An existing brief was found at `{path}`.**
+{If existing_amendments is set:}
+It holds {count} scope amendments (create-skill's log of scope changes); the new brief keeps them.
 Overwrite it with the brief you just approved? [Y/N]"
 
-- **[Y]** Overwrite — proceed to §3.
+- **[Y]** Overwrite: proceed to §3.
 - **[N]** Cancel — emit a single-line stderr log `brief-skill: overwrite-cancelled at {path}` and HALT with exit code 5 (do not chain to step 6; the run produced no new artifact).
 
 **GATE [default: HALT unless `force` was supplied]**: headless (`{headless_mode}` is true), unless the ratify check printed `same`:
@@ -92,6 +105,7 @@ If the file does not exist, proceed normally.
   "scope_registry_path":  null | "{a component library's registry file; this key and the next two from step 3's component-library flow or its headless default}",
   "scope_ui_variants":    null | [{"name": "...", "package": "..."}],
   "scope_demo_patterns":  null | ["{demo globs}"],
+  "scope_amendments":     null | [{"...": "each entry of the existing_amendments §2b bound, verbatim"}],
   "doc_urls":         null | [{"url": "...", "label": "...", "source": "{optional: language-registry|readme-detection|homepage|pages-api|docs-folder}"}],
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",
@@ -134,7 +148,7 @@ Either way, on success the writer prints `{status, brief_path, version, bytes, w
 
 **On success:** capture `brief_path` and `version` from the response envelope in `{run_dir}/brief-write.json` (§4b, §6 and §6b need them), and record its `warnings[]` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/brief-write.json"`.
 
-**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f`, silent on absent). The draft was the checkpoint step 1 §8 and step 3 §5c wrote for the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
+**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f`, silent on absent), and `{forge_data_folder}/{draft_name}/.brief-draft.json` too when `{draft_name}` is set and differs from `{skill-name}`: a rename whose draft write failed left it there. The draft was the checkpoint step 1 §8, step 3 §5c and step 4 §4 wrote for the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
 
 ### 3b. QMD Collection Registration (Deep Tier Only)
 

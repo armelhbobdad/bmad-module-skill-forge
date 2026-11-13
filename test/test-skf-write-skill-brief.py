@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -1492,3 +1493,49 @@ class TestBaseBrief:
                                "--patch-file", str(tmp_path / "p.json")],
                               input=json.dumps(_baseline_ctx()), capture_output=True, text=True)
         assert proc.returncode == 1 and "change a --base-brief" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# #1137: a derive run that overwrites a brief keeps its amendments
+# --------------------------------------------------------------------------
+
+
+BRIEF_SKILL_WRITE_STEP = SCRIPT_PATH.parents[2] / "skf-brief-skill" / "references" / "write-brief.md"
+VALIDATOR_PATH = SCRIPT_PATH.parent / "skf-validate-brief-schema.py"
+
+
+def _derive_payload_keys() -> set[str]:
+    """The keys of the flat payload template Brief Skill's step 5 section 3 stages on a derive run."""
+    text = BRIEF_SKILL_WRITE_STEP.read_text(encoding="utf-8")
+    section = text[text.index("### 3. Write the Brief"):]
+    start = section.index("```json\n") + len("```json\n")
+    return set(re.findall(r'^  "([a-z_]+)":', section[start:section.index("```", start)], re.M))
+
+
+def _write_flat(target: Path, flat: dict) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--from-flat"],
+                          input=json.dumps(flat), capture_output=True, text=True, timeout=60)
+
+
+def test_a_derive_overwrite_keeps_the_amendments_of_the_brief_it_replaces(tmp_target):
+    """#1137 (enhancement-4): Brief Skill's step 5 reads the existing brief's scope.amendments with the schema
+    validator, and the derive payload, every key its template names, passes them back as scope_amendments, so
+    re-briefing a target create-skill amended keeps the log instead of dropping it."""
+    log = [_amendment(), _write_back_amendment()]
+    proc = _write_flat(tmp_target, {**_baseline_flat(), "scope_amendments": log})
+    assert proc.returncode == 0, proc.stderr
+    # What the step reads before its overwrite question: the validator's `brief`, whatever `valid` says.
+    proc = subprocess.run([sys.executable, str(VALIDATOR_PATH), str(tmp_target)], capture_output=True, text=True,
+                          timeout=60)
+    existing = json.loads(proc.stdout)["brief"]["scope"]["amendments"]
+    keys = _derive_payload_keys()
+    assert "scope_amendments" in keys, sorted(keys)
+    flat = {key: None for key in keys}
+    flat.update(_baseline_flat())
+    flat.update(description="Render Markdown to HTML with marked. Use when an agent renders Markdown.",
+                scope_amendments=existing)
+    proc = _write_flat(tmp_target, flat)
+    assert proc.returncode == 0, proc.stderr
+    brief = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
+    assert brief["description"] == flat["description"]
+    assert brief["scope"]["amendments"] == log

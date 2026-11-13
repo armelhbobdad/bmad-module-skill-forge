@@ -2,8 +2,7 @@
 nextStepFile: 'write-brief.md'
 reviseStepFile: 'scope-definition.md'
 analyzeStepFile: 'analyze-target.md'
-advancedElicitationSkill: '/bmad-advanced-elicitation'
-partyModeSkill: '/bmad-party-mode'
+draftCheckpointFile: 'references/draft-checkpoint.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -20,7 +19,7 @@ partyModeSkill: '/bmad-party-mode'
 
 Use the values steps 1 to 3 accepted, all in conversation, without loading `assets/skill-brief-schema.md` (§4 loads it only to cite a field's rule): §2 shows the fields the user reviews, and step 5 §3 names every key the writer takes. On a derive run, `forge_tier` is the `tier` step 0 §1 bound, `created` is today's date and `created_by` is `{user_name}`; an unset `scripts_intent` or `assets_intent` is `detect`. A headless run takes both from `normalized`, the arguments step 1's input gate validated.
 
-**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (step 1 ratified a brief through `references/gather-intent-ratify.md`: a brief path when invoking the skill or at the first prompt, or a headless `from_brief`), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output: the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it).
+**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (step 1 ratified a brief through `references/gather-intent-ratify.md`: a brief path when invoking the skill or at the first prompt, step 1's `[U] Revise`, or a headless `from_brief`), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output: the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it).
 
 After a `[R]` pass on a ratify run, take `scope.*` and `doc_urls` from step 3, except `scope.amendments`, which step 3 never writes; every other field, `scope.amendments` included, stays hydrated.
 
@@ -127,21 +126,20 @@ You can:
 If the user requests changes to specific fields (name, description, version, scripts or assets intent, etc.):
 - If the adjustment requires explaining a field's validation rule or allowed values, load `assets/skill-brief-schema.md` now (otherwise skip the read: the common path does not need it)
 - Make the adjustment
+- On an interactive run that is not a ratify run, load `{draftCheckpointFile}` and follow Half 2 (Checkpoint Write), so an interrupted run resumes with the adjustment; a new name moves the draft to it
 - Re-present the updated brief
 - Return to the menu
 
 ### 5. Present MENU OPTIONS
 
-Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Party Mode [C] Approve and Write [X] Cancel and exit
+Display: **Select an Option:** [R] Revise Scope [C] Approve and Write [X] Cancel and exit
 
 #### Menu Handling Logic:
 
 - IF R: When `ratify_mode` is true, `source_type` is not `docs-only` and `ratify_analyzed` is not set, load, read entire file, then execute {analyzeStepFile}, which chains to scope definition. Otherwise load, read entire file, then execute {reviseStepFile} to re-enter scope definition
-- IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
-- IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
 - IF X: Treat as user-cancellation. Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Step 5 has not run, so no brief was written; a saved draft stays for a later resume. `[X]` is interactive-only; the headless GATE never reaches this branch.
-- IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#5-present-menu-options)
+- IF Any other comments or queries: help user respond, apply any field adjustments as §4 does, re-present brief if changed, then [Redisplay Menu Options](#5-present-menu-options)
 
 #### Execution rules:
 

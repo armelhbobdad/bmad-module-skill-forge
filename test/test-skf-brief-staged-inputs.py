@@ -715,8 +715,10 @@ def test_the_step_five_payload_reaches_the_writer_with_its_apostrophes(tmp_path)
         "scope_rationale": None, "scope_tier_a_include": None,
         "scope_registry_path": None, "scope_ui_variants": None, "scope_demo_patterns": None, "doc_urls": None,
         "scripts_intent": None, "assets_intent": None, "source_authority": None, "target_ref": None,
+        "scope_amendments": None,
     }
-    # The context holds every key the template names; a derive run sets no source_ref and no amendments log.
+    # The context holds every key the template names; a derive run sets no source_ref, and an amendments log
+    # only when it overwrites a brief that holds one (#1137).
     assert set(context) == _flat_payload_keys(section)
     target = tmp_path / "forge" / "demo" / "skill-brief.yaml"
     block = (block.replace("<the brief context above, as one JSON object>", json.dumps(context))
@@ -1091,11 +1093,13 @@ def test_the_checkpoint_is_written_after_the_description_and_after_the_scope():
     assert re.search(r"^draftCheckpointFile: 'references/draft-checkpoint\.md'$", scope, re.M)
     draft = _read(DRAFT_CHECKPOINT)
     assert "step 5 §4" not in draft and "step 5 §3 removes it" in draft
-    assert "## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)" in draft
+    # #1137 (enhancement-8): step 4 §4 writes it again after each adjustment.
+    half_2 = "## Half 2: Checkpoint Write (loaded from step 1 §8, step 3 §5c and step 4 §4)"
+    assert half_2 in draft
     for field in ("`language`", "`detected_version`", "`analysis_ref`", "`monorepo_workspace`", "`scripts_intent`",
-                  "`assets_intent`", "`tier_a_include`", "`rationale`", "`registry_path`"):
-        assert field in _section(draft, "## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)")
-    assert "the checkpoint step 1 §8 and step 3 §5c wrote" in _read(WRITE_BRIEF)
+                  "`assets_intent`", "`tier_a_include`", "`rationale`", "`registry_path`", "`scope_note_candidates`"):
+        assert field in _section(draft, half_2)
+    assert "the checkpoint step 1 §8, step 3 §5c and step 4 §4 wrote" in _read(WRITE_BRIEF)
 
 
 def test_a_draft_that_holds_the_scope_resumes_at_step_four():

@@ -240,7 +240,10 @@ def test_the_headless_gate_and_the_ratify_branch_load_only_on_their_route():
     assert "`{headlessArgsFile}`" not in text
     uses = [m.start() for m in re.finditer(re.escape("`{ratifyFile}`"), text)]
     ratify_branch = text.index("#### 3.1a Branch: Ratify an Existing Brief")
-    assert len(uses) == 1 and ratify_branch < uses[0] < text.index("#### 3.1b")
+    # #1137 (enhancement-4): the draft-resume check's `[U] Revise` of a finished brief loads it too.
+    revise = text.index("**A finished brief.**")
+    assert len(uses) == 2 and ratify_branch < uses[0] < text.index("#### 3.1b") < revise < uses[1], uses
+    assert uses[1] < text.index("### 3b. Gather Target Version")
     # The source-authority detection is part of the gate now, not a third hop.
     assert not (REFERENCES / "headless-source-authority-detection.md").exists()
     assert "headless-source-authority-detection" not in "".join(_read(path) for path in SKILL_FILES)
@@ -319,7 +322,11 @@ def test_scope_type_and_boundaries_are_decided_where_they_are_asked():
     rules = _section(text, "## Rules")
     assert "- **Headless (`{headless_mode}` is true):** no section prompts." in rules
     assert "### 6. Continue to Brief Confirmation" in text and "MENU OPTIONS" not in text
-    assert "advancedElicitationSkill" not in text and "partyModeSkill" not in text
+    # #1137 (enhancement-5): step 4's menu drops [A] and [P] too, whose results never reached the brief.
+    for path in (SCOPE_DEFINITION, CONFIRM_BRIEF):
+        other = _read(path)
+        for gone in ("advancedElicitationSkill", "partyModeSkill", "[A] Advanced Elicitation", "[P] Party Mode"):
+            assert gone not in other, (path.name, gone)
 
 
 def test_the_scope_signals_are_classified_whichever_way_the_type_is_set():
@@ -542,16 +549,22 @@ def test_a_halt_that_names_no_halt_reason_emits_nothing():
 def test_a_derive_run_carries_the_scope_fields_step_three_set():
     """The headless component-library default sets the registry, demo and variant keys on a derive run, so
     the writer payload must not null them. Step 5b gate run 3: the flat payload is the derive run's only (a
-    ratify run writes from the brief file), so it names no source_ref or amendments log, which only a ratified
-    brief holds."""
+    ratify run writes from the brief file), so it names no source_ref, which only a ratified brief holds.
+    #1137 (enhancement-4): it names `scope_amendments` now, because a derive run that overwrites a brief
+    create-skill amended keeps that brief's log, read at §2b, on `[Y]` and on a headless `force` alike."""
     section = _section(_read(REFERENCES / "write-brief.md"), "### 3. Write the Brief")
     start = section.index("```json\n")
     payload = section[start:section.index("```\n", start + len("```json\n"))]
     for needle in ('"scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3 §3c}"]',
-                   "this key and the next two from step 3's component-library flow or its headless default"):
+                   "this key and the next two from step 3's component-library flow or its headless default",
+                   '"scope_amendments":     null | [{"...": "each entry of the existing_amendments §2b bound, '
+                   'verbatim"}]'):
         assert needle in payload, needle
-    for gone in ('"source_ref"', '"scope_amendments"', "on a derive run all null", "hydrated on a ratify run"):
+    for gone in ('"source_ref"', "on a derive run all null", "hydrated on a ratify run"):
         assert gone not in section, gone
+    overwrite = _section(_read(REFERENCES / "write-brief.md"), "### 2b. Existing Brief")
+    assert "§3 passes it as `scope_amendments` whenever the run overwrites the file, on `[Y]` below or on a " \
+           "headless `force`." in overwrite
 
 
 # --------------------------------------------------------------------------

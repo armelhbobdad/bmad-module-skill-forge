@@ -239,6 +239,8 @@ Wait for confirmation or override.
 
 ### 5. Summarize Scope Decisions
 
+**Noted asides.** When `scope_note_candidates` (step 1 §3.1 and §4) is not empty, append each of its lines that `scope.notes` does not already hold to `scope.notes`, each on a line of its own after the notes this step set, then clear the list, so a step 4 `[R]` pass does not add back a line the user dropped there.
+
 Show this summary with no wait: step 4 shows the whole brief next and is the one scope confirmation, where the user changes any of it.
 
 "**Scope Summary:**
@@ -254,7 +256,10 @@ Show this summary with no wait: step 4 shows the whole brief next and is the one
 **Language:** {confirmed language}
 
 {If any scope notes:}
-**Notes:** {scope notes}"
+**Notes:** {scope notes}
+
+{If this section added lines from scope_note_candidates:}
+**Noted in step 1:** {those lines} (drop any at step 4)"
 
 ### 5c. Draft Checkpoint (interactive only)
 

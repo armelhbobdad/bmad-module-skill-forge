@@ -12,6 +12,9 @@ resolvePackageProbeOrder:
 validateBriefInputsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
+briefDraftsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-brief-drafts.py'
+  - '{project-root}/src/shared/scripts/skf-brief-drafts.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -71,7 +74,7 @@ Or type `cancel` / `exit` / `[X]` to leave without writing anything.
 
 **Target:**"
 
-Wait for user response. **Parse the response for any of the fields the later sections use**: `target_version` (§3b), intent (§4), scope hints, supplemental doc URLs, source authority and a proposed name (§6), and pre-fill every field the user covered, holding them in workflow context. §3b checks a pre-filled version, §4 asks only for a missing intent, and §7 shows the rest, so an expert who stated it all goes from the target branch straight to the §7 message. Then branch on the response for the target itself:
+Wait for user response. **Parse the response for any of the fields the later sections use**: `target_version` (§3b), intent (§4), scope hints, supplemental doc URLs, source authority and a proposed name (§6), plus each out-of-scope aside as a `scope_note_candidates` line (§4); pre-fill every field the user covered, holding them in workflow context. §3b checks a pre-filled version, §4 asks only for a missing intent, and §7 shows the rest, so an expert who stated it all goes from the target branch straight to the §7 message. Then branch on the response for the target itself:
 
 - Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 - Any other free-form question (e.g. "what is this?", "show me an example", "how does SKF work?") → answer briefly, re-display the prompt
@@ -134,19 +137,35 @@ Skip §3.3 and continue at the draft-resume check below.
 
 ---
 
-**Draft-resume check.** Right after the target is validated, before step 1 asks anything else, offer to resume an in-progress draft that already covers this exact target, so a returning user re-types nothing. Keying on the target (not the not-yet-derived skill name) is what lets the offer fire this early:
+**Draft-resume check.** Right after the target is validated, before step 1 asks anything else, offer to resume an in-progress draft that already covers this exact target, so a returning user re-types nothing, and then a finished brief to revise. Keying on the target (not the not-yet-derived skill name) is what lets the offer fire this early. Resolve `{briefDraftsHelper}` from `{briefDraftsProbeOrder}` (first existing path wins). Both calls below read `{target}`, the target §3.2 or §3.3 took: the repo URL (for a package, §3.1b's `resolved_url`, not the name typed), the local path or the primary doc URL, written exactly as it is on the line between the markers, and the helper matches it however it is written: letter case, a trailing slash, `.git`, `owner/repo` or a relative path. When `{briefDraftsHelper}` has no path, or a call prints no JSON, offer nothing, warn nothing and continue at §3b: the check is a convenience, as the checkpoint write is.
 
-1. **Cheap pre-filter** — list any draft file that mentions the confirmed target at all:
+**A draft.** Find the newest draft whose `target_repo` names the target, or a docs-only draft whose `doc_urls` do, in a folder that holds no finished `skill-brief.yaml`:
 
-   ```bash
-   grep -lF "{target}" "{forge_data_folder}"/*/.brief-draft.json 2>/dev/null
-   ```
+```bash
+uv run {briefDraftsHelper} find --forge-data "{forge_data_folder}" <<'SKF_TARGET'
+{target}
+SKF_TARGET
+```
 
-   `{target}` is the repo URL, local path, or primary doc URL just entered. No output → no draft; skip straight to §3b.
+It prints `{name, path, mtime, holds_scope}`, or `null`. On a draft, load `{draftCheckpointFile}` and follow Half 1 (Resume Check) with that result. On `[Y]` resume, Half 1 restores every answer the draft holds and jumps straight to §8, or to step 4 when the draft holds the scope too: **§3b, §4, §6, §7, and §7b are all skipped**. On `null`, or on `[N]`, look for a finished brief.
 
-2. **Confirm each candidate on the target *field*, not free text.** Read the candidate draft's JSON and keep it only if its `target_repo` equals the confirmed target (source targets) or the target appears in its `doc_urls` (docs-only) — this rejects a draft that merely mentions the URL in its `intent` or `description`. Drop any candidate that has a finished `skill-brief.yaml` in the same directory (that brief is done; step 5's overwrite gate owns it).
+**A finished brief.** List the briefs whose `source_repo` names the target, and the docs-only briefs whose `doc_urls` do, newest first:
 
-3. If one or more live drafts survive, load `{draftCheckpointFile}` and follow Half 1 (Resume Check) against the most-recently-modified survivor; its directory basename is the candidate skill name. On `[Y]` resume, Half 1 restores every answer the draft holds and jumps straight to §8, or to step 4 when the draft holds the scope too: **§3b, §4, §6, §7, and §7b are all skipped**. Otherwise (no surviving draft, or every match already has a finished brief beside it) skip the load and continue to §3b.
+```bash
+uv run {briefDraftsHelper} briefs --forge-data "{forge_data_folder}" <<'SKF_TARGET'
+{target}
+SKF_TARGET
+```
+
+It prints `[{name, path, mtime}]`, and `[]` continues at §3b. For one brief, present:
+
+```
+**A finished brief for this target exists:** `{name}` (last updated: {mtime}).
+  [U] Revise `{name}`: review it at step 4 and write it back
+  [N] New brief: keep gathering
+```
+
+For several, list them as `[U1]`, `[U2]` and so on in that order, each with its name and mtime, and end with `[N] New brief`. On a `[U]` pick, load `{ratifyFile}` with that brief's `path`: its §1 validates the brief in full, its §2 menu is skipped, since the user already chose to revise, and its §3 hands the run to step 4 as a ratify run. On `[N]`, continue at §3b.
 
 ### 3b. Gather Target Version
 
@@ -192,7 +211,7 @@ Take your time — the more context you share, the better the brief."
 
 Wait for user response. Ask follow-up questions if intent is unclear.
 
-**Capture, don't interrupt.** If the user volunteers an out-of-scope aside while answering — "the v3 API is totally different", "we're deprecating the auth module next quarter" — do not redirect the conversation to chase it. Silently note it as a candidate `scope.notes` line (carried forward into the brief's `scope.notes` at step 3) and continue the current prompt. These unprompted asides are often the most useful scoping signal; the cost of losing them when the conversation moves on is higher than the cost of one stored line.
+**Capture, don't interrupt.** If the user volunteers an out-of-scope aside while answering ("the v3 API is totally different", "we're deprecating the auth module next quarter"), do not redirect the conversation to chase it. Add it as one line to `scope_note_candidates`, which §7 shows and step 3 seeds into `scope.notes` before its scope summary, and continue the current prompt. These unprompted asides are often the most useful scoping signal; the cost of losing them when the conversation moves on is higher than the cost of one stored line.
 
 ### 6. Derive Skill Name
 
@@ -227,6 +246,8 @@ Compose the §7b description first, then show this summary, the description and 
 {Else:}
 - **Doc URLs:** none (default)
 - **Forge tier:** {tier}
+{If scope_note_candidates is not empty:}
+- **Noted for scope notes:** {the lines, joined with "; "}
 
 {If §6 found a collision:}
 **`{name}` already has a brief.** Pick an alternate by number, or type another name:
