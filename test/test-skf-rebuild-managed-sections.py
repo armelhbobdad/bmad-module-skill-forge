@@ -2462,6 +2462,7 @@ class TestRebuild:
         else:
             [failed] = result["failed"]
             assert result["skipped"] == [] and failed["file"] == str(claude) and said in failed["error"]
+            assert failed["context_file"] == "CLAUDE.md", "the warning names the file as resolve-targets does"
         assert (claude.read_bytes() if claude.exists() else None) == kept, "the file is left as it was"
         for path in rest:
             assert "|[foo v1.0.0]|root: " in _section_body(Path(path)) and "gone" not in _section_body(Path(path))
@@ -2524,7 +2525,7 @@ class TestRebuild:
         stage.mkdir()
         monkeypatch.setattr(tempfile, "tempdir", str(stage))
         result = mod.cmd_rebuild(str(tmp_path), "claude-code,codex", str(forge.skills), dropped=["gone"])
-        assert result["failed"] == [{"file": str(claude), "error": f"{step} refused it"}]
+        assert result["failed"] == [{"file": str(claude), "context_file": "CLAUDE.md", "error": f"{step} refused it"}]
         assert result["updated"] == [str(agents)]
         assert claude.read_bytes() == kept, "the file is left as it was"
         assert "|[foo v1.0.0]|root: .agents/skills/foo/" in _section_body(agents)

@@ -172,7 +172,8 @@ Action-first actions (the action name comes first):
                 the manifest. Per target, in order: check; a file with no
                 section (case create or append) is listed in `skipped` as
                 {file, case}, and one that is malformed or unreadable in
-                `failed` as {file, error}; else assemble with that target's
+                `failed` as {file, context_file, error}, context_file being
+                its resolve-targets name; else assemble with that target's
                 own skill_root (or the override), every target file as an
                 orphan source (but one check found malformed or unreadable)
                 and --dropped, then replace. The staged body is removed
@@ -1546,9 +1547,13 @@ def cmd_rebuild(project_root, ides_csv, skills_folder, *, dropped=(), override=N
     # A file that cannot be read is no orphan source: the others are rebuilt without its rows.
     sources = [path for path, check in zip(paths, checks) if check["status"] == "ok"]
     updated, failed, skipped, warnings = [], [], [], []
+
+    def fail(target, path, error):
+        failed.append({"file": path, "context_file": target["context_file"], "error": error})
+
     for target, path, check in zip(targets["targets"], paths, checks):
         if check["status"] != "ok":
-            failed.append({"file": path, "error": check["error"]})
+            fail(target, path, check["error"])
             continue
         if check["case"] != "regenerate":
             skipped.append({"file": path, "case": check["case"]})
@@ -1556,24 +1561,24 @@ def cmd_rebuild(project_root, ides_csv, skills_folder, *, dropped=(), override=N
         try:
             stage = tempfile.mkdtemp(prefix="skf-rebuild-")
         except OSError as e:
-            failed.append({"file": path, "error": f"cannot create a folder to stage the body in: {e}"})
+            fail(target, path, f"cannot create a folder to stage the body in: {e}")
             continue
         try:
             assembled = cmd_assemble(path, skills_folder, target["skill_root"], override=override,
                                      dropped=dropped, orphan_sources=sources,
                                      out=str(Path(stage) / (target["context_file"] + CONTENT_SUFFIX)))
             if assembled["status"] != "ok":
-                failed.append({"file": path, "error": assembled["error"]})
+                fail(target, path, assembled["error"])
                 continue
             warnings += _skip_warnings(target["context_file"], assembled, dropped)
             try:
                 body = Path(assembled["content_file"]).read_bytes().decode("utf-8")
             except (OSError, ValueError) as e:
-                failed.append({"file": path, "error": f"cannot read the staged body: {e}"})
+                fail(target, path, f"cannot read the staged body: {e}")
                 continue
             replaced = cmd_replace(path, body)
             if replaced["status"] != "ok":
-                failed.append({"file": path, "error": replaced["error"]})
+                fail(target, path, replaced["error"])
                 continue
             updated.append(path)
         finally:

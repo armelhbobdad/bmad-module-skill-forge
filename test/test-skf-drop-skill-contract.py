@@ -854,6 +854,11 @@ def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
     # The §3 resolver stays one call: the guard reads what it printed.
     assert activation.count("{resolveCustomizationHelper} --skill") == 1
     assert "empty the setting in the team or personal override that sets it" in guard, "never the base file"
+    # Lane review: a call that failed (a staged file that is no JSON, a helper that cannot run) names its error,
+    # never a setting no override may set; the halt_reason stays.
+    assert ('After a failed call the message reads instead: "headless purge stopped: SKF cannot read '
+            '`forbid_purge_in_headless` ({its `error`, or its first stderr line}): re-run with `mode=deprecate`, '
+            'or fix that and re-run."') in guard
     comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", 'forbid_purge_in_headless = ""')
     assert "Any value other than the empty string turns the guard on" in comment
     for token in ("so a mistyped value that still parses blocks the purge rather than allowing it",
@@ -1519,7 +1524,7 @@ def test_an_interactive_halt_deletes_the_run_folder():
 
 
 WARNINGS = {
-    "context_rebuild_failed": ("### 3. Rebuild Context Files", "`context_rebuild_failed: {file}: {error}`"),
+    "context_rebuild_failed": ("### 3. Rebuild Context Files", "`context_rebuild_failed: {context_file}: {error}`"),
     "active_link_dangling": ("### 4. Delete Files (Purge Mode Only)",
                              "`active_link_dangling: {skills_output_folder}/{target_skill}/active: {the manual repair}`"),
     "delete_failed": ("### 4. Delete Files (Purge Mode Only)", "`delete_failed: {path}: {error}`"),
@@ -1570,6 +1575,29 @@ def test_the_recorded_warnings_reach_the_envelope_and_the_record(tmp_path):
     assert envelope["status"] == "success" and envelope["warnings"] == recorded
     record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
     assert record["warnings"] == recorded
+
+
+def test_a_context_file_the_rebuild_fails_is_named_as_resolve_targets_names_it(tmp_path):
+    """Lane review: §3's warning names the context file (`CLAUDE.md`), as the warning did before `rebuild`, and as
+    invocation-contract.md documents it, not the path the helper wrote."""
+    rebuild = _section(_read(EXECUTE), "### 3. Rebuild Context Files", "### 4. ")
+    command = (_one_command(rebuild, "{rebuildManagedSectionsHelper}")
+               .replace(' [--skill-root-override "{snippet_skill_root_override}"]', "")
+               .replace("{project-root}", "{project_root}"))
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (tmp_path / "CLAUDE.md").write_bytes("caf\u00e9\n".encode("cp1252"))
+    proc = _run(command, {"rebuildManagedSectionsHelper": str(SCRIPTS / "skf-rebuild-managed-sections.py"),
+                          "project_root": str(tmp_path), "ides": "claude-code", "skills_output_folder": str(skills),
+                          "target_skill": "cognee"})
+    assert proc.returncode == 0, proc.stderr
+    [failed] = json.loads(proc.stdout)["failed"]
+    assert failed["file"] == str(tmp_path / "CLAUDE.md")
+    [template] = re.findall(r"record the warning `(context_rebuild_failed: [^`]+)` for each `failed` entry", rebuild)
+    warning = template.replace("{context_file}", failed["context_file"]).replace("{error}", failed["error"])
+    assert warning.startswith("context_rebuild_failed: CLAUDE.md: ") and "{" not in warning
+    field = next(line for line in _read(CONTRACT).splitlines() if line.startswith("- `warnings`:"))
+    assert "`context_rebuild_failed: <context file>: <error>`" in field
 
 
 def test_each_verification_failure_names_its_manual_fix():
