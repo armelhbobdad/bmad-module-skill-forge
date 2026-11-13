@@ -3184,6 +3184,18 @@ PROMPTS_OFF = b"fatal: could not read Username for 'https://gitlab.example.com':
                   ("repository-page", "https://git.acme.internal/projects/app.git"), id="projects-without-repos"),
      pytest.param("https://docs.example.com/guide/install/linux", {},
                   ["https://docs.example.com/guide/install.git"], ("docs", None), id="deep-docs-url"),
+     pytest.param("https://codeberg.org/forgejo/forgejo/wiki/Home", {"https://codeberg.org/forgejo/forgejo.git": 0},
+                  [], ("docs", None), id="forgejo-wiki"),
+     pytest.param("https://gitlab.example.com/group/sub/project/-/wikis/Home",
+                  {"https://gitlab.example.com/group/sub/project.git": 0}, [], ("docs", None), id="gitlab-wiki"),
+     pytest.param("https://gitee.com/acme/repo/wikis/Home", {"https://gitee.com/acme/repo.git": 0},
+                  [], ("docs", None), id="gitee-wiki"),
+     pytest.param("https://git.acme.internal/team/mono/src/branch/main/wiki",
+                  {"https://git.acme.internal/team/mono.git": 0},
+                  ["https://git.acme.internal/team/mono/src/branch/main.git",
+                   "https://git.acme.internal/team/mono/src/branch.git", "https://git.acme.internal/team/mono/src.git",
+                   "https://git.acme.internal/team/mono.git"],
+                  ("repository-page", "https://git.acme.internal/team/mono.git"), id="wiki-folder-in-a-repository"),
      pytest.param("https://codeberg.org/forgejo/forgejo/src/branch/forgejo",
                   {"https://codeberg.org/forgejo/forgejo/src/branch.git": FileNotFoundError("git")},
                   ["https://codeberg.org/forgejo/forgejo/src/branch.git"], ("docs", None), id="git-cannot-start"),
@@ -3212,7 +3224,10 @@ def test_probe_git_finds_the_repository_behind_a_browser_page(monkeypatch, url, 
     and a git that cannot start ends the search on "docs", since the page itself answered. The
     hint keeps the page's scheme and port, so an http:// or :8443 page reruns on its own server.
     Only a `projects/<p>/repos/<r>` path gives a /scm/ address (a GitLab group named `projects`
-    gives none), and a prefix ending in `.git`, in any case, gets no second one (#1123 review 2)."""
+    gives none), and a prefix ending in `.git`, in any case, gets no second one (#1123 review 2).
+    A project wiki page (`<owner>/<repo>/wiki`, `/wikis`, GitLab's `/-/wikis`) is documentation
+    and tries no address, so a wiki still makes a docs-only brief; a folder named `wiki` inside a
+    repository's code browser is still a repository page (#1123 lane review)."""
     fake = _FakeGitByAddress(answers)
     monkeypatch.setattr(mod.subprocess, "run", fake)
     assert mod.probe_git(url) == result

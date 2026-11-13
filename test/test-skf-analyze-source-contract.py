@@ -2086,7 +2086,7 @@ def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
     or one git reads only without `.git`, among them), or does not reach in the 20 s the address and
     its shorter parts share, is still documentation, and the texts say to give its clone URL (gate
     run 7 fix round 8, #1123 reviews 1 and 2: no text promises a stop the helper never makes). An http:// address is never told to drop https://, which SKF puts back (#1123
-    round8-2)."""
+    round8-2). A project wiki page is documentation, which the texts say too (#1123 lane review)."""
     [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
     for site in ("step 1a §0 (a documentation URL that git reads as a repository, which on most hosts is the "
                  "repository's main page, one whose server asks for credentials, or one that gives git no answer "
@@ -2099,7 +2099,9 @@ def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
                  "names; a page whose repository git finds neither way, such as a SourceForge or Launchpad code "
                  "page, a page of a repository one folder below the host or of one git reads only without `.git`, "
                  "is still read as documentation, and so is one whose repository git does not reach within the "
-                 "20 s the address and its shorter parts share, so give its clone URL)",
+                 "20 s the address and its shorter parts share, so give its clone URL; a project wiki page "
+                 "(`/wiki/...` or `/wikis/...` after `owner/repo`, or GitLab's `/-/wikis/...`) is read as "
+                 "documentation)",
                  "step 1a §0a (docs-only URL unreachable);",
                  "step 1a §2 (the remote target cannot be fetched, or its files cannot be listed);"):
         assert site in row3, site
@@ -2121,6 +2123,9 @@ def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
                   # The address and every shorter part share one budget (#1123 review 2).
                   "The address and the shorter parts SKF tries share one 20-second limit, so a long link on a slow "
                   "server can run out of time before its repository is found and is then read as documentation too.",
+                  # A wiki is documentation, though its repository answers git (#1123 lane review).
+                  "A project wiki page (`/wiki/...` or `/wikis/...` after `owner/repo`, or a GitLab `/-/wikis/...` "
+                  "page) is read as documentation too, so a wiki still makes a docs-only skill.",
                   "Without git installed, SKF reads the address as documentation and warns"):
         assert claim in doc_url, claim
     fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-repository-page-clone-url.yaml"))
@@ -2137,7 +2142,9 @@ def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
             "address that keeps at least `owner/repo` (given with `.git`) or, for Bitbucket Data Center, at its "
             "`/scm/<p>/<r>.git` address.") in fragment["summary"]
     assert ("So is a page whose repository git does not reach within the 20 seconds the address and the shorter "
-            "parts tried share.") in fragment["summary"]
+            "parts tried share, and so is a project wiki page (a `/wiki/` or `/wikis/` page after `owner/repo`, or "
+            "a GitLab `/-/wikis/` page), which git is not asked about past its own address, so a wiki still makes a "
+            "docs-only brief.") in fragment["summary"]
     for text in (row3, doc_url, fragment["summary"]):
         assert "reads a repository at a shorter part" not in text and "at a shorter part of its address," not in text
     assert "`.git` clone URL with `http://`" in fragment["summary"] and "exit `3`" in fragment["summary"]

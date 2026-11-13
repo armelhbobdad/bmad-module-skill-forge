@@ -199,7 +199,8 @@ when git reads no repository at the URL but reads one at the `.git` clone
 URL of a shorter part of its address that keeps at least two segments or,
 for a Bitbucket Data Center `/projects/<p>/repos/<r>` page, at
 `/scm/<p>/<r>.git` (a repository browser page, such as a Codeberg
-`/src/branch/...` or GitLab `/-/tree/...` link), else "docs". It also adds
+`/src/branch/...` or GitLab `/-/tree/...` link, but never a project wiki
+page, which stays documentation), else "docs". It also adds
 `clone_hint`, the `.git` clone URL git read on "repository-page" (else
 null), and `halt_message`, the message analyze-source stops with on
 "repository", "repository-page", "credentials" and "unanswered" (see
@@ -2371,6 +2372,20 @@ def _ls_remote(address, timeout):
     return "credentials" if any(text in message for text in _GIT_CREDENTIAL_ERRORS) else "docs"
 
 
+def _is_wiki_page(segments):
+    """Whether the path ``segments`` of an address name a project wiki page.
+
+    A Gitea, Forgejo or Codeberg ``<owner>/<repo>/wiki/...`` page, a Gitee
+    or older GitLab ``<owner>/<repo>/wikis/...`` page, or a GitLab
+    ``.../-/wikis/...`` page at any group depth. A folder named ``wiki``
+    deeper in a repository (``<owner>/<repo>/src/branch/main/wiki/...``) is
+    not one.
+    """
+    if len(segments) > 2 and segments[2].lower() in ("wiki", "wikis"):
+        return True
+    return any(seg == "-" and nxt.lower() == "wikis" for seg, nxt in zip(segments, segments[1:]))
+
+
 def _repository_addresses(address):
     """The clone URLs the repository behind the browser page ``address`` may answer at, in order.
 
@@ -2380,11 +2395,15 @@ def _repository_addresses(address):
     of the path gives its ``.git`` clone URL (no second ``.git`` when it ends
     in one), longest first, down to two segments (``owner/repo``): a Codeberg
     ``/src/branch/...`` or a GitLab ``/-/tree/...`` link, or a link to a file
-    inside a repository. An address of two segments or fewer gives none.
+    inside a repository. An address of two segments or fewer gives none, and
+    so does a project wiki page (:func:`_is_wiki_page`): it is documentation,
+    though its repository answers git.
     """
     parts = urlsplit(address)
     root = f"{parts.scheme}://{parts.netloc}"
     segments = [seg for seg in parts.path.split("/") if seg]
+    if _is_wiki_page(segments):
+        return []
     addresses = []
     for i in range(len(segments) - 3):
         if segments[i] == "projects" and segments[i + 2] == "repos":
