@@ -761,8 +761,18 @@ def test_the_version_argument_answers_the_scope_gate():
     assert "Scope Gate [use args] (§6 version), Keep Gate [use args] (§7 keep)" in gates
     inputs = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Inputs** |"))
     assert "version (`all`, `older` or one version) [required for a skill in the manifest" in inputs
-    assert "keep (the version to make active before the drop, so dropping the active version keeps another) " \
-           "[optional]" in inputs
+    # Lane review: a `keep` makes its version active whichever version the drop removes, and the docs say so.
+    assert ("keep (the version to make active before the drop, whichever version it drops, so dropping the active "
+            "version keeps another) [optional]") in inputs
+    safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
+    assert ("A `keep` makes that version active whichever version the drop removes, so pass it only to change the "
+            "active version.") in safety
+    assert "needs `version=all` or the one version to drop (or `version=older` for the older versions)" in safety
+    [ds] = [line for line in _read("docs/workflows.md").splitlines() if line.startswith("- **`/skf-drop-skill` (DS)**")]
+    assert "a `keep` that names no version the drop can keep, and `version=older` with no older version left" in ds
+    paths = _read("src/knowledge/version-paths.md")
+    assert "Drops a specific version, every version but the active one (Older versions), or the entire skill" in paths
+    assert "a version-level purge (one version, or Older versions) whose every version is marked" in paths
 
 
 def test_the_mode_argument_answers_the_mode_gate():
@@ -1163,6 +1173,12 @@ def test_the_guard_refusal_names_a_recovery_that_works(recovery):
         assert token in safety, token
     assert ("its Keep option (`keep=<version>` in a headless run) points `active` at that version and records it as "
             "the manifest's active version, then drops the old one in the same run") in drop
+    # Lane review: the Manifest-lag guard names Keep, a backward flip that records `active_version` in the same run.
+    [lag] = [line for line in _read("src/knowledge/version-paths.md").splitlines() if "**Manifest-lag guard.**" in line]
+    assert "only changes when `export-skill` runs or `drop-skill` keeps another version" in lag
+    assert ("and `drop-skill`'s Keep, which halts in that case too, and whose re-run with the same arguments reconciles "
+            "them") in lag
+    assert "the one workflow that flips" not in lag and "it never leaves them diverged" not in lag
 
 
 def _link_active(group: Path, version: str) -> None:
@@ -2004,6 +2020,39 @@ def test_a_headless_refusal_names_the_keep_to_re_run_with(tmp_path):
                                      "reason": "Cannot drop the active version `0.6.0`. " + ending})
     assert (envelope["exit_code"], envelope["versions_affected"]) == (5, ["0.6.0"])
     assert envelope["error"]["reason"].endswith("`keep=0.5.0` to make `0.5.0` active and drop `0.6.0` in one run.")
+
+
+@pytest.mark.parametrize("link, keep", [("0.7.0", None), ("0.4.0", "0.4.0")],
+                         ids=["unexported-version", "older-version-made-active-by-hand"])
+def test_a_keep_leaves_a_link_that_names_another_version_where_it_is(tmp_path, link, keep):
+    """Lane review: `active` names 0.7.0, forged after the last export, while the manifest still lists 0.6.0 as
+    active, or 0.4.0, made active by hand. Dropping 0.6.0 never offers a [K] that points the link back at 0.5.0: with
+    no manifest version to keep the refusal stands, and otherwise [K] keeps the link's own version, so §2's `update`
+    leaves the link where it is."""
+    statuses = {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived"}
+    skills, forge = _cognee(tmp_path, statuses, "0.6.0", on_disk=("0.7.0", *statuses))
+    group = skills / "cognee"
+    _link_active(group, link)
+    entry = _roster_entry(skills, forge, "cognee")
+    assert entry["counts"]["non_deprecated"] > 1, "the guard applies to 0.6.0"
+    assert entry["keep_candidate"] == keep
+    guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
+    assert ("- **Interactive, when `{target_skill}`'s roster entry has a `keep_candidate` other than `{version}`:** "
+            "ask") in guard
+    if keep is None:
+        assert "- **Otherwise** (a headless run, or no such `keep_candidate`): refuse the drop" in guard
+        assert (group / "active").resolve() == (group / "0.7.0").resolve()
+        return
+    calls = _version_level_calls()
+    values = _values(skills, keep_version=keep)
+    proc = _run(calls["update"], values)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["action_taken"] == "no-op"
+    for name, command in (("set", calls["set"]), ("deprecate", calls["deprecate"].replace(EACH_VERSION, "0.6.0"))):
+        proc = _run(command, values)
+        assert proc.returncode == 0, (name, proc.stderr)
+    assert _roster_entry(skills, forge, "cognee")["active_version"] == "0.4.0"
+    assert (group / "active").resolve() == (group / "0.4.0").resolve()
 
 
 def _purge_check(skills: Path, forge: Path, version: str) -> dict:

@@ -6,7 +6,7 @@ The arguments, gates, exit codes and headless result envelope of `skf-drop-skill
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (`all`, `older` or one version) [required for a skill in the manifest; a draft takes only `all`], keep (the version to make active before the drop, so dropping the active version keeps another) [optional]. An argument supplied at invocation answers its step 1 prompt in either mode, so that prompt is not shown |
+| **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (`all`, `older` or one version) [required for a skill in the manifest; a draft takes only `all`], keep (the version to make active before the drop, whichever version it drops, so dropping the active version keeps another) [optional]. An argument supplied at invocation answers its step 1 prompt in either mode, so that prompt is not shown |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection and display the §10 confirmation block, then exit with `status="dry-run"`: no manifest mutation, no file deletion) |
 | **Gates** | step 1: Input Gate [use args] (§4 skill), Scope Gate [use args] (§6 version), Keep Gate [use args] (§7 keep), Mode Gate [use args] (§8 mode), Confirm Gate [Y] |
 | **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC) and `drop-skill-result-latest.json` in `{skills_output_folder}` (none for a dry run or a HALT); a run folder under `{project-root}/_bmad-output/.skf-run/`, kept only after a HALT, except an interactive HALT in step 1 or 2, which deletes it |

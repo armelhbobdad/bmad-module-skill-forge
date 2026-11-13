@@ -354,7 +354,8 @@ def pick_new_active(active_version: str | None, versions: list[dict], dropped: s
     active_version wins unless it is null, deprecated, the dropped version or
     not on disk; else the newest manifest version that is not deprecated, is
     on disk and is not the dropped one. Drop Skill's roster offers the same
-    pick as `keep_candidate`, with the active version as the dropped one.
+    pick as `keep_candidate`, with the active version as the dropped one,
+    unless the `active` link names another version.
     """
     rows = {row.get("version"): row for row in versions if isinstance(row, dict)}
 

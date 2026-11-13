@@ -411,6 +411,31 @@ def test_keep_candidate_follows_the_one_rule(tmp_path, active, statuses, on_disk
     assert result["skills"][0]["keep_candidate"] == expected
 
 
+@pytest.mark.parametrize("link, expected", [
+    ("0.6.0", "0.5.0"),
+    ("0.7.0", None),
+    ("0.4.0", "0.4.0"),
+    ("0.3.0", None),
+], ids=["link-on-the-active", "link-on-an-unexported-version", "link-on-an-older-version", "link-on-a-deprecated"])
+def test_keep_candidate_never_moves_a_link_that_names_another_version(tmp_path, link, expected):
+    """Lane review: the `active` link names 0.7.0, forged and not exported yet (or 0.4.0, made active by hand), while
+    the manifest still lists 0.6.0 as active. Keeping 0.5.0 would point the link back at it, so the roster offers the
+    link's own version when the manifest lists it, and no version otherwise."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in ("0.7.0", "0.6.0", "0.5.0", "0.4.0", "0.3.0"):
+        _skill(skills, "demo", version)
+    forge.mkdir()
+    _manifest(skills, {"demo": _entry("0.6.0", {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived",
+                                                 "0.3.0": "deprecated"})})
+    try:
+        (skills / "demo" / "active").symlink_to(link, target_is_directory=True)
+    except OSError as e:
+        pytest.skip(f"symlinks are not available: {e}")
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge), "--skill", "demo")
+    assert code == 0
+    assert result["skills"][0]["keep_candidate"] == expected
+
+
 @pytest.mark.parametrize("missing", ["skf-skill-inventory.py", "skf-update-active-symlink.py"])
 def test_keep_candidate_is_null_without_its_helpers(tmp_path, project, missing):
     skills, forge = project

@@ -25,9 +25,13 @@
       `keep_candidate` is the version select.md section 7 names to keep
       when the user drops the manifest's active_version: the pick
       skf-update-active-symlink.py repair-after-drop makes after a purge
-      (pick_new_active), with the active version as the dropped one. It
-      is null when the skill has no active_version, when no other version
-      qualifies, and when that script cannot be loaded.
+      (pick_new_active), with the active version as the dropped one. When
+      the `active` link names another version folder (one forged after the
+      last export, or made active by hand), it is that version when the
+      manifest lists it and not as deprecated, else null, so a keep never
+      moves the link off it. It is also null when the skill has no
+      active_version, when no other version qualifies, and when that
+      script cannot be loaded.
 
       `older_versions` is what select.md section 6 [O] Older versions drops:
       the manifest versions that are not the active_version and whose status
@@ -183,17 +187,34 @@ def _version_row(version: str, active: str | None, records: dict, on_disk: bool)
     }
 
 
+def _keep_candidate(symlink, active: str | None, rows: list[dict], link: str | None) -> str | None:
+    """The version select.md section 7 offers to keep when the active version is dropped, or None.
+
+    `link` is the version folder the `active` link names. When it names one
+    other than the active version, keeping any other version would move the
+    link off it, so the candidate is that version when it is a manifest
+    version on disk that is not deprecated, else none.
+    """
+    if symlink is None or active is None:
+        return None
+    if link and link != active:
+        row = next((r for r in rows if r["version"] == link), None)
+        usable = row is not None and row["in_manifest"] and row["on_disk"] and row["status"] != "deprecated"
+        return link if usable else None
+    return symlink.pick_new_active(active, rows, active)
+
+
 def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_folder, symlink=None) -> dict:
     """One roster entry: the skill's versions newest first, with their manifest records, counts, keep_candidate
     and older_versions."""
     active, records = _manifest_rows(entry)
     in_manifest = entry is not None
-    resolved = None
+    resolved, link = None, None
     if inventory is not None and _plain_name(name):
         resolved = inventory.resolve_skill(skills_folder, name, forge_folder)
     if resolved is not None:
         rows = [_version_row(r["version"], active, records, r["on_disk"]) for r in resolved["versions"]]
-        layout = resolved["layout"]
+        layout, link = resolved["layout"], resolved.get("symlink_target")
     else:
         # No on-disk scan: the manifest's versions, in the manifest helper's order.
         ordered = ops.cmd_affected_versions(manifest_path, skills_folder, name).get("sources", {}).get("manifest", [])
@@ -210,7 +231,7 @@ def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_fold
             "non_deprecated": sum(1 for r in rows if r["in_manifest"] and r["status"] != "deprecated"),
             "on_disk": sum(1 for r in rows if r["on_disk"]) if resolved is not None else None,
         },
-        "keep_candidate": symlink.pick_new_active(active, rows, active) if symlink and active else None,
+        "keep_candidate": _keep_candidate(symlink, active, rows, link),
         "older_versions": [r["version"] for r in rows if r["in_manifest"] and not r["active"]
                            and r["status"] not in ("active", "deprecated")],
     }
