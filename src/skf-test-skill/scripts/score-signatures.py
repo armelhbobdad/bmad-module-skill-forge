@@ -331,8 +331,9 @@ Inputs, all files in the run folder:
                Coverage counts, while plan and Signature Accuracy compare
                the signature universe whichever set it picks
   --results    a subagent result, as the subagent returned it (a wrapping
-               markdown fence is stripped), repeatable. One object, or a
-               list of them:
+               markdown fence is stripped), repeatable; with --plan, one
+               per `batches[]` entry, in batch order (#1188). One object,
+               or a list of them:
                  {"file": "<source file>",
                   "exports_found": ["..."],     (fallback scan only)
                   "types_found": ["..."],       (fallback scan only)
@@ -414,14 +415,20 @@ score write their result to that file and print only its summary):
           "methods", "file", "line" (only when `at` is a place of a bound
           form: its bound declaration)}] (with --doc-errors, only when the
           name has one)}]}],
+          "batches": [{"files": [the files[] entries' files], "checks":
+          the number of their checks}] (the batches one judge each takes,
+          #1188: the files[] entries in order, the entry "" and an entry
+          of more than 25 checks each alone, any other joining the open
+          batch unless it already holds 10 files or would pass 25 checks;
+          [] with no files[]),
           "notCompared": [the names with a documented signature given no
           check, sorted],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
          or, with --output, the summary {"compared": N, "files": the
          number of files[] entries, "checks": the number of checks,
-         "documented": the number of documentedSignatures entries,
-         "output": the --output path}
+         "batches": the number of batches, "documented": the number of
+         documentedSignatures entries, "output": the --output path}
          `line` and `signatureLine` are null on a check, a candidate or a
          `bound` entry whose surface record has no line: a name read by eye
          alone in its file, whose per-file result lists names only, or a
@@ -455,16 +462,32 @@ score write their result to that file and print only its summary):
          gives it, a list as its length, and "output": the --output path
          (#1063); --gaps-output alone still prints the whole result
          or {"valid": false, "violations": [...]} when a result breaks the
-         schema, with --output or without it
+         schema, with --output or without it, or, with --plan, when a
+         batch's response leaves out a file the batch was given (#1188):
+         the <n>th --results file is the response of the plan's
+         `batches[<n>]`, <n> counted from 1 as coverage-check.md §2
+         numbers `signatures-<n>.txt`, and each file of the batch no object
+         of that response names is one violation naming `batches[<n>]`,
+         the path given at its position and the file. A batch with no
+         --results file at its position leaves out each of its files, and
+         a --results file past the last batch is one violation naming it.
+         The entry "" is named by an object that names its first check's
+         first `bound` file, the `file` its judge gives. A response that
+         breaks the schema gets its schema violations alone and every
+         other batch is still checked, so one exit 2 lists both kinds; a
+         plan whose batches[] is empty (the fallback scan's) checks nothing
 
 Exit codes:
   0  the result was printed
-  1  an input file cannot be read or is not the JSON it should be, the
+  1  an input file cannot be read or is not the JSON it should be (a
+     --plan with no `batches` list of file lists included), the
      surface has no --surface-set set, the --skill-dir folder holds no
      readable SKILL.md, --doc-errors is given without --skill-dir, or the
      --source-root folder does not exist
-  2  a subagent result breaks the schema (violations[] names each breach;
-     nothing is written to --output or --gaps-output)
+  2  a subagent result breaks the schema, or, with --plan, a batch's
+     result leaves out a file the batch was given, a batch has no
+     --results file or a --results file has no batch (violations[] names
+     each breach; nothing is written to --output or --gaps-output)
 """
 
 from __future__ import annotations
@@ -480,6 +503,10 @@ from pathlib import Path, PurePosixPath
 # Surface kinds that count toward total_types. A Rust struct is a class and a
 # trait an interface; `type` is a type alias.
 TYPE_KINDS = frozenset({"interface", "type", "enum", "class", "struct", "trait"})
+# A plan's batch, which one judge takes (#1188): at most BATCH_FILES `files[]` entries and BATCH_CHECKS checks, an
+# entry of more checks alone (batches).
+BATCH_CHECKS = 25
+BATCH_FILES = 10
 MISMATCH_FIELDS = ("name", "line", "source_sig", "documented_sig", "issue")
 # The optional `difference` a judge tags a mismatch with, defined in
 # references/signature-comparison-rules.md (Difference tags): only the
@@ -794,6 +821,54 @@ def load_plan_doc_places(path: str) -> dict[str, set[tuple[str, int]]]:
     return places
 
 
+def plan_left_out(path: str, responses: list[tuple[str, list[dict] | None]]) -> list[str]:
+    """One breach for each file a batch of plan's output (its `batches[]`) gave its judge that no object of that
+    batch's own response names (#1188), however either writes its path: a judge whose response left out a file it
+    was given would score that file's checks as matching. `responses` are the --results files in the order given,
+    each with its objects (None for one that breaks the schema, whose breaches stand alone): the nth is batch n's
+    response, n from 1 as coverage-check §2 numbers `signatures-<n>.txt`, so another batch's response never names
+    a file for it. A breach names the batch as `batches[<n>]`, the path given at its position and the file; a
+    batch with no --results file at its position leaves out each of its files, and a --results file past the last
+    batch is one breach naming it. The entry "" is named by an object that names its first check's first `bound`
+    file, the `file` its judge gives (none to give, nothing to check); a plan whose `batches[]` is empty (the
+    fallback scan's) checks nothing."""
+    data = _read_json(path, "--plan")
+    planned = data.get("batches") if isinstance(data, dict) else None
+    if not (isinstance(planned, list) and all(
+            isinstance(batch, dict) and isinstance(batch.get("files"), list)
+            and all(isinstance(file, str) for file in batch["files"]) for batch in planned)):
+        raise InputError(f"--plan {path} is not score-signatures.py plan output (no `batches` list of file lists)")
+    groups = data.get("files")
+    by_file: dict[str, list] = {}
+    for group in groups if isinstance(groups, list) else []:
+        if isinstance(group, dict):
+            checks = group.get("checks")
+            by_file.setdefault(str(group.get("file") or ""), checks if isinstance(checks, list) else [])
+    breaches = []
+    for n, batch in enumerate(planned, 1):
+        given_path, objects = responses[n - 1] if n <= len(responses) else (None, [])
+        if objects is None:
+            continue
+        named = {_path(result["file"]) for result in objects}
+        where = given_path if given_path is not None else f"no --results file at position {n}"
+        for file in batch["files"]:
+            given, how = file, ""
+            if file == "":
+                checks = by_file.get(file) or []
+                first = checks[0] if checks and isinstance(checks[0], dict) else {}
+                bound = first.get("bound") if isinstance(first.get("bound"), list) else []
+                given = _record_file(bound[0]) if bound and isinstance(bound[0], dict) else ""
+                how = ' (the files[] entry "", by its first check\'s first `bound` file)'
+            if given and _path(given) not in named:
+                breaches.append(f"batches[{n}] ({where}): no result object names `{given}`{how}, "
+                                f"a file the batch gave its judge")
+    if planned:
+        breaches += [f"{extra}: --results file {k} has no batch (the plan lists {len(planned)}): pass one --results "
+                     f"per batch, in batch order"
+                     for k, (extra, _) in enumerate(responses[len(planned):], len(planned) + 1)]
+    return breaches
+
+
 def check_result(item: object, where: str) -> list[str]:
     """The schema breaches of one per-file result object."""
     if not isinstance(item, dict):
@@ -860,14 +935,17 @@ def parse_result_text(text: str, where: str) -> tuple[list[dict], list[str]]:
     return ([] if errors else items), errors
 
 
-def load_results(paths: list[str]) -> tuple[list[dict], list[str]]:
-    """Every result object of the --results files, and every schema breach."""
-    results, violations = [], []
+def load_results(paths: list[str]) -> tuple[list[dict], list[str], list[tuple[str, list[dict] | None]]]:
+    """Every result object of the --results files, every schema breach, and each file apart (#1188): its path as
+    given, with its own objects, or None when it breaks the schema, so plan_left_out holds each batch's response
+    to that batch alone."""
+    results, violations, responses = [], [], []
     for path in paths:
         items, errors = parse_result_text(_read_text(path, "--results"), Path(path).name)
         results += items
         violations += errors
-    return results, violations
+        responses.append((path, None if errors else items))
+    return results, violations, responses
 
 
 # --------------------------------------------------------------------------
@@ -1238,6 +1316,27 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
     return bound
 
 
+def batches(files: list[dict]) -> list[dict]:
+    """The plan's `files[]` entries in order, grouped into the batches one judge each takes (#1188): the entry ""
+    and an entry of more than BATCH_CHECKS checks each alone, closing the batch before it; any other joins the open
+    batch unless that already holds BATCH_FILES files or would pass BATCH_CHECKS checks with it, else opens the
+    next. Each batch is {"files": [its entries' files], "checks": the number of their checks}."""
+    out: list[dict] = []
+    current: dict | None = None
+    for group in files:
+        count = len(group["checks"])
+        if group["file"] == "" or count > BATCH_CHECKS:
+            out.append({"files": [group["file"]], "checks": count})
+            current = None
+            continue
+        if current is None or len(current["files"]) >= BATCH_FILES or current["checks"] + count > BATCH_CHECKS:
+            current = {"files": [], "checks": 0}
+            out.append(current)
+        current["files"].append(group["file"])
+        current["checks"] += count
+    return out
+
+
 def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], skill_dir: str | None = None,
          others: list[dict] | None = None, internal: list[dict] | None = None, doc_errors: bool = False) -> dict:
     """The comparisons over the signature universe of `names` (the `all`
@@ -1318,9 +1417,11 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
                             skill_dir, texts, lines)
     # The fallback scan's judges compare the names its files export: a method there would count as matching unjudged.
     named_forms = {name: [fields for fields, _ in fs] for name, fs in forms.items() if name not in methods}
+    groups = [{"file": f, "checks": checks} for f, checks in sorted(files.items())]
     return {
         "compared": compared,
-        "files": [{"file": f, "checks": checks} for f, checks in sorted(files.items())],
+        "files": groups,
+        "batches": batches(groups),
         "notCompared": not_compared,
         "documentedSignatures": {name: fs[0] for name, fs in named_forms.items()},
         # The fallback scan's alternatives: a name's form n is its nth entry here, as in a check's `alternatives`.
@@ -2653,7 +2754,7 @@ def _cmd_plan(args: argparse.Namespace) -> tuple[dict, int]:
         _write_json(args.output, out)
         # The step reads the plan from the file, so stdout gives only its counts and the path (#1018).
         return {"compared": out["compared"], "files": len(out["files"]),
-                "checks": sum(len(group["checks"]) for group in out["files"]),
+                "checks": sum(len(group["checks"]) for group in out["files"]), "batches": len(out["batches"]),
                 "documented": len(out["documentedSignatures"]), "output": args.output}, 0
     return out, 0
 
@@ -2663,7 +2764,10 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
         raise InputError(f"--source-root {args.source_root!r} is no folder: pass the local source tree the judges read")
     inventory = load_inventory(args.inventory)
     chosen, exports, names = load_surface(args.surface, args.surface_set)
-    results, violations = load_results(args.results or [])
+    results, violations, responses = load_results(args.results or [])
+    # Each batch's response against its own batch, beside any schema breach, so one exit 2 lists both (#1188).
+    if args.plan is not None:
+        violations += plan_left_out(args.plan, responses)
     if violations:
         for path in (args.output, args.gaps_output):
             if path:

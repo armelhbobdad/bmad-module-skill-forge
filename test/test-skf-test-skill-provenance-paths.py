@@ -1601,7 +1601,7 @@ def test_the_flags_left_to_the_model_are_stated_once():
     flags = _flow(_slice(_read(COVERAGE), "**Clause flags.**", "### 1. Extract Documented Exports"))
     assert "the flags the Source API Surface Definition leaves to you" in flags
     assert "scope.notes" not in flags and "curated subset" not in flags
-    protocol = _flow(_slice(_read(SOURCE_ACCESS), "The clauses below decide", "The recipe runner already"))
+    protocol = _flow(_slice(_read(SOURCE_ACCESS), "The clauses below decide", "Never re-count a barrel by hand."))
     for token in ("- **Pattern-reference intent** (`--pattern-reference-intent`):",
                   "- **A curated monorepo subset** (`--curated-subset`), where the extraction has no "
                   "`counts.curated_subset` (Quick tier, the fallback per-file scan, States 2 to 4):",
@@ -3057,19 +3057,15 @@ def test_the_deep_tier_asks_only_for_what_runs():
     assert ("at Deep tier, its **Deep Tier** paragraph, whose `--doc-errors` adds nothing to this scan's plan, which "
             "has no checks, so leave it out;") in _read(COVERAGE_TIERS)
     observation = next(row for row in _read(SCORING).splitlines() if row.startswith("| Info     | `observation`"))
-    assert ("`Not checked by script: {name}`, at the documenting line, recorded by score-signatures.py from a "
-            "signature judge's `doc_errors`") in observation
+    # #1188: the row names each observation's rule by the script that applies it
+    assert ("or a Deep-tier `Not checked by script: {name}` documentation error, which `scripts/score-signatures.py` "
+            "grades (coverage-check §2 to §2c)") in observation
     assert "by hand" not in observation
     # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
     # so that the record score-signatures.py writes of the name stays its own gap; #1070: or whose map entry
     # cites the star's line
-    assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2). Also "
-            "a stale name with no `defined_at`, not scoped out by "
-            "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
-            "`export *` (`surface.json` `unresolvedStars`), or whose provenance map entry cites such an `export *` "
-            "line itself: `Not checked by script: {name} (another package's export *)`, at the documenting line, "
-            "written by gap-ledger.py and asking no change unless that package lacks the name (coverage-check "
-            "§2c)") in observation
+    assert ("a stale name cited at another package's `export *`, by the rule `scripts/gap-ledger.py`'s `coverage` "
+            "adapter applies") in observation
     # the drift guard is init.md §5b's helper call, which runs at every tier
     init = _read(REFS / "init.md")
     assert "It runs the workspace drift guard" in _flow(init)
@@ -3115,7 +3111,8 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert ("A check with `alternatives` (the other forms the skill documents for the name) is compared with each of "
             "them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.") in forge
     # an overload set is judged whole, by the rule the judge reads in the rules file whose path it is given (#827)
-    assert "delegate one subagent with its checks and the absolute path of `{signatureRulesFile}`" in forge
+    assert ("delegate one subagent with the `files[]` entries it names, their checks and the absolute path of "
+            "`{signatureRulesFile}`") in forge
     assert "is read through its implementation" not in forge, "the overload rule has one copy, in the rules file"
     assert "is read through its implementation" in _read(SIGNATURE_RULES)
     for gone in ("exports_documented", "missing_docs"):
@@ -3161,48 +3158,27 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     forge = _flow(_slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier"))
     assert "The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says" in forge
     held = _flow(_slice(_read(SOURCE_ACCESS), "### What the Surface Holds", "## Source Access Resolution"))
-    # an outer package that exports nothing (a stray source-root __init__.py) nests nothing; the nested names
-    # leave the standard barrel and the umbrella ratio, never the scope sets or the signature comparisons
-    assert ("nested in the folder of another package that exports a name is no barrel: its names "
-            "(`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still "
-            "compares their signatures") in held
-    assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in held
-    assert "are back in it (`guards.staleScope.restored`)" in held
-    # #913: a restored name takes the kind the provenance map gives it, and Type Coverage names one with none;
-    # #1020: so does any name the recipes give no kind at its file, an extraction gap or one found only elsewhere
-    assert ("(`guards.staleScope.restored`). Each restored name, and each name no recipe gives a kind at its file "
-            "(such as one in `extractionGaps`), takes the kind the provenance map gives its name at its file when the map is given (a dataclass, "
-            "NamedTuple or TypedDict is a class, a Protocol an interface, a type alias a type, a TypeVar no type), and "
-            "Type Coverage leaves out one still without a kind and says so in its warnings.") in held
-    # #1009: a restored name stays only while a glob is stale, so the gap asks for an include glob over its file
-    assert ("The restored exports stay only while a `scope.include` glob matches no file: once each glob matches one, "
-            "a restored export whose file no glob covers is outside scope again (`excluded.outsideScope`), so the "
-            "`brief-scope-stale` gap asks for a `scope.include` glob over each restored file whose exports the skill "
-            "documents.") in held
-    # #695: a stale tier A glob fires the guard too and counts no name
-    assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
-            "and counts no name") in held
-    # #1087: a documented extra's declarations reach plan and score as its records, never a set, Export Coverage or
-    # Type Coverage; review of #1087 (probe f): only those classify-stale finds, so a name declared only at a test
-    # helper stays stale documentation and is never compared there
-    assert ("`internalDeclarations` lists, for each name the extraction finds no entry point exports (its `internal` "
-            "names) and that no surface record names, each declaration of it the extraction records in a file the "
-            "brief does not exclude, in the fields `otherDeclarations` uses, less each one coverage-check.md §2c's "
-            "`classify-stale` never finds, since such a name stays stale documentation: one in a test file, in a "
-            "file of a language other than Python and TS/JS or, unless a provenance entry of the name cites that "
-            "file, in a test, fixture, vendored, hidden or `e2e` folder, or an examples, scripts or docs folder right "
-            "below the source root or a package root (a `prune_data` cognee declares only in `cognee/tests/utils.py` "
-            "has none); it is `null` exactly when `otherDeclarations` is. They add no name to a set either, and "
-            "neither Export Coverage nor Type Coverage reads them: `plan`, `score` and coverage-check-branches.md's "
-            "Split-Body Sources read them as the records of such a name, so a documented extra's signature is "
-            "planned, judged and counted in Signature Accuracy at its declaration, and the two forms of a split-body "
-            "mismatch of it are set against that declaration."
-            ) in held
-    # review of #1077: of several declarations, plan picks one from the lines naming the name, as among surface
-    # records, and binds each form to its own cited one
-    assert ("For one declared in several files, `plan` picks among them as among a name's surface records, from the "
-            "lines naming it, and binds each form to the one its own citations cite (coverage-check.md §2's "
-            "`bound`).") in held
+    # #1188: the paragraph says what surface.json holds and which step reads it; how the script builds each list
+    # (#677 nested tops, #913 and #1020 kinds, #1009 restored names, #695 a stale tier A glob, #1087 internal
+    # declarations, #1077 several declaring files) is load-coverage-inputs.py's, gap-ledger.py's and
+    # score-signatures.py's, whose own tests pin it
+    assert ("### What the Surface Holds `surface.json` holds the names the entry points export, less those defined in "
+            "a file the brief scopes out (`excluded.outsideScope`); the recipes' internal matches are never part of "
+            "it. Beside them it lists the nested entries the `all` and `root` sets leave out "
+            "(`excluded.nestedEntries`), the root exports a stale `scope.include` glob restores to it "
+            "(`guards.staleScope.restored`), and `otherDeclarations` and `internalDeclarations` (the declarations no "
+            "entry point exports, of a name the surface holds and of one it does not), which add no name to a set "
+            "or a count and are `null` when no runner extraction looked for them. §5's render lists the excluded "
+            "and restored names, and `plan`, `score` and coverage-check-branches.md's Split-Body Sources read the "
+            "two declaration lists as a name's declarations. ") == held
+    loader = _flow(_read(PROSE_SCRIPTS["{coverageInputsScript}"]))
+    for rule in ("so its kind is the one --provenance gives the name at that file (PROVENANCE_KINDS)",
+                 "the stale-scope guard (an extraction with scope.include or tier_a_include only) fires when the "
+                 "runner lists an include or tier_a_include glob that matches no file",
+                 "Internal declarations (surface `internalDeclarations`)"):
+        assert rule in loader, rule
+    assert ("says a restored name stays only while an include glob matches no file") in _flow(
+        _read(PROSE_SCRIPTS["{gapLedgerScript}"]))
     internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
     assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
             "below), which add no name to its sets or to the coverage denominator.") in internal
@@ -3212,7 +3188,10 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
             "`extractionGaps`") in forge
     section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
-    assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
+    # #1188: §5b's guards call records the gap, which gap-ledger.py's guards adapter classifies
+    assert "The guards that fire raise coverage gaps too, which §5b records from `surface.json`." in section4
+    assert "`guards.staleScope.fires` is one Medium `brief-scope-stale` gap at that brief" in _flow(
+        _read(PROSE_SCRIPTS["{gapLedgerScript}"]))
     protocol = _flow(_read(SOURCE_ACCESS))
     assert ("is not a second package root when the folder of another package root that exports a name holds it, "
             "unless `scope.include` or `scope.tier_a_include` lists that `__init__.py`: its names stay out of the "
@@ -3369,7 +3348,7 @@ EXTRACTION = {
 # The (script, subcommand) pairs, and the scripts that take no subcommand, that given --output print only a summary
 # of the file they write.
 SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", cmd) for cmd in ("plan", "score")} | {
-    ("{coverageInputsScript}", cmd) for cmd in ("census", "floor", "metadata", "surface")})
+    ("{coverageInputsScript}", cmd) for cmd in ("access", "census", "floor", "metadata", "surface")})
 SUMMARIZED_SCRIPTS = frozenset({"{reconcileScript}", "{numeratorVerifyScript}", "{coherenceAggregationScript}",
                                 "{externalScoreScript}"})
 
@@ -3453,19 +3432,19 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert '--skill-dir "{resolved_skill_package}"' in command, "#781: the skill's citations pick a declaration"
     plan = _exec(command, values, tmp_path)
     assert [f["file"] for f in plan["files"]] == ["src/helper.ts", "src/index.ts"]
-    (run / "signatures-1.txt").write_bytes(json.dumps({"file": "src/helper.ts", "signature_mismatches": [
+    # #1188: both files make one batch, whose judge returns one array, saved to signatures-1.txt
+    assert plan["batches"] == [{"files": ["src/helper.ts", "src/index.ts"], "checks": 2}]
+    (run / "signatures-1.txt").write_bytes(json.dumps([{"file": "src/helper.ts", "signature_mismatches": [
         {"name": "helper", "line": 1, "source_sig": "(x: number, y?: number) => number",
-         "documented_sig": "(x: number) => number", "issue": "missing optional parameter 'y'"}]}).encode("utf-8"))
-    # #835 follow-up: a return annotation the body contradicts, checked in the {source_path} file
-    (run / "signatures-2.txt").write_bytes(json.dumps({"file": "src/index.ts", "signature_mismatches": [
-        {"name": "fetchData", "line": 1, "source_sig": "(url: string) => Promise<string>",
-         "documented_sig": "(url: string) => string", "issue": "annotated Promise<string>; the body returns the string",
-         "difference": "annotation-contradicted", "evidence_line": 1}]}).encode("utf-8"))
+         "documented_sig": "(x: number) => number", "issue": "missing optional parameter 'y'"}]},
+        # #835 follow-up: a return annotation the body contradicts, checked in the {source_path} file
+        {"file": "src/index.ts", "signature_mismatches": [
+            {"name": "fetchData", "line": 1, "source_sig": "(url: string) => Promise<string>",
+             "documented_sig": "(url: string) => string",
+             "issue": "annotated Promise<string>; the body returns the string",
+             "difference": "annotation-contradicted", "evidence_line": 1}]}]).encode("utf-8"))
     command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score"), keep=("--source-root",))
-    signatures = _exec(command.replace(
-        '--results "{run_dir}/signatures-<n>.txt"',
-        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace(
-        "<set>", "all"), values, tmp_path)
+    signatures = _exec(command.replace("<set>", "all"), {**values, "<n>": "1"}, tmp_path)
     assert (signatures["signatureAccuracy"], signatures["typeCoverage"]) == (50.0, 100.0)
     # the source file read, fetchData's contradiction is an Info observation that still matches
     assert [(g["title"], g["severity"]) for g in signatures["gapRecords"]] == [
@@ -3550,17 +3529,17 @@ def test_a_deep_tier_judge_s_doc_error_reaches_the_ledger(tmp_path):
     assert doc_check == {"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):",
                          "imports": [{"at": "SKILL.md:8", "statement": "from pkg.search import SearchType, run"}],
                          "members": [{"at": "SKILL.md:11", "fields": ["GRAPH_COMPLETION"]}]}
-    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
-        '--results "{run_dir}/signatures-<n>.txt"',
-        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace("<set>", "all")
-    (run / "signatures-1.txt").write_bytes(json.dumps(
-        {"file": "pkg/search.py", "signature_mismatches": [], "undecided": []}).encode("utf-8"))
+    # #1188: both files make one batch, whose judge returns one array, saved to signatures-1.txt
+    assert [batch["files"] for batch in plan["batches"]] == [["pkg/search.py", "pkg/types.py"]]
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace("<set>", "all")
+    values["<n>"] = "1"
+    searched = {"file": "pkg/search.py", "signature_mismatches": [], "undecided": []}
     judged = {"file": "pkg/types.py", "signature_mismatches": [], "undecided": []}
-    (run / "signatures-2.txt").write_bytes(json.dumps(judged).encode("utf-8"))
+    (run / "signatures-1.txt").write_bytes(json.dumps([searched, judged]).encode("utf-8"))
     without = _exec(command, values, tmp_path)
     error = {"name": "SearchType", "at": "SKILL.md:8", "source": "pkg/search.py:1",
              "issue": "pkg/search.py does not bind `SearchType`; pkg/types.py declares it"}
-    (run / "signatures-2.txt").write_bytes(json.dumps({**judged, "doc_errors": [error]}).encode("utf-8"))
+    (run / "signatures-1.txt").write_bytes(json.dumps([searched, {**judged, "doc_errors": [error]}]).encode("utf-8"))
     signatures = _exec(command, values, tmp_path)
     assert (signatures["signatureAccuracy"], signatures["totalDocumented"]) == (
         without["signatureAccuracy"], without["totalDocumented"]) == (100.0, 1)
@@ -3646,7 +3625,7 @@ def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
     ]
     flow = _flow(_read(COVERAGE))
     assert "- **Stale names** (`stale` when `staleApplicable` is true):" in flow
-    assert "- **Missing names** (`missing`, barrel or scalar):" in flow
+    assert "- **Missing names** (`missing`, barrel or scalar)." in flow
 
 
 def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path):
@@ -3731,6 +3710,15 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     plan = _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
     assert (plan["files"], plan["documentedSignatures"]) == (
         [], {"fetchData": {"params": "url: string", "return_type": "string"}})
+    # #1188 review: the batches saved before the dispatch, which `surface --batches` holds each response to: one
+    # that leaves out a file its batch was given exits 2, naming the response and the file.
+    (run / "fallback-batches.json").write_bytes(json.dumps([["src/index.ts", "src/extra.ts"]]).encode("utf-8"))
+    proc = _run(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f"batch 1 ({run.as_posix()}/per-file-1.txt): no result object names `src/extra.ts`, a file the batch gave "
+        "its judge"]
+    (run / "fallback-batches.json").write_bytes(json.dumps([["src/index.ts"]]).encode("utf-8"))
     surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
     assert surface["sets"]["all"] == ["Options", "fetchData"]
     assert "the fallback scan's `per-file-<n>.txt`" in _flow(_slice(_read(COVERAGE), "**Score the signatures**",
@@ -3780,8 +3768,8 @@ def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
     module of the source: the module that defines each one has its own result, and the loader reads every result
     as the defining file's. A name passed on from another package stays, since no other result counts it."""
     scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
-    assert "It extracts the symbols the file exports, with their full signatures" in scan
-    assert ("leaves out a name the file only passes on from another module of the source being tested "
+    assert "It extracts the symbols each file exports, with their full signatures" in scan
+    assert ("leaves out a name a file only passes on from another module of the source being tested "
             "(`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that "
             "module's own result counts, keeps a name it passes on from another package (`export { z } from "
             "'zod'`), which no other result counts") in scan
@@ -3828,9 +3816,9 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
             "that is no relative path; `export * as ns` still gives `ns`), which the recipe runner leaves "
             "unresolved, listing each such statement as `<line>: <statement>` in `unresolved_stars`, compares each "
             "with the map's entry") in scan
-    assert '"signature_mismatches": [...], "unresolved_stars": [...], "undecided": [...]}`' in scan
-    assert ("List each response's `unresolved_stars` in the Coverage Analysis section as unresolved. Save each "
-            "response to `{run_dir}/per-file-<n>.txt`") in scan
+    assert '"signature_mismatches": [...], "unresolved_stars": [...], "undecided": [...]}` per file it was given' in scan
+    assert ("List each object's `unresolved_stars` in the Coverage Analysis section as unresolved. Save batch "
+            "`<n>`'s response to `{run_dir}/per-file-<n>.txt` (`<n>` from 1)") in scan
     # A star from the source is still left to the module's own result.
     assert ("(`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that "
             "module's own result counts") in scan
@@ -3883,6 +3871,7 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
     _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
     assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
     _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
+    (run / "fallback-batches.json").write_bytes(json.dumps([["src/index.ts"]]).encode("utf-8"))
     surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
     assert surface["sets"]["all"] == ["spyOn", "z"] and "violations" not in surface
     assert surface["unresolvedStars"] == [{"file": "src/index.ts", "line": 1, "statement": star[3:]}]
@@ -3912,8 +3901,8 @@ def test_the_fallback_scan_reads_an_overload_set_whole():
     that path either, and it tags a mismatch's `difference` as §2's judge does. The overload rule has one copy, in
     that file: neither coverage-check.md nor the tiers file repeats it."""
     scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
-    assert ("delegate a subagent that gets that map with the file and the absolute path of `{signatureRulesFile}` "
-            "(under `{skill-root}`)") in scan
+    assert ("delegate one subagent that gets that map with its files and the absolute path of "
+            "`{signatureRulesFile}` (under `{skill-root}`)") in scan
     assert ("compares each with the map's entry by the rules of that file (overload sets and `difference` tags "
             "included)") in scan
     rules = _flow(_slice(_read(SIGNATURE_RULES), "## Overload sets", "## Difference tags"))
@@ -3922,6 +3911,156 @@ def test_the_fallback_scan_reads_an_overload_set_whole():
             "mismatch") in rules
     for path in (COVERAGE, COVERAGE_TIERS):
         assert "is read through its implementation" not in _read(path), path.name
+
+
+def test_the_source_access_and_its_notice_come_from_access_json(tmp_path):
+    """#1188: §0b runs `access` as written before it loads the protocol, and the protocol's States 1 to 4 and its
+    degradation notice, and score.md §6's notice, read the file it writes: a map of 12 T1 and 3 T1-low entries with
+    no local source is State 2, `mixed`, "(12 T1, 3 T1-low)", where the model counted entries under an "all/most"
+    rule with no threshold. Review loop 1: a skill with no metadata.json, which init.md §2 lets go on, leaves
+    --metadata out and reaches State 4 or 5 (`state` null), and the notice keys on `degradation` only at
+    provenance-map, every other access taking the `low` one (a State 1 run a later rule made docs-only has a null
+    `degradation`)."""
+    section = _flow(_slice(_read(COVERAGE), "### 0b. Load Source Access Protocol", "**Workspace layout.**"))
+    assert ("Read the source access from the files, leaving out `--metadata` when init.md §2 found no metadata.json "
+            "(its `metadata-missing` warning), `--provenance` when it bound no `{forge_provenance_map}` and "
+            "`--source-root` when `{source_path}` is null:") in section
+    assert ('Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase '
+            '`coverage-check:access`). Then load `{sourceAccessProtocol}` and follow its') in section
+    command = _command(COVERAGE, "uv run {coverageInputsScript} access")
+    skill = _write_tree(tmp_path / "skill", {"metadata.json": json.dumps({"exports": ["alpha", "beta"]})})
+    entries = [{"export_name": f"n{i}", "confidence": "T1" if i < 12 else "T1-low"} for i in range(15)]
+    provenance = _write_tree(tmp_path / "forge", {"provenance-map.json": json.dumps({"entries": entries})})
+    run = tmp_path / "run"
+    run.mkdir()
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{forge_provenance_map}": (provenance / "provenance-map.json").as_posix(),
+              "{source_path}": (tmp_path / "src").as_posix()}
+    access = _exec(_choose(command, keep=("--metadata", "--provenance")), values, tmp_path)
+    assert (access["state"], access["degradation"], access["provenanceEntryCount"]) == (2, "mixed", 15)
+    breakdown = "(" + ", ".join(f"{count} {label}" for label, count in access["provenanceConfidence"].items()) + ")"
+    assert breakdown == "(12 T1, 3 T1-low)"
+    notice = _flow(_slice(_read(REFS / "score.md"), "### Access Degradation Notice", "### 7."))
+    assert ("{at provenance-map, from `{run_dir}/access.json`: \"(T1 AST-verified at compilation time)\" when "
+            f"`degradation` is `all-t1`, else each `provenanceConfidence` label after its count, as \"{breakdown}\"}}"
+            ) in notice
+    # Review loop 3: the Impact line's no-limitation text keys on the same field, never a count by eye.
+    assert ("or \"Provenance data is at highest confidence; no limitation.\" at provenance-map when "
+            "`{run_dir}/access.json` `degradation` is `all-t1`}") in notice
+    assert "all-T1 provenance-map" not in notice
+    assert ("**Recommendation:** {at provenance-map, the one the degradation notice rules in {sourceAccessProtocol} "
+            "give `{run_dir}/access.json` `degradation` (no local clone for `all-t1`); at any other access, their "
+            "`low` one}") in notice
+    protocol = _flow(_slice(_read(SOURCE_ACCESS), "## Source Access Resolution", "**Degradation notice rules:**"))
+    for state, reads in (("1", "`{run_dir}/access.json` (coverage-check.md §0b) gives `state` 1"),
+                         ("2", "`access.json` gives `state` 2"), ("3", "`access.json` gives `state` 3"),
+                         ("4", "`access.json` gives `state` null")):
+        assert reads in protocol, state
+    rules = _read(SOURCE_ACCESS).split("**Degradation notice rules:**", 1)[1]
+    assert rules.startswith(
+        " at `provenance-map`, `{run_dir}/access.json` `degradation` picks the notice, from the provenance map "
+        "entries' `confidence` labels (`provenanceConfidence`). Every other access below `full` takes the `low` "
+        "notice whatever `degradation` says, a State 1 run a later rule made `docs-only` (its `degradation` null) "
+        "included:\n")
+    assert re.findall(r"^- \*\*`([a-z0-9-]+)`\*\*", rules, re.M) == ["all-t1", "mixed", "low"]
+    assert f"as {breakdown[1:-1]}). Re-run with local clone" in _flow(rules)
+    # Review loop 2: a State 5 run, and a State 1 run made docs-only, ran §0b and have an `access.json`; only §0's
+    # docs-only run skipped it.
+    assert ("- **`low`** (no entry T1, and every access but `full` and `provenance-map`, a docs-only run's too, with "
+            "or without an `access.json`):") in rules
+    assert "writes no `access.json`" not in rules
+    # A local source is State 1 whatever the map says, so the notice is not written.
+    (tmp_path / "src").mkdir()
+    access = _exec(_choose(command, keep=("--metadata", "--provenance", "--source-root")), values, tmp_path)
+    assert (access["state"], access["degradation"], access["localSource"]) == (1, None, True)
+    # No metadata.json, no map and no local source: the command left bare exits 0 and leaves State 4 or 5 to the
+    # workflow.
+    access = _exec(_choose(command), {**values, "{source_path}": (tmp_path / "gone").as_posix()}, tmp_path)
+    assert (access["state"], access["degradation"], access["metadataExportCount"]) == (None, "low", 0)
+
+
+def test_signatures_and_the_fallback_scan_are_judged_in_batches():
+    """#1188: §2 delegates one judge per `batches[]` entry of the plan, and the fallback scan, which has no plan to
+    batch from, at most 10 files a judge, as score-signatures.py batches a plan; each returns one JSON array."""
+    section2 = _flow(_slice(_read(COVERAGE), "### 2. Analyze Source Code", "### 2b."))
+    for sentence in ("For each `batches[]` entry, delegate one subagent with the `files[]` entries it names, their "
+                     "checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`).",
+                     "and returns only a JSON array, one object per `files[]` entry it was given, with no prose and "
+                     "no markdown fences:",
+                     "Save each batch's response to `{run_dir}/signatures-<n>.txt` with the Write tool, `<n>` "
+                     "counting the batches from 1.",
+                     # Review loop 2: one response file per batch, the main thread's too, so each answers for its
+                     # own batch alone.
+                     "save the same JSON, one array per batch in its own `signatures-<n>.txt`."):
+        assert sentence in section2, sentence
+    assert ("Give it one `--results` per batch, in batch order (the fallback scan's `per-file-<n>.txt`, else the "
+            "`signatures-<n>.txt`)") in _flow(_slice(_read(COVERAGE), "**Score the signatures**", "### 2c."))
+    assert "For each `files[]` entry, delegate" not in section2
+    scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
+    for sentence in ("so subagents read the files in scope in batches.",
+                     "Take the source files that define public API exports in path order, at most 10 a batch, and "
+                     "save the batches to `{run_dir}/fallback-batches.json` with the Write tool before you "
+                     "dispatch, a JSON array whose `<n>`th item lists batch `<n>`'s files. For each batch delegate "
+                     "one subagent that gets that map with its files",
+                     "and returns only a JSON array of one `{\"file\", \"exports_found\": [...]",
+                     "\"undecided\": [...]}` per file it was given",
+                     "Save batch `<n>`'s response to `{run_dir}/per-file-<n>.txt` (`<n>` from 1) with the Write tool, "
+                     "one file per batch with or without subagents, and build the surface from them, one "
+                     "`--per-file` per batch in batch order, `--batches` (a response that leaves out a file its "
+                     "batch was given exits 2, §2's **Exits**) and `--fallback-scan`"):
+        assert sentence in scan, sentence
+    assert '--per-file "{run_dir}/per-file-<n>.txt" --batches "{run_dir}/fallback-batches.json" --fallback-scan' in (
+        _command(COVERAGE_TIERS, "surface --per-file"))
+    # Review loop 1: a response that leaves out a file its batch was given is refused, and that batch's judge runs
+    # again. Review loop 2: one exit 2 lists every judge to re-dispatch, each once.
+    assert ("`surface` with a `--per-file`, and `score`, also exit 2 when a subagent response breaks the schema or "
+            "leaves out a file its batch was given: re-dispatch each judge a violation names (for a left-out file, "
+            "its batch's) once with its `violations[]` appended (or correct a result the main thread wrote, or the "
+            "response files passed: one per batch, in batch order), save each new response over the old one") in (
+        section2)
+    assert "one at a time" not in scan
+    assert runpy_module(PROSE_SCRIPTS["{scoreSignaturesScript}"]).BATCH_FILES == 10
+
+
+def test_the_coverage_references_keep_no_script_internals_or_unscored_guidance():
+    """#1188: the State 2 limitations and the remote "supplement" sentences guided signature checks no State 2 to 4
+    run scores; the barrel passage, the surplus advice and the scanner notes explained what the scripts do; and the
+    two Gap Severity rows restated gap-ledger.py's rule. Each row now names the script that applies its rule."""
+    protocol = _read(SOURCE_ACCESS)
+    for gone in ("**State 2 limitations:**", "supplement by reading", "All/most",
+                 "The recipe runner already re-derives",
+                 "Each restored name, and each name no recipe gives a kind"):
+        assert gone not in protocol, gone
+    assert protocol.count("Never re-count a barrel by hand.") == 1
+    # the paragraph ends at the hand-off: gap-ledger.py's coverage adapter classifies the stale name
+    assert "A documented extra reaches coverage-check.md §2c as a stale name.\n" in protocol
+    assert "deflated-denominator signature" not in _read(COVERAGE_BRANCHES)
+    assert "The script matches the full heading text" not in _read(COHERENCE_NAIVE)
+    contextual = _flow(_read(COHERENCE_CONTEXTUAL))
+    assert "os.path.realpath" not in contextual and "edge cases the formula requires" not in contextual
+    assert ("a stack's metadata.json records no `source_root` to anchor them. The scanner resolves symlinks before its "
+            "root check. Do not check these targets again by hand or through subagents") in contextual
+    rows = {line.split("|")[2].strip(): line for line in _read(SCORING).splitlines()
+            if line.startswith(("| Medium   | `stale-documentation`", "| Info     | `observation`"))}
+    assert rows["`stale-documentation`"].endswith(
+        "| A documented export the enumerated source surface lacks that is not a fabricated signature or an Info "
+        "`observation`, by the rule `scripts/gap-ledger.py`'s `coverage` adapter applies (coverage-check §2c) |")
+    info = rows["`observation`"]
+    assert "by the rule `scripts/gap-ledger.py`'s `coverage` adapter applies" in info
+    assert "which `scripts/score-signatures.py` grades (coverage-check §2 to §2c) |" in info
+    for gone in ("aliased", "classify-stale", "column 0"):
+        assert gone not in info and gone not in rows["`stale-documentation`"], gone
+    # Review loop 1: the table holds each gap's severity and category, and the Critical `fabricated-signature` row
+    # cites `classify-stale`'s rename rule where it cited a clause the cut Info row lost. Review loop 2: the lead
+    # claims no row names the script that applies its rule, since `metadata-drift` and the rows kept with it do not.
+    scoring = _read(SCORING)
+    assert ("This table is the single source of truth for each gap's severity and category. Every stage records "
+            "each gap it finds") in scoring
+    assert "a row whose rule a script applies" not in scoring
+    [fabricated] = [line for line in scoring.splitlines() if line.startswith("| Critical | `fabricated-signature`")]
+    assert ("nor does any other rename `classify-stale` finds `aliased` (coverage-check §2c), directly or through a "
+            "chain of renames; a rename it does not find stays fabricated.") in fabricated
+    assert "clause of the Info `observation` row" not in scoring
 
 
 def test_the_prose_state_4_surface_runs(tmp_path):
@@ -4040,15 +4179,11 @@ CARVED_TO_BRANCHES = {
         "stack branch, and the scalar branch when it counts no set), `documented` can exceed `denominator`, as "
         "it can when a counted set holds more names than the stored count: `coverage.json` then reports "
         "`numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps "
-        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A "
-        "large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names "
-        "the set it measured the stored count against, before accepting the 100."
+        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts."
+        # #1188: the `guards.deflation` advice and the missing count's classification are gap-ledger.py's
     ), (
-        "- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium "
-        "`missing-export` gap for the count. A scalar result that counts its set records its `missing` names as "
-        "§2c's Missing names bullet says instead, plus one gap for the rest when `missingCount` exceeds them. "
-        "When §2b's numerator check found the count inflated and the scalar branch counted no set, its "
-        "`absent[]` names replace this gap, one each: update-skill documents a named export, not a count."
+        "coverage-check.md §5b records the missing count (scalar or stack branch, `missingCount` above 0) from "
+        "the run files."
     )],
     "Metadata Count Cross-Check": [(
         "`{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a "
@@ -4061,9 +4196,8 @@ CARVED_TO_BRANCHES = {
         "\n"
         "A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its "
         "call and records no count finding, and note the error in the Coverage Analysis section. §5b records "
-        "each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an "
-        # #1186: reconcile-coverage.py render writes a stack's and a reference app's `Denominator:` line
-        "Info `multi-denominator` gap. They describe data quality and change no denominator."
+        # #1188: gap-ledger.py's metadata-coherence adapter gives each finding its severity and category
+        "each `findings[]` entry from that file. They describe data quality and change no denominator."
     )],
     "Docs-Only Run": [(
         "**A docs-only run** measures documentation completeness as its Export Coverage, with "

@@ -45,11 +45,9 @@ Run the command of the branch §2b picked; §2c's exits apply to it:
 
 **The scalar branch counts §2b's set** only when `surface.json` `denominator.setCounted` is true: a scope set (not `all`) whose every name sits at the file that defines it (a complete runner extraction, the fallback scan, or quick output that traces each name), read whole. Then `numeratorSource` is `surface`: `documented` counts the documented names the set holds (`documentedNames`), so a documented name the set lacks never offsets an undocumented one; `missing` lists the set's undocumented names; §5's render draws the per-export table; and the denominator stays the stored count, so when the set's size (`surfaceSetSize`) differs from it, `warnings` names both. Otherwise (`all`, a set read by eye or from an incomplete extraction, or an empty set, which warns) the branch looks each documented name up in the skill, `--verified` applies, and `missing` lists no name. On any surface read from the source (`guards.deflation.applicable` true), `stale` lists the documented names the whole surface lacks (the set, the `all` set and each name on a `surface.json` `exports` record, a nested entry's included: the barrel branch finds `stale` against the same surface), with `staleApplicable` true, so §2c's Stale names bullet applies: a documented name outside the set that the source still exports is neither counted nor stale. §5's render lists each `warnings` entry.
 
-**A surplus is a signal, not a pass.** Where the numerator and denominator count independent sets (the stack branch, and the scalar branch when it counts no set), `documented` can exceed `denominator`, as it can when a counted set holds more names than the stored count: `coverage.json` then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names the set it measured the stored count against, before accepting the 100.
+**A surplus is a signal, not a pass.** Where the numerator and denominator count independent sets (the stack branch, and the scalar branch when it counts no set), `documented` can exceed `denominator`, as it can when a counted set holds more names than the stored count: `coverage.json` then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts.
 
-coverage-check.md §5b records this gap from the run files:
-
-- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. A scalar result that counts its set records its `missing` names as §2c's Missing names bullet says instead, plus one gap for the rest when `missingCount` exceeds them. When §2b's numerator check found the count inflated and the scalar branch counted no set, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
+coverage-check.md §5b records the missing count (scalar or stack branch, `missingCount` above 0) from the run files.
 
 ## Metadata Count Cross-Check
 
@@ -59,7 +57,7 @@ coverage-check.md §5b records this gap from the run files:
 uv run {coherenceScript} --inputs "{run_dir}/coverage-inputs.json" > "{run_dir}/metadata-coherence.json"
 ```
 
-A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its call and records no count finding, and note the error in the Coverage Analysis section. §5b records each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an Info `multi-denominator` gap. They describe data quality and change no denominator.
+A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its call and records no count finding, and note the error in the Coverage Analysis section. §5b records each `findings[]` entry from that file. They describe data quality and change no denominator.
 
 ## Docs-Only Run
 

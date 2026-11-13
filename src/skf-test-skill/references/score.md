@@ -211,9 +211,9 @@ If the `analysisConfidence` §3a read is not `full`, add a degradation notice at
 ```markdown
 ### Access Degradation Notice
 
-**Resolved via:** {analysisConfidence} {confidence breakdown if provenance-map, e.g., "(T1 AST-verified at compilation time)" or "(12 T1, 3 T1-low)"}
-**Impact:** {describe limitation — e.g., "Signature checks limited to name-matching. Source file:line citations from provenance-map, not live AST." — or "Provenance data is at highest confidence; no limitation." for all-T1 provenance-map}
-**Recommendation:** {confidence-dependent — see {sourceAccessProtocol} degradation notice rules. Do not recommend local clone when provenance-map entries are already T1.}
+**Resolved via:** {analysisConfidence} {at provenance-map, from `{run_dir}/access.json`: "(T1 AST-verified at compilation time)" when `degradation` is `all-t1`, else each `provenanceConfidence` label after its count, as "(12 T1, 3 T1-low)"}
+**Impact:** {describe limitation, e.g., "Signature checks limited to name-matching. Source file:line citations from provenance-map, not live AST.", or "Provenance data is at highest confidence; no limitation." at provenance-map when `{run_dir}/access.json` `degradation` is `all-t1`}
+**Recommendation:** {at provenance-map, the one the degradation notice rules in {sourceAccessProtocol} give `{run_dir}/access.json` `degradation` (no local clone for `all-t1`); at any other access, their `low` one}
 ```
 
 ### 7. Update Output Frontmatter

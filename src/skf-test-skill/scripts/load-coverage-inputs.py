@@ -9,8 +9,26 @@ coverage-check.md decides whether a bookkeeping variant is a real export,
 and makes the judgments the denominator clause needs where no file holds
 them (--pattern-reference-intent, and --curated-subset and --barrel where
 the extraction does not say); the clause, everything it counts, folds or
-unions on the way runs here, so no count is made by hand. Four subcommands, each
+unions on the way runs here, so no count is made by hand. Five subcommands, each
 reading files and writing one JSON object:
+
+  access    the source access state coverage-check.md §0b takes and the
+            degradation notice score.md §6 writes, so no map entry or
+            label is counted by hand: `localSource` (--source-root names an
+            existing folder), `provenanceEntryCount` (the map's object
+            `entries`, 0 without --provenance), `provenanceConfidence` (the
+            entries per `confidence` label, stripped: T1, T1-low, T2 and T3
+            matched in any case and written so, in that order, then every
+            other label sorted, a label spelled `none` among them, then
+            `unlabeled` for an entry with no label, a blank one or one that
+            is no string; {} with no entry),
+            `metadataExportCount` (the metadata.json `exports[]` items that
+            give a name), `state` (1 with a local source, else 2 with a map
+            entry, else 3 with a metadata export, else null: State 4 or 5 is
+            the workflow's, which knows whether remote tools can read the
+            source) and `degradation` (null at State 1; at State 2 `all-t1`
+            when every entry is T1, `low` when none is, else `mixed`; `low`
+            at State 3 or null).
 
   census    docs-only detection. Counts the citations SKILL.md and each .md
             file directly in references/ write, by form: `[EXT:` against
@@ -321,6 +339,20 @@ reading files and writing one JSON object:
                             its names (a Quick-tier or State 4 result is at
                             its entry file): as with an extraction, no
                             tier_a_include set is no tier A list
+              --batches     the fallback scan's batches (#1188): a JSON
+                            array whose <n>th item lists the files the
+                            judge of batch <n> was given. The <n>th
+                            --per-file is batch <n>'s response, one per
+                            batch in batch order, and each file of the
+                            batch no object of that response names exits
+                            2, naming batch <n>, the --per-file given at
+                            its position and the file, so that batch's
+                            judge runs again; a batch with no --per-file
+                            at its position leaves out each of its files,
+                            and a --per-file past the last batch is one
+                            breach naming it. A response that breaks the
+                            schema gets its schema breaches alone, every
+                            other batch still checked
               --name        a name read by eye whose file is not known
               --provenance  the provenance entries' named exports (State 2),
                             and the kinds of restored names and of names
@@ -540,12 +572,14 @@ read (a `missing` or `unreadable` file issue); a `no-recipes` file, such as
 a stylesheet, holds nothing to read and is in neither list.
 
 Usage:
+  uv run load-coverage-inputs.py access [--metadata <metadata.json>] \\
+      [--provenance <provenance-map.json>] [--source-root <dir>] [--output <file>]
   uv run load-coverage-inputs.py census --skill-dir <dir> [--output <file>]
   uv run load-coverage-inputs.py floor --skill-dir <dir> [--output <file>]
   uv run load-coverage-inputs.py metadata --metadata <metadata.json> \\
       [--provenance <provenance-map.json>] [--output <file>]
   uv run load-coverage-inputs.py surface [--extraction <file>] [--quick <file>]... \\
-      [--per-file <file>]... [--fallback-scan] [--name <name>]... [--provenance <file>] \\
+      [--per-file <file>]... [--fallback-scan] [--batches <file>] [--name <name>]... [--provenance <file>] \\
       [--metadata <file>] [--brief <skill-brief.yaml>] [--fold] [--fold-prefix <prefix>]... \\
       [--keep <name>]... [--monorepo] [--pattern-reference-intent] [--curated-subset] \\
       [--barrel barrel|empty|none] [--output <file>]
@@ -553,6 +587,8 @@ Usage:
 Stdout: the result. With --output the file holds it, and stdout is a
 summary that gives each field under the file's key and names the file
 (#1040):
+  access    {"localSource", "provenanceEntryCount", "provenanceConfidence",
+            "metadataExportCount", "state", "degradation", "output"}
   census    {"docsOnly", "localCitations", "output"}
   floor     {"summary", "output"}
   metadata  {"skillType", "inflationSignature", "stack": {"basis",
@@ -567,9 +603,11 @@ Exit codes:
   1  an input file is missing, unreadable or not the JSON (or the YAML
      brief) it should be, or the --skill-dir holds no SKILL.md or a skill
      file that is not UTF-8 (one line on stderr)
-  2  a per-file result breaks the schema: {"valid": false, "violations":
-     [...]} names each breach and nothing is written to --output; or a
-     usage error (argparse)
+  2  a per-file result breaks the schema, or, with --batches, a batch's
+     --per-file response leaves out a file the batch was given, a batch
+     has no --per-file or a --per-file has no batch: {"valid": false,
+     "violations": [...]} names each breach and nothing is written to
+     --output; or a usage error (argparse)
 """
 
 from __future__ import annotations
@@ -596,6 +634,10 @@ CITATION_FORMS = {
     "DOC": "[DOC:",
 }
 LOCAL_FORMS = ("AST", "SRC", "from skill")
+# access: the provenance map's confidence labels, in the spelling and order the degradation notice writes them, and
+# the key of the entries that carry no label.
+CONFIDENCE_LABELS = ("T1", "T1-low", "T2", "T3")
+NO_CONFIDENCE = "unlabeled"
 # floor: the forms a documented name takes, in the order an origin on one line sorts by.
 FLOOR_FORMS = ("table-row", "heading", "declaration")
 # The header words (lower case, singular or plural) of a table whose first column names exports: its first header
@@ -797,6 +839,54 @@ def _entries(provenance: dict | None) -> list[dict]:
 def _entry_names(provenance: dict | None) -> list[str]:
     return [e["export_name"] for e in _entries(provenance)
             if isinstance(e.get("export_name"), str) and e["export_name"]]
+
+
+# --------------------------------------------------------------------------
+# access
+# --------------------------------------------------------------------------
+
+
+def _confidence_counts(entries: list[dict]) -> dict[str, int]:
+    """The entries per stripped `confidence` label: CONFIDENCE_LABELS matched in any case and written in their own
+    spelling, in that order, then every other label sorted, then NO_CONFIDENCE (`unlabeled`) for an entry with no
+    label, a blank one or one that is no string."""
+    known = {label.lower(): label for label in CONFIDENCE_LABELS}
+    counts: dict[str, int] = {}
+    for entry in entries:
+        value = entry.get("confidence")
+        label = value.strip() if isinstance(value, str) else ""
+        label = known.get(label.lower(), label) if label else NO_CONFIDENCE
+        counts[label] = counts.get(label, 0) + 1
+    others = sorted(label for label in counts if label not in CONFIDENCE_LABELS and label != NO_CONFIDENCE)
+    order = [label for label in CONFIDENCE_LABELS if label in counts] + others
+    return {label: counts[label] for label in order + ([NO_CONFIDENCE] if NO_CONFIDENCE in counts else [])}
+
+
+def access(meta: dict, provenance: dict | None, source_root: str | None) -> dict:
+    """The source access state (source-access-protocol.md's Source Access Resolution, States 1 to 3) and the
+    degradation the notice reads, from the files alone: State 4 or 5 (`state` null) turns on remote tools only the
+    workflow knows of."""
+    entries = _entries(provenance)
+    confidence = _confidence_counts(entries)
+    exports = meta.get("exports")
+    export_count = sum(1 for e in exports if _export_name(e)) if isinstance(exports, list) else 0
+    local = bool(source_root and source_root.strip()) and Path(source_root).is_dir()
+    state = 1 if local else 2 if entries else 3 if export_count else None
+    if state == 1:
+        degradation = None
+    elif state == 2:
+        t1 = confidence.get("T1", 0)
+        degradation = "all-t1" if t1 == len(entries) else "low" if t1 == 0 else "mixed"
+    else:
+        degradation = "low"
+    return {
+        "localSource": local,
+        "provenanceEntryCount": len(entries),
+        "provenanceConfidence": confidence,
+        "metadataExportCount": export_count,
+        "state": state,
+        "degradation": degradation,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -1969,9 +2059,10 @@ def from_quick(data: dict) -> list[dict]:
             for e in exports if isinstance(e, dict) and isinstance(e.get("name"), str) and e["name"]]
 
 
-def from_per_file(path: str) -> tuple[list[dict], list[str], list[dict]]:
+def from_per_file(path: str) -> tuple[list[dict], list[str], list[dict], list[str]]:
     """(the records of one per-file result, its schema breaches, its
-    `unresolved_stars` as `unresolvedStars` items, #1005)."""
+    `unresolved_stars` as `unresolvedStars` items, #1005, and the file each
+    of its objects names, #1188)."""
     scorer = _sibling("score-signatures.py")
     try:
         text = Path(path).read_bytes().decode("utf-8-sig")
@@ -1979,7 +2070,7 @@ def from_per_file(path: str) -> tuple[list[dict], list[str], list[dict]]:
         raise InputError(f"cannot read --per-file {path}: {exc}") from exc
     results, errors = scorer.parse_result_text(text, Path(path).name)
     if errors:
-        return [], errors, []
+        return [], errors, [], []
     records, stars = [], []
     for result in results:
         types = set(result.get("types_found") or [])
@@ -1993,7 +2084,41 @@ def from_per_file(path: str) -> tuple[list[dict], list[str], list[dict]]:
             if isinstance(item, str):
                 m = STAR_ITEM_RE.fullmatch(item)
                 stars.append(_star(result["file"], int(m.group(1)) if m else None, m.group(2) if m else item))
-    return records, [], [s for s in stars if s]
+    return records, [], [s for s in stars if s], [result["file"] for result in results]
+
+
+def _fallback_batches(path: str) -> list[list[str]]:
+    """The fallback scan's batches (#1188): the JSON array coverage-check-tiers.md saves before it dispatches, whose
+    nth item lists the files batch n gave its judge."""
+    data = _read_json(path, "--batches")
+    if not (isinstance(data, list) and all(
+            isinstance(batch, list) and all(isinstance(file, str) and file.strip() for file in batch)
+            for batch in data)):
+        raise InputError(f"--batches {path} is not a JSON array of file path arrays")
+    return data
+
+
+def _left_out(batches: list[list[str]], responses: list[tuple[str, list[str] | None]]) -> list[str]:
+    """One breach for each file batch n gave its judge that no object of batch n's own response names (#1188),
+    however either writes its path. `responses` are the --per-file files in the order given, each with the file
+    each of its objects names (None for one that breaks the schema, whose breaches stand alone): the nth is batch
+    n's response, n from 1 as the fallback scan numbers `per-file-<n>.txt`, so another batch's response never
+    names a file for it. A breach names batch n, the path given at its position and the file; a batch with no
+    --per-file at its position leaves out each of its files, and a --per-file past the last batch is one breach
+    naming it."""
+    cited = _sibling("validate-inventory.py")._cited_path
+    breaches = []
+    for n, batch in enumerate(batches, 1):
+        path, named = responses[n - 1] if n <= len(responses) else (None, [])
+        if named is None:
+            continue
+        seen = {cited(file) for file in named}
+        where = path if path is not None else f"no --per-file at position {n}"
+        breaches += [f"batch {n} ({where}): no result object names `{file}`, a file the batch gave its judge"
+                     for file in batch if cited(file) not in seen]
+    breaches += [f"{path}: --per-file {k} has no batch (--batches lists {len(batches)}): pass one --per-file per "
+                 f"batch, in batch order" for k, (path, _) in enumerate(responses[len(batches):], len(batches) + 1)]
+    return breaches
 
 
 def fold_names(names: list[str], prefixes: list[str], keep: set[str],
@@ -2123,12 +2248,19 @@ def surface(args: argparse.Namespace) -> dict:
         records += from_quick(data)
         stars += quick_stars(data)
         warnings += [f"{Path(path).name}: {w}" for w in data.get("warnings") or [] if isinstance(w, str)]
+    batches = _fallback_batches(args.batches) if args.batches is not None else None
     violations: list[str] = []
+    responses: list[tuple[str, list[str] | None]] = []
     for path in args.per_file or []:
-        found, errors, starred = from_per_file(path)
+        found, errors, starred, files = from_per_file(path)
         records += found
         stars += starred
         violations += errors
+        responses.append((path, None if errors else files))
+    # A judge whose response leaves out a file its batch was given would shrink the surface unseen: refused, never
+    # built, beside any schema breach, so one exit 2 lists both.
+    if batches is not None:
+        violations += _left_out(batches, responses)
     if violations:
         raise SchemaError(violations)
     records += [_record(name, None, None, None, None, "by-eye") for name in args.name or [] if name]
@@ -2368,6 +2500,13 @@ def surface(args: argparse.Namespace) -> dict:
 # --------------------------------------------------------------------------
 
 
+def _cmd_access(args: argparse.Namespace) -> dict:
+    # init.md §2 lets a skill with no metadata.json go on (`metadata-missing`): with no --metadata it gives no export.
+    meta = _object(args.metadata, "--metadata") if args.metadata else {}
+    provenance = _object(args.provenance, "--provenance") if args.provenance else None
+    return access(meta, provenance, args.source_root)
+
+
 def _cmd_census(args: argparse.Namespace) -> dict:
     return census(args.skill_dir)
 
@@ -2388,6 +2527,13 @@ def _build_parser() -> argparse.ArgumentParser:
         description="The counts, name sets and denominator candidates coverage-check reads, from files.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("access", help="the source access state and the degradation notice coverage-check §0b reads")
+    p.add_argument("--metadata", help="the skill's metadata.json")
+    p.add_argument("--provenance", help="the provenance map, when there is one")
+    p.add_argument("--source-root", help="the local source tree (metadata.json source_root), when there is one")
+    p.add_argument("--output", help="write the result to this file and print only its summary")
+    p.set_defaults(func=_cmd_access)
 
     p = sub.add_parser("census", help="count the citation forms: is the skill docs-only?")
     p.add_argument("--skill-dir", required=True, help="the skill package: SKILL.md and references/")
@@ -2416,6 +2562,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         "its folder or file differs from every scope.include glob's before any wildcard "
                         "(gen/** beside src/**) or a scope.exclude glob covers it segment by segment "
                         "(src/gen/** beside an exclude of src/gen/**)")
+    p.add_argument("--batches", help="the fallback scan's batches: a JSON array whose nth item lists the files the "
+                                     "judge of batch n was given; the nth --per-file is batch n's response, which "
+                                     "must name each of them")
     p.add_argument("--name", action="append", help="a name read by eye whose file is not known (repeatable)")
     p.add_argument("--provenance", help="the provenance map: its named exports")
     p.add_argument("--metadata", help="metadata.json: its exports[] names, stats and language")
@@ -2442,8 +2591,11 @@ def _build_parser() -> argparse.ArgumentParser:
 def _summary(cmd: str, result: dict, output: str) -> dict:
     """What a subcommand prints when --output holds its result: the fields the step decides on, under the keys the
     file gives them (a list as its length, a stack without its names), and the file's path as `output`. The surface's
-    extractionGaps stay a list: coverage-check §2 reads each gap's file and line from the JSON it has in hand."""
-    if cmd == "census":
+    extractionGaps stay a list: coverage-check §2 reads each gap's file and line from the JSON it has in hand. The
+    access result is small enough to print whole."""
+    if cmd == "access":
+        summary = dict(result)
+    elif cmd == "census":
         summary = {"docsOnly": result["docsOnly"], "localCitations": result["localCitations"]}
     elif cmd == "floor":
         summary = {"summary": result["summary"]}

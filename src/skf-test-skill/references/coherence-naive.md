@@ -29,8 +29,6 @@ The first call returns `{ description: {satisfied, matched_synonym, tried[]}, us
 - `satisfied: false`, family `description` and `frontmatter_description: true` (a non-empty frontmatter `description` satisfies the family) → no finding.
 - `satisfied: false` otherwise: read `outline`, each heading of the body with its line. When one heading's section serves the family (it shows how to call the library, for `usage`; it lists the library's exports, for `api_surface`; it says what the library is for, for `description`), there is no finding: name that heading and its line in the Coherence Analysis, and pass the family to §6 as `--served`. Otherwise → **High severity** finding: `naive-coherence: missing required section: {family}`.
 
-The script matches the full heading text, case-insensitively, at any heading level, outside the frontmatter and fenced code. Its synonyms, `tried[]`, include every SKF template and override heading, so a skill built from a template reports `satisfied: true` and the `matched_synonym`.
-
 **2.2 Code fence balance.** Read `unbalanced_fences` from the second JSON blob. **`true` → High severity** finding: `naive-coherence: unbalanced code fence (unclosed block)` (the JSON's `fence_count` may be cited in the detail).
 
 **2.3 Language tags on opening fences.** Read `bare_opening_fences[]` from the second JSON blob. The script already runs the stateful open/close scan, so closing fences are never reported. For each entry, emit a **Medium severity** finding: `naive-coherence: opening code fence at line {entry.line} missing language tag`.

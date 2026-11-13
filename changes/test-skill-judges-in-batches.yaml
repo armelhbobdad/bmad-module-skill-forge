@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's signature comparison and fallback per-file scan now hand their subagents files in batches, one judge a batch, where they dispatched one per file: `score-signatures.py plan` writes `batches[]` (at most 10 files and 25 checks each, a file with more checks alone) and its summary their number, and the fallback scan saves its batches to `fallback-batches.json`. Each judge returns one JSON array, saved one file per batch in batch order. A response that leaves out a file its batch was given is refused: `score` with `--plan`, and `surface` with the new `--batches`, exit 2 naming the batch, the response file given at its position and the file, and that batch's judge is dispatched again, where the file's checks used to count as matching or its exports dropped out of the surface. A batch with no response file, or a response file past the last batch, is refused the same way.
+issues: [1188]
