@@ -42,7 +42,7 @@ Recognised per-line modifiers:
 | `language=<lang>` | Sets `language_hint` for this target: the same effect as `--language-hint` on a single-target run. |
 | `scope=<path>` | Sets `scope_hint` for this target: the same effect as `--scope-hint` on a single-target run. |
 
-The target stays whole, its version included (`cognee@0.5.0`, `requests==2.31.0`): step 1 §1b reads the version as it reads a single target's. A modifier key may be in any letter case; its value must not be empty, and each modifier may appear once. A word that starts with `#` after the target opens a comment that runs to the end of the line. Any other word after the target refuses the whole batch at §1: no target runs, and the helper's message names the first five such lines, counts the rest and gives the fix.
+The target stays whole, its version included (`cognee@0.5.0`, `requests==2.31.0`): step 1 §1b reads the version as it reads a single target's. A modifier key may be in any letter case; its value must not be empty, and each modifier may appear once. A word that starts with `#` after the target opens a comment that runs to the end of the line. Any other word after the target refuses the whole batch at §1: no target runs, and the helper's message names each such line, the first five with their fault, and gives the fix.
 
 ## Execution
 

@@ -56,8 +56,8 @@ start
   loses an outcome. A batch of another file is refused. A file with no
   target starts a batch that summarize ends at once, status success.
   A file with a bad line is refused (input-invalid) before anything is
-  written: the message names the first five bad lines, then how many
-  more, and the fix.
+  written: the message names each bad line, the first five with their
+  fault and the rest by number, and the fix.
 
 start --briefs (skf-create-skill)
   The targets are skill-brief.yaml files: each path given is a brief, or a
@@ -211,7 +211,7 @@ class BatchError(Exception):
 # ─── the batch file grammar ─────────────────────────────────────────────────
 
 
-# How many bad lines a refused start names before it counts the rest.
+# How many bad lines a refused start names with their fault; it names the rest by number.
 BAD_LINES_NAMED = 5
 
 
@@ -264,13 +264,18 @@ def parse_text(text: str) -> list[dict]:
 
 
 def bad_lines_message(targets: list[dict]) -> str | None:
-    """The refusal of a file with a bad line, naming the first BAD_LINES_NAMED and the fix, else None."""
+    """The refusal of a file with a bad line, else None: it names each bad line, the first
+    BAD_LINES_NAMED with their fault and the rest by number, so one round of fixes clears them all,
+    and gives the fix."""
     errors = [t["error"] for t in targets if "error" in t]
     if not errors:
         return None
     named = errors[:BAD_LINES_NAMED]
-    more = len(errors) - len(named)
-    listed = "; ".join(named) + (f"; and {more} more" if more else "")
+    rest = [error.split(":", 1)[0].removeprefix("line ") for error in errors[BAD_LINES_NAMED:]]
+    if rest:
+        numbers = rest[0] if len(rest) == 1 else f"{', '.join(rest[:-1])} and {rest[-1]}"
+        named.append(f"and {'line' if len(rest) == 1 else 'lines'} {numbers}")
+    listed = "; ".join(named)
     return (f"the batch file has {len(errors)} {'line' if len(errors) == 1 else 'lines'} with a word that is no "
             f"modifier ({listed}). After a line's target, write only `language=<lang>` and `scope=<path>`, each "
             "once and with a value, or a `#` comment to the end of the line: fix each line named and start the "

@@ -255,14 +255,22 @@ def test_start_refuses_a_batch_with_a_bad_line_before_writing_anything(tmp_path,
         ("lodash", ""), ("zod", "line 2:"), ("lodash", "line 4:"), ("x", "line 5:"), ("cognee", "")]
 
 
-def test_a_refused_start_names_five_bad_lines_and_counts_the_rest(tmp_path, capsys):
+def test_a_refused_start_names_every_bad_line(tmp_path, capsys):
+    """#1175: the first five bad lines with their fault, every other one by number, so one round of fixes
+    clears the file."""
     file = tmp_path / "targets.txt"
     file.write_text("".join(f"target{n} lang=x\n" for n in range(1, 7)), encoding="utf-8")
     code, _, err = _run(capsys, "start", str(file), "--run-dir", str(tmp_path / "run"))
     message = json.loads(err)["message"]
     assert code == 1 and message.startswith("the batch file has 6 lines with a word that is no modifier (")
     assert [int(n) for n in re.findall(r"line (\d+): ", message)] == [1, 2, 3, 4, 5]
-    assert "`lang=x` after the target `target5` is no `language=` or `scope=` modifier; and 1 more)." in message
+    assert "`lang=x` after the target `target5` is no `language=` or `scope=` modifier; and line 6)." in message
+    file.write_text("lodash\n" + "".join(f"target{n} lang=x\n" for n in range(2, 10)), encoding="utf-8")
+    code, _, err = _run(capsys, "start", str(file), "--run-dir", str(tmp_path / "run"))
+    message = json.loads(err)["message"]
+    assert code == 1 and message.startswith("the batch file has 8 lines with a word that is no modifier (")
+    assert "`target6` is no `language=` or `scope=` modifier; and lines 7, 8 and 9)." in message
+    assert "more" not in message
     file.write_text("lodash\ntarget lang=x\n", encoding="utf-8")
     code, _, err = _run(capsys, "start", str(file), "--run-dir", str(tmp_path / "run"))
     assert json.loads(err)["message"].startswith("the batch file has 1 line with a word that is no modifier (line 2: ")

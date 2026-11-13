@@ -2124,7 +2124,7 @@ def test_a_bad_batch_line_is_refused_at_start(tmp_path, capsys):
     grammar = _section(batch, "## Input format", "## Execution")
     for needle in ("A word that starts with `#` after the target opens a comment that runs to the end of the line.",
                    "Any other word after the target refuses the whole batch at §1: no target runs, and the helper's "
-                   "message names the first five such lines, counts the rest and gives the fix."):
+                   "message names each such line, the first five with their fault, and gives the fix."):
         assert needle in grammar, needle
     assert "taken whole as the target" not in grammar
     start = _section(batch, "### 1. Start the Batch", "### 2. ")
