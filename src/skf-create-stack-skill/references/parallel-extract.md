@@ -46,17 +46,16 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
   "scope": ["<confirmed library>"],
   "per_library_extractions": [
     {"library": "<name>", "status": "success|partial", "version": "<version>",
-     "confidence": "T1|T1-low|T2|T3", "files_analyzed": 0,
+     "confidence": "T1|T1-low|T2|T3", "file_count": 0, "files_analyzed": 0,
      "usage_patterns": ["<pattern with file:line>"], "warnings": [], "temporal": {}}
   ],
   "failed": [{"library": "<name>", "reason": "<why>"}],
   "integrations": [],
-  "hubs": [],
   "cross_cutting": []
 }
 ```
 
-`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. Each entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
+`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations` and `cross_cutting`. Each entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
 
 ### 1. Prepare Extraction Plan
 
@@ -195,7 +194,13 @@ Set each library's `per_library_extractions[].confidence` in `{bundleFile}` to i
 
 ### 4. Display Extraction Summary
 
-Report the extraction results from `{bundleFile}`: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier (the unit of `metadata.json`'s `confidence_distribution`); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
+Count the libraries at each tier with the `{renderStackMetadataHelper}` §3a resolved, never by hand (on exit `2`, fix the bundle field its stderr names and run it again):
+
+```bash
+uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"
+```
+
+Report the extraction results from `{bundleFile}`: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier, the call's `confidence_distribution` (the unit of `metadata.json`'s); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
 
 ### 5. Auto-Proceed to Next Step
 

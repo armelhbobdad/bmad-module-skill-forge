@@ -52,7 +52,7 @@ A composes cycle is not an exclusion: step 4 (`references/compose-extract.md` §
 For each `kept[]` entry:
 1. Store its `name`, the top-level folder, as `skill_dir` (distinct from the metadata `name`).
 2. `skill_package_path` ← `{skills_output_folder}/{path}` from that entry: the package whose exports and `metadata_hash` the helper reported, so path and hash come from one resolution (the helper follows `active`, as the manifest-lag guard in `knowledge/version-paths.md` does).
-3. Read `metadata.json` from `skill_package_path` for the fields the entry lacks: name, version and source_authority. The entry gives language, confidence_tier, source_repo and the export count (`exports`).
+3. Take its `metadata_name`, `version`, `source_authority`, `language`, `confidence_tier`, `source_repo` and export count (`exports`) from the entry, which the helper read from the package's `metadata.json`: never reopen that file.
 4. **Record the constituent metadata_hash:** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `kept[]` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash (never hand-compute it); step 4 (`references/compose-extract.md` §1) checks it for drift and records the provenance anchor.
 5. Store as `raw_dependencies` with source: "existing_skill" (`"explicit"` for a name from `explicit_deps`)
 

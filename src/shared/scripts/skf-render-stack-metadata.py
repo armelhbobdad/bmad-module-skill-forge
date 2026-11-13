@@ -6,13 +6,15 @@
 
 create-stack-skill relabels its code-mode export records and sets each
 library's tier from them (parallel-extract section 3a), gives each
-integration the tier of its pair (detect-integrations section 3), writes the
-counted and ranked fields of metadata.json (generate-output section 6) and
-writes the provenance map from the run's files in either mode: its entries,
-its integrations and, in compose mode, its constituents (generate-output
-section 7). This helper holds those rules once, so no step file restates
-them, and skf-validate-output.py --skill-type stack recomputes the dominant
-tier with dominant_tier here.
+integration the tier of its pair (detect-integrations section 3), finds the
+hub libraries and the library order (detect-integrations section 4,
+compile-stack sections 3 and 4), writes the counted and ranked fields of
+metadata.json (generate-output section 6) and writes the provenance map from
+the run's files in either mode: its entries, its integrations, each with the
+detection method of its qualifier, and, in compose mode, its constituents
+(generate-output section 7). This helper holds those rules once, so no step
+file restates them, and skf-validate-output.py --skill-type stack recomputes
+the dominant tier with dominant_tier here.
 
 Rules:
   Tiers, from the strongest: T1, T1-low, T2, T3.
@@ -49,6 +51,26 @@ Rules:
       whose libraries are dependencies rather than skills with an
       authority, is community.
 
+  detection_method(mode, qualifier)
+      A bundle pair's `qualifier` says how step 5 found it, and gives the
+      provenance map's detection_method by a fixed table for each mode:
+        code     grep-co-import                   co-import grep
+        compose  architecture-co-mention          architecture_co_mention
+                 constituent-documented-contract  constituent_documented_contract
+                 inferred-shared-domain           inferred_from_shared_domain
+      A missing qualifier, an unknown one or one of the other mode is an
+      input error. A detection_method a bundle pair still holds is
+      ignored: this table is its only source.
+
+  hubs and library_order
+      A library's degree is its number of distinct partners among the
+      pairs. library_order lists every library by degree, the highest
+      first, then by file_count, the highest first, in code mode (a
+      library without one counts 0) or by tier, the strongest first, in
+      compose mode, then by name (case-folded, then as written). hubs
+      holds each library of degree 3 or more as {library, partners}, in
+      library_order order, its partners sorted by name the same way.
+
   relabel(records)
       The label check is skf-render-metadata-stats.py's, run beside this
       script on the records as its stack shape: each violation's field
@@ -69,14 +91,26 @@ Input (--input <json-file-or-'-'>, where '-' reads stdin):
     "libraries": [
       {"name": "<library>",
        "confidence": "T1|T1-low|T2|T3",          # per_library_extractions[].confidence
-       "source_authority": "official|community|internal"},   # optional
+       "source_authority": "official|community|internal",   # optional
+       "file_count": N},                          # optional: the step 3 import count
       ...
     ],
     "integrations": [{"a": "<library>", "b": "<library>"}, ...]   # optional
   }
-  Tier, mode and authority tokens compare case-insensitively and are printed
-  in their canonical spelling. Each library is named once, and each pair
-  names two different libraries of `libraries`, once in either order.
+  Tier, mode, authority and qualifier tokens compare case-insensitively and
+  are printed in their canonical spelling. Each library is named once, each
+  pair names two different libraries of `libraries`, once in either order,
+  and a file_count is a whole number.
+
+Or the extraction bundle (--bundle <json-file>, never stdin, in place of
+--input), which gives pair-tiers and metadata the same data: its mode, one
+library per per_library_extractions[] entry (its `library` as the name,
+with its confidence, source_authority and file_count) and the pairs of its
+integrations[] ({a, b}, other keys ignored). pair-tiers on a code-mode
+bundle takes the pairs from --pairs <json-file-or-'-'> instead, a JSON array
+of {a, b} (other keys ignored), because step 5 tiers its pairs before it
+writes them; a compose-mode bundle refuses --pairs, and so does --input. An
+error in the bundle names its field.
 
 Export records (--records <json-file>, or '-' for library-tiers): the
 file parallel-extract section 3a writes and relabels,
@@ -106,7 +140,9 @@ Subcommands:
                 {"mode": "<mode>",
                  "integrations": [{"a": "<a>", "b": "<b>", "tier": "<tier>"}, ...]}
   metadata    the computed fields of metadata.json (generate-output section
-              6), with the libraries and pairs in the order given:
+              6), with the libraries and pairs in the order given, then the
+              hub libraries and the library order (detect-integrations
+              section 4, compile-stack sections 3 and 4):
                 {"mode": "<mode>",
                  "library_count": N,
                  "integration_count": M,
@@ -115,7 +151,9 @@ Subcommands:
                  "confidence_distribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 0},
                  "confidence_tier": "<dominant tier>",
                  "source_authority": "<authority>",
-                 "integrations": [{"a": "<a>", "b": "<b>", "tier": "<tier>"}, ...]}
+                 "integrations": [{"a": "<a>", "b": "<b>", "tier": "<tier>"}, ...],
+                 "hubs": [{"library": "<library>", "partners": ["<library>", ...]}, ...],
+                 "library_order": ["<library>", ...]}
   provenance  writes provenance-map.json to --target atomically
               (generate-output section 7), in the mode the extraction
               bundle --bundle names: the object --input holds (the map's
@@ -124,9 +162,10 @@ Subcommands:
               to the records' entries (as they stand in code mode) and
               `integrations` built
               from the bundle, one per pair of its `integrations`: libraries
-              [a, b], pattern_type from its type, its detection_method,
-              co_import_files and confidence from its tier. Each replaces
-              the field of that name the input holds.
+              [a, b], pattern_type from its type, detection_method from its
+              qualifier (see detection_method above), co_import_files and
+              confidence from its tier. Each replaces the field of that name
+              the input holds.
               code mode takes --pairs, the skf-pair-intersect.py result
               (detect-integrations section 1): a pair's co_import_files are
               the files of its entry there, {path, line_a, line_b}, matched
@@ -156,7 +195,9 @@ CLI:
   uv run skf-render-stack-metadata.py relabel --records export-records.json
   uv run skf-render-stack-metadata.py library-tiers --records export-records.json --libraries "react,zod"
   uv run skf-render-stack-metadata.py pair-tiers --input -
+  uv run skf-render-stack-metadata.py pair-tiers --bundle extraction-bundle.json --pairs -
   uv run skf-render-stack-metadata.py metadata --input stack.json
+  uv run skf-render-stack-metadata.py metadata --bundle extraction-bundle.json
   uv run skf-render-stack-metadata.py provenance --records export-records.json --bundle extraction-bundle.json \\
       --pairs pair-intersect.json --input - --target provenance-map.json
   uv run skf-render-stack-metadata.py provenance --records compose-entries.json --bundle extraction-bundle.json \\
@@ -194,6 +235,18 @@ MODES = ("code", "compose")
 AST_METHOD = "ast_bridge"
 # The extraction_method of every compose-mode entry: copied from a constituent skill.
 COMPOSE_METHOD = "compose-from-skill"
+# The provenance map's detection_method of a pair, by the bundle's mode and the
+# pair's qualifier (how step 5 found it): the only source of the method.
+DETECTION_METHODS = {
+    "code": {"grep-co-import": "co-import grep"},
+    "compose": {
+        "architecture-co-mention": "architecture_co_mention",
+        "constituent-documented-contract": "constituent_documented_contract",
+        "inferred-shared-domain": "inferred_from_shared_domain",
+    },
+}
+# The degree (distinct partners) from which a library is a hub.
+HUB_DEGREE = 3
 # Authorities from the highest to the lowest.
 AUTHORITIES = ("official", "community", "internal")
 # The authority of a library that records none.
@@ -318,9 +371,115 @@ def lowest_authority(authorities: list[str | None]) -> str:
                key=AUTHORITIES.index, default=DEFAULT_AUTHORITY)
 
 
+def detection_method(mode: str, qualifier, where: str) -> str:
+    """The provenance detection_method of a pair of a `mode` bundle that step 5
+    found as `qualifier`, from DETECTION_METHODS.
+
+    Raises InputError on a qualifier outside that mode's table (missing,
+    unknown, or the other mode's), naming `{where}.qualifier`.
+    """
+    table = DETECTION_METHODS[_token(mode, MODES, "mode")]
+    return table[_token(qualifier, tuple(table), f"{where}.qualifier (a {mode}-mode pair)")]
+
+
+def _name_key(name: str) -> tuple[str, str]:
+    """The sort key of a library name: case-folded, then as written."""
+    return name.casefold(), name
+
+
+def _partners(libraries: list[dict], pairs: list[tuple[str, str]]) -> dict[str, set[str]]:
+    """Each library's distinct partners among the pairs."""
+    partners: dict[str, set[str]] = {library["name"]: set() for library in libraries}
+    for a, b in pairs:
+        partners[a].add(b)
+        partners[b].add(a)
+    return partners
+
+
+def library_order(mode: str, libraries: list[dict], pairs: list[tuple[str, str]]) -> list[str]:
+    """Every library, by degree (distinct partners), the highest first; then
+    by file_count, the highest first, in code mode (none counting 0) or by
+    tier, the strongest first, in compose mode; then by name."""
+    partners = _partners(libraries, pairs)
+
+    def key(library: dict) -> tuple:
+        if mode == "code":
+            second = -(library.get("file_count") or 0)
+        else:
+            second = TIERS.index(library["confidence"])
+        return (-len(partners[library["name"]]), second, *_name_key(library["name"]))
+
+    return [library["name"] for library in sorted(libraries, key=key)]
+
+
+def stack_hubs(mode: str, libraries: list[dict], pairs: list[tuple[str, str]]) -> list[dict]:
+    """Each library of HUB_DEGREE partners or more, as {library, partners}, in
+    library_order order, its partners sorted by name."""
+    partners = _partners(libraries, pairs)
+    return [{"library": name, "partners": sorted(partners[name], key=_name_key)}
+            for name in library_order(mode, libraries, pairs) if len(partners[name]) >= HUB_DEGREE]
+
+
 # --------------------------------------------------------------------------
 # Input and projections
 # --------------------------------------------------------------------------
+
+
+def _parse_libraries(raw, owner: str, field: str, name_key: str) -> list[dict]:
+    """The libraries of `raw`: the input's `libraries` (named by `name`) or the
+    bundle's per_library_extractions (named by `library`). `owner` and `field`
+    name them in an error. Raises InputError."""
+    if not isinstance(raw, list):
+        raise InputError(f"{owner}`{field}` must be an array of {{{name_key}, confidence}} objects")
+    libraries: list[dict] = []
+    seen: set[str] = set()
+    for i, item in enumerate(raw):
+        where = f"{owner}{field}[{i}]"
+        if not isinstance(item, dict):
+            raise InputError(f"{where} must be an object with `{name_key}` and `confidence`; got {item!r}")
+        name = item.get(name_key)
+        if not isinstance(name, str) or not name.strip():
+            raise InputError(f"{where}.{name_key} must be a non-empty string; got {name!r}")
+        if name in seen:
+            raise InputError(f"{where}.{name_key}: library {name!r} is listed twice")
+        tier = _token(item.get("confidence"), TIERS, f"{where}.confidence")
+        authority = item.get("source_authority")
+        if authority is not None:
+            authority = _token(authority, AUTHORITIES, f"{where}.source_authority")
+        file_count = item.get("file_count")
+        if "file_count" in item and (isinstance(file_count, bool) or not isinstance(file_count, int)
+                                     or file_count < 0):
+            raise InputError(f"{where}.file_count must be a whole number; got {file_count!r}")
+        seen.add(name)
+        libraries.append({"name": name, "confidence": tier, "source_authority": authority,
+                          "file_count": file_count})
+    return libraries
+
+
+def _parse_pairs(raw, names: set[str], owner: str, field: str) -> list[tuple[str, str]]:
+    """The pairs of `raw`, an array of {a, b} objects naming two different
+    libraries of `names`, each pair once in either order. `owner` and `field`
+    name them in an error. Raises InputError."""
+    if not isinstance(raw, list):
+        raise InputError(f"{owner}`{field}` must be an array of {{a, b}} objects")
+    pairs: list[tuple[str, str]] = []
+    seen: set[frozenset[str]] = set()
+    for i, item in enumerate(raw):
+        where = f"{owner}{field}[{i}]"
+        if not isinstance(item, dict):
+            raise InputError(f"{where} must be an object with `a` and `b`; got {item!r}")
+        a, b = item.get("a"), item.get("b")
+        for side, name in (("a", a), ("b", b)):
+            if not isinstance(name, str) or name not in names:
+                raise InputError(f"{where}.{side} {name!r} is not one of the libraries")
+        if a == b:
+            raise InputError(f"{where} pairs {a!r} with itself")
+        key = frozenset((a, b))
+        if key in seen:
+            raise InputError(f"{where}: the pair {a!r} + {b!r} is listed twice")
+        seen.add(key)
+        pairs.append((a, b))
+    return pairs
 
 
 def parse_stack(data) -> tuple[str, list[dict], list[tuple[str, str]]]:
@@ -328,49 +487,23 @@ def parse_stack(data) -> tuple[str, list[dict], list[tuple[str, str]]]:
     if not isinstance(data, dict):
         raise InputError(f"the input must be a JSON object; got {type(data).__name__}")
     mode = _token(data.get("mode"), MODES, "mode")
+    libraries = _parse_libraries(data.get("libraries"), "", "libraries", "name")
+    names = {library["name"] for library in libraries}
+    return mode, libraries, _parse_pairs(data.get("integrations", []), names, "", "integrations")
 
-    raw_libraries = data.get("libraries")
-    if not isinstance(raw_libraries, list):
-        raise InputError("`libraries` must be an array of {name, confidence} objects")
-    libraries: list[dict] = []
-    tiers: dict[str, str] = {}
-    for i, item in enumerate(raw_libraries):
-        where = f"libraries[{i}]"
-        if not isinstance(item, dict):
-            raise InputError(f"{where} must be an object with `name` and `confidence`; got {item!r}")
-        name = item.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise InputError(f"{where}.name must be a non-empty string; got {name!r}")
-        if name in tiers:
-            raise InputError(f"library {name!r} is listed twice")
-        tier = _token(item.get("confidence"), TIERS, f"{where}.confidence")
-        authority = item.get("source_authority")
-        if authority is not None:
-            authority = _token(authority, AUTHORITIES, f"{where}.source_authority")
-        tiers[name] = tier
-        libraries.append({"name": name, "confidence": tier, "source_authority": authority})
 
-    raw_pairs = data.get("integrations", [])
-    if not isinstance(raw_pairs, list):
-        raise InputError("`integrations` must be an array of {a, b} objects")
-    pairs: list[tuple[str, str]] = []
-    seen: set[frozenset[str]] = set()
-    for i, item in enumerate(raw_pairs):
-        where = f"integrations[{i}]"
-        if not isinstance(item, dict):
-            raise InputError(f"{where} must be an object with `a` and `b`; got {item!r}")
-        a, b = item.get("a"), item.get("b")
-        for side, name in (("a", a), ("b", b)):
-            if not isinstance(name, str) or name not in tiers:
-                raise InputError(f"{where}.{side} {name!r} is not one of the libraries")
-        if a == b:
-            raise InputError(f"{where} pairs {a!r} with itself")
-        key = frozenset((a, b))
-        if key in seen:
-            raise InputError(f"the pair {a!r} + {b!r} is listed twice")
-        seen.add(key)
-        pairs.append((a, b))
-    return mode, libraries, pairs
+def bundle_stack(bundle, pairs=None) -> tuple[str, list[dict], list[tuple[str, str]]]:
+    """(mode, libraries, pairs) from the extraction bundle, as parse_stack
+    gives them from the input: a library per per_library_extractions[] entry
+    and the pairs of its integrations[], or `pairs` (the parsed --pairs
+    array) when given. Raises InputError naming the bundle field."""
+    mode = bundle_mode(bundle)
+    libraries = _parse_libraries(bundle.get("per_library_extractions"), "the bundle's ",
+                                 "per_library_extractions", "library")
+    names = {library["name"] for library in libraries}
+    if pairs is None:
+        return mode, libraries, _parse_pairs(bundle.get("integrations", []), names, "the bundle's ", "integrations")
+    return mode, libraries, _parse_pairs(pairs, names, "", "--pairs")
 
 
 def parse_library_names(value: str) -> list[str]:
@@ -567,23 +700,28 @@ def _co_import_files(a: str, found: tuple[str, list[dict]]) -> list[dict]:
 def bundle_integrations(bundle, pairs: dict | None = None) -> list[dict]:
     """The provenance map's integrations[] from the extraction bundle's, in its order.
 
-    Each bundle pair {a, b, type, tier, detection_method, ...} gives
-    {libraries: [a, b], pattern_type, detection_method, co_import_files,
-    confidence}. With `pairs` (code mode, from pair_files) its co-import files
-    are its entry's there; without (compose mode) they are []. Raises
-    InputError on a bundle with no `integrations` array, a pair missing one of
-    those fields, or a code-mode pair `pairs` has no entry for.
+    Each bundle pair {a, b, type, tier, qualifier, ...} gives {libraries:
+    [a, b], pattern_type, detection_method, co_import_files, confidence}, its
+    detection_method the one detection_method gives the bundle's mode and the
+    pair's qualifier (a detection_method the pair holds is ignored). With
+    `pairs` (code mode, from pair_files) its co-import files are its entry's
+    there; without (compose mode) they are []. Raises InputError on a bundle
+    with no mode or no `integrations` array, a pair missing one of those
+    fields, a qualifier outside its mode's table, or a code-mode pair `pairs`
+    has no entry for.
     """
-    if not isinstance(bundle, dict) or not isinstance(bundle.get("integrations"), list):
-        raise InputError("the extraction bundle must be a JSON object with an `integrations` array")
+    mode = bundle_mode(bundle)
+    if not isinstance(bundle.get("integrations"), list):
+        raise InputError("the extraction bundle must have an `integrations` array")
     out = []
     for i, pair in enumerate(bundle["integrations"]):
         where = f"the bundle's integrations[{i}]"
         if not isinstance(pair, dict):
             raise InputError(f"{where} must be an object; got {pair!r}")
-        for key in ("a", "b", "type", "detection_method"):
+        for key in ("a", "b", "type"):
             if not isinstance(pair.get(key), str) or not pair[key].strip():
                 raise InputError(f"{where}.{key} must be a non-empty string; got {pair.get(key)!r}")
+        method = detection_method(mode, pair.get("qualifier"), where)
         co_import_files: list[dict] = []
         if pairs is not None:
             found = pairs.get(frozenset((pair["a"], pair["b"])))
@@ -594,7 +732,7 @@ def bundle_integrations(bundle, pairs: dict | None = None) -> list[dict]:
         out.append({
             "libraries": [pair["a"], pair["b"]],
             "pattern_type": pair["type"],
-            "detection_method": pair["detection_method"],
+            "detection_method": method,
             "co_import_files": co_import_files,
             "confidence": _token(pair.get("tier"), TIERS, f"{where}.tier"),
         })
@@ -734,7 +872,7 @@ def pair_tiers(mode: str, libraries: list[dict], pairs: list[tuple[str, str]]) -
 
 
 def stack_metadata(mode: str, libraries: list[dict], pairs: list[tuple[str, str]]) -> dict:
-    """The computed fields of a stack's metadata.json."""
+    """The computed fields of a stack's metadata.json, then its hubs and library order."""
     distribution = library_distribution([library["confidence"] for library in libraries])
     return {
         "mode": mode,
@@ -746,6 +884,8 @@ def stack_metadata(mode: str, libraries: list[dict], pairs: list[tuple[str, str]
         "confidence_tier": dominant_tier(distribution),
         "source_authority": lowest_authority([library["source_authority"] for library in libraries]),
         "integrations": pair_tiers(mode, libraries, pairs),
+        "hubs": stack_hubs(mode, libraries, pairs),
+        "library_order": library_order(mode, libraries, pairs),
     }
 
 
@@ -763,7 +903,7 @@ def _read_input(source: str):
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise InputError(f"the input is not valid JSON: {exc}") from exc
+        raise InputError(f"the input {source} is not valid JSON: {exc}") from exc
 
 
 def _write_atomic(path: Path, data: dict) -> None:
@@ -824,13 +964,34 @@ def _cmd_library_tiers(args: argparse.Namespace) -> dict:
     return {"libraries": library_tiers(_read_input(args.records), names)}
 
 
+def _stack(args: argparse.Namespace, command: str) -> tuple[str, list[dict], list[tuple[str, str]]]:
+    """(mode, libraries, pairs) from --input, or from --bundle and, for
+    pair-tiers on a code-mode bundle, --pairs. Raises InputError."""
+    pairs_source = getattr(args, "pairs", None)
+    if args.input is not None:
+        if pairs_source is not None:
+            raise InputError("--pairs goes with --bundle; the --input JSON holds its own integrations")
+        return parse_stack(_read_input(args.input))
+    bundle = _read_input(_records_file(args.bundle, command, "--bundle"))
+    pairs = None
+    if command == "pair-tiers":
+        mode = bundle_mode(bundle)
+        if mode == "code" and pairs_source is None:
+            raise InputError("a code-mode bundle needs --pairs, the qualifying pairs as a JSON array of {a, b}")
+        if mode == "compose" and pairs_source is not None:
+            raise InputError("--pairs is for a code-mode bundle; this bundle's mode is compose")
+        if pairs_source is not None:
+            pairs = _read_input(pairs_source)
+    return bundle_stack(bundle, pairs)
+
+
 def _cmd_pair_tiers(args: argparse.Namespace) -> dict:
-    mode, libraries, pairs = parse_stack(_read_input(args.input))
+    mode, libraries, pairs = _stack(args, "pair-tiers")
     return {"mode": mode, "integrations": pair_tiers(mode, libraries, pairs)}
 
 
 def _cmd_metadata(args: argparse.Namespace) -> dict:
-    return stack_metadata(*parse_stack(_read_input(args.input)))
+    return stack_metadata(*_stack(args, "metadata"))
 
 
 def _cmd_provenance(args: argparse.Namespace) -> dict:
@@ -882,9 +1043,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "of its metadata.json: counts, libraries, integration_pairs, "
             "confidence_distribution (each library once), confidence_tier (the "
             "dominant tier) and source_authority (the lowest, community for a "
-            "library that records none), and write its provenance map from the "
-            "records, the extraction bundle and, in code mode, the pair-intersect "
-            "result or, in compose mode, the stack inventory."
+            "library that records none), with its hub libraries and library "
+            "order, and write its provenance map from the records, the extraction "
+            "bundle (each pair's detection_method from its qualifier) and, in code "
+            "mode, the pair-intersect result or, in compose mode, the stack inventory."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -907,16 +1069,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the stack's libraries, comma-separated; a library with no record is T1-low",
     )
     command.set_defaults(func=_cmd_library_tiers)
-    for name, func, text in (
-        ("pair-tiers", _cmd_pair_tiers, "print the tier of each integration pair as JSON"),
-        ("metadata", _cmd_metadata, "print the computed metadata.json fields of the stack as JSON"),
+    for name, func, text, bundle_help in (
+        ("pair-tiers", _cmd_pair_tiers, "print the tier of each integration pair as JSON",
+         "path to the extraction bundle JSON: its mode, the libraries of its per_library_extractions[] and, "
+         "in compose mode, the pairs of its integrations[]"),
+        ("metadata", _cmd_metadata,
+         "print the computed metadata.json fields of the stack, its hubs and its library order as JSON",
+         "path to the extraction bundle JSON: its mode, the libraries of its per_library_extractions[] and "
+         "the pairs of its integrations[]"),
     ):
         command = sub.add_parser(name, help=text, description=text)
-        command.add_argument(
+        source = command.add_mutually_exclusive_group(required=True)
+        source.add_argument(
             "--input",
-            required=True,
             help="path to the stack JSON ({mode, libraries, integrations}), or '-' for stdin",
         )
+        source.add_argument("--bundle", help=bundle_help)
+        if name == "pair-tiers":
+            command.add_argument(
+                "--pairs",
+                help="with a code-mode --bundle: path to the qualifying pairs, a JSON array of {a, b}, "
+                     "or '-' for stdin",
+            )
         command.set_defaults(func=func)
     text = ("write provenance-map.json from the run's files: its entries and integrations, "
             "and its constituents in compose mode")

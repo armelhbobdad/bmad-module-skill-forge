@@ -73,10 +73,10 @@ Display the line it prints and stop with the halt's exit code (`references/invoc
 
 **Stack version.** `{skillInventoryHelper}` computes `{version}`; never reduce, compare or bump a version by hand:
 
-- **Code mode:** pipe `[{"name": "<library>", "import_count": <its file_count>, "version": "<its manifest version, or null>"}, ...]`, one entry per library of `{bundleFile}`, and bind `{version}` ← `version`:
+- **Code mode:** bind `{version}` ← `version`; the helper takes each library of `{bundleFile}` with its `file_count` as its import count and its manifest `version`:
 
   ```bash
-  uv run {skillInventoryHelper} version primary -
+  uv run {skillInventoryHelper} version primary --bundle "{bundleFile}"
   ```
 
 - **Compose mode, new stack** (`{prior_stack_version}` unset): `1.0.0`; the constituent versions stay in `dependencies[]`.
@@ -86,7 +86,7 @@ Display the line it prints and stop with the halt's exit code (`references/invoc
   uv run {skillInventoryHelper} version bump --prior "{prior_stack_version}" --prior-libraries "{prior_libraries}" --libraries "{stack_libraries}"
   ```
 
-Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call is malformed: fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON, or the prior `version` names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
+Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call, or in code mode the bundle field its `error` names, is malformed: fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON, or the prior `version` names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
 
 **Pre-flight: ownership, phase 2.** Before the first write below, check the version folder this run writes: run the call below, bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`, and apply the ownership refusals below:
 
@@ -125,7 +125,7 @@ cp "{draftFolder}/SKILL.md" "{skill_staging}/SKILL.md"
 
 ### 3. Stage Per-Library Reference Files
 
-For each library of `{bundleFile}`'s `per_library_extractions[]`, write `{skill_staging}/references/{library_name}.md` in the references structure of `{stackSkillTemplatePath}` from its bundle entry (its Import count is its `file_count`; compose mode: its export count, and the constituent's `metadata.json` version), with its records in `{exportRecordsFile}` as its key exports (compose mode: its `exports`).
+For each library of `{bundleFile}`'s `per_library_extractions[]`, write `{skill_staging}/references/{library_name}.md` in the references structure of `{stackSkillTemplatePath}` from its bundle entry (its Import count is its `file_count`; compose mode: its export count, and its `version`), with its records in `{exportRecordsFile}` as its key exports (compose mode: its `exports`).
 
 If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skill_staging}/references/stack-catalog.md` too; its per-library links stay file-relative, `[ref]({name}.md)`.
 
@@ -148,10 +148,10 @@ While `{token_estimate}` exceeds **120**, apply the next trim and measure again:
 Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← the `forge_tier` of `{runFile}`, the run tier step 1 saved. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}` and run:
 
 ```bash
-uv run {renderStackMetadataHelper} metadata --input -
+uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"
 ```
 
-Pipe it `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence": "<its per_library_extractions[].confidence>", "source_authority": "<compose mode: the constituent's>"}, ...], "integrations": [{"a": "<library>", "b": "<library>"}, ...]}`, every library of `{bundleFile}` and every pair of its `integrations[]`, each pair in the order of its `references/integrations/{a}-{b}.md` name, and write the fields the contract takes from it verbatim. On exit `2`, fix the input its stderr names and run it again. If no candidate resolves, invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata` for its HALT.
+It reads every library of `{bundleFile}`, with its `per_library_extractions[].confidence` and, in compose mode, the constituent's authority step 4 wrote, and every pair of its `integrations[]`, each named as its `references/integrations/{a}-{b}.md` file is: write the fields the contract takes from it verbatim. On exit `2`, fix the bundle field its stderr names and run it again. If no candidate resolves, invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata` for its HALT.
 
 ### 7. Write Forge Data Artifacts (Workspace)
 

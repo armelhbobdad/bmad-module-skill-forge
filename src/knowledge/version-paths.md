@@ -297,7 +297,7 @@ Comparing, bumping and naming versions has one answer, so no workflow does it by
 | `version order <a> <b>` | which of two versions is higher (`1.10.0` above `1.9.0`) | update-skill, whether the source's version is above the skill's |
 | `version next-patch <version>` | the next patch version (a pre-release gives its release) | update-skill's new version folder |
 | `version bump --prior <v> --prior-libraries <a,b> --libraries <a,c>` | a compose-mode stack's next version: major when a library was removed, else minor, refused (`NOT_INCREASING`) when not above the prior one | create-stack-skill |
-| `version primary <candidates.json or ->` | a code-mode stack's primary library and the version it gives, ties broken by a fixed rule | create-stack-skill |
+| `version primary <candidates.json or ->`, or `version primary --bundle <extraction-bundle.json>` | a code-mode stack's primary library and the version it gives, ties broken by a fixed rule; `--bundle` takes the candidates from a code-mode extraction bundle | create-stack-skill |
 
 ## Migration: Flat to Versioned
 

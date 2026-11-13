@@ -16,7 +16,10 @@ section 3, generate-output sections 6 and 7):
     malformed
   - `provenance` writes the map in the bundle's mode, its entries from the
     records and its integrations from the extraction bundle's pairs (a, b,
-    type and tier renamed to the schema's fields), in the schema's place,
+    type and tier renamed to the schema's fields, and the detection_method
+    the mode's table gives the pair's qualifier, whatever detection_method
+    the pair still holds; a missing qualifier, an unknown one or one of the
+    other mode exits 2), in the schema's place,
     atomically, and writes nothing on a bad input, a bad bundle or a target
     it cannot create; in code mode each pair's co-import files come from the
     pair-intersect result (--pairs), matched on the two libraries in either
@@ -37,10 +40,16 @@ section 3, generate-output sections 6 and 7):
     T1-low with no positive bin; a copy of skf-enumerate-stack-skills.py's
   - `metadata` counts each library once, so confidence_distribution sums to
     library_count, and takes the lowest source_authority (internal lowest, a
-    library that records none counting as community)
+    library that records none counting as community); its library_order
+    ranks by distinct partners, then file_count (code mode) or tier
+    (compose mode), then name, and its hubs are the libraries of 3 partners
+    or more in that order, each with its partners by name
   - `pair-tiers` and `metadata` read a file or stdin, stdin as UTF-8 even
     where the console's code page is cp1252; a malformed input exits 2 with
-    one line on stderr and no JSON
+    one line on stderr and no JSON; with --bundle (a file, never stdin) they
+    read the extraction bundle and print what --input prints for the same
+    data, a code-mode pair-tiers taking its pairs from --pairs, and a flag
+    used with the wrong source or mode exits 2
 
 test-skf-stack-step-rules.py runs the calls the step files make.
 """
@@ -359,9 +368,10 @@ def test_relabel_refuses_a_bad_records_file(args, content, needle, tmp_path):
 MAP_FIELDS = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack",
               "source_repo": ["https://github.com/acme/app"], "source_commit": {"app": "abc123"},
               "generated_at": "2026-10-02T08:00:00Z", "integrations": []}
-# The extraction bundle's pairs, as detect-integrations section 4 writes them: no co-import file.
+# The extraction bundle's pairs, as detect-integrations section 4 writes them: no co-import file and no
+# detection_method, which the helper derives from the qualifier.
 BUNDLE_PAIR = {"a": "liba", "b": "libb", "type": "adapter", "tier": "t1-LOW", "qualifier": "grep-co-import",
-               "detection_method": "co-import grep", "key_files": ["src/app.py:9"], "description": "liba feeds libb"}
+               "key_files": ["src/app.py:9"], "description": "liba feeds libb"}
 CO_IMPORT_FILES = [{"path": "src/app.py", "line_a": 1, "line_b": 2}, {"path": "src/db.py", "line_a": 4, "line_b": 3}]
 # The skf-pair-intersect.py result detect-integrations section 1 saves.
 PAIR_INTERSECT = {"pairs": [{"a": "liba", "b": "libb", "intersection_count": 2, "files": CO_IMPORT_FILES}],
@@ -403,23 +413,83 @@ def test_provenance_writes_the_records_as_the_map_entries(tmp_path):
 def test_the_map_integrations_are_the_bundle_pairs():
     """w3 determinism-5: no step types a second list of pairs; the bundle's is projected."""
     pairs = mod.pair_files({"pairs": [*PAIR_INTERSECT["pairs"], {"a": "libb", "b": "libc", "files": []}]})
-    assert mod.bundle_integrations({"integrations": [BUNDLE_PAIR, dict(BUNDLE_PAIR, a="libc", tier="T2")]},
-                                   pairs) == [
+    assert mod.bundle_integrations(
+        {"mode": "code", "integrations": [BUNDLE_PAIR, dict(BUNDLE_PAIR, a="libc", tier="T2")]}, pairs) == [
         MAP_PAIR, dict(MAP_PAIR, libraries=["libc", "libb"], confidence="T2", co_import_files=[])]
-    assert mod.bundle_integrations({"integrations": []}, pairs) == []
+    assert mod.bundle_integrations({"mode": "code", "integrations": []}, pairs) == []
     # Compose mode: no pair-intersect result, so no co-import file.
-    assert mod.bundle_integrations({"integrations": [BUNDLE_PAIR]}) == [dict(MAP_PAIR, co_import_files=[])]
+    compose = dict(BUNDLE_PAIR, qualifier="architecture-co-mention")
+    assert mod.bundle_integrations({"mode": "compose", "integrations": [compose]}) == [
+        dict(MAP_PAIR, detection_method="architecture_co_mention", co_import_files=[])]
+
+
+@pytest.mark.parametrize("mode, qualifier, method", [
+    ("code", "grep-co-import", "co-import grep"),
+    ("compose", "architecture-co-mention", "architecture_co_mention"),
+    ("compose", "constituent-documented-contract", "constituent_documented_contract"),
+    ("compose", "inferred-shared-domain", "inferred_from_shared_domain"),
+    ("compose", "Inferred-Shared-Domain", "inferred_from_shared_domain"),
+    ("code", " GREP-co-import ", "co-import grep"),
+], ids=["code", "architecture", "documented-contract", "shared-domain", "shared-domain-case", "code-case"])
+def test_the_detection_method_comes_from_the_qualifier(mode, qualifier, method):
+    """#1154 determinism-3: the helper derives each pair's detection_method from the mode's table; a
+    detection_method still in a bundle entry is ignored, so no hand-typed method reaches the map."""
+    pairs = mod.pair_files(PAIR_INTERSECT) if mode == "code" else None
+    for pair in (dict(BUNDLE_PAIR, qualifier=qualifier), dict(BUNDLE_PAIR, qualifier=qualifier, detection_method="x")):
+        [out] = mod.bundle_integrations({"mode": mode, "integrations": [pair]}, pairs)
+        assert out["detection_method"] == method
+    assert mod.detection_method(mode, qualifier, "pair") == method
+
+
+def test_the_detection_table_holds_the_schema_values():
+    assert mod.DETECTION_METHODS == {
+        "code": {"grep-co-import": "co-import grep"},
+        "compose": {"architecture-co-mention": "architecture_co_mention",
+                    "constituent-documented-contract": "constituent_documented_contract",
+                    "inferred-shared-domain": "inferred_from_shared_domain"}}
+
+
+@pytest.mark.parametrize("mode, qualifier", [
+    ("code", "architecture-co-mention"),
+    ("compose", "grep-co-import"),
+    ("code", "typed-by-hand"),
+    ("compose", "typed-by-hand"),
+    ("code", None),
+    ("compose", None),
+    ("compose", ""),
+], ids=["code-takes-compose", "compose-takes-code", "code-unknown", "compose-unknown", "code-none",
+        "compose-none", "compose-empty"])
+def test_provenance_refuses_a_qualifier_outside_its_modes_table(mode, qualifier, tmp_path):
+    """#1154 determinism-3: a run can no longer write a detection method outside the schema."""
+    pair = {key: value for key, value in BUNDLE_PAIR.items() if key != "qualifier"}
+    if qualifier is not None:
+        pair["qualifier"] = qualifier
+    if mode == "code":
+        records = tmp_path / "export-records.json"
+        records.write_bytes(b'{"entries": []}')
+        target = tmp_path / "provenance-map.json"
+        result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path, pair)),
+                     "--pairs", str(_pairs(tmp_path)), "--input", "-", "--target", str(target),
+                     stdin=json.dumps(MAP_FIELDS))
+    else:
+        result, target = _compose_run(tmp_path, pair=dict(pair, a="react", b="express"))
+    assert (result.returncode, result.stdout) == (2, "")
+    assert len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "integrations[0].qualifier" in result.stderr, result.stderr
+    for allowed in mod.DETECTION_METHODS[mode]:
+        assert allowed in result.stderr, allowed
+    assert not target.exists()
 
 
 def test_the_co_import_files_are_the_pair_helpers():
     """Step 5b determinism-2: the files come from the saved pair-intersect result, never the bundle."""
     stale = dict(BUNDLE_PAIR, co_import_files=[{"path": "typed/by/hand.py", "line_a": 9, "line_b": 9}])
-    [pair] = mod.bundle_integrations({"integrations": [stale]}, mod.pair_files(PAIR_INTERSECT))
+    [pair] = mod.bundle_integrations({"mode": "code", "integrations": [stale]}, mod.pair_files(PAIR_INTERSECT))
     assert pair["co_import_files"] == CO_IMPORT_FILES
 
 
 def test_a_pair_named_the_other_way_round_swaps_its_lines():
-    [pair] = mod.bundle_integrations({"integrations": [dict(BUNDLE_PAIR, a="libb", b="liba")]},
+    [pair] = mod.bundle_integrations({"mode": "code", "integrations": [dict(BUNDLE_PAIR, a="libb", b="liba")]},
                                      mod.pair_files(PAIR_INTERSECT))
     assert pair["libraries"] == ["libb", "liba"]
     assert pair["co_import_files"] == [{"path": "src/app.py", "line_a": 2, "line_b": 1},
@@ -538,11 +608,12 @@ COMPOSE_FIELDS = {"provenance_version": "2.0", "skill_name": "demo-stack", "skil
                   "source_repo": None, "source_commit": None, "source_ref": None,
                   "generated_at": "2026-10-03T08:00:00Z"}
 CONSTITUENTS = (("react", "18.2.0", "sha256:" + "a" * 64), ("express", "4.19.0", "sha256:" + "b" * 64))
-COMPOSE_PAIR = dict(BUNDLE_PAIR, a="react", b="express", tier="T1", detection_method="architecture_co_mention")
+COMPOSE_PAIR = dict(BUNDLE_PAIR, a="react", b="express", tier="T1", qualifier="architecture-co-mention")
 
 
 def _compose_run(tmp_path, *, skills_dir="skills", constituents=CONSTITUENTS, inventory=None, fields=COMPOSE_FIELDS,
-                 extra=(), outside=False, entries=({"export_name": "render", "source_library": "react"},)):
+                 extra=(), outside=False, entries=({"export_name": "render", "source_library": "react"},),
+                 pair=COMPOSE_PAIR):
     """Lay out a project with a skills folder (beside the project when `outside`) and run the
     compose-mode provenance call."""
     project = tmp_path / "project"
@@ -551,7 +622,7 @@ def _compose_run(tmp_path, *, skills_dir="skills", constituents=CONSTITUENTS, in
         (skills_root / name).mkdir(parents=True, exist_ok=True)
     records = tmp_path / "compose-entries.json"
     records.write_bytes(json.dumps({"entries": list(entries)}).encode())
-    bundle = _bundle(tmp_path, COMPOSE_PAIR, mode="compose", per_library_extractions=[
+    bundle = _bundle(tmp_path, pair, mode="compose", per_library_extractions=[
         {"library": name, "skill_dir": name, "version": version, "confidence": "T1"}
         for name, version, _hash in constituents])
     inventory_file = tmp_path / "stack-inventory.json"
@@ -632,7 +703,7 @@ def test_a_skills_folder_outside_the_project_root_stays_relative(tmp_path):
 
 def test_a_compose_bundle_ignores_its_pairs_co_import_files(tmp_path):
     stale = [{"path": "typed/by/hand.py", "line_a": 1, "line_b": 2}]
-    [pair] = mod.bundle_integrations({"integrations": [dict(COMPOSE_PAIR, co_import_files=stale)]})
+    [pair] = mod.bundle_integrations({"mode": "compose", "integrations": [dict(COMPOSE_PAIR, co_import_files=stale)]})
     assert pair["co_import_files"] == []
 
 
@@ -807,6 +878,11 @@ def test_the_dominant_tier_is_a_copy_of_the_enumerate_helper(name):
     assert "test/test-skf-render-stack-metadata.py pins the copies" in text
 
 
+def test_the_enumerate_helper_keeps_the_same_authorities():
+    """A constituent's source_authority outside these enumerates as null (community): the two lists stay one."""
+    assert enumerate_mod._AUTHORITIES == mod.AUTHORITIES
+
+
 def test_the_copies_agree_on_every_small_distribution():
     odd = [True, "9", -1, None, float("nan"), float("inf"), 2.5]
     for values in itertools.product([0, 1, 2, 3], repeat=4):
@@ -860,7 +936,71 @@ def test_the_projection_keeps_the_order_given():
             {"a": "react", "b": "express", "tier": "T1-low"},
             {"a": "zod", "b": "react", "tier": "T2"},
         ],
+        "hubs": [],
+        "library_order": ["react", "express", "zod"],
     }
+
+
+def _code_stack(libraries, pairs) -> dict:
+    """A code-mode --input stack: (name, tier, file_count) libraries, a None count left out."""
+    return {"mode": "code",
+            "libraries": [dict({"name": name, "confidence": tier}, **({} if count is None else {"file_count": count}))
+                          for name, tier, count in libraries],
+            "integrations": [{"a": a, "b": b} for a, b in pairs]}
+
+
+# The matrix's code-mode stack: react has three partners, express and zod two each.
+HUB_LIBRARIES = [("react", "T1", 12), ("express", "T1-low", 9), ("zod", "T1", 3), ("axios", "T1-low", 5),
+                 ("prisma", "T1", 1)]
+HUB_PAIRS = [("react", "express"), ("react", "zod"), ("react", "axios"), ("express", "zod")]
+
+
+def test_the_hubs_and_the_library_order_come_from_the_pairs():
+    """#1154 determinism-2: no step counts partners or sorts libraries by hand."""
+    out = _metadata(_code_stack(HUB_LIBRARIES, HUB_PAIRS))
+    # Degree first (react 3; express and zod 2, express importing more files; axios 1; prisma 0).
+    assert out["library_order"] == ["react", "express", "zod", "axios", "prisma"]
+    assert out["hubs"] == [{"library": "react", "partners": ["axios", "express", "zod"]}]
+
+
+def test_every_library_of_three_partners_is_a_hub_in_library_order():
+    pairs = [*HUB_PAIRS, ("express", "axios"), ("zod", "prisma")]
+    out = _metadata(_code_stack(HUB_LIBRARIES, pairs))
+    # react, express and zod have three partners: the file count orders them.
+    assert out["library_order"] == ["react", "express", "zod", "axios", "prisma"]
+    assert out["hubs"] == [{"library": "react", "partners": ["axios", "express", "zod"]},
+                           {"library": "express", "partners": ["axios", "react", "zod"]},
+                           {"library": "zod", "partners": ["express", "prisma", "react"]}]
+
+
+def test_a_compose_degree_tie_goes_to_the_stronger_tier_then_the_name():
+    data = stack([("b", "T1-low", None), ("a", "T2", None), ("c", "T1-low", None)])
+    assert _metadata(data)["library_order"] == ["b", "c", "a"]
+    # A file_count never orders a compose-mode stack.
+    data["libraries"][1]["file_count"] = 99
+    assert _metadata(data)["library_order"] == ["b", "c", "a"]
+
+
+def test_a_code_library_without_a_file_count_counts_0():
+    out = _metadata(_code_stack([("b", "T1", None), ("a", "T3", 0), ("c", "T1", 2)], []))
+    # Tier never orders a code-mode stack; a missing count ties with 0 and the name breaks it.
+    assert out["library_order"] == ["c", "a", "b"]
+
+
+def test_the_name_breaks_a_tie_case_folded_then_as_written():
+    out = _metadata(stack([("b", "T1", None), ("B", "T1", None), ("a", "T1", None), ("A", "T1", None)],
+                          [("b", "B"), ("b", "a"), ("b", "A"), ("B", "a"), ("B", "A"), ("a", "A")]))
+    assert out["library_order"] == ["A", "a", "B", "b"]
+    assert [hub["library"] for hub in out["hubs"]] == ["A", "a", "B", "b"]
+    assert out["hubs"][0]["partners"] == ["a", "B", "b"]
+
+
+@pytest.mark.parametrize("count", [-1, 1.5, "3", True, None, [3]],
+                         ids=["negative", "fraction", "string", "bool", "null", "list"])
+def test_a_file_count_that_is_not_a_whole_number_is_refused(count):
+    data = {"mode": "code", "libraries": [{"name": "react", "confidence": "T1", "file_count": count}]}
+    with pytest.raises(mod.InputError, match=re.escape("libraries[0].file_count must be a whole number")):
+        mod.parse_stack(data)
 
 
 @pytest.mark.parametrize("authorities, expected", [
@@ -955,6 +1095,139 @@ def test_pair_tiers_reads_stdin():
     assert json.loads(result.stdout) == {
         "mode": "compose", "integrations": [{"a": "react", "b": "express", "tier": "T2"}],
     }
+
+
+def _stack_bundle(tmp_path, mode: str, *, pairs_in_bundle: bool = True) -> tuple[Path, dict, list[dict]]:
+    """An extraction bundle and the --input stack that holds the same data, with the pairs."""
+    libraries = [("react", "T1", "official", 12), ("express", "T1-low", "internal", 9), ("zod", "T1", None, 3),
+                 ("axios", "T2", "community", 5), ("prisma", "T3", None, None)]
+    pairs = [{"a": a, "b": b} for a, b in HUB_PAIRS]
+    entries = []
+    for name, tier, authority, count in libraries:
+        entry = {"library": name, "status": "success", "version": "1.0.0", "confidence": tier,
+                 "usage_patterns": ["src/app.ts:1"], "warnings": []}
+        if authority is not None:
+            entry["source_authority"] = authority
+        if count is not None:
+            entry["file_count"] = count
+        entries.append(entry)
+    # The bundle's pairs hold what step 5 writes beside a and b, which the stack form leaves out.
+    integrations = [dict(pair, type="adapter", tier="T1", qualifier="q") for pair in pairs] if pairs_in_bundle else []
+    path = tmp_path / "extraction-bundle.json"
+    path.write_bytes(json.dumps({"mode": mode, "scope": [name for name, *_ in libraries],
+                                 "per_library_extractions": entries, "failed": [], "integrations": integrations,
+                                 "cross_cutting": []}).encode("utf-8"))
+    stack_input = {"mode": mode, "libraries": [
+        dict({"name": name, "confidence": tier}, **({"source_authority": authority} if authority else {}),
+             **({"file_count": count} if count is not None else {}))
+        for name, tier, authority, count in libraries], "integrations": pairs}
+    return path, stack_input, pairs
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_bundle_form_prints_what_the_input_form_prints(mode, tmp_path):
+    """#1154 determinism-8: the stages pass {bundleFile} instead of re-typing it into a payload."""
+    bundle, stack_input, pairs = _stack_bundle(tmp_path, mode)
+    from_input = run("metadata", "--input", "-", stdin=json.dumps(stack_input))
+    from_bundle = run("metadata", "--bundle", str(bundle))
+    assert from_input.returncode == from_bundle.returncode == 0, from_input.stderr + from_bundle.stderr
+    assert from_bundle.stdout == from_input.stdout
+    out = json.loads(from_bundle.stdout)
+    assert out["source_authority"] == "internal" and out["hubs"] == [
+        {"library": "react", "partners": ["axios", "express", "zod"]}]
+    expected = run("pair-tiers", "--input", "-", stdin=json.dumps(stack_input))
+    assert expected.returncode == 0, expected.stderr
+    if mode == "code":
+        # Step 5 tiers a code-mode pair before it writes it: the pairs come from --pairs.
+        bundle, _stack, _pairs = _stack_bundle(tmp_path, mode, pairs_in_bundle=False)
+        tiers = run("pair-tiers", "--bundle", str(bundle), "--pairs", "-", stdin=json.dumps(pairs))
+    else:
+        tiers = run("pair-tiers", "--bundle", str(bundle))
+    assert tiers.returncode == 0, tiers.stderr
+    assert tiers.stdout == expected.stdout
+
+
+def test_a_code_bundle_reads_its_pairs_from_a_file(tmp_path):
+    bundle, stack_input, pairs = _stack_bundle(tmp_path, "code", pairs_in_bundle=False)
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_bytes(json.dumps([dict(pair, intersection_count=2) for pair in pairs]).encode("utf-8"))
+    result = run("pair-tiers", "--bundle", str(bundle), "--pairs", str(pairs_file))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == run("pair-tiers", "--input", "-", stdin=json.dumps(stack_input)).stdout
+
+
+@pytest.mark.parametrize("mode, args, stdin, needle", [
+    ("code", ("pair-tiers", "--bundle", "{bundle}"), None, "a code-mode bundle needs --pairs"),
+    ("compose", ("pair-tiers", "--bundle", "{bundle}", "--pairs", "-"), "[]", "--pairs is for a code-mode bundle"),
+    ("code", ("pair-tiers", "--input", "-", "--pairs", "-"), "{}", "--pairs goes with --bundle"),
+    ("code", ("pair-tiers", "--input", "-", "--bundle", "{bundle}"), "{}", "not allowed with argument"),
+    ("code", ("metadata", "--input", "-", "--bundle", "{bundle}"), "{}", "not allowed with argument"),
+    ("code", ("metadata", "--bundle", "-"), "{}", "metadata reads --bundle from a file, not stdin"),
+    ("code", ("pair-tiers", "--bundle", "-", "--pairs", "{pairs}"), "{}", "pair-tiers reads --bundle from a file"),
+    ("code", ("metadata", "--bundle", "{bundle}", "--pairs", "-"), "[]", "unrecognized arguments: --pairs"),
+], ids=["code-without-pairs", "compose-with-pairs", "pairs-with-input", "pair-tiers-bundle-and-input",
+        "metadata-bundle-and-input", "metadata-bundle-stdin", "pair-tiers-bundle-stdin", "metadata-pairs"])
+def test_a_flag_used_with_the_wrong_source_exits_2(mode, args, stdin, needle, tmp_path):
+    bundle, _stack, pairs = _stack_bundle(tmp_path, mode, pairs_in_bundle=False)
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_bytes(json.dumps(pairs).encode("utf-8"))
+    argv = [arg.replace("{bundle}", str(bundle)).replace("{pairs}", str(pairs_file)) for arg in args]
+    result = subprocess.run([sys.executable, str(SCRIPT), *argv], input=stdin, capture_output=True, text=True,
+                            cwd=tmp_path)
+    assert (result.returncode, result.stdout) == (2, ""), result.stderr
+    assert needle in result.stderr, result.stderr
+
+
+@pytest.mark.parametrize("change, pairs, needle", [
+    ({"per_library_extractions": None}, None, "the bundle's `per_library_extractions` must be an array"),
+    ({"per_library_extractions": [{"library": "react", "confidence": "Deep"}]}, None,
+     "the bundle's per_library_extractions[0].confidence"),
+    ({"per_library_extractions": [{"name": "react", "confidence": "T1"}]}, None,
+     "the bundle's per_library_extractions[0].library must be a non-empty string"),
+    ({"per_library_extractions": [{"library": "react", "confidence": "T1", "file_count": "12"}]}, None,
+     "the bundle's per_library_extractions[0].file_count must be a whole number"),
+    ({"per_library_extractions": [{"library": "react", "confidence": "T1", "source_authority": "vendor"}]}, None,
+     "the bundle's per_library_extractions[0].source_authority"),
+    ({"integrations": [{"a": "react", "b": "vue"}]}, None, "the bundle's integrations[0].b 'vue' is not one of"),
+    ({"integrations": {"a": "react"}}, None, "the bundle's `integrations` must be an array"),
+    ({"mode": "both"}, None, "the bundle's mode"),
+    ({}, [{"a": "react", "b": "vue"}], "--pairs[0].b 'vue' is not one of the libraries"),
+    ({}, {"a": "react"}, "`--pairs` must be an array of {a, b} objects"),
+    ({"per_library_extractions": [{"library": "react", "confidence": "T1"}] * 2}, None,
+     "the bundle's per_library_extractions[1].library: library 'react' is listed twice"),
+    ({"per_library_extractions": [{"library": "react", "confidence": "T1"}, {"library": "zod", "confidence": "T1"}],
+      "integrations": [{"a": "react", "b": "zod"}, {"a": "zod", "b": "react"}]}, None,
+     "the bundle's integrations[1]: the pair 'zod' + 'react' is listed twice"),
+    ({"per_library_extractions": [{"library": "react", "confidence": "T1"}, {"library": "zod", "confidence": "T1"}]},
+     [{"a": "react", "b": "zod"}, {"a": "zod", "b": "react"}],
+     "--pairs[1]: the pair 'zod' + 'react' is listed twice"),
+], ids=["no-entries", "bad-tier", "no-library", "bad-file-count", "bad-authority", "unknown-pair-member",
+        "integrations-not-a-list", "bad-mode", "unknown-pairs-member", "pairs-not-a-list", "library-twice",
+        "pair-twice", "pairs-pair-twice"])
+def test_a_bundle_error_names_the_bundle_field(change, pairs, needle, tmp_path):
+    bundle = tmp_path / "extraction-bundle.json"
+    data = {"mode": "code" if pairs is not None else "compose",
+            "per_library_extractions": [{"library": "react", "confidence": "T1"}], "integrations": [], **change}
+    bundle.write_bytes(json.dumps(data).encode("utf-8"))
+    args = ("pair-tiers", "--bundle", str(bundle), *(("--pairs", "-") if pairs is not None else ()))
+    result = run(*args, stdin=json.dumps(pairs))
+    assert (result.returncode, result.stdout) == (2, ""), result.stderr
+    assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    if pairs is None:
+        assert run("metadata", "--bundle", str(bundle)).stderr == result.stderr
+
+
+def test_a_bundle_that_is_not_json_is_named(tmp_path):
+    """pair-tiers reads two inputs on a code bundle: a JSON error names the one it could not parse."""
+    bundle = tmp_path / "extraction-bundle.json"
+    bundle.write_bytes(b"{not json")
+    result = run("pair-tiers", "--bundle", str(bundle), "--pairs", "-", stdin="[]")
+    assert (result.returncode, result.stdout) == (2, ""), result.stderr
+    assert f"the input {bundle} is not valid JSON" in result.stderr, result.stderr
+    bundle.write_bytes(json.dumps({"mode": "code", "per_library_extractions": []}).encode("utf-8"))
+    result = run("pair-tiers", "--bundle", str(bundle), "--pairs", "-", stdin="{not json")
+    assert (result.returncode, result.stdout) == (2, ""), result.stderr
+    assert "the input - is not valid JSON" in result.stderr, result.stderr
 
 
 def test_metadata_reads_a_file(tmp_path):

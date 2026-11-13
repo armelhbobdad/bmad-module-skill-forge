@@ -64,7 +64,7 @@ Then go on to [Read the VS Verdicts](#2-read-the-vs-verdicts).
 uv run {comentionHelper} infer --skills - --top-k 20
 ```
 
-piping one object per confirmed skill on stdin: `{"name": "<skill>", "keywords": ["<keyword>", ...], "language": "<language>", "docs": ["<path>", ...]}`. Its `keywords` are its bundle entry's `description_keywords`, `language` is the one step 2 read from its `metadata.json`, and `docs` are its `SKILL.md` and the `.md` files in its `references/`, under `skill_package_path`, which the helper reads. A pair is a candidate only on this evidence, never on a shared language alone, and each candidate is judged like a co-mention:
+piping one object per confirmed skill on stdin: `{"name": "<skill>", "keywords": ["<keyword>", ...], "language": "<language>", "docs": ["<path>", ...]}`. Its `keywords` are its bundle entry's `description_keywords`, `language` is its step 2 entry's `language`, and `docs` are its `SKILL.md` and the `.md` files in its `references/`, under `skill_package_path`, which the helper reads. A pair is a candidate only on this evidence, never on a shared language alone, and each candidate is judged like a co-mention:
 
 - **`docs-mention`:** one skill's own docs name the other; `excerpt` quotes the first such line (`doc`, `line`). Keep the pair as a `constituent-documented-contract` integration only when that line says how the two work together, never on a "see also" or "unlike" line.
 - **`shared-keywords`:** the two share a domain keyword. Keep the pair as an `inferred-shared-domain` integration only when both skills' `description_keywords`, `usage_patterns` and `exports` in `{bundleFile}` show how that domain makes them work together (one feeds, wraps, configures or consumes the other), never for two libraries that do the same job, such as `zod` and `yup` or `express` and `fastify`.
@@ -96,14 +96,14 @@ Act on the first of these that applies:
 Set `{bundleFile}`'s `integrations[]` to one entry per kept pair, so `references/detect-integrations.md` §3 reads them from disk:
 
 ```json
-{"a": "<library>", "b": "<library>", "qualifier": "<below>", "detection_method": "<below>", "evidence": ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"], "reference": "<its Architecture reference, Contract reference or Shared domain line>", "vs": {"pair": "<verdict>", "overall": "<overallVerdict>"}}
+{"a": "<library>", "b": "<library>", "qualifier": "<below>", "evidence": ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"], "reference": "<its Architecture reference, Contract reference or Shared domain line>", "vs": {"pair": "<verdict>", "overall": "<overallVerdict>"}}
 ```
 
-`vs` is `null` when no usable [VS] report rated the pair. The `qualifier` says how §1 found the pair, and sets its `detection_method`:
+`vs` is `null` when no usable [VS] report rated the pair. The `qualifier` says how §1 found the pair (step 7's provenance helper derives its `detection_method` from it):
 
-- `architecture-co-mention`: compose-mode pair the architecture document names together, confirmed from its excerpt in §1. Maps to `detection_method: architecture_co_mention` in `provenance-map.json`.
-- `constituent-documented-contract`: compose-mode pair with no architecture document whose contract a constituent's own docs state, a docs mention §1 confirmed. Maps to `detection_method: constituent_documented_contract` in `provenance-map.json`.
-- `inferred-shared-domain`: compose-mode pair with no architecture document, a shared-keywords candidate §1 kept (no cited contract, never a shared language alone). Maps to `detection_method: inferred_from_shared_domain` in `provenance-map.json`.
+- `architecture-co-mention`: compose-mode pair the architecture document names together, confirmed from its excerpt in §1.
+- `constituent-documented-contract`: compose-mode pair with no architecture document whose contract a constituent's own docs state, a docs mention §1 confirmed.
+- `inferred-shared-domain`: compose-mode pair with no architecture document, a shared-keywords candidate §1 kept (no cited contract, never a shared language alone).
 
 With no pair kept, `integrations[]` stays empty.
 

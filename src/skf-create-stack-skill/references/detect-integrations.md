@@ -92,34 +92,41 @@ For each qualifying pair, classify the integration type against those pattern ty
 When at least one pair qualifies, run it once on all of them:
 
 ```bash
-uv run {renderStackMetadataHelper} pair-tiers --input -
+uv run {renderStackMetadataHelper} pair-tiers --bundle "{bundleFile}" [--pairs -]
 ```
 
-piping `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence": "<its per_library_extractions[].confidence>"}, ...], "integrations": [{"a": "<library>", "b": "<library>"}, ...]}` on stdin, each qualifying pair once. Each entry of its `integrations[]` gives a pair's `tier`. On exit `2` its stderr names the input it refused, such as a pair naming a library the list lacks: fix the input and run it again.
+In code mode pass `--pairs -` and pipe the qualifying pairs as `[{"a": "<library>", "b": "<library>"}, ...]`, each once; in compose mode leave it out: the helper reads the pairs `references/compose-pairs.md` wrote. Each entry of its `integrations[]` gives a pair's `tier`. On exit `2` its stderr names the input it refused, such as a pair naming a library the bundle lacks: fix the input and run it again.
 
 For each detected integration:
 - Identify the top 3 files demonstrating the pattern (the CCC files §2 kept first, when there are any); a compose-mode pair has none, so its `key_files` is `[]`
 - Extract a brief description of how the libraries connect
 - **Assign confidence: the pair's `tier` and a detection-method qualifier, never AST:** integration detection here is co-import file evidence from step 3's import counts, or a compose-mode pair `references/compose-pairs.md` confirmed. Append the qualifier that says how the pair was found:
-  - `grep-co-import`: the pair qualified on the co-import files its two libraries' import counts share (the default).
-  - A compose-mode pair keeps the `qualifier` and `detection_method` `references/compose-pairs.md` wrote.
+  - `grep-co-import`: the pair qualified on the co-import files its two libraries' import counts share (every code-mode pair).
+  - A compose-mode pair keeps the `qualifier` `references/compose-pairs.md` wrote.
   - Render as `{tier} ({qualifier})`, e.g. `T1-low (grep-co-import)`, `T1 (grep-co-import)`, `T1-low (architecture-co-mention) [composed]`. The `[composed]`/`[inferred from shared domain]` suffix from `{composeModeRulesPath}` is appended after the qualifier in compose-mode.
 
-  **Provenance ↔ SKILL.md tier parity:** write the pair's `tier` to both the SKILL.md integration label and `provenance-map.json` `integrations[].confidence`. The qualifier, and the `detection_method` it maps to, say how the edge was found and never change the tier.
+  **Provenance ↔ SKILL.md tier parity:** write the pair's `tier` to both the SKILL.md integration label and `provenance-map.json` `integrations[].confidence`. The qualifier, from which step 7 derives the `detection_method`, says how the edge was found and never changes the tier.
 
 ### 4. Build Integration Graph
 
 Assemble the integration graph:
 - **Nodes:** Confirmed libraries (with extraction data from step 04)
 - **Edges:** Detected integration pairs with type, co-import file count (the pair's `intersection_count` in `{pairsFile}`, 0 in compose mode), and description
-- Identify **hub libraries** (connected to 3+ other libraries)
 - Identify **cross-cutting patterns** (patterns spanning 3+ libraries)
 
-Write the graph into `{bundleFile}`: its `integrations[]` gets one entry per detected pair, `{"a": "<library>", "b": "<library>", "type": "<pattern type>", "tier": "<the pair's tier>", "qualifier": "<detection qualifier>", "detection_method": "<provenance detection_method>", "key_files": ["<path:line>"], "description": "<how they connect>"}`, and `hubs` and `cross_cutting` list the hub libraries and cross-cutting patterns, so steps 6 and 7 read the integration layer from disk. In compose mode each entry keeps the `evidence`, `reference` and `vs` `references/compose-pairs.md` wrote; code mode leaves the three out.
+Write the graph into `{bundleFile}`: its `integrations[]` gets one entry per detected pair, `{"a": "<library>", "b": "<library>", "type": "<pattern type>", "tier": "<the pair's tier>", "qualifier": "<detection qualifier>", "key_files": ["<path:line>"], "description": "<how they connect>"}`, and `cross_cutting` lists the cross-cutting patterns, so steps 6 and 7 read the integration layer from disk. In compose mode each entry keeps the `evidence`, `reference` and `vs` `references/compose-pairs.md` wrote; code mode leaves the three out.
+
+Then read the hubs off the written graph with the §3 helper:
+
+```bash
+uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"
+```
+
+Its `hubs` lists each hub library and its partners; on exit `2`, fix the bundle field its stderr names and run it again.
 
 ### 5. Display Integration Summary
 
-If integrations were detected, report the integration graph (`{lib_count}` libraries, `{pair_count}` pairs): the hub libraries (connected to 3+ others) with their partners, each detected pair (library A, library B, type, co-import file count, confidence tier), and any cross-cutting patterns spanning 3+ libraries. If none were detected, report that the libraries appear to operate independently: the stack skill carries library summaries without an integration layer.
+If integrations were detected, report the integration graph (`{lib_count}` libraries, `{pair_count}` pairs): each hub library of §4's `hubs` with its partners, each detected pair (library A, library B, type, co-import file count, confidence tier), and any cross-cutting patterns spanning 3+ libraries. If none were detected, report that the libraries appear to operate independently: the stack skill carries library summaries without an integration layer.
 
 ### 6. Auto-Proceed to Next Step
 

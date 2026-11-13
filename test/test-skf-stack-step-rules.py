@@ -150,6 +150,16 @@ compose branch of the sections they govern.
   with `--module`, and compose-scope.md takes each skill's layer candidates
   from skf-comention-pairs.py `mentions`, warning when it cannot run
   (#1153).
+- The helpers read the extraction bundle: step 5 §3 tiers the pairs, step 5
+  §4 reads the hubs, step 4 §4 counts the libraries per tier, step 6 §1
+  binds the counts, hubs and library order, and step 7 §1 and §6 take the
+  version and metadata.json fields, each with `--bundle "{bundleFile}"`; a
+  pair's detection_method is the helper's, from its qualifier, so no step
+  writes or maps one, and no step counts partners or orders libraries by
+  hand. Step 4 writes each compose entry from the enumerate helper's
+  `bundle_entries[]` skeleton and halts on `bundle_entries_missing[]`, and
+  step 2 takes each constituent's name, version and authority from its
+  `kept[]` entry, never reopening metadata.json (#1154).
 
 The step calls run as written, on small fixtures.
 
@@ -970,9 +980,10 @@ def test_step_7_writes_the_code_mode_entries_with_the_helper(tmp_path):
     pairs.write_text(json.dumps({"pairs": [{"a": "liba", "b": "libb", "intersection_count": 1,
                                             "files": co_import}], "truncated": False, "total_pairs": 1}),
                      encoding="utf-8")
+    # The pair as step 5 §4 writes it: its qualifier, no detection_method (the helper derives it, #1154).
     bundle.write_text(json.dumps({"mode": "code", "integrations": [
         {"a": "libb", "b": "liba", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
-         "detection_method": "co-import grep", "key_files": [], "description": "liba feeds libb"}]}),
+         "key_files": [], "description": "liba feeds libb"}]}),
         encoding="utf-8")
     forge_version = tmp_path / "forge" / "demo-stack" / "1.0.0"
     forge_version.mkdir(parents=True)
@@ -1020,7 +1031,8 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
         package.mkdir(parents=True)
         (package / "SKILL.md").write_bytes(f"# {name}\n".encode("utf-8"))
         metadata = json.dumps({"name": name, "version": version, "generated_by": "create-skill",
-                               "exports": ["render"], "skill_type": "single"}).encode("utf-8")
+                               "exports": ["render"], "skill_type": "single", "source_authority": "official",
+                               "confidence_distribution": {"t1": 3, "t1_low": 0, "t2": 0, "t3": 0}}).encode("utf-8")
         (package / "metadata.json").write_bytes(metadata)
         hashes[name] = "sha256:" + hashlib.sha256(metadata).hexdigest()
         try:
@@ -1030,26 +1042,29 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
     run_dir = project / "_bmad-output" / ".skf-run" / "skf-create-stack-skill-1"
     run_dir.mkdir(parents=True)
     inventory = run_dir / "stack-inventory.json"
-    argv = _argv(enumerate_call, "enumerateStackSkillsHelper", {"{skills_output_folder}": str(skills_root)})
+    argv = _argv(enumerate_call.replace("<names>", "react,express"), "enumerateStackSkillsHelper",
+                 {"{skills_output_folder}": str(skills_root)})
     result = subprocess.run([sys.executable, str(ENUMERATE), *argv], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     inventory.write_text(result.stdout, encoding="utf-8")  # the shell redirect
+    # Step 4 §3 (#1154): each entry is its bundle_entries[] skeleton as it stands, plus what §2 returned.
+    listed = json.loads(result.stdout)
+    assert listed["bundle_entries_missing"] == []
     bundle = run_dir / "extraction-bundle.json"
     bundle.write_text(json.dumps({
         "mode": "compose", "scope": ["react", "express"],
         "per_library_extractions": [
-            {"library": name, "skill_dir": name, "version": version, "confidence": "T1",
-             "skill_package_path": f"{skills_root.as_posix()}/{name}/active/{name}"}
-            for name, version in (("react", "18.2.0"), ("express", "4.19.0"))],
+            dict(entry, description_keywords=[], usage_patterns=[], signatures={})
+            for entry in listed["bundle_entries"]],
         "failed": [],
         "integrations": [{"a": "react", "b": "express", "type": "data-flow", "tier": "T1",
-                          "qualifier": "architecture-co-mention", "detection_method": "architecture_co_mention",
+                          "qualifier": "architecture-co-mention",
                           "key_files": [], "description": "react calls express",
                           # The compose evidence step 5 keeps for steps 6 and 7 (architecture-1).
                           "evidence": ["[from skill: react] render(el)", "[from skill: express] listen(port)"],
                           "reference": '**Architecture reference:** "react calls express" (architecture doc line 3)',
                           "vs": {"pair": "Risky", "overall": "CONDITIONALLY_FEASIBLE"}}],
-        "hubs": [], "cross_cutting": []}), encoding="utf-8")
+        "cross_cutting": []}), encoding="utf-8")
     entries = run_dir / "compose-entries.json"
     # The model writes only the cited fields; the helper adds the constituent's tier.
     entries.write_text(json.dumps({"entries": [{"export_name": "render", "source_library": "react"}]}),
@@ -1146,14 +1161,22 @@ def test_the_evidence_report_bins_the_final_map(tmp_path, monkeypatch, capsys):
 def test_compose_constituent_tier_is_the_evidence_tier():
     sections = _sections(_body(_read(COMPOSE_EXTRACT)))
     assert '"evidence_tier": "T1|T1-low|T2|T3"' in sections["1"]
-    (bullet,) = [line for line in sections["3"].splitlines() if line.startswith("- `confidence`:")]
-    assert bullet.startswith("- `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`)")
-    # The field §3 takes: the largest bin, ties to the weaker tier, T3
+    assert '"confidence": "<its evidence_tier>"' in sections["1"]
+    # #1154: §3 copies the helper's skeleton, whose confidence is the evidence tier, instead of mapping fields.
+    assert "its `bundle_entries[]` entry in `{stackInventoryFile}` as it stands, whose `confidence` is the " \
+        "skill's `evidence_tier`" in sections["3"]
+    assert "inventory.skills[i]" not in sections["3"]
+    # The field the skeleton takes: the largest bin, ties to the weaker tier, T3
     # included, T1-low when nothing is recorded.
     enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_stack_rules")
     assert enumerate_.dominant_tier({"t1": 0, "t1_low": 0, "t2": 0, "t3": 12}) == "T3"
     assert enumerate_.dominant_tier({"t1": 2, "t1_low": 2, "t2": 0, "t3": 0}) == "T1-low"
     assert enumerate_.dominant_tier(None) == "T1-low"
+    [entry] = enumerate_.compute_bundle_entries(
+        [{"name": "react", "path": "react/active/react", "version": "18.2.0", "source_authority": None,
+          "exports": [], "exports_source": "metadata", "confidence": "T1", "evidence_tier": "T3"}],
+        Path("skills"), ["react"])["bundle_entries"]
+    assert entry["confidence"] == "T3"
 
 
 def test_compose_entries_carry_their_constituent_tier():
@@ -1217,17 +1240,24 @@ def test_the_integration_label_names_the_helper_tier():
     assert "Confidence Tier Inheritance" in item and "weaker" not in item
 
 
-def _pair_tiers_call() -> str:
-    return _call(_sections(_body(_read(DETECT)))["3"], "renderStackMetadataHelper", "pair-tiers")
+def _pair_tiers_call(mode: str = "code") -> str:
+    """Step 5 §3's pair-tiers call as `mode` runs it: code mode passes `--pairs -`, compose mode leaves it out."""
+    call = _call(_sections(_body(_read(DETECT)))["3"], "renderStackMetadataHelper", "pair-tiers")
+    assert call.count(" [--pairs -]") == 1, call
+    return call.replace(" [--pairs -]", " --pairs -" if mode == "code" else "")
 
 
 def test_step_5_takes_each_pair_tier_from_the_helper():
     text = _read(DETECT)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     three = _sections(_body(text))["3"]
-    assert "--input -" in _pair_tiers_call()
-    for needle in ('"mode": "code|compose"', "per_library_extractions[].confidence", "`tier`"):
+    # #1154 determinism-8: the helper reads the tiers from the bundle; only code mode pipes its pairs.
+    assert '--bundle "{bundleFile}"' in _pair_tiers_call() and "--input" not in _pair_tiers_call()
+    for needle in ("In code mode pass `--pairs -` and pipe the qualifying pairs as "
+                   '`[{"a": "<library>", "b": "<library>"}, ...]`, each once; in compose mode leave it out',
+                   "`tier`"):
         assert needle in three, needle
+    assert '"mode": "code|compose"' not in three and '"confidence":' not in three, "§3 still builds a payload"
     assert "weaker" not in three, "§3 still states the tier rule itself"
 
 
@@ -1244,12 +1274,26 @@ def test_a_missing_tier_helper_halts_with_its_envelope():
 
 
 def test_step_2_records_the_authority_step_7_projects():
-    """§6 pipes each constituent's source_authority, so step 2 must still read it (#606)."""
+    """§6 reads each constituent's source_authority from the bundle (#606), which step 4 copies from the enumerate
+    helper's skeleton, so neither step 2 nor step 4 reopens metadata.json for it (#1154 determinism-4)."""
     six = _sections(_body(_read(GENERATE)))["6"]
-    assert '"source_authority": "<compose mode: the constituent\'s>"' in six
-    (read,) = [line for line in _sections(_body(_read(COMPOSE_SKILLS)))["1"].splitlines()
-               if line.startswith("3. Read `metadata.json` from `skill_package_path`")]
-    assert "source_authority" in read, "step 2 no longer records each constituent's source_authority"
+    assert "in compose mode, the constituent's authority step 4 wrote" in six
+    (item,) = [line for line in _sections(_body(_read(COMPOSE_SKILLS)))["1"].splitlines() if line.startswith("3. ")]
+    for field in ("`metadata_name`", "`version`", "`source_authority`"):
+        assert field in item, field
+    assert "never reopen that file" in item
+    enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_authority")
+    fields = enumerate_.metadata_fields({"name": "React", "version": " 18.2.0 ", "source_authority": "Official"})
+    assert (fields["metadata_name"], fields["version"], fields["source_authority"]) == ("React", "18.2.0", "official")
+
+
+def test_compose_skills_never_reads_metadata_json():
+    one = _sections(_body(_read(COMPOSE_SKILLS)))["1"]
+    assert not re.search(r"\b[Rr]ead `metadata\.json`", one), "step 2 reopens a constituent's metadata.json"
+    for path in (COMPOSE_EXTRACT, COMPOSE_PAIRS, GENERATE, COMPILE):
+        text = _read(path)
+        for stale in ("`metadata.json` version", "read from its `metadata.json`", "source skill metadata"):
+            assert stale not in text, (path.name, stale)
 
 
 def _stack_input(mode: str = "compose") -> dict:
@@ -1262,16 +1306,47 @@ def _stack_input(mode: str = "compose") -> dict:
     }
 
 
-def _run_stack_metadata(call: str, payload: dict) -> dict:
-    argv = _argv(call, "renderStackMetadataHelper", {})
-    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv], input=json.dumps(payload),
-                            capture_output=True, text=True)
+def _stack_bundle(run_dir: Path, mode: str = "compose", *, with_pairs: bool = True) -> Path:
+    """The extraction bundle that holds `_stack_input(mode)`, as steps 4 and 5 write it, in `run_dir`."""
+    stack = _stack_input(mode)
+    entries = [{"library": library["name"], "confidence": library["confidence"], "version": "1.0.0",
+                **({"source_authority": library["source_authority"]} if "source_authority" in library else {}),
+                **({"file_count": count} if mode == "code" else {})}
+               for library, count in zip(stack["libraries"], (12, 9, 3))]
+    qualifier = "grep-co-import" if mode == "code" else "architecture-co-mention"
+    pairs = [dict(pair, type="adapter", qualifier=qualifier) for pair in stack["integrations"]] if with_pairs else []
+    path = run_dir / "extraction-bundle.json"
+    path.write_text(json.dumps({"mode": mode, "scope": [entry["library"] for entry in entries],
+                                "per_library_extractions": entries, "failed": [], "integrations": pairs,
+                                "cross_cutting": []}), encoding="utf-8")
+    return path
+
+
+def _run_stack_metadata(call: str, payload: dict | None = None, *, run_dir: Path, mode: str = "compose",
+                        with_pairs: bool = True) -> dict:
+    """Run a documented stack helper call as written on the bundle of `_stack_input(mode)`, in a run folder whose
+    path holds a space; `payload` is what the call pipes on stdin."""
+    bundle = _stack_bundle(run_dir, mode, with_pairs=with_pairs)
+    argv = _filled_argv(call, {"{bundleFile}": str(bundle)})
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv],
+                            input=None if payload is None else json.dumps(payload), capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
 
-def test_the_pair_tier_call_runs_as_written():
-    out = _run_stack_metadata(_pair_tiers_call(), _stack_input())
+@pytest.fixture
+def run_dir(tmp_path: Path) -> Path:
+    folder = tmp_path / "run dir"
+    folder.mkdir()
+    return folder
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_the_pair_tier_call_runs_as_written(mode, run_dir):
+    """Code mode pipes the qualifying pairs (step 5 writes them after §3); compose mode reads compose-pairs.md's."""
+    payload = _stack_input(mode)["integrations"] if mode == "code" else None
+    out = _run_stack_metadata(_pair_tiers_call(mode), payload, run_dir=run_dir, mode=mode,
+                              with_pairs=mode == "compose")
     assert out["integrations"] == [{"a": "react", "b": "express", "tier": "T2"},
                                    {"a": "react", "b": "zod", "tier": "T1-low"}]
 
@@ -1280,7 +1355,7 @@ def _metadata_call() -> str:
     return _call(_sections(_body(_read(GENERATE)))["6"], "renderStackMetadataHelper", "metadata")
 
 
-def test_step_7_writes_the_metadata_projection():
+def test_step_7_writes_the_metadata_projection(run_dir):
     text = _read(GENERATE)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     six = _sections(_body(text))["6"]
@@ -1288,23 +1363,28 @@ def test_step_7_writes_the_metadata_projection():
     assert "write the fields the contract takes from it verbatim" in six and "rollback contract" in six
     contract_note = _h2_section(_read(METADATA_CONTRACT), "## metadata.json Structure").split("```")[-1]
     assert "`skf-render-stack-metadata.py`" in contract_note
-    out = _run_stack_metadata(_metadata_call(), _stack_input())
+    out = _run_stack_metadata(_metadata_call(), run_dir=run_dir)
     for field in ("library_count", "integration_count", "libraries", "integration_pairs",
                   "confidence_distribution", "confidence_tier", "source_authority"):
         assert f"`{field}`" in contract_note and field in out, field
         assert f"`{field}`" not in six, f"§6 restates the contract's field {field}"
 
 
-def test_the_metadata_call_runs_as_written():
-    """The distribution counts each library once and sums to library_count (#528)."""
-    out = _run_stack_metadata(_metadata_call(), _stack_input())
+def test_the_metadata_call_runs_as_written(run_dir):
+    """The distribution counts each library once and sums to library_count (#528), read from the bundle (#1154)."""
+    assert '--bundle "{bundleFile}"' in _metadata_call() and "Pipe it" not in _sections(_body(_read(GENERATE)))["6"]
+    out = _run_stack_metadata(_metadata_call(), run_dir=run_dir)
     assert out["library_count"] == sum(out["confidence_distribution"].values()) == 3
     assert out["confidence_distribution"] == {"t1": 1, "t1_low": 1, "t2": 1, "t3": 0}
     assert out["confidence_tier"] == "T2"  # a tie goes to the weaker tier
     assert out["source_authority"] == "internal"  # community and internal give internal
     assert out["integration_pairs"] == [["react", "express"], ["react", "zod"]]
-    code = _run_stack_metadata(_metadata_call(), _stack_input("code"))
+    code = _run_stack_metadata(_metadata_call(), run_dir=run_dir, mode="code")
     assert code["confidence_tier"] == out["confidence_tier"]
+    # The bundle form prints what the stack form prints for the same data.
+    stack = subprocess.run([sys.executable, str(STACK_METADATA), "metadata", "--input", "-"],
+                           input=json.dumps(_stack_input()), capture_output=True, text=True)
+    assert json.loads(stack.stdout) == out
 
 
 VALIDATE_CHECKS = {"4": "skill_md", "5": "metadata", "6": "references", "7": "tier_labels"}
@@ -1737,6 +1817,7 @@ def test_the_stack_version_comes_from_the_inventory_helper():
     (rule,) = [line for line in one.splitlines() if line.startswith("Narrate the version")]
     fix, default = rule.split("Start a new release line at `1.0.0` only when", 1)
     assert "`BAD_INPUT` or `USAGE`" in fix and "run it again" in fix
+    assert "in code mode the bundle field its `error` names" in fix, "the code-mode call reads the bundle as written"
     assert "`NOT_A_VERSION`" in default and "`USAGE`" not in default and "`NOT_INCREASING`" not in default
 
 
@@ -1753,14 +1834,25 @@ def _version_call(command: str) -> str:
     return calls[0]
 
 
-def test_the_primary_version_call_runs_as_written():
-    argv = _argv(_version_call("primary"), "skillInventoryHelper", {})
-    candidates = [{"name": "react", "import_count": 12, "version": "^18.2.0"},
-                  {"name": "express", "import_count": 12, "version": None},
-                  {"name": "zod", "import_count": 3, "version": "3.22.4+build.7"}]
-    out = _inventory(argv, json.dumps(candidates))
+def test_the_primary_version_call_runs_as_written(tmp_path):
+    """#1154 determinism-8: the helper reads each library's file_count and version from the bundle file."""
+    call = _version_call("primary")
+    assert '--bundle "{bundleFile}"' in call
+    (bullet,) = [line for line in _one().splitlines() if line.startswith("- **Code mode:**")]
+    assert "`file_count`" in bullet and "pipe" not in bullet and '"import_count"' not in bullet
+    run_dir = tmp_path / "run dir"
+    run_dir.mkdir()
+    bundle = run_dir / "extraction-bundle.json"
+    entries = [{"library": "react", "file_count": 12, "version": "^18.2.0", "confidence": "T1"},
+               {"library": "express", "file_count": 12, "version": None, "confidence": "T1-low"},
+               {"library": "zod", "file_count": 3, "version": "3.22.4+build.7", "confidence": "T1"}]
+    bundle.write_text(json.dumps({"mode": "code", "per_library_extractions": entries}), encoding="utf-8")
+    fill = _argv if sys.platform == "win32" else _shell_filled
+    argv = fill(call, "skillInventoryHelper", {"{bundleFile}": str(bundle)})
+    out = _inventory(argv)
     assert (out["primary"], out["version"], out["reason"]) == ("react", "18.2.0", "tie-usable-version")
-    assert _inventory(argv, "[]")["version"] == "1.0.0"
+    bundle.write_text(json.dumps({"mode": "code", "per_library_extractions": []}), encoding="utf-8")
+    assert _inventory(argv)["version"] == "1.0.0"
 
 
 def test_the_compose_bump_call_runs_as_written():
@@ -2541,8 +2633,10 @@ def test_the_run_folder_is_created_before_anything_can_halt(tmp_path):
 def test_the_extraction_bundle_is_written_and_read_from_disk():
     extract = _read(EXTRACT)
     bundle = json.loads(_first_fence(_from(_body(extract), "**Extraction bundle.**")))
-    assert set(bundle) == {"mode", "scope", "per_library_extractions", "failed", "integrations", "hubs",
-                           "cross_cutting"}
+    # #1154: the hubs come from the metadata helper, never a copy stored in the bundle.
+    assert set(bundle) == {"mode", "scope", "per_library_extractions", "failed", "integrations", "cross_cutting"}
+    # The helpers read each library's import count from its entry: the shape shows it.
+    assert "file_count" in bundle["per_library_extractions"][0]
     sections = _sections(_body(extract))
     assert "write `{bundleFile}`: `mode`, `scope`" in sections["3"]
     # Compose mode writes each constituent's entry, with what its subagent read, from compose-extract.md (#1151).
@@ -2556,8 +2650,8 @@ def test_the_extraction_bundle_is_written_and_read_from_disk():
     assert "Write the graph into `{bundleFile}`" in detect_graph
     # The bundle carries no co-import file: they stay in the saved pairs, which step 7's helper reads.
     assert '"co_import_files"' not in detect_graph and "`{pairsFile}`" in detect_graph
-    for key in ("`hubs`", "`cross_cutting`"):
-        assert key in detect_graph, key
+    assert "and `cross_cutting` lists the cross-cutting patterns" in detect_graph
+    assert '"hubs"' not in compose and "`hubs`" not in _slice(detect_graph, "Write the graph", "Then read the hubs")
     # Step 6: the bundle, and in code mode each library's key exports from its records, which the
     # entry no longer holds; a dropped library leaves both files.
     compile_ = _read(COMPILE)
@@ -2589,16 +2683,24 @@ def test_the_draft_is_reviewed_by_path_and_staged_verbatim():
     assert "skill_content" not in _read(GENERATE)
 
 
-def test_the_compile_stats_come_from_the_metadata_helper():
-    """W3 handoff: Libraries, Integration pairs and the tier line come from one helper run."""
+def test_the_compile_stats_come_from_the_metadata_helper(run_dir):
+    """W3 handoff: Libraries, Integration pairs and the tier line come from one helper run, on the bundle file, which
+    also gives §3 its hubs and §4 its library order (#1154)."""
     text = _read(COMPILE)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     sections = _sections(_body(text))
     one = sections["1"]
     call = _call(one, "renderStackMetadataHelper", "metadata")
-    assert call.strip() == "uv run {renderStackMetadataHelper} metadata --input -"
+    assert call.strip() == 'uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"'
     assert (3, "helper-missing", "compile-stack:stats") in _halts(one)
     assert "Bind `{lib_count}` ← its `library_count` and `{integration_count}` ← its `integration_count`" in one
+    assert "`{hubs}` ← its `hubs` for §3 and `{library_order}` ← its `library_order` for §4" in one
+    assert "`hubs`, `cross_cutting`" not in one, "§1 still reads hubs the bundle no longer holds"
+    assert "§1's `{hubs}`" in sections["3"]
+    assert sections["4"].count("§1's `{library_order}`") == 1
+    for stale in ("connectivity", "import count (", "skill confidence tier"):
+        assert stale not in sections["4"], stale
+    assert "its rows in §1's `{library_order}`" in sections["6"], "the index rows follow the summaries' order"
     # The description §2 writes and the stats §7 shows take those bindings; nothing counts by hand.
     assert "with the counts §1 bound" in sections["2"]
     assert "{lib_count} libraries with" in _first_fence(_h2_section(_read(TEMPLATE), "## SKILL.md Section Structure"))
@@ -2608,8 +2710,73 @@ def test_the_compile_stats_come_from_the_metadata_helper():
         assert field in seven, field
     (feedback,) = [line for line in text.splitlines() if line.startswith("- IF Any other:")]
     assert "run the §1 helper call again" in feedback and "rewrite the draft's `description`" in feedback
-    out = _run_stack_metadata(call, _stack_input())
+    # A dropped library or pair can change the hubs and the order, so the rerun rebinds them too.
+    assert "rebinding the counts, `{hubs}` and `{library_order}`" in feedback
+    assert "its Hub Library Connections list and its library order" in feedback
+    out = _run_stack_metadata(call, run_dir=run_dir)
     assert (out["library_count"], out["integration_count"]) == (3, 2)
+    # react pairs with express and zod: no hub (3 partners or more); react first, then the stronger tier.
+    assert (out["hubs"], out["library_order"]) == ([], ["react", "zod", "express"])
+    code = _run_stack_metadata(call, run_dir=run_dir, mode="code")
+    assert code["library_order"] == ["react", "express", "zod"], "code mode breaks a tie by import count"
+
+
+def test_the_hubs_and_the_tier_counts_come_from_the_bundle(run_dir):
+    """#1154 determinism-2 and determinism-8: step 5 §4 reads the hubs, and step 4 §4 the libraries per tier, from a
+    metadata run on the bundle file, so no step counts partners, orders libraries or bins tiers by hand."""
+    detect = _sections(_body(_read(DETECT)))
+    call = _call(detect["4"], "renderStackMetadataHelper", "metadata")
+    assert call.strip() == 'uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"'
+    assert detect["4"].index("Write the graph into `{bundleFile}`") < detect["4"].index(call), \
+        "step 5 reads the hubs before it writes the graph"
+    assert "Its `hubs` lists each hub library and its partners" in detect["4"]
+    assert "each hub library of §4's `hubs` with its partners" in detect["5"]
+    extract_four = _sections(_body(_read(EXTRACT)))["4"]
+    assert _call(extract_four, "renderStackMetadataHelper", "metadata") == call
+    assert "never by hand" in extract_four and "the call's `confidence_distribution`" in extract_four
+    for path in STEP_FILES:
+        text = _read(path)
+        for stale in ("connected to 3+", "Identify **hub libraries**", "3+ partners", "integration connectivity"):
+            assert stale not in text, (path.name, stale)
+    # Step 4 §4 runs before any pair: each library once, in the bin of its tier.
+    out = _run_stack_metadata(call, run_dir=run_dir, mode="code", with_pairs=False)
+    assert (out["confidence_distribution"], out["hubs"]) == ({"t1": 1, "t1_low": 1, "t2": 1, "t3": 0}, [])
+    # Step 5 §4 runs on the graph it wrote: react pairs with three libraries.
+    bundle = run_dir / "extraction-bundle.json"
+    bundle.write_text(json.dumps({"mode": "code", "per_library_extractions": [
+        {"library": name, "confidence": "T1", "file_count": count}
+        for name, count in (("react", 12), ("express", 9), ("zod", 3), ("axios", 5))],
+        "integrations": [{"a": "react", "b": partner, "type": "adapter", "tier": "T1", "qualifier": "grep-co-import"}
+                         for partner in ("express", "zod", "axios")]}), encoding="utf-8")
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(call, {"{bundleFile}": str(bundle)})],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["hubs"] == [{"library": "react", "partners": ["axios", "express", "zod"]}]
+    assert out["library_order"] == ["react", "express", "axios", "zod"]
+
+
+def test_step_4_writes_the_compose_entries_from_the_helper_skeletons():
+    """#1154 determinism-4: compose-extract §1 asks the enumerate helper for each confirmed skill's bundle entry and
+    halts on a name it no longer finds; §3 writes that entry as it stands and adds only what §2 returned."""
+    sections = _sections(_body(_read(COMPOSE_EXTRACT)))
+    call = _call(sections["1"], "enumerateStackSkillsHelper", "enumerate")
+    assert '--bundle-entries "<names>"' in call
+    assert "`<names>` are the confirmed skills' `skill_dir`s, comma-separated" in sections["1"]
+    halt = _slice(sections["1"], "If `bundle_entries_missing[]` names a confirmed skill", "re-run [SS].")
+    assert "phase `compose-extract:constituent-gone`" in halt
+    shape = json.loads(_first_fence(_from(sections["1"], "Its JSON, in `{stackInventoryFile}`, has the form:")))
+    enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_bundle_entries")
+    [skeleton] = enumerate_.compute_bundle_entries(
+        [{"name": "react", "path": "react", "version": None, "source_authority": None, "exports": [],
+          "exports_source": "unknown", "evidence_tier": "T1-low"}], Path("skills"), ["react"])["bundle_entries"]
+    assert list(shape["bundle_entries"][0]) == list(skeleton), "the documented skeleton is not the helper's"
+    assert "bundle_entries_missing" in shape
+    three = sections["3"]
+    assert len(re.findall(r"^- ", three, re.MULTILINE)) == 1, "§3 maps a field by hand"
+    for gone in ("`library`: ", "`exports`: ", "`exports_source`: ", "from step 2's entry"):
+        assert gone not in three, gone
+    assert "No `metadata_hash`" in three
 
 
 def test_working_files_go_after_commit_and_the_folder_after_the_envelope():
@@ -3296,10 +3463,11 @@ def test_a_compose_run_reads_its_own_stage_files():
 
 def test_detect_integrations_fits_its_budget():
     """architecture-6: a stage that keeps a compose guard stays under the 4,500-token budget of a multi-branch
-    file. #1151: 11,910 characters measured 2,941 cl100k tokens; the ceiling is that length rounded up to 50, so
-    a detect-integrations.md that grows past it is measured again."""
+    file. #1151: 11,910 characters measured 2,941 cl100k tokens; #1154 (the bundle-form calls and the hub run):
+    12,025 characters, 2,967 tokens. The ceiling is that length rounded up to 50, so a detect-integrations.md that
+    grows past it is measured again."""
     text = _read(DETECT)
-    assert len(text) < 11_950, len(text)
+    assert len(text) < 12_050, len(text)
     goal = _slice(text, "## STEP GOAL:\n", "\n## Rules")
     assert ("Find the library pairs whose co-imports show where and how they connect in this codebase, classify every "
             "pair, compose mode's included, and build the integration graph.") in goal
@@ -3410,20 +3578,26 @@ def test_compose_pairs_write_their_entries_for_step_5_section_3():
     assert three.startswith("### 3. Write the Kept Pairs\n\nSet `{bundleFile}`'s `integrations[]` to one entry per "
                             "kept pair, so `references/detect-integrations.md` §3 reads them from disk:")
     entry = json.loads(_first_fence(three))
-    assert list(entry) == ["a", "b", "qualifier", "detection_method", "evidence", "reference", "vs"]
-    mappings = dict(re.findall(r"^- `([a-z-]+)`: .*Maps to `detection_method: ([a-z_]+)`", three, re.MULTILINE))
-    assert mappings == {"architecture-co-mention": "architecture_co_mention",
-                        "constituent-documented-contract": "constituent_documented_contract",
-                        "inferred-shared-domain": "inferred_from_shared_domain"}, mappings
+    # #1154 determinism-3: the pair carries its qualifier; the provenance helper derives the detection_method.
+    assert list(entry) == ["a", "b", "qualifier", "evidence", "reference", "vs"]
+    qualifiers = re.findall(r"^- `([a-z-]+)`: compose-mode pair", three, re.MULTILINE)
+    helper = _load(STACK_METADATA, "skf_render_stack_metadata_qualifiers")
+    assert qualifiers == list(helper.DETECTION_METHODS["compose"]), qualifiers
+    assert "Maps to" not in three and "detection_method:" not in three
+    assert "step 7's provenance helper derives its `detection_method` from it" in three
     schema = _read(SCHEMA)
-    for method in mappings.values():
-        assert f'"{method}"' in schema, method
+    for table in helper.DETECTION_METHODS.values():
+        for method in table.values():
+            assert f'"{method}"' in schema, method
     assert "With no pair kept, `integrations[]` stays empty." in three
     assert sections["4"].rstrip().endswith("its §1 sends a compose run to §3, which classifies these pairs.")
     # Step 5 §3 classifies and tiers those pairs, keeping what compose-pairs.md wrote.
     detect = _sections(_body(_read(DETECT)))
-    assert "  - A compose-mode pair keeps the `qualifier` and `detection_method` `references/compose-pairs.md` " \
-        "wrote." in detect["3"]
+    assert "  - A compose-mode pair keeps the `qualifier` `references/compose-pairs.md` wrote." in detect["3"]
+    assert "  - `grep-co-import`: " in detect["3"] and list(helper.DETECTION_METHODS["code"]) == ["grep-co-import"]
+    for path in STEP_FILES:
+        text = _read(path)
+        assert '"detection_method"' not in text and "Maps to `detection_method" not in text, path.name
     assert "When at least one pair qualifies, run it once on all of them" in detect["3"]
     assert "a compose-mode pair has none, so its `key_files` is `[]`" in detect["3"]
     assert "If none were detected, report that the libraries appear to operate independently" in detect["5"]
@@ -3443,7 +3617,7 @@ def test_compile_states_the_integration_layer_as_one_goal():
                   "one Library Pair Integrations entry per `integrations[]` entry",
                   "with file:line citations and its key files from `key_files`",
                   "from its entry's `type`, `evidence`, `reference`, `tier` and `qualifier`",
-                  "After the pairs, a Hub Library Connections list gives each hub library (`hubs`, 3+ partners)"):
+                  "After the pairs, a Hub Library Connections list gives each hub library of §1's `{hubs}`"):
         assert token in goal, token
     seven = sections["7"]
     assert seven.rstrip().endswith("Edit the draft yourself, or tell me what to change before the stack is written.\"")
