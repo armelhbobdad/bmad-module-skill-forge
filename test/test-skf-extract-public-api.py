@@ -1170,7 +1170,8 @@ WINDOWS_PATH = 'C:\\x\\"y.toml'
 
 def _empty(language: str, reason: str) -> dict:
     return {"language": language, "package_name": None, "version": None, "description": None, "exports": [],
-            "dependencies": [], "modules": [], "module_folders": [], "warnings": [reason], "unlisted": []}
+            "export_count": 0, "dependencies": [], "dependency_count": 0, "modules": [], "module_folders": [],
+            "warnings": [reason], "unlisted": [], "reexport_files": []}
 
 
 class TestQuickEnvelope:

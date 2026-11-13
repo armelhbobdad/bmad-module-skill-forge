@@ -135,8 +135,8 @@ or no file at all:
   --mode quick --language <language> --empty-envelope <reason>
 
 --empty-envelope prints the envelope of a package no file was read for:
-the language lowercased, every list empty, no package name, version or
-description, and <reason> as its one warning. --envelope-on-error prints
+the language lowercased, every list empty, each count 0, no package name,
+version or description, and <reason> as its one warning. --envelope-on-error prints
 that envelope, the error message as its one warning, where a call with
 file inputs fails (exit 1 or 2), so a caller that redirects stdout to a
 file never leaves it empty.
@@ -5715,8 +5715,8 @@ def _empty_envelope(language: str, reason: str) -> dict:
     result that read no file carries, every list empty and `reason` its one
     warning (--empty-envelope, and --envelope-on-error's failed call)."""
     return {"language": language.lower(), "package_name": None, "version": None, "description": None,
-            "exports": [], "dependencies": [], "modules": [], "module_folders": [], "warnings": [reason],
-            "unlisted": []}
+            "exports": [], "export_count": 0, "dependencies": [], "dependency_count": 0, "modules": [],
+            "module_folders": [], "warnings": [reason], "unlisted": [], "reexport_files": []}
 
 
 def _read_quick_file(root: Path | None, value: str, flag: str) -> dict:
