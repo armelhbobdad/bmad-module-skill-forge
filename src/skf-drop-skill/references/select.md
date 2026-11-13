@@ -180,7 +180,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 
-      In (a), `<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` and `on_disk` are true and whose `status` is not `"deprecated"` (the rows are newest first); with no such entry, show `<version to keep>` as written.
+      In (a), `<version to keep>` is the `keep_candidate` of `{target_skill}`'s roster entry; when it is null, show `<version to keep>` as written.
 
       HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the §1 halt envelope. Do not proceed.
 

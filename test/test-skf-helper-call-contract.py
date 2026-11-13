@@ -459,8 +459,12 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-verify-provenance-completeness.py", "fix"),
     ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "update"),
     ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "verify"),
-    ("src/skf-drop-skill/references/execute.md", "skf-update-active-symlink.py", "update"),
-    ("src/skf-drop-skill/references/report.md", "skf-manifest-ops.py", "affected-versions"),
+    # Drop Skill (#1158): the `active` repair, the final-state check, the remaining versions from the roster and
+    # the headless-purge guard its SKILL.md runs.
+    ("src/skf-drop-skill/references/execute.md", "skf-update-active-symlink.py", "repair-after-drop"),
+    ("src/skf-drop-skill/references/execute.md", "drop-roster.py", "verify"),
+    ("src/skf-drop-skill/references/report.md", "drop-roster.py", "skills"),
+    ("src/skf-drop-skill/SKILL.md", "drop-roster.py", "activation"),
     # A helper the SKILL.md resolves at activation, and a stage that calls it.
     ("src/skf-brief-skill/SKILL.md", "skf-emit-result-envelope.py", "emit-halt"),
     ("src/skf-brief-skill/references/write-brief.md", "skf-emit-result-envelope.py", "emit"),

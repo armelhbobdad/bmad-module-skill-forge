@@ -761,10 +761,10 @@ class TestBodyOnlyContent:
 RENAME_EXECUTE = "src/skf-rename-skill/references/execute.md"
 DROP_EXECUTE = "src/skf-drop-skill/references/execute.md"
 EXPORT_UPDATE = "src/skf-export-skill/references/update-context.md"
-# Each rebuild section, and the flag that tells assemble which rows the operation removes.
+# Each rebuild section that runs check, assemble and replace itself, and the flag that tells assemble which rows
+# the operation removes. Drop's section 3 makes one `rebuild` call instead (#1158), which TestRebuild runs.
 REBUILD_STEPS = [
     (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. ", "--renamed {old_name}:{new_name}"),
-    (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ", "--dropped {target_skill}"),
 ]
 BODY_CALL_RE = re.compile(r"\{rebuildManagedSectionsHelper\}\s+\S+\s+(replace|insert)\b")
 MARKER_LINE_RE = re.compile(r"^\s*<!--\s*SKF:(?:BEGIN|END)")
@@ -813,11 +813,11 @@ def _helper_calls(text: str) -> list[str]:
 
 
 def _rebuild_calls(flag: str) -> list[str]:
-    """The check, assemble and replace calls drop §3 and rename §7 make, in that order."""
+    """The check, assemble and replace calls rename §7 makes, in that order, each target with its own skill root."""
     return [
         'python3 {rebuildManagedSectionsHelper} "{context_path}" check',
         'python3 {rebuildManagedSectionsHelper} assemble "{context_path}" --skills-folder "{skills_output_folder}" '
-        f'--skill-root "{{skill_root}}" {flag} --orphan-sources {{target_paths}} {OVERRIDE_GROUP}',
+        f'--skill-root "{{target_skill_root}}" {flag} --orphan-sources {{target_paths}} {OVERRIDE_GROUP}',
         'python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{context_path}.skf-content"',
     ]
 
@@ -833,8 +833,7 @@ class TestCallersPassTheBody:
                 if m:
                     rel = path.relative_to(REPO).as_posix()
                     sites.setdefault(rel, []).append(m.group(1))
-        assert sites == {RENAME_EXECUTE: ["replace"], DROP_EXECUTE: ["replace"],
-                         EXPORT_UPDATE: ["insert", "replace"]}
+        assert sites == {RENAME_EXECUTE: ["replace"], EXPORT_UPDATE: ["insert", "replace"]}
 
     @pytest.mark.parametrize("rel, start, end, flag", REBUILD_STEPS)
     def test_rebuild_lets_the_helper_build_the_body(self, rel, start, end, flag):
@@ -875,7 +874,7 @@ class TestCallersPassTheBody:
         context_file.write_bytes(REAL_CLAUDE_MD.replace("|IMPORTANT: zod", "|IMPORTANT: old-zod").encode("utf-8"))
         values = {
             "rebuildManagedSectionsHelper": shlex.quote(str(SCRIPT)), "context_path": str(context_file),
-            "skills_output_folder": str(forge.skills), "skill_root": ".claude/skills/",
+            "skills_output_folder": str(forge.skills), "target_skill_root": ".claude/skills/",
             "target_paths": shlex.quote(str(context_file)), "old_name": "old-zod", "new_name": "zod",
             "target_skill": "gone",
         }
@@ -2368,3 +2367,205 @@ class TestGotchasResolve:
     def test_resolve_refuses_a_count_that_differs_in_process(self):
         with pytest.raises(ValueError):
             mod.resolve_gotchas(mod.read_gotchas("a; b"), [True], [], False)
+
+
+# ---------------------------------------------------------------------------
+# rebuild: Drop Skill's one call that rebuilds every target (#1158)
+# ---------------------------------------------------------------------------
+
+# Drop §3's documented call, with the override group as its last word.
+DROP_REBUILD = (
+    'python3 {rebuildManagedSectionsHelper} rebuild --project-root "{project-root}" --ides "{ides}" '
+    f'--skills-folder "{{skills_output_folder}}" --dropped {{target_skill}} {OVERRIDE_GROUP}'
+)
+
+
+def _rebuild_project(tmp_path: Path) -> Forge:
+    """foo and bar exported; CLAUDE.md and AGENTS.md list them under old roots, with the dropped `gone` and an orphan."""
+    forge = Forge(tmp_path)
+    forge.export("foo", "1.0.0")
+    forge.export("bar", "2.0.0")
+    forge.context("CLAUDE.md", "|[foo v1.0.0]|root: skills/foo/", "|[gone v3.0.0]|root: .claude/skills/gone/",
+                  "|[ext v1.0]|root: x/ext/\n|IMPORTANT: installed from elsewhere")
+    forge.context("AGENTS.md", "|[foo v1.0.0]|root: skills/foo/", "|[gone v3.0.0]|root: .agents/skills/gone/")
+    return forge
+
+
+def _section_body(path: Path) -> str:
+    return mod.find_managed_section(path.read_bytes().decode("utf-8")).group(2)
+
+
+def _rebuild_cli(*args: str, tmp: Path) -> subprocess.CompletedProcess:
+    """The CLI with its temp folder in `tmp`, so a staging folder it leaves shows there."""
+    env = {**os.environ, "TMPDIR": str(tmp), "TMP": str(tmp), "TEMP": str(tmp)}
+    return subprocess.run([sys.executable, str(SCRIPT), "rebuild", *args], stdin=subprocess.DEVNULL,
+                          capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
+
+
+class TestRebuild:
+    """Suite 24: rebuild runs check, assemble and replace for every target, each with its own skill root."""
+
+    @pytest.mark.parametrize("override", [None, "skills/"], ids=["ide-roots", "override"])
+    def test_two_ides_give_each_file_its_own_root(self, tmp_path, tmp_path_factory, override):
+        forge = _rebuild_project(tmp_path)
+        before = {name: (tmp_path / name).read_bytes().decode("utf-8") for name in ("CLAUDE.md", "AGENTS.md")}
+        tmp = tmp_path_factory.mktemp("os-temp")
+        proc = _rebuild_cli("--project-root", str(tmp_path), "--ides", "claude-code,codex", "--skills-folder",
+                            str(forge.skills), "--dropped", "gone",
+                            *(["--skill-root-override", override] if override else []), tmp=tmp)
+        assert proc.returncode == 0 and proc.stderr == "", proc.stdout + proc.stderr
+        out = json.loads(proc.stdout)
+        claude, agents = tmp_path / "CLAUDE.md", tmp_path / "AGENTS.md"
+        assert out == {"status": "ok", "updated": [str(claude), str(agents)], "failed": [], "skipped": [],
+                       "warnings": []}
+        for path, root in ((claude, ".claude/skills/"), (agents, ".agents/skills/")):
+            prefix = override or root
+            rows = [line for line in _section_body(path).split("\n") if line.startswith("|[")]
+            assert rows == [f"|[bar v2.0.0]|root: {prefix}bar/", "|[ext v1.0]|root: x/ext/",
+                            f"|[foo v1.0.0]|root: {prefix}foo/"], path.name
+            # The bytes export's assemble builds for that target, from the files as the drop found them.
+            copy = tmp_path_factory.mktemp("export") / path.name
+            copy.write_bytes(before[path.name].encode("utf-8"))
+            others = [tmp_path_factory.mktemp("other") / name for name in ("CLAUDE.md", "AGENTS.md")]
+            for other in others:
+                other.write_bytes(before[other.name].encode("utf-8"))
+            sources = [str(copy if other.name == path.name else other) for other in others]
+            expected = mod.cmd_assemble(str(copy), str(forge.skills), root, override=override, dropped=["gone"],
+                                        orphan_sources=sources, out=str(copy) + ".out")
+            assert _section_body(path) == "\n" + Path(expected["content_file"]).read_bytes().decode("utf-8") + "\n"
+            assert path.read_bytes().decode("utf-8").startswith("# Project\n\n<!-- SKF:BEGIN updated:")
+        assert not list(tmp_path.rglob("*.skf-content")) and not list(tmp.iterdir()), "no staged body is left"
+
+    @pytest.mark.parametrize("state, outcome", [
+        ("missing", ("skipped", "create")),
+        ("no-section", ("skipped", "append")),
+        ("malformed", ("failed", "Malformed SKF markers in")),
+        ("unreadable", ("failed", "is not UTF-8 text")),
+    ])
+    def test_one_file_that_cannot_be_rebuilt_leaves_the_rest(self, tmp_path, state, outcome):
+        forge = _rebuild_project(tmp_path)
+        forge.context(".cursorrules", "|[foo v1.0.0]|root: skills/foo/")
+        claude = tmp_path / "CLAUDE.md"
+        if state == "missing":
+            claude.unlink()
+        else:
+            claude.write_bytes({"no-section": b"# Project\n", "malformed": DANGLING.encode("utf-8"),
+                                "unreadable": CP1252_CLAUDE_MD}[state])
+        kept = claude.read_bytes() if claude.exists() else None
+        result = mod.cmd_rebuild(str(tmp_path), "claude-code,cursor,codex", str(forge.skills), dropped=["gone"])
+        assert result["status"] == "ok", result
+        rest = [str(tmp_path / ".cursorrules"), str(tmp_path / "AGENTS.md")]
+        assert result["updated"] == rest
+        kind, said = outcome
+        if kind == "skipped":
+            assert (result["skipped"], result["failed"]) == ([{"file": str(claude), "case": said}], [])
+        else:
+            [failed] = result["failed"]
+            assert result["skipped"] == [] and failed["file"] == str(claude) and said in failed["error"]
+        assert (claude.read_bytes() if claude.exists() else None) == kept, "the file is left as it was"
+        for path in rest:
+            assert "|[foo v1.0.0]|root: " in _section_body(Path(path)) and "gone" not in _section_body(Path(path))
+        assert not list(tmp_path.rglob("*.skf-content"))
+
+    def test_a_mapping_it_cannot_read_is_an_error(self, tmp_path, monkeypatch):
+        forge = _rebuild_project(tmp_path)
+        before = (tmp_path / "CLAUDE.md").read_bytes()
+        broken = tmp_path / "ide-context-files.json"
+        broken.write_text('{"ides": {"x": {"context_file": "X.md"}}}', encoding="utf-8")
+        monkeypatch.setattr(mod, "IDE_DATA_FILE", broken)
+        result, code = mod._run_action_first(["rebuild", "--project-root", str(tmp_path), "--ides", "claude-code",
+                                              "--skills-folder", str(forge.skills)])
+        assert code == 1 and result["status"] == "error" and "ide-context-files.json" in result["error"]
+        assert (tmp_path / "CLAUDE.md").read_bytes() == before
+
+    def test_warnings_leave_out_the_dropped_skill(self, tmp_path):
+        """The dropped skill's deprecated active version is the drop itself; another skill's missing snippet is not."""
+        forge = _rebuild_project(tmp_path)
+        forge.export("gone", "3.0.0", status="deprecated")
+        (forge.export("nosnip", "0.1.0") / "context-snippet.md").unlink()
+        result = mod.cmd_rebuild(str(tmp_path), "claude-code", str(forge.skills), dropped=["gone"])
+        assert result["updated"] == [str(tmp_path / "CLAUDE.md")]
+        assert result["warnings"] == ["CLAUDE.md: nosnip: no context-snippet.md was found for 0.1.0, so it has no row"]
+        result = mod.cmd_rebuild(str(tmp_path), "claude-code", str(forge.skills))
+        assert "CLAUDE.md: gone: its active version 3.0.0 is deprecated, so it has no row" in result["warnings"]
+
+    def test_warnings_name_each_skill_assemble_leaves_out_or_warns_about(self, tmp_path):
+        """An assemble warning, a manifest entry it cannot use and a snippet it skips each give one line."""
+        forge = _rebuild_project(tmp_path)
+        noroot = forge.export("noroot", "0.2.0", snippet="[noroot v0.2.0]\n|IMPORTANT: no root\n")
+        forge.exports["broken"] = {"active_version": "3.0.0", "versions": {}}
+        forge.save()
+        badsnip = forge.export("badsnip", "1.0.0", snippet="just prose\n")
+        result = mod.cmd_rebuild(str(tmp_path), "claude-code", str(forge.skills), dropped=["gone"])
+        assert result["updated"] == [str(tmp_path / "CLAUDE.md")]
+        assert result["warnings"] == [
+            f"CLAUDE.md: noroot: {noroot / 'context-snippet.md'} has no root: field, so its row keeps no root path",
+            "CLAUDE.md: broken: its manifest entry cannot be used (active_version 3.0.0 has no entry under versions), "
+            "so it has no row",
+            f"CLAUDE.md: badsnip: its snippet {badsnip / 'context-snippet.md'} was skipped: its first line is not a "
+            "[skill-name vX.Y.Z] row header",
+        ]
+
+    @pytest.mark.parametrize("step", ["assemble", "replace"])
+    def test_a_file_whose_step_fails_is_failed_and_the_next_is_rebuilt(self, tmp_path, monkeypatch, step):
+        """A file whose assemble or replace returns an error is in `failed` with that error, never in `updated`."""
+        forge = _rebuild_project(tmp_path)
+        claude, agents = tmp_path / "CLAUDE.md", tmp_path / "AGENTS.md"
+        kept = claude.read_bytes()
+        real = getattr(mod, f"cmd_{step}")
+
+        def fail_on_claude(path, *args, **kwargs):
+            if Path(path) == claude:
+                return {"status": "error", "error": f"{step} refused it"}
+            return real(path, *args, **kwargs)
+
+        monkeypatch.setattr(mod, f"cmd_{step}", fail_on_claude)
+        stage = tmp_path / "os-temp"
+        stage.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(stage))
+        result = mod.cmd_rebuild(str(tmp_path), "claude-code,codex", str(forge.skills), dropped=["gone"])
+        assert result["failed"] == [{"file": str(claude), "error": f"{step} refused it"}]
+        assert result["updated"] == [str(agents)]
+        assert claude.read_bytes() == kept, "the file is left as it was"
+        assert "|[foo v1.0.0]|root: .agents/skills/foo/" in _section_body(agents)
+        assert not list(stage.iterdir()) and not list(tmp_path.rglob("*.skf-content")), "no staged body is left"
+
+    def test_an_orphan_row_assemble_refuses_fails_each_file_that_reads_it(self, tmp_path):
+        """A marker variant in an orphan row passes check, and assemble refuses every target that reads that row."""
+        forge = _rebuild_project(tmp_path)
+        claude, agents = tmp_path / "CLAUDE.md", tmp_path / "AGENTS.md"
+        forge.context("CLAUDE.md", "|[foo v1.0.0]|root: skills/foo/", "|[ext v1.0]|root: x/ext/\n|note <!--SKF:END-->")
+        before = {path: path.read_bytes() for path in (claude, agents)}
+        assert mod.cmd_check(str(claude))["case"] == "regenerate"
+        result = mod.cmd_rebuild(str(tmp_path), "claude-code,codex", str(forge.skills), dropped=["gone"])
+        assert result["updated"] == []
+        assert [f["file"] for f in result["failed"]] == [str(claude), str(agents)]
+        assert all("an orphan row to keep holds an SKF marker" in f["error"] for f in result["failed"])
+        assert {path: path.read_bytes() for path in (claude, agents)} == before
+
+    def test_a_bad_dropped_name_exits_2(self, tmp_path):
+        proc = _rebuild_cli("--project-root", str(tmp_path), "--skills-folder", str(tmp_path), "--dropped", "a/b",
+                            tmp=tmp_path)
+        assert proc.returncode == 2
+
+    @pytest.mark.parametrize("override", [None, "skills/"], ids=["ide-roots", "override"])
+    def test_drop_runs_the_call_it_documents(self, tmp_path, override):
+        """Drop §3's call, filled in as an agent fills it, without a shell."""
+        forge = _rebuild_project(tmp_path)
+        [call] = [c for c in _helper_calls(_part(_md(DROP_EXECUTE), "### 3. Rebuild Context Files", "### 4. "))]
+        assert call == DROP_REBUILD
+        values = {"rebuildManagedSectionsHelper": str(SCRIPT), "ides": "claude-code,codex",
+                  "skills_output_folder": str(forge.skills), "target_skill": "gone",
+                  "snippet_skill_root_override": override or ""}
+        call = call.replace(OVERRIDE_GROUP, OVERRIDE_GROUP[1:-1] if override else "")
+        call = call.replace("{project-root}", "@@project_root@@")  # the hyphen is not a \w placeholder
+        values["project_root"] = str(tmp_path)
+        argv = [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], word)
+                for word in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call))]
+        assert argv[:2] == ["python3", str(SCRIPT)]
+        proc = subprocess.run([sys.executable, *argv[1:]], capture_output=True, timeout=60)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        out = json.loads(proc.stdout.decode("utf-8"))
+        assert out["updated"] == [str(tmp_path / "CLAUDE.md"), str(tmp_path / "AGENTS.md")]
+        agents = _section_body(tmp_path / "AGENTS.md")
+        assert f"|[foo v1.0.0]|root: {override or '.agents/skills/'}foo/" in agents and "gone" not in agents

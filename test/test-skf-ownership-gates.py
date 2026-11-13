@@ -625,7 +625,7 @@ def test_rename_recreates_active_with_flip_link():
     assert "§3 + §6" not in execute.split("\n---\n", 1)[0]
     drop = _read(DROP_EXECUTE)
     assert "skf-rename-skill/references/execute.md" not in drop, "rename no longer uses the symlink helper"
-    assert "or a missing helper (no probe candidate), as above with the manual fix" in drop, (
+    assert "When no candidate exists, or the helper prints no JSON, record the same way the manual repair" in drop, (
         "drop §4 records a missing helper, it does not halt")
 
 
@@ -1417,7 +1417,8 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
     verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 6. ")
-    assert "python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}" in verify
+    # #1158: drop-roster.py verify reads the manifest through skf-manifest-ops.py.
+    assert 'uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill}' in verify
     assert "Re-read `{skills_output_folder}/.export-manifest.json`" not in verify
 
 
@@ -1504,10 +1505,9 @@ LIFECYCLE_STEPS = {
                "assemble": (EXPORT_UPDATE, "#### 4b. Assemble One Body per Target", "#### 4c. "),
                "check": (EXPORT_UPDATE, "### 5. Check Each Target File", "### 6. "),
                "write": (EXPORT_UPDATE, "### 9. Write and Verify", "### 9b. ")},
+    # #1158: drop's section 3 runs check, assemble and replace for every target in one `rebuild` call.
     "drop": {"resolve": (DROP_SELECT, "3. **`context_files_count`**", "### 10."),
-             "assemble": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. "),
-             "check": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. "),
-             "write": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ")},
+             "rebuild": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ")},
     "rename": {"resolve": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
                "assemble": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
                "check": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
@@ -1552,8 +1552,10 @@ def _run_documented(call: str, values: dict, override: str | None) -> dict:
     """Fill a documented call in as an agent would and run it, without a shell (so on Windows too).
 
     Placeholders become sentinels before the words are split, so a Windows path keeps its
-    backslashes; a list value (the target paths) becomes one argument per path.
+    backslashes; a list value (the target paths) becomes one argument per path. `{project-root}`
+    is filled first: its hyphen is no `\\w` placeholder.
     """
+    call = call.replace("{project-root}", "{project_root}")
     if override:
         call = call.replace(OVERRIDE_GROUP, OVERRIDE_GROUP[1:-1])
         values = {**values, "snippet_skill_root_override": override}
@@ -1623,16 +1625,29 @@ def _run_lifecycle(root: Path, skill: str, override: str | None) -> dict:
     skills, config = _lifecycle_project(root, skill)
     values = {"rebuildManagedSectionsHelper": str(REBUILD_PY), "skills_output_folder": str(skills),
               "ides": config["ides"], "target_skill": "gone", "old_name": "old-beta", "new_name": "beta",
-              "batch_includes": "alpha@1.0.0", "orphan_mode": "keep", "export_stage_dir": str(root / "stage")}
+              "batch_includes": "alpha@1.0.0", "orphan_mode": "keep", "export_stage_dir": str(root / "stage"),
+              "project_root": str(root)}
     targets = _run_documented(_call(skill, "resolve", "resolve-targets"), values, override)["targets"]
     values["target_paths"] = [str(root / t["context_file"]) for t in targets]
+    if "rebuild" in LIFECYCLE_STEPS[skill]:  # one call rebuilds every target, from the same `ides`
+        result = _run_documented(_call(skill, "rebuild", "rebuild"), values, override)
+        assert result["updated"] == values["target_paths"] and result["failed"] == [], result
+        assert not list(root.rglob("*.skf-content")), "no staged body is left beside a context file"
     if skill == "export":  # step 2 staged the draft the package snippet was copied from
         draft = skills / "alpha" / "1.0.0" / "alpha" / "context-snippet.md"
         _write_bytes(root / "stage" / "drafts" / "alpha" / "context-snippet.md", draft.read_text(encoding="utf-8"))
     bodies = {}
     for target in targets:
         path = root / target["context_file"]
-        values.update(context_path=str(path), context_file=target["context_file"], skill_root=target["skill_root"],
+        if "rebuild" in LIFECYCLE_STEPS[skill]:
+            text = path.read_bytes().decode("utf-8")
+            bodies[target["context_file"]] = re.search(r"<!-- SKF:BEGIN updated:[^>]*-->\n(.*)\n<!-- SKF:END -->",
+                                                       text, re.S).group(1)
+            assert text.count("<!-- SKF:BEGIN") == 1 and text.count("<!-- SKF:END") == 1
+            continue
+        # Each target's own skill root: a bare `{skill_root}` bound to the first target would give AGENTS.md
+        # CLAUDE.md's root (#1158).
+        values.update(context_path=str(path), context_file=target["context_file"],
                       target_skill_root=target["skill_root"])
         case = _run_documented(_call(skill, "check", "check"), values, override)["case"]
         assembled = _run_documented(_call(skill, "assemble", "assemble"), values, override)
@@ -1665,7 +1680,7 @@ def test_export_drop_and_rename_write_byte_identical_sections(tmp_path, override
 
 def test_drop_and_rename_calls_name_what_the_operation_removed():
     """Without --dropped or --renamed, the removed skill's old rows would stay as orphan rows."""
-    assert "--dropped {target_skill}" in _call("drop", "assemble", "assemble")
+    assert "--dropped {target_skill}" in _call("drop", "rebuild", "rebuild")
     assert "--renamed {old_name}:{new_name}" in _call("rename", "assemble", "assemble")
     export = _call("export", "assemble", "assemble")
     assert "--include {batch_includes}" in export and '--out "{export_stage_dir}/previews/' in export

@@ -20,10 +20,11 @@ drop steps document, filled in as an agent fills them, against fixtures:
   names its phase, and the contract lists the schema's halt reasons. The
   headless auto-decisions select.md records reach the result record.
 - drop-roster.py, the roster select.md reads in one call, gives the counts the
-  active-version guard and the blast-radius line read; skf-skill-inventory.py
-  resolve gives the version execute.md points `active` at after a version
-  purge (that rule is prose the agent applies, so it is restated here as code
-  and run over the helper's output). test-skf-drop-roster.py tests the roster
+  active-version guard and the blast-radius line read, and the version the
+  guard's refusal names to keep (`keep_candidate`); skf-update-active-symlink.py
+  repair-after-drop, execute.md's documented call, points `active` at the
+  version the same rule picks after a version purge, and only when the link
+  names the purged version (#1158). test-skf-drop-roster.py tests the roster
   helper itself.
 - The active-version guard's refusal names a recovery that works (step 5b
   gate run 3, enhancement-3, #1172): Export Skill with `--version` and the
@@ -41,10 +42,16 @@ drop steps document, filled in as an agent fills them, against fixtures:
 - skf-manifest-ops.py runs the skill-level manifest calls execute.md documents:
   a whole-skill deprecate marks every version deprecated and keeps the entry,
   and only a purge removes it.
-- A repoint the helper cannot make (#732) is recorded as `active_link_dangling`
-  with the helper's line and a fix that runs `skf-atomic-write.py flip-link`,
-  which also works on native Windows without symlink rights (#735); the guard
-  refusal's recovery, Export Skill's `--version`, runs the same command.
+- A repair the helper cannot make (#732) is recorded as `active_link_dangling`
+  with the helper's `manual_fix`, or, when it prints no JSON, with the one
+  fix execute.md states, which runs `skf-atomic-write.py flip-link` and also
+  works on native Windows without symlink rights (#735); the guard refusal's
+  recovery, Export Skill's `--version`, runs the same command.
+- No step decides in the prompt what a helper computes (#1158): execute.md
+  rebuilds the context files with one `rebuild` call (each file with its own
+  skill root), checks the final state with `drop-roster.py verify`, and
+  report.md lists the remaining versions from the roster; SKILL.md binds the
+  headless-purge guard from `drop-roster.py activation`.
 """
 
 from __future__ import annotations
@@ -513,7 +520,7 @@ ACTIVATION_HELPERS = {"emitEnvelope": "skf-emit-result-envelope.py", "manifestOp
 # The ones each stage runs, and so declares a probe order for.
 STAGE_HELPERS = {SELECT: ("emitEnvelope", "rebuildManagedSections"),
                  EXECUTE: ("emitEnvelope", "manifestOps", "rebuildManagedSections"),
-                 REPORT: ("manifestOps", "emitEnvelope")}
+                 REPORT: ("emitEnvelope",)}
 LOST_BINDING_RULE = "- When a helper is not bound, it resolves to the first existing path in its probe order: "
 
 
@@ -574,7 +581,7 @@ def test_a_stage_that_lost_a_helper_runs_the_one_its_probe_order_finds(tmp_path)
     """#1116, restated as code: a stage resolves a helper whose binding a compaction dropped to the first path of its
     probe order that exists, the installed copy when SKF is installed and the development tree's otherwise, and to
     none when neither exists (the helper's command then fails, and the step's own branch for that applies). The
-    copy execute.md's order finds runs §5's documented manifest check."""
+    copy execute.md's order finds runs §2's documented skill-level purge."""
     installed, dev = tmp_path / "installed", tmp_path / "dev"
     for root, folders in ((installed, ("_bmad/skf/shared/scripts", "src/shared/scripts")),
                           (dev, ("src/shared/scripts",))):
@@ -596,14 +603,13 @@ def test_a_stage_that_lost_a_helper_runs_the_one_its_probe_order_finds(tmp_path)
             assert first(probe, tmp_path / "neither") is None, (rel, stem)
     execute = _read(EXECUTE)
     helper = first(yaml.safe_load(execute.removeprefix("---\n").split("\n---\n", 1)[0])["manifestOpsProbeOrder"], dev)
-    check = _one_command(_section(execute, "### 5. Verify Final State", "### 6. "), "{manifestOpsHelper}")
     skills = tmp_path / "skills"
     skills.mkdir()
     _write_manifest(skills, "cognee", "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"})
-    proc = _run(check, {"manifestOpsHelper": str(helper), "skills_output_folder": str(skills),
-                        "target_skill": "cognee"})
+    proc = _run(_skill_level_calls()["purge"], {"manifestOpsHelper": str(helper), "skills_output_folder": str(skills),
+                                                "target_skill": "cognee"})
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["entry"]["versions"]["0.5.0"]["status"] == "deprecated"
+    assert "cognee" not in json.loads((skills / ".export-manifest.json").read_text(encoding="utf-8"))["exports"]
 
 
 def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
@@ -779,11 +785,22 @@ def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
     """
     activation = _section(_read(SKILL), "## On Activation", None)
     binding = next(line for line in activation.splitlines() if "`{forbidPurgeInHeadless}` ←" in line)
-    assert "on when `workflow.forbid_purge_in_headless` holds any value other than the empty string" in binding
-    assert 'non-`"true"`' not in binding
+    # #1158: the helper reads the value; the agent never decides by hand whether a JSON `false` is on.
+    assert ("the `purge_forbidden` that step 4's `activation` call reads from `workflow.forbid_purge_in_headless`"
+            in binding)
+    assert "holds any value other than the empty string" not in binding and 'non-`"true"`' not in binding
     guard = _section(activation, "Last, the headless-purge guard.", "5. Load")
-    assert ('If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, '
-            'HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`') in guard
+    assert ('When `{headless_mode}` is true, the `mode` arg is `"purge"` and the §3 resolver ran, write the JSON it '
+            'printed, as printed, to `{run_dir}/customization.json` with a file write') in guard
+    assert _one_command(guard, "{dropRosterHelper}") == (
+        'uv run {dropRosterHelper} activation < "{run_dir}/customization.json"')
+    assert ("Bind `{forbidPurgeInHeadless}` ← its `purge_forbidden`, which is on for any value other than the empty "
+            'string (a TOML `true`, `false` or `"false"` included); a non-zero exit, or no JSON, counts as on.') in guard
+    assert guard.index("activation <") < guard.index(
+        'If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, '
+        'HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`')
+    # The §3 resolver stays one call: the guard reads what it printed.
+    assert activation.count("{resolveCustomizationHelper} --skill") == 1
     assert "empty the setting in the team or personal override that sets it" in guard, "never the base file"
     comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", 'forbid_purge_in_headless = ""')
     assert "Any value other than the empty string turns the guard on" in comment
@@ -929,8 +946,9 @@ def test_the_skill_level_manifest_call_follows_the_drop_mode(tmp_path, drop_mode
 
 def test_the_whole_skill_deprecate_is_checked_and_reported_as_kept():
     verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
-    assert ('Skill-level deprecate: every version in `entry.versions` has `status` `"deprecated"`. '
-            'Skill-level purge: `status` is `"not_found"`.') in verify
+    # drop-roster.py verify expects every version deprecated for a whole-skill deprecate, and no entry for a purge.
+    assert "--mode {drop_mode} [--version {version}]" in _one_command(verify, "{dropRosterHelper} verify")
+    assert "Pass `--version` for a version-level drop." in verify
     remaining = _section(_read(REPORT), "### 1. Determine Remaining Versions", "### 2. ")
     assert '**If `is_skill_level == true` and `drop_mode == "purge"`:**' in remaining
     assert "a whole-skill deprecate, which keeps every version in the manifest" in remaining
@@ -987,8 +1005,10 @@ def test_the_guard_and_the_blast_radius_read_the_roster_counts():
     assert "`{version_counts}.non_deprecated` (§5)" in blast and "`{version_counts}.on_disk` for a draft" in blast
     assert "count of non-deprecated versions in" not in blast and "Without `{version_counts}`" not in blast
     delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
-    assert "`resolve.newest_non_deprecated`" in delete and "`resolve.counts.non_deprecated`" in delete
-    assert "the newest non-deprecated version in its `versions` map" not in delete
+    # #1158: the repair helper picks the version, never the prompt from `resolve`'s fields.
+    for gone in ("{skillInventoryHelper} resolve", "resolve.newest_non_deprecated", "resolve.counts.non_deprecated",
+                 "{new_active_version}", "the newest non-deprecated version in its `versions` map"):
+        assert gone not in delete, gone
 
 
 def _write_skill(skills: Path, name: str, version: str) -> None:
@@ -1050,8 +1070,9 @@ def test_the_guard_refusal_names_a_recovery_that_works():
     assert "with a different version selected" not in guard, "the refusal names the command to run"
     assert ("run `[EX] Export Skill {target_skill} --version <version to keep>`, which points the `active` link at "
             "that version, exports it and archives `{version}`, then return here to drop `{version}`") in guard
-    assert ("`<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` "
-            "and `on_disk` are true and whose `status` is not `\"deprecated\"`") in guard
+    assert ("In (a), `<version to keep>` is the `keep_candidate` of `{target_skill}`'s roster entry; when it is null, "
+            "show `<version to keep>` as written.") in guard
+    assert "first `{version_rows}` entry other than" not in guard, "the roster helper picks it (#1158)"
     # The recovery runs no command of select.md's own, so it binds no helper for it (lane review finding 3).
     assert "atomicWrite" not in _read(SELECT)
     safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
@@ -1064,12 +1085,6 @@ def test_the_guard_refusal_names_a_recovery_that_works():
     for text in (guard, safety, drop):
         assert "ln -s" not in text, "Git Bash without symlink rights turns `ln -s` into a copy of the folder"
         assert "flip-link" not in text, "Export Skill moves the link: no recovery asks for a flip by hand"
-
-
-def _version_to_keep(entry: dict, version: str) -> str | None:
-    """select.md §7 (a): the `<version to keep>` the refusal names (prose the agent applies, restated as code)."""
-    return next((row["version"] for row in entry["versions"] if row["version"] != version and row["in_manifest"]
-                 and row["on_disk"] and row["status"] != "deprecated"), None)
 
 
 def _link_active(group: Path, version: str) -> None:
@@ -1119,7 +1134,7 @@ def test_the_guard_recovery_lets_the_drop_through(tmp_path):
     assert entry["counts"]["non_deprecated"] > 1, "§7 refuses to drop the active 0.6.0"
     # Re-running Export Skill alone exports 0.6.0 again, and §7 would refuse again.
     assert _export_resolve(skills, forge, "cognee")["chosen_version"] == "0.6.0"
-    keep = _version_to_keep(entry, "0.6.0")
+    keep = entry["keep_candidate"]  # select.md §7 (a): the roster names the version to keep (#1158)
     assert keep == "0.5.0"
     # The recovery the refusal names, as the agent fills it in: Export Skill with `--version 0.5.0`.
     guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
@@ -1162,118 +1177,142 @@ def test_roster_lists_a_draft_skill_by_its_folders(tmp_path):
     assert entry["purge_only"] is True
 
 
-def _new_active(resolved: dict) -> str | None:
-    """execute.md §4: the version `active` points at after a version purge, or None to remove it."""
-    if resolved["counts"]["non_deprecated"] == 0:
-        return None
-    status = {row["version"]: row["status"] for row in resolved["versions"]}
-    active = resolved["active_version"]
-    if active is None or status.get(active) == "deprecated":
-        return resolved["newest_non_deprecated"]
-    return active
-
-
-def test_the_new_active_rule_covers_a_null_active_version():
+def _repair(values: dict) -> subprocess.CompletedProcess:
+    """§4's documented `repair-after-drop` call, filled in and run."""
     delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
-    assert ("`{new_active_version}` ← `resolve.active_version`, the version the manifest lists as active, "
-            "unless it is null or its `resolve.versions` entry has `status` `\"deprecated\"`; "
-            "then `resolve.newest_non_deprecated`") in delete
+    return _run(_one_command(delete, "repair-after-drop"), values)
 
 
-def test_a_busy_repoint_is_recorded_with_a_fix_for_after_the_other_run():
-    """#723: the helper waits for another flip of `active` and exits 2 `busy` when it keeps the lock."""
+def _purged(tmp_path: Path, active: str | None, statuses: dict, dropped: str, link: str) -> Path:
+    """The skills folder step 2 leaves after purging `dropped`: deprecated in the manifest, its folder deleted."""
+    skills = tmp_path / "skills"
+    for version in {*statuses, link}:
+        _write_skill(skills, "cognee", version)
+    _write_manifest(skills, "cognee", active, {**statuses, dropped: "deprecated"})
+    _link_active(skills / "cognee", link)
+    shutil.rmtree(skills / "cognee" / dropped)
+    return skills
+
+
+def test_the_repair_is_one_helper_call_with_one_fallback_fix():
+    """#1158 determinism-1 and leanness-5: the helper reads the link and picks the version; execute.md states the
+    one flip-link fix, for a helper that prints no JSON."""
     delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
-    assert ("Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "
-            "\"once the other run has finished, if `active` still names the dropped version, run "
-            "`uv run {atomicWriteHelper} flip-link --link \"{skills_output_folder}/{target_skill}/active\" "
-            "--target \"{new_active_version}\"`\".") in delete
+    assert _one_command(delete, "repair-after-drop") == (
+        'uv run {updateActiveSymlinkHelper} repair-after-drop --skill-group "{skills_output_folder}/{target_skill}" '
+        "--dropped {version}")
+    assert ("A non-null `manual_fix` is the manual repair: record it in `verification_errors`, record the warning "
+            "`active_link_dangling: {skills_output_folder}/{target_skill}/active: {the manual repair}`, and continue."
+            ) in delete
+    assert ('When no candidate exists, or the helper prints no JSON, record the same way the manual repair "if `active` '
+            'still names `{version}`, run `uv run {atomicWriteHelper} flip-link --link '
+            '"{skills_output_folder}/{target_skill}/active" --target <the version the manifest lists as active, else the '
+            'newest one it does not list as deprecated>`, or remove the link when there is none", followed by its last '
+            'stderr line in parentheses, or '
+            "by `(exit <code>)` when it prints nothing on stderr.") in delete
+    assert ("`{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry when "
+            "neither exists.") in delete
+    assert _read(EXECUTE).count("flip-link") == 1, "the flip-link fix is stated once"
+    assert "ln -sfn" not in delete and "rm {skills_output_folder}" not in delete
+    for gone in ("{updateActiveSymlinkHelper} update", "Record a `busy` exit", "mismatch`/`missing-target`"):
+        assert gone not in delete, gone
 
 
-def test_a_repoint_that_exits_1_is_recorded():
-    """#732: the helper exits 1 with no JSON when it cannot run or cannot move the link (a missing
-    skf-atomic-write.py, a skill folder that refuses the change), and the link still names the dropped version.
-    #735: every manual fix in §4 runs flip-link, never `ln -sfn`, which Git Bash without symlink rights turns into
-    a copy of the folder; `{atomicWriteHelper}` falls back to its installed path when no candidate exists."""
-    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
-    assert ("Record any other non-zero exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper "
-            "could not run, could not move the link, or failed after moving it, and the last line it prints on stderr "
-            "says why), the same way, with the manual fix \"if `active` still names the dropped version, run "
-            "`uv run {atomicWriteHelper} flip-link --link \"{skills_output_folder}/{target_skill}/active\" "
-            "--target \"{new_active_version}\"`\" followed by that line in "
-            "parentheses, or by `(exit <code>)` when the helper prints nothing on stderr.") in delete
-    assert ("In each manual fix below, `{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, "
-            "or its first entry when neither exists (the fix then works once SKF is re-installed)") in delete
-    assert delete.count("`uv run {atomicWriteHelper} flip-link --link") == 3
-    assert "ln -sfn" not in delete
+@pytest.mark.parametrize("active, statuses, dropped, link, expected", [
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.5.0", "0.5.0", "0.6.0"),
+    ("0.5.0", {"0.5.0": "active", "0.4.0": "archived", "0.3.0": "archived"}, "0.5.0", "0.5.0", "0.4.0"),
+    ("0.5.0", {"0.5.0": "active"}, "0.5.0", "0.5.0", None),
+    (None, {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived"}, "0.6.0", "0.6.0", "0.5.0"),
+    ("../0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.6.0", "0.6.0", "0.5.0"),
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.5.0", "0.7.0", "0.7.0"),
+], ids=["manifest-active-kept", "newest-non-deprecated", "none-left", "no-active-version",
+        "active-version-not-a-folder-name", "newer-unexported-link-kept"])
+def test_the_repair_points_active_at_the_version_the_rule_picks(tmp_path, active, statuses, dropped, link, expected):
+    """The documented call over the state step 2 leaves: `active` named the purged version, or a newer one a writing
+    workflow flipped to and never exported, which the purge leaves alone."""
+    skills = _purged(tmp_path, active, statuses, dropped, link)
+    proc = _repair({"updateActiveSymlinkHelper": str(SCRIPTS / "skf-update-active-symlink.py"),
+                    "skills_output_folder": str(skills), "target_skill": "cognee", "version": dropped})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["manual_fix"] is None
+    active_link = skills / "cognee" / "active"
+    if expected is None:
+        assert result["action"] == "unlinked" and not os.path.lexists(active_link)
+    else:
+        assert result["action"] == ("flipped" if link == dropped else "none")
+        assert active_link.resolve() == (skills / "cognee" / expected).resolve()
 
 
-def _repoint_command(delete: str) -> str:
-    """§4's fenced `update` call, its continuation lines joined."""
-    [block] = [block for block in _fenced(delete, "bash") if "{updateActiveSymlinkHelper} update" in block]
-    return " ".join(block.replace("\\\n", " ").split())
+@pytest.mark.parametrize("deprecated, expected", [((), "0.5.0"), (("0.5.0",), "0.4.0")],
+                         ids=["next-kept", "deprecated-skipped"])
+def test_the_version_to_keep_is_the_one_the_purge_repair_picks(tmp_path, deprecated, expected):
+    """One rule: the version select.md §7 names to keep is where §4 points `active` once the active one is purged."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    statuses = {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived"}
+    statuses.update({version: "deprecated" for version in deprecated})
+    for version in statuses:
+        _write_skill(skills, "cognee", version)
+    _write_manifest(skills, "cognee", "0.6.0", statuses)
+    forge.mkdir()
+    _link_active(skills / "cognee", "0.6.0")
+    keep = _roster_entry(skills, forge, "cognee")["keep_candidate"]
+    _write_manifest(skills, "cognee", "0.6.0", {**statuses, "0.6.0": "deprecated"})
+    shutil.rmtree(skills / "cognee" / "0.6.0")
+    proc = _repair({"updateActiveSymlinkHelper": str(SCRIPTS / "skf-update-active-symlink.py"),
+                    "skills_output_folder": str(skills), "target_skill": "cognee", "version": "0.6.0"})
+    assert proc.returncode == 0, proc.stderr
+    assert keep == json.loads(proc.stdout)["new_active"] == expected
+
+
+def _manual_fix_argv(fix: str) -> list[str]:
+    """The `uv run "<helper>" flip-link ...` command of a manual fix, run with this interpreter."""
+    command = re.search(r"run `(uv run [^`]+)`", fix).group(1)
+    words = shlex.split(command)
+    assert words[:2] == ["uv", "run"], words
+    return [sys.executable, *words[2:]]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows refuses to open a folder with errno 13, not EISDIR; "
                     "test-skf-update-active-symlink.py runs the helper on Windows")
-@pytest.mark.parametrize("broken, said", [
-    ("no-lock-helper", "error: cannot load the flip-lock helper "),
-    ("lock-path-is-a-folder", f"error: [Errno {errno.EISDIR}]"),
-], ids=["no-lock-helper", "lock-path-is-a-folder"])
-def test_a_helper_that_cannot_load_its_lock_leaves_the_link_on_the_dropped_version(tmp_path, broken, said):
-    """#732: the state the exit-1 rule assumes. §4's documented call, with a copy of the helper that has no
-    skf-atomic-write.py beside it (a partial install) or a folder at the lock path, exits 1 with nothing on stdout
-    and leaves `active` on the version the purge deleted; the manual fix the rule records repairs it."""
-    scripts = tmp_path / "scripts"
-    scripts.mkdir()
-    helper = scripts / "skf-update-active-symlink.py"
-    shutil.copyfile(SCRIPTS / helper.name, helper)
-    if broken == "lock-path-is-a-folder":
-        shutil.copyfile(SCRIPTS / "skf-atomic-write.py", scripts / "skf-atomic-write.py")
-    skills = tmp_path / "skills"
-    for version in ("0.6.0", "0.5.0"):
-        _write_skill(skills, "cognee", version)
+@pytest.mark.parametrize("broken", ["no-siblings", "lock-path-is-a-folder"])
+def test_a_repair_that_fails_leaves_a_fix_that_works(tmp_path, broken):
+    """#732, #1158: a copy of the helper with no skf-skill-inventory.py or skf-atomic-write.py beside it (a partial
+    install) exits 1 with nothing on stdout, and execute.md's one fallback fix repairs the link; a folder at the lock
+    path, after the helper picked the version, exits 2 with a `manual_fix` that repairs it once that folder is gone.
+    Either way `active` still names the purged version until then."""
+    helper = SCRIPTS / "skf-update-active-symlink.py"
+    if broken == "no-siblings":
+        (tmp_path / "scripts").mkdir()
+        helper = shutil.copyfile(helper, tmp_path / "scripts" / helper.name)
+    skills = _purged(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.5.0", "0.5.0")
     group = skills / "cognee"
-    _link_active(group, "0.5.0")
     if broken == "lock-path-is-a-folder":
         (group / "active.skf-lock").mkdir()
-    shutil.rmtree(group / "0.5.0")  # the guarded delete removed the version `active` names
-    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
-    values = {"updateActiveSymlinkHelper": str(helper), "skills_output_folder": str(skills),
-              "target_skill": "cognee", "new_active_version": "0.6.0"}
-    proc = _run(_repoint_command(delete), values)
-    assert (proc.returncode, proc.stdout) == (1, b""), proc.stderr
-    assert proc.stderr.decode("utf-8").splitlines()[-1].startswith(said), proc.stderr
+    proc = _repair({"updateActiveSymlinkHelper": str(helper), "skills_output_folder": str(skills),
+                    "target_skill": "cognee", "version": "0.5.0"})
     assert os.readlink(group / "active") == "0.5.0" and not (group / "active").exists(), "the link still dangles"
-    # The flip-link fix the exit-1 rule records, run with the installed skf-atomic-write.py. It takes the lock the
-    # helper could not, so a folder at the lock path, which the helper's line names, goes first.
-    rule = re.search(r"Record any other non-zero exit[^\n]*", delete).group(0)
-    fix = re.search(r"run `(uv run \{atomicWriteHelper\} flip-link [^`]+)`", rule).group(1)
-    if broken == "lock-path-is-a-folder":
-        assert "active.skf-lock" in proc.stderr.decode("utf-8").splitlines()[-1]
-        (group / "active.skf-lock").rmdir()
-    proc = _run(fix, {**values, "atomicWriteHelper": str(SCRIPTS / "skf-atomic-write.py")})
+    if broken == "no-siblings":
+        assert (proc.returncode, proc.stdout) == (1, b""), proc.stderr
+        [line] = proc.stderr.decode("utf-8").splitlines()
+        assert line.startswith("error: cannot load the inventory helper "), line
+        delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+        fix = re.search(r"run `(uv run \{atomicWriteHelper\} flip-link [^`]+)`", delete).group(1)
+        # The manifest lists 0.6.0 as active: the version the helper would have picked.
+        fix = fix.replace("<the version the manifest lists as active, else the newest one it does not list as "
+                          "deprecated>", "0.6.0")
+        proc = _run(fix, {"atomicWriteHelper": str(SCRIPTS / "skf-atomic-write.py"),
+                          "skills_output_folder": str(skills), "target_skill": "cognee"})
+    else:
+        assert proc.returncode == 2, proc.stderr
+        result = json.loads(proc.stdout)
+        assert (result["action"], result["new_active"]) == ("failed", "0.6.0")
+        assert f"[Errno {errno.EISDIR}]" in result["error"] and result["manual_fix"].endswith(f"({result['error']})")
+        assert result["manual_fix"].startswith("if `active` still names 0.5.0, run `uv run ")
+        (group / "active.skf-lock").rmdir()  # the folder the error names goes first
+        proc = subprocess.run(_manual_fix_argv(result["manual_fix"]), capture_output=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     assert os.readlink(group / "active") == "0.6.0" and (group / "active").is_dir()
-
-
-@pytest.mark.parametrize("active, statuses, dropped, expected", [
-    ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.5.0", "0.6.0"),
-    ("0.5.0", {"0.5.0": "active", "0.4.0": "archived", "0.3.0": "archived"}, "0.5.0", "0.4.0"),
-    ("0.5.0", {"0.5.0": "active"}, "0.5.0", None),
-    (None, {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived"}, "0.6.0", "0.5.0"),
-    ("../0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.6.0", "0.5.0"),
-], ids=["manifest-active-kept", "newest-non-deprecated", "none-left", "no-active-version",
-        "active-version-not-a-folder-name"])
-def test_resolve_gives_the_version_active_points_at_after_a_purge(tmp_path, active, statuses, dropped, expected):
-    skills, forge = tmp_path / "skills", tmp_path / "forge"
-    for version in statuses:
-        _write_skill(skills, "cognee", version)
-    forge.mkdir()
-    # The state step 2 leaves: the version deprecated in the manifest and its folder deleted.
-    _write_manifest(skills, "cognee", active, {**statuses, dropped: "deprecated"})
-    shutil.rmtree(skills / "cognee" / dropped)
-    resolved = _resolve(EXECUTE, "### 4. Delete Files (Purge Mode Only)", "### 5. ", skills, forge, "cognee")
-    assert _new_active(resolved) == expected
 
 
 # --------------------------------------------------------------------------
@@ -1386,7 +1425,7 @@ def test_an_interactive_halt_deletes_the_run_folder():
 
 
 WARNINGS = {
-    "context_rebuild_failed": ("### 3. Rebuild Context Files", "`context_rebuild_failed: {context_file}: {context_error}`"),
+    "context_rebuild_failed": ("### 3. Rebuild Context Files", "`context_rebuild_failed: {file}: {error}`"),
     "active_link_dangling": ("### 4. Delete Files (Purge Mode Only)",
                              "`active_link_dangling: {skills_output_folder}/{target_skill}/active: {the manual repair}`"),
     "delete_failed": ("### 4. Delete Files (Purge Mode Only)", "`delete_failed: {path}: {error}`"),
@@ -1445,17 +1484,78 @@ def test_each_verification_failure_names_its_manual_fix():
     assert "error-handling guidance in step 2" not in report
     assert "Each item above names its manual fix." in report
     verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
-    assert "A failure's manual fix: correct the `{target_skill}` entry" in verify
-    assert "the manual fix for both is to re-run `[EX] Export Skill`" in verify
+    # #1158: the helper names each failure's fix; the prose names only the fix for a call that fails.
+    assert "Each `failures` entry is one failed check: its `detail` is what failed and its `manual_fix` the fix." in verify
+    assert ("the fix is to check the `{target_skill}` entry of `{skills_output_folder}/.export-manifest.json` by hand "
+            "and re-run `[EX] Export Skill`") in verify
     assert "record it in `verification_errors` with its manual fix" in verify
+    assert ("If any verification fails, record it in `verification_errors` with its manual fix, record the warning "
+            "`verification_failed: {what failed}: {its manual fix}`") in verify
     rendered = _section(report, "### 2. Render the Report", "### Result Contract")
     assert "{if delete_failures is non-empty:}- Not deleted:" in rendered
 
 
 def test_the_context_check_reads_no_snippet_text():
-    """determinism-3: §5 asks the roster helper for the dropped skill's rows, never every row's text."""
+    """determinism-3: §5 asks the roster helper for the dropped skill's rows, never every row's text. #1158
+    determinism-4: the manifest check is the same call, never `get` JSON read by hand."""
     verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
-    assert _one_command(verify, "{dropRosterHelper} rows") == (
-        "uv run {dropRosterHelper} rows --skill {target_skill} [--version {version}] "
-        "{each file in context_files_updated, quoted}")
-    assert "orphan-detect" not in verify and "orphan_managed_rows" not in verify
+    assert _one_command(verify, "{dropRosterHelper} verify") == (
+        'uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill} --mode {drop_mode} '
+        "[--version {version}] {each file in context_files_updated, quoted}")
+    for gone in ("orphan-detect", "orphan_managed_rows", "{manifestOpsHelper}", "entry.versions", '"not_found"'):
+        assert gone not in verify, gone
+
+
+@pytest.mark.parametrize("drop_mode, versions, statuses, failed", [
+    ("purge", ["0.5.0"], {"0.6.0": "active", "0.5.0": "deprecated"}, []),
+    ("deprecate", [], {"0.6.0": "deprecated", "0.5.0": "deprecated"}, []),
+    ("deprecate", [], {"0.6.0": "active", "0.5.0": "deprecated"}, ["manifest"]),
+    ("purge", [], None, []),
+    ("purge", [], {"0.6.0": "deprecated"}, ["manifest"]),
+], ids=["version-purge", "skill-deprecate", "skill-deprecate-unmet", "skill-purge", "skill-purge-unmet"])
+def test_execute_runs_the_final_state_check_it_documents(tmp_path, drop_mode, versions, statuses, failed):
+    """§5's call, filled in as an agent fills it, over the manifest and the context file step 2 left."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    if statuses is not None:
+        _write_manifest(skills, "cognee", "0.6.0", statuses)
+    claude = tmp_path / "CLAUDE.md"
+    claude.write_bytes(b"# Project\n")
+    command = _one_command(_section(_read(EXECUTE), "### 5. Verify Final State", "### 6. "), "{dropRosterHelper} verify")
+    command = command.replace("[--version {version}]", "--version {version}" if versions else "")
+    command = command.replace("{each file in context_files_updated, quoted}", "{context_file}")
+    proc = _run(command, {"dropRosterHelper": str(ROSTER), "skills_output_folder": str(skills),
+                          "target_skill": "cognee", "drop_mode": drop_mode, "version": "0.5.0",
+                          "context_file": str(claude)})
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(proc.stdout)
+    assert [f["check"] for f in result["failures"]] == failed
+    for failure in result["failures"]:
+        assert failure["manual_fix"] == f"correct the `cognee` entry of `{skills / '.export-manifest.json'}` by hand"
+
+
+def test_no_step_decides_what_a_helper_computes():
+    """#1158: the acceptance grep. execute.md and report.md keep no assemble call, no bare `{skill_root}`, no
+    `affected-versions` and no hand rule over `resolve`; SKILL.md binds the guard from `activation`."""
+    for rel in (EXECUTE, REPORT):
+        text = _read(rel)
+        for gone in ("{skill_root}", "assemble", "affected-versions", "{skillInventoryHelper} resolve",
+                     "resolve.newest_non_deprecated"):
+            assert gone not in text, f"{rel}: {gone}"
+    rebuild = _section(_read(EXECUTE), "### 3. Rebuild Context Files", "### 4. ")
+    assert _one_command(rebuild, "{rebuildManagedSectionsHelper}") == (
+        'python3 {rebuildManagedSectionsHelper} rebuild --project-root "{project-root}" --ides "{ides}" '
+        '--skills-folder "{skills_output_folder}" --dropped {target_skill} '
+        '[--skill-root-override "{snippet_skill_root_override}"]')
+    assert ("`rebuild` resolves `target_context_files` again from the same `{ides}` (the comma-joined `ides` list of "
+            "`config.yaml`, as select.md §9b passed it), so it rebuilds the files §10 counted") in rebuild
+    assert ("Bind `context_files_updated` ← `updated` and `context_files_failed` ← the `file` of each `failed` entry, "
+            "show each `warnings[]` line") in rebuild
+    for gone in ("{context_path}", ".skf-content", "skipped_deprecated", "`case`"):
+        assert gone not in rebuild, gone
+    remaining = _section(_read(REPORT), "### 1. Determine Remaining Versions", "### 2. ")
+    assert _one_command(remaining, "{dropRosterHelper}") == (
+        'uv run {dropRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}" '
+        '--skill "{target_skill}"')
+    assert "whose `in_manifest` is true, in the roster's order" in remaining
+    assert "dropRosterHelper: 'scripts/drop-roster.py'" in _read(REPORT).split("\n---\n", 1)[0]

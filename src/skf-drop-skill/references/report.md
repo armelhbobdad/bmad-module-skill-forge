@@ -1,9 +1,7 @@
 ---
 nextStepFile: 'health-check.md'
-# {manifestOpsHelper}: the §1 remaining versions.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# {dropRosterHelper}: the §1 remaining versions.
+dropRosterHelper: 'scripts/drop-roster.py'
 # {emitEnvelopeHelper}: the §2 result contract.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -26,7 +24,7 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the drop
 - Do not hide verification errors, failed context file rebuilds or folders a purge could not delete
-- When a helper is not bound, it resolves to the first existing path in its probe order: `{manifestOpsHelper}` in `{manifestOpsProbeOrder}` and `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`.
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`.
 - The post-drop hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 
 ## MANDATORY SEQUENCE
@@ -39,20 +37,21 @@ Set `remaining_versions_display = "(skill fully removed)"`.
 
 **Otherwise** (one version, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
 
-Read the target skill's remaining versions through `{manifestOpsHelper}`, rather than re-parsing the manifest by hand:
+Read the target skill's versions from the roster:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
-python3 {manifestOpsHelper} {skills_output_folder} affected-versions {target_skill}
+uv run {dropRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}" --skill "{target_skill}"
 ```
 
-`get` returns `result.entry` (its `active_version` and its `versions` map with each version's `status`); `affected-versions` returns `result.affected_versions` sorted numerically-descending (so `0.10.0` precedes `0.9.0`). Build the display in that order, annotating each version with its `status` and marking `active_version` with a trailing `*`:
+List each `versions` row of its one `skills` entry whose `in_manifest` is true, in the roster's order (newest first, so `0.10.0` precedes `0.9.0`), with its `status`, and mark the row whose `active` is true with a trailing `*`:
 
 ```
   - 0.6.0 (active) *
   - 0.5.0 (archived)
   - 0.1.0 (deprecated)
 ```
+
+When the call exits non-zero, or prints no JSON, set `remaining_versions_display = "(unknown: {the result's error, or its first stderr line})"`.
 
 ### 2. Render the Report
 

@@ -28,6 +28,12 @@ Covers update + verify subcommands:
   - verify exits 1 with no JSON when a real folder replaced the link after
     a flip, or the skill folder is no folder (#742)
   - native Windows: no platform refusal, a junction read and flipped (#735)
+  - repair-after-drop (#1158): the one replacement rule (pick_new_active),
+    a link changed only when it names the dropped version (a dangling
+    junction's stored path included), never one that names a newer
+    unexported version; busy, lock, flip and unlink failures exit 2 with a
+    manual fix, and a manifest or helper it cannot read exits 1 with the
+    link untouched
 """
 
 from __future__ import annotations
@@ -557,6 +563,262 @@ class TestOnWindowsSimulated:
         assert (f'`uv run "{mod.ATOMIC_WRITE_HELPER}" flip-link --link "{group / "active"}" --target "1.6.2"`'
                 in message), message
         assert "ln -s" not in message
+
+
+# --------------------------------------------------------------------------
+# repair-after-drop (#1158)
+# --------------------------------------------------------------------------
+
+
+def _dropped(tmp_path: Path, active: str | None, statuses: dict, on_disk: tuple, link: str | None,
+             name: str = "cognee") -> Path:
+    """A skill group after a version purge: the manifest the drop left, the version packages on disk and `active`."""
+    skills = tmp_path / "skills"
+    group = skills / name
+    group.mkdir(parents=True)
+    for version in on_disk:
+        (group / version / name).mkdir(parents=True)
+    versions = {v: {"ides": [], "last_exported": "2026-01-01", "status": s} for v, s in statuses.items()}
+    manifest = {"schema_version": "2", "exports": {name: {"active_version": active, "versions": versions}}}
+    (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+    if link is not None:
+        os.symlink(link, group / "active")
+    return group
+
+
+def _rows(statuses: dict, on_disk: tuple) -> list[dict]:
+    """skf-skill-inventory.py resolve's version rows, newest first."""
+    names = sorted(set(statuses) | set(on_disk), key=lambda v: [int(p) for p in v.split(".")], reverse=True)
+    return [{"version": v, "status": statuses.get(v), "in_manifest": v in statuses, "on_disk": v in on_disk}
+            for v in names]
+
+
+class TestPickNewActive:
+    @pytest.mark.parametrize("active, statuses, on_disk, dropped, expected", [
+        ("0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), "0.5.0", "0.6.0"),
+        ("0.5.0", {"0.6.0": "archived", "0.5.0": "deprecated", "0.4.0": "archived"}, ("0.6.0", "0.4.0"), "0.5.0",
+         "0.6.0"),
+        ("0.6.0", {"0.6.0": "deprecated", "0.5.0": "archived"}, ("0.6.0", "0.5.0"), "0.4.0", "0.5.0"),
+        ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, ("0.5.0",), "0.4.0", "0.5.0"),
+        (None, {"0.6.0": "archived", "0.5.0": "archived"}, ("0.6.0", "0.5.0"), "0.6.0", "0.5.0"),
+        ("0.5.0", {"0.5.0": "deprecated", "0.4.0": "deprecated"}, ("0.4.0",), "0.5.0", None),
+        ("0.5.0", {"0.5.0": "deprecated"}, ("0.7.0",), "0.5.0", None),
+    ], ids=["manifest-active", "newest-non-deprecated", "active-deprecated", "active-not-on-disk", "no-active",
+            "none-left", "unexported-folder-is-no-candidate"])
+    def test_one_rule(self, active, statuses, on_disk, dropped, expected) -> None:
+        assert mod.pick_new_active(active, _rows(statuses, on_disk), dropped) == expected
+
+    @pytest.mark.parametrize("target, names", [
+        ("0.5.0", True), ("0.5.0/", True), ("./0.5.0", True), ("0.6.0", False), (None, False), ("", False),
+        ("\\\\?\\C:\\skills\\cognee\\0.5.0", True), ("/abs/skills/cognee/0.5.0", True),
+        ("/abs/skills/other/0.5.0", False), ("../other/0.5.0", False), ("0.5.0-rc", False),
+    ])
+    def test_names_version(self, tmp_path: Path, target: str | None, names: bool) -> None:
+        assert mod.names_version(target, tmp_path / "cognee", "0.5.0") is names
+
+
+@POSIX_ONLY
+class TestRepairAfterDrop:
+    def _cli(self, group: Path, dropped: str, capsys: pytest.CaptureFixture[str]) -> tuple[int, dict | None, str]:
+        code = mod.main(["repair-after-drop", "--skill-group", str(group), "--dropped", dropped])
+        out, err = capsys.readouterr()
+        return code, json.loads(out) if out else None, err
+
+    def test_the_manifest_active_version_is_kept(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        group = _dropped(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), "0.5.0")
+        code, result, err = self._cli(group, "0.5.0", capsys)
+        assert (code, err) == (0, "")
+        assert result == {"action": "flipped", "link_target": "0.5.0", "new_active": "0.6.0", "manual_fix": None,
+                          "error": None}
+        assert os.readlink(group / "active") == "0.6.0"
+        assert sorted(p.name for p in group.iterdir()) == ["0.6.0", "active"], "no lock or temp link left"
+
+    def test_the_dropped_active_version_gives_way_to_the_newest(self, tmp_path: Path,
+                                                                capsys: pytest.CaptureFixture[str]) -> None:
+        statuses = {"0.6.0": "archived", "0.5.0": "deprecated", "0.4.0": "archived"}
+        group = _dropped(tmp_path, "0.5.0", statuses, ("0.6.0", "0.4.0"), "0.5.0")
+        code, result, _ = self._cli(group, "0.5.0", capsys)
+        assert (code, result["action"], result["new_active"]) == (0, "flipped", "0.6.0")
+        assert os.readlink(group / "active") == "0.6.0"
+
+    def test_with_no_version_left_the_link_is_removed(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        group = _dropped(tmp_path, "0.5.0", {"0.5.0": "deprecated"}, (), "0.5.0")
+        code, result, _ = self._cli(group, "0.5.0", capsys)
+        assert code == 0
+        assert result == {"action": "unlinked", "link_target": "0.5.0", "new_active": None, "manual_fix": None,
+                          "error": None}
+        assert not os.path.lexists(group / "active")
+
+    @pytest.mark.parametrize("link", ["0.7.0", "0.6.0", None], ids=["newer-unexported", "another-version", "no-link"])
+    def test_a_link_that_names_another_version_is_left_alone(self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+                                                             link: str | None) -> None:
+        """The purge never moves a link a writing workflow flipped to a newer version it has not exported."""
+        statuses = {"0.6.0": "active", "0.5.0": "deprecated"}
+        group = _dropped(tmp_path, "0.6.0", statuses, ("0.7.0", "0.6.0"), link)
+        code, result, _ = self._cli(group, "0.5.0", capsys)
+        assert code == 0
+        assert result == {"action": "none", "link_target": link, "new_active": None, "manual_fix": None,
+                          "error": None}
+        assert (os.readlink(group / "active") if link else os.path.lexists(group / "active")) == (link or False)
+
+    def test_a_real_folder_at_active_is_left_alone(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        group = _dropped(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), None)
+        (group / "active").mkdir()
+        code, result, _ = self._cli(group, "0.5.0", capsys)
+        assert (code, result["action"], result["link_target"]) == (0, "none", None)
+        assert (group / "active").is_dir() and not os.path.islink(group / "active")
+
+    def test_a_held_lock_is_busy_with_a_fix_for_after_the_other_run(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        group = _dropped(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), "0.5.0")
+        monkeypatch.setattr(mod, "FLIP_LOCK_WAIT_SECONDS", 0.2)
+        fd = _hold_lock(group)
+        try:
+            code, result, _ = self._cli(group, "0.5.0", capsys)
+        finally:
+            aw._release_lock(fd)
+            os.close(fd)
+        assert (code, result["action"], result["new_active"]) == (2, "failed", "0.6.0")
+        assert result["error"] == f"another process holds flip lock on {group / 'active'}"
+        assert result["manual_fix"] == (
+            f'once the other run has finished, if `active` still names 0.5.0, run `uv run "{mod.ATOMIC_WRITE_HELPER}" '
+            f'flip-link --link "{group / "active"}" --target "0.6.0"`')
+        assert os.readlink(group / "active") == "0.5.0"
+
+    def test_a_lock_error_leaves_a_fix_with_the_error(self, tmp_path: Path,
+                                                      capsys: pytest.CaptureFixture[str]) -> None:
+        group = _dropped(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), "0.5.0")
+        (group / "active.skf-lock").mkdir()
+        code, result, _ = self._cli(group, "0.5.0", capsys)
+        assert (code, result["action"]) == (2, "failed")
+        assert result["manual_fix"].startswith(
+            f'if `active` still names 0.5.0, run `uv run "{mod.ATOMIC_WRITE_HELPER}" flip-link --link '
+            f'"{group / "active"}" --target "0.6.0"` ([Errno {errno.EISDIR}]')
+        assert result["manual_fix"].endswith(f"{result['error']})")
+        assert os.readlink(group / "active") == "0.5.0"
+        # The fix works once the folder the error names is gone.
+        (group / "active.skf-lock").rmdir()
+        assert _flip_link(group / "active", "0.6.0").returncode == 0
+        assert os.readlink(group / "active") == "0.6.0"
+
+    @pytest.mark.parametrize("fails", ["flip", "unlink", "mismatch"])
+    def test_a_flip_or_unlink_that_fails_leaves_a_fix_with_the_error(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], fails: str) -> None:
+        on_disk = () if fails == "unlink" else ("0.6.0", "0.4.0")
+        statuses = {"0.6.0": "active", "0.5.0": "deprecated", "0.4.0": "archived"}
+        group = _dropped(tmp_path, "0.6.0", statuses, on_disk, "0.5.0")
+        if fails == "flip":
+            def broken_flip(link_path: Path, target: str) -> None:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            monkeypatch.setattr(mod, "atomic_flip_symlink", broken_flip)
+        elif fails == "mismatch":
+            def other_flip(link_path: Path, target: str) -> None:
+                os.unlink(link_path)
+                os.symlink("0.4.0", link_path)
+            monkeypatch.setattr(mod, "atomic_flip_symlink", other_flip)
+        else:
+            load = mod._load_atomic_write
+
+            def without_unlink():
+                atomic = load()
+
+                def refuse(path):
+                    raise PermissionError(errno.EACCES, "Permission denied", str(path))
+                monkeypatch.setattr(atomic, "_remove_link", refuse)
+                return atomic
+            monkeypatch.setattr(mod, "_load_atomic_write", without_unlink)
+        code, result, _ = self._cli(group, "0.5.0", capsys)
+        assert (code, result["action"], result["link_target"]) == (2, "failed", "0.5.0")
+        link = group / "active"
+        if fails == "unlink":
+            assert result["new_active"] is None
+            assert result["manual_fix"] == (
+                f'if `active` still names 0.5.0, remove the link: `rm "{link}"` ({result["error"]})')
+            assert os.readlink(link) == "0.5.0"
+        else:
+            command = f'run `uv run "{mod.ATOMIC_WRITE_HELPER}" flip-link --link "{link}" --target "0.6.0"`'
+            assert result["manual_fix"] == f"if `active` still names 0.5.0, {command} ({result['error']})"
+            said = {"flip": "No space left on device", "mismatch": "`active` names 0.4.0 after the flip"}[fails]
+            assert said in result["error"]
+            if fails == "flip":
+                assert os.readlink(link) == "0.5.0", "a flip that fails leaves the link as it was"
+        assert not (group / "active.skf-lock").exists(), "the lock is released"
+
+    @pytest.mark.parametrize("broken", ["corrupt-manifest", "cp1252-manifest", "not-a-folder", "no-inventory",
+                                        "no-atomic-write"])
+    def test_what_it_cannot_read_exits_1_and_leaves_the_link(self, tmp_path: Path, broken: str) -> None:
+        group = _dropped(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), "0.5.0")
+        script, target = SCRIPT_PATH, group
+        if broken == "corrupt-manifest":
+            (group.parent / ".export-manifest.json").write_bytes(b"{not json")
+        elif broken == "cp1252-manifest":
+            (group.parent / ".export-manifest.json").write_bytes('{"exports": {"caf\u00e9": {}}}'.encode("cp1252"))
+        elif broken == "not-a-folder":
+            target = tmp_path / "not-a-folder"
+            target.write_text("x\n", encoding="utf-8")
+        else:
+            scripts = tmp_path / "partial-install"
+            scripts.mkdir()
+            script = scripts / SCRIPT_PATH.name
+            shutil.copyfile(SCRIPT_PATH, script)
+            kept = "skf-atomic-write.py" if broken == "no-inventory" else "skf-skill-inventory.py"
+            shutil.copyfile(SCRIPT_PATH.with_name(kept), scripts / kept)
+        proc = subprocess.run([sys.executable, str(script), "repair-after-drop", "--skill-group", str(target),
+                               "--dropped", "0.5.0"], capture_output=True, text=True, encoding="utf-8", check=False)
+        assert (proc.returncode, proc.stdout) == (1, ""), proc.stderr
+        [line] = proc.stderr.splitlines()
+        said = {"corrupt-manifest": "error: cannot read the export manifest: JSON parse error",
+                "cp1252-manifest": "error: cannot read the export manifest: Cannot read",
+                "not-a-folder": f"error: skill-group not a directory: {target}",
+                "no-inventory": "error: cannot load the inventory helper ",
+                "no-atomic-write": "error: cannot load the flip-lock helper "}[broken]
+        assert line.startswith(said), line
+        assert os.readlink(group / "active") == "0.5.0", "a manifest it cannot read never leads to an unlink"
+
+    def test_the_cli_prints_the_json(self, tmp_path: Path) -> None:
+        group = _dropped(tmp_path, "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0",), "0.5.0")
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "repair-after-drop", "--skill-group", str(group),
+                               "--dropped", "0.5.0"], capture_output=True, text=True, encoding="utf-8", check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["action"] == "flipped"
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "repair-after-drop", "--skill-group", str(group)],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 2 and "--dropped" in proc.stderr
+
+
+@POSIX_ONLY
+class TestRepairAfterDropOnWindowsSimulated:
+    @pytest.mark.parametrize("left, expected", [(("1.0.0", "1.6.2"), "1.6.2"), ((), None)],
+                             ids=["flipped", "unlinked"])
+    def test_a_dangling_junction_to_the_dropped_version_is_repaired(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+            left: tuple, expected: str | None) -> None:
+        """A junction whose folder the purge deleted reads back as its stored `...\\oms-cognee\\0.5.8` path."""
+        statuses = {"1.6.2": "active", "1.0.0": "archived", "0.5.8": "deprecated"}
+        group = _dropped(tmp_path, "1.6.2" if left else "0.5.8", statuses if left else {"0.5.8": "deprecated"},
+                         (*left, "0.5.8"), None, name="oms-cognee")
+        _junction(group, "0.5.8")
+        shutil.rmtree(group / "0.5.8")
+        _simulate_windows_links(monkeypatch)
+        assert mod.read_link_target(group / "active") == JUNCTION_PREFIX + "0.5.8"
+        assert mod.main(["repair-after-drop", "--skill-group", str(group), "--dropped", "0.5.8"]) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert (result["action"], result["link_target"], result["new_active"]) == (
+            "flipped" if expected else "unlinked", JUNCTION_PREFIX + "0.5.8", expected)
+        if expected:
+            assert not (group / "active").is_symlink() and (group / "active").resolve() == (group / expected).resolve()
+        else:
+            assert not os.path.lexists(group / "active")
+
+    def test_a_junction_to_another_version_is_left_alone(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        group = _dropped(tmp_path, "1.0.0", {"1.0.0": "active", "0.5.8": "deprecated"}, ("1.6.2", "1.0.0"), None,
+                         name="oms-cognee")
+        _junction(group, "1.6.2")
+        _simulate_windows_links(monkeypatch)
+        assert mod.main(["repair-after-drop", "--skill-group", str(group), "--dropped", "0.5.8"]) == 0
+        assert json.loads(capsys.readouterr().out)["action"] == "none"
+        assert (group / "active").resolve() == (group / "1.6.2").resolve()
 
 
 def _no_symlink_rights(monkeypatch: pytest.MonkeyPatch) -> None:

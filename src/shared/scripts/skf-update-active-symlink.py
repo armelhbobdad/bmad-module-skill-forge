@@ -28,7 +28,7 @@ invocation:
   - verifies the post-state and surfaces ok / flipped / mismatch
     / missing-target / busy
 
-Two subcommands:
+Three subcommands:
 
   update --skill-group <path> --version <name>
       Make {skill-group}/active point at {version}. Atomic.
@@ -38,6 +38,29 @@ Two subcommands:
   verify --skill-group <path> --version <name>
       Read-only: check that {skill-group}/active currently points at
       {version}. Used by step-06 derived-artifact verification.
+
+  repair-after-drop --skill-group <path> --dropped <version>
+      Drop Skill's repair after a version purge deleted {skill-group}/
+      {dropped}. It reads the export manifest beside {skill-group} through
+      skf-skill-inventory.py and picks the replacement (pick_new_active):
+      the manifest's active_version unless it is null, deprecated, the
+      dropped version or not on disk; else the newest manifest version that
+      is not deprecated, is on disk and is not the dropped one; else none.
+      Then, holding the flip lock, it reads the link and acts only when it
+      names {dropped} (a stored `...\\<group>\\<dropped>` path counts, as a
+      Windows junction whose folder is gone reads back): it points the link
+      at the replacement, or removes it when there is none. A link that
+      names anything else, and no link, are left alone.
+
+      Output JSON (stdout): {"action": "none" | "flipped" | "unlinked" |
+      "failed", "link_target": what the link named, or null, "new_active":
+      the version it points at now (the one it was to point at when the
+      action failed), or null, "manual_fix": null, or on a failure the one
+      command that repairs the link by hand, "error": null, or what failed}.
+      Every manual fix runs skf-atomic-write.py flip-link (or `rm` for a
+      link to remove) after "if `active` still names <dropped>, ", with
+      "once the other run has finished, " before it when another flip held
+      the lock, else with the error after it in parentheses.
 
 The target version directory (`{skill-group}/{version}/`) MUST exist
 on disk before this script is called. The helper refuses to point
@@ -67,6 +90,16 @@ Exit codes:
      busy (update: another flip held the link's lock for the whole
      wait; the link is unchanged, caller must halt)
 
+repair-after-drop exits 0 for none, flipped and unlinked, and 2 with its
+JSON for failed: once it has picked the replacement, every failure (the
+lock held past FLIP_LOCK_WAIT_SECONDS, a lock or flip error, a link that
+names something else after the flip) leaves a manual_fix. It exits 1 with
+one `error:` line on stderr and nothing on stdout when it fails before
+that: the group is not a folder, skf-skill-inventory.py or
+skf-atomic-write.py cannot be loaded from this script's folder, or the
+manifest cannot be read. A manifest it cannot read never leads to an
+unlink: the link is left as it is.
+
 Platform: Linux, macOS and native Windows, as skf-atomic-write.py's
 flip-link. On Windows the flip removes the old link first whenever the
 rename over it is refused, which it always is over a directory link, so
@@ -81,12 +114,19 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 
 ACTIVE_NAME = "active"
 ATOMIC_WRITE_HELPER = Path(__file__).resolve().parent / "skf-atomic-write.py"
+# repair-after-drop reads the manifest's versions through it, loaded only by that subcommand.
+INVENTORY_HELPER = Path(__file__).resolve().parent / "skf-skill-inventory.py"
+# What the inventory helper raises on a manifest or a folder it cannot read as it expects.
+INVENTORY_ERRORS = (AttributeError, TypeError, ValueError, OSError)
+# The prefix of a manual fix when another flip held the lock.
+BUSY_PREFIX = "once the other run has finished, "
 # A flip holds <link>.skf-lock for well under a millisecond, so update waits
 # this long for another flip to let it go before it returns busy.
 FLIP_LOCK_WAIT_SECONDS = 5.0
@@ -102,6 +142,19 @@ def _load_atomic_write():
         spec.loader.exec_module(module)
     except (OSError, ImportError, SyntaxError) as e:
         raise OSError(f"cannot load the flip-lock helper {ATOMIC_WRITE_HELPER}: {e}") from e
+    return module
+
+
+def _load_inventory():
+    """Load skf-skill-inventory.py, which installs into the same folder as this script."""
+    try:
+        spec = importlib.util.spec_from_file_location("skf_skill_inventory", INVENTORY_HELPER)
+        if spec is None or spec.loader is None:
+            raise ImportError("no import spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, SyntaxError) as e:
+        raise OSError(f"cannot load the inventory helper {INVENTORY_HELPER}: {e}") from e
     return module
 
 
@@ -289,6 +342,146 @@ def verify(skill_group: Path, version: str) -> dict:
 
 
 # --------------------------------------------------------------------------
+# repair-after-drop
+# --------------------------------------------------------------------------
+
+
+def pick_new_active(active_version: str | None, versions: list[dict], dropped: str | None) -> str | None:
+    """The version `active` points at once `dropped` is gone, or None to remove the link.
+
+    `versions` are skf-skill-inventory.py resolve's rows, newest first, each
+    with `version`, `status`, `in_manifest` and `on_disk`. The manifest's
+    active_version wins unless it is null, deprecated, the dropped version or
+    not on disk; else the newest manifest version that is not deprecated, is
+    on disk and is not the dropped one. Drop Skill's roster offers the same
+    pick as `keep_candidate`, with the active version as the dropped one.
+    """
+    rows = {row.get("version"): row for row in versions if isinstance(row, dict)}
+
+    def usable(version, row):
+        return (isinstance(version, str) and version != dropped and row is not None
+                and row.get("on_disk") is True and row.get("status") != "deprecated")
+
+    if usable(active_version, rows.get(active_version)):
+        return active_version
+    return next((row["version"] for row in versions
+                 if isinstance(row, dict) and row.get("in_manifest") is True and usable(row.get("version"), row)),
+                None)
+
+
+def names_version(target: str | None, skill_group: Path, version: str) -> bool:
+    """True when the link text `target` names `version` of this skill group.
+
+    A link SKF makes stores the bare version. A Windows junction whose folder
+    is gone reads back as its stored absolute path (`\\\\?\\C:\\...\\<group>\\<v>`),
+    and a hand-made link may store a path: those name it when their last two
+    parts are the group's folder name and the version.
+    """
+    if not target:
+        return False
+    text = target[4:] if target.startswith("\\\\?\\") else target
+    parts = [part for part in re.split(r"[\\/]+", text) if part not in ("", ".")]
+    if not parts or parts[-1] != version:
+        return False
+    return len(parts) == 1 or os.path.normcase(parts[-2]) == os.path.normcase(skill_group.name)
+
+
+def _manual_fix(skill_group: Path, dropped: str, new_active: str | None, *, busy: bool = False,
+                error: str | None = None) -> str:
+    """The one command that repairs `active` by hand, with its condition first."""
+    link = skill_group / ACTIVE_NAME
+    if new_active is None:
+        command = f'remove the link: `rm "{link}"`'
+    else:
+        command = (f'run `uv run "{ATOMIC_WRITE_HELPER}" flip-link --link "{link}" '
+                   f'--target "{new_active}"`')
+    prefix = BUSY_PREFIX if busy else ""
+    tail = f" ({error})" if error and not busy else ""
+    return f"{prefix}if `active` still names {dropped}, {command}{tail}"
+
+
+def _repair_result(action: str, link_target: str | None, new_active: str | None, *,
+                   manual_fix: str | None = None, error: str | None = None) -> dict:
+    return {"action": action, "link_target": link_target, "new_active": new_active,
+            "manual_fix": manual_fix, "error": error}
+
+
+def repair_after_drop(skill_group: Path, dropped: str) -> dict:
+    """Point {skill_group}/active away from the purged `dropped` version, or remove it.
+
+    Raises OSError or ValueError before the replacement is picked (a helper
+    that cannot be loaded, a manifest that cannot be read): the link is then
+    untouched. Every failure after the pick returns action "failed" with a
+    manual_fix.
+    """
+    inventory = _load_inventory()
+    atomic_write = _load_atomic_write()
+    try:
+        # forge_data_folder feeds resolve's provenance paths only, which this pick never reads.
+        resolved = inventory.resolve_skill(str(skill_group.parent), skill_group.name, str(skill_group.parent))
+    except INVENTORY_ERRORS as exc:
+        raise ValueError(f"cannot read the versions of {skill_group}: {type(exc).__name__}: {exc}") from exc
+    if resolved is not None and resolved.get("manifest_error"):
+        raise ValueError(f"cannot read the export manifest: {resolved['manifest_error']}")
+    resolved = resolved or {"active_version": None, "versions": []}
+    new_active = pick_new_active(resolved.get("active_version"), resolved.get("versions") or [], dropped)
+
+    link_path = skill_group / ACTIVE_NAME
+    try:
+        lock_fd = atomic_write.take_flip_lock(link_path, wait=FLIP_LOCK_WAIT_SECONDS)
+    except atomic_write.FlipLockHeld as exc:
+        return _repair_result("failed", None, new_active, error=str(exc),
+                              manual_fix=_manual_fix(skill_group, dropped, new_active, busy=True))
+    except OSError as exc:
+        return _repair_result("failed", None, new_active, error=str(exc),
+                              manual_fix=_manual_fix(skill_group, dropped, new_active, error=str(exc)))
+    current, result = None, None
+    try:
+        try:
+            current = read_link_target(link_path)
+        except ValueError:
+            current = None  # a real folder or file at `active` is no link, so it names no version
+        if not names_version(current, skill_group, dropped):
+            result = _repair_result("none", current, None)
+        elif new_active is None:
+            atomic_write._remove_link(link_path)
+            post = read_link_target(link_path)
+            if post is not None:
+                error = f"`active` still names {post} after the removal"
+                result = _repair_result("failed", current, None, error=error,
+                                        manual_fix=_manual_fix(skill_group, dropped, None, error=error))
+            else:
+                result = _repair_result("unlinked", current, None)
+        elif not (skill_group / new_active).is_dir():
+            error = f"{skill_group / new_active} does not exist"
+            result = _repair_result("failed", current, new_active, error=error,
+                                    manual_fix=_manual_fix(skill_group, dropped, new_active, error=error))
+        else:
+            atomic_flip_symlink(link_path, new_active)
+            post = read_link_target(link_path)
+            if post != new_active:
+                # Only a writer that skips the lock, such as a hand-run `ln -sfn`, gets here.
+                error = f"`active` names {post} after the flip"
+                result = _repair_result("failed", current, new_active, error=error,
+                                        manual_fix=_manual_fix(skill_group, dropped, new_active, error=error))
+            else:
+                result = _repair_result("flipped", current, new_active)
+    except (OSError, ValueError) as exc:
+        error = str(exc) or type(exc).__name__
+        result = _repair_result("failed", current, new_active, error=error,
+                                manual_fix=_manual_fix(skill_group, dropped, new_active, error=error))
+    finally:
+        try:
+            atomic_write.release_flip_lock(link_path, lock_fd)
+        except OSError as exc:
+            error = str(exc) or type(exc).__name__
+            if result is not None and result["action"] != "failed":
+                result = _repair_result("failed", current, result["new_active"], error=error,
+                                        manual_fix=_manual_fix(skill_group, dropped, new_active, error=error))
+    return result
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -335,6 +528,21 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return _exit_code_for_status(result["status"])
 
 
+def _cmd_repair_after_drop(args: argparse.Namespace) -> int:
+    skill_group = Path(args.skill_group)
+    if not skill_group.is_dir():
+        print(f"error: skill-group not a directory: {skill_group}", file=sys.stderr)
+        return 1
+    try:
+        result = repair_after_drop(skill_group, args.dropped)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    json.dump(result, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 2 if result["action"] == "failed" else 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-update-active-symlink",
@@ -354,6 +562,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ver.add_argument("--skill-group", required=True)
     p_ver.add_argument("--version", required=True)
     p_ver.set_defaults(func=_cmd_verify)
+
+    p_rep = sub.add_parser("repair-after-drop",
+                           help="after a version purge: repoint or remove an `active` that names the dropped version")
+    p_rep.add_argument("--skill-group", required=True, help="path to the skill_group dir")
+    p_rep.add_argument("--dropped", required=True, help="the version folder the purge deleted")
+    p_rep.set_defaults(func=_cmd_repair_after_drop)
 
     return parser
 

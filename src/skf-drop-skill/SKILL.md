@@ -56,7 +56,7 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
+   - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `rebuild` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -70,7 +70,7 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 
    Bind each scalar to its bundled default when the merged value is empty or absent:
 
-   - `{forbidPurgeInHeadless}` ← on when `workflow.forbid_purge_in_headless` holds any value other than the empty string (a TOML `true`, `false` or `"false"` included), else off
+   - `{forbidPurgeInHeadless}` ← the `purge_forbidden` that step 4's `activation` call reads from `workflow.forbid_purge_in_headless`, for a headless purge only; off when the resolver could not run
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 3 then runs no hook)
 
    Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file), then run `workflow.activation_steps_append` after.
@@ -99,6 +99,12 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:write-probe`, path `{skills_output_folder}`): "SKF cannot write to `{skills_output_folder}`: {the first stderr line}. Nothing was changed."
 
-   Last, the headless-purge guard. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate`, or empty the setting in the team or personal override that sets it." A draft skill cannot be deprecated, so it needs an interactive run or the guard off; select.md §8 purges a draft headless only on `mode=purge`, so this guard covers that purge too.
+   Last, the headless-purge guard. When `{headless_mode}` is true, the `mode` arg is `"purge"` and the §3 resolver ran, write the JSON it printed, as printed, to `{run_dir}/customization.json` with a file write, then run (`{dropRosterHelper}` is `scripts/drop-roster.py`):
+
+   ```bash
+   uv run {dropRosterHelper} activation < "{run_dir}/customization.json"
+   ```
+
+   Bind `{forbidPurgeInHeadless}` ← its `purge_forbidden`, which is on for any value other than the empty string (a TOML `true`, `false` or `"false"` included); a non-zero exit, or no JSON, counts as on. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate`, or empty the setting in the team or personal override that sets it." A draft skill cannot be deprecated, so it needs an interactive run or the guard off; select.md §8 purges a draft headless only on `mode=purge`, so this guard covers that purge too.
 
 5. Load, read the full file, and then execute `references/select.md` to begin the workflow.

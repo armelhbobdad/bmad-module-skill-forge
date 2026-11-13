@@ -1,9 +1,13 @@
 """Tests for skf-drop-skill/scripts/drop-roster.py: the roster select.md section 2
-reads in one call (the export manifest joined with the on-disk scan), and the
-managed-section rows execute.md section 5 checks for the dropped skill.
+and report.md section 1 read in one call (the export manifest joined with the
+on-disk scan, with the version select.md section 7 names to keep), the
+managed-section rows, the headless-purge guard SKILL.md On Activation reads
+from the resolver JSON, and the final-state check execute.md section 5 runs
+(#1158).
 
-The documented calls of select.md and execute.md are filled in as an agent
-fills them and run against fixtures, so the prose and the CLI cannot drift.
+The documented calls of SKILL.md, select.md, execute.md and report.md are
+filled in as an agent fills them and run against fixtures, so the prose and
+the CLI cannot drift.
 """
 
 from __future__ import annotations
@@ -22,8 +26,10 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 DROP = REPO / "src" / "skf-drop-skill"
 SCRIPT = DROP / "scripts" / "drop-roster.py"
+SKILL = DROP / "SKILL.md"
 SELECT = DROP / "references" / "select.md"
 EXECUTE = DROP / "references" / "execute.md"
+REPORT = DROP / "references" / "report.md"
 
 
 def _load_module():
@@ -36,8 +42,8 @@ def _load_module():
 mod = _load_module()
 
 
-def _run(*args: str, script: Path = SCRIPT) -> tuple[int, dict]:
-    proc = subprocess.run([sys.executable, str(script), *args], capture_output=True, timeout=60)
+def _run(*args: str, script: Path = SCRIPT, stdin: bytes | None = None) -> tuple[int, dict]:
+    proc = subprocess.run([sys.executable, str(script), *args], input=stdin, capture_output=True, timeout=60)
     stream = proc.stdout if proc.stdout.strip() else proc.stderr
     return proc.returncode, json.loads(stream.decode("utf-8"))
 
@@ -218,7 +224,8 @@ def _copy_without(tmp_path: Path, missing: str) -> Path:
     root = tmp_path / "module"
     scripts = root / "shared" / "scripts"
     scripts.mkdir(parents=True)
-    for name in ("skf-manifest-ops.py", "skf-skill-inventory.py", "skf-rebuild-managed-sections.py"):
+    for name in ("skf-manifest-ops.py", "skf-skill-inventory.py", "skf-rebuild-managed-sections.py",
+                 "skf-update-active-symlink.py"):
         if name != missing:
             shutil.copy2(REPO / "src" / "shared" / "scripts" / name, scripts / name)
     copy = root / "skf-drop-skill" / "scripts" / "drop-roster.py"
@@ -342,12 +349,212 @@ def test_select_runs_the_roster_it_documents(project, keep_group):
 
 
 @pytest.mark.parametrize("keep_group", [False, True], ids=["skill-level", "version-level"])
-def test_execute_runs_the_rows_check_it_documents(tmp_path, keep_group):
+def test_execute_runs_the_final_state_check_it_documents(tmp_path, keep_group):
+    """#1158: §5 checks the manifest and the rows in one call; the rows of the dropped version fail it."""
+    skills = tmp_path / "skills"
+    _manifest(skills, {"cognee": _entry("0.6.0", {"0.6.0": "deprecated", "0.5.0": "deprecated"})})
     claude = tmp_path / "CLAUDE.md"
     _write(claude, _section([("cognee", "0.6.0"), ("cognee", "0.5.0")]))
-    [call] = _documented(EXECUTE, "rows")
-    argv = _argv(call, {"target_skill": "cognee", "version": "0.5.0",
-                        "each_file_in_context_files_updated,_quoted": [str(claude)]}, keep_group)
+    assert _documented(EXECUTE, "rows") == [], "the rows check is part of verify"
+    [call] = _documented(EXECUTE, "verify")
+    argv = _argv(call, {"skills_output_folder": str(skills), "target_skill": "cognee", "drop_mode": "deprecate",
+                        "version": "0.5.0", "each_file_in_context_files_updated,_quoted": [str(claude)]}, keep_group)
     code, result = _run(*argv)
     assert code == 0, result
-    assert [r["version"] for r in result["rows"]] == (["0.5.0"] if keep_group else ["0.6.0", "0.5.0"])
+    assert [(f["check"], f["detail"]) for f in result["failures"]] == [
+        ("context-rows", f"{claude} still lists `cognee` v{v}") for v in (["0.5.0"] if keep_group else ["0.6.0", "0.5.0"])]
+
+
+def test_report_reads_the_remaining_versions_it_documents(project):
+    """#1158: report.md §1 lists the manifest versions from the roster, never a folder the manifest does not list."""
+    skills, forge = project
+    (skills / "cognee" / "0.11.0" / "cognee").mkdir(parents=True)  # a stray version folder
+    [call] = _documented(REPORT, "skills")
+    code, result = _run(*_argv(call, {"skills_output_folder": str(skills), "forge_data_folder": str(forge),
+                                      "target_skill": "cognee"}, True))
+    assert code == 0, result
+    [cognee] = result["skills"]
+    shown = [(r["version"], r["status"], r["active"]) for r in cognee["versions"] if r["in_manifest"]]
+    assert shown == [("0.10.0", "active", True), ("0.9.0", "archived", False), ("0.1.0", "deprecated", False)]
+    report = REPORT.read_text(encoding="utf-8")
+    assert "affected-versions" not in report and "{manifestOpsHelper}" not in report
+    assert "whose `in_manifest` is true" in report
+    assert "(unknown: {the result's error, or its first stderr line})" in report, "a roster that fails is shown"
+
+
+# --------------------------------------------------------------------------
+# keep_candidate: the version select.md section 7 names to keep
+# --------------------------------------------------------------------------
+
+def test_keep_candidate_is_the_version_after_the_active_one(project):
+    skills, forge = project
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge))
+    assert code == 0
+    assert {s["name"]: s["keep_candidate"] for s in result["skills"]} == {
+        "cognee": "0.9.0", "gone": None, "draft": None}, "no folder on disk, or no active version, keeps nothing"
+
+
+@pytest.mark.parametrize("active, statuses, on_disk, expected", [
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "deprecated", "0.4.0": "archived"}, ("0.6.0", "0.5.0", "0.4.0"), "0.4.0"),
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived"}, ("0.6.0", "0.4.0"), "0.4.0"),
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, ("0.7.0", "0.6.0", "0.5.0"), "0.5.0"),
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"}, ("0.6.0", "0.5.0"), None),
+], ids=["skips-deprecated", "skips-not-on-disk", "skips-unexported-folder", "none-qualifies"])
+def test_keep_candidate_follows_the_one_rule(tmp_path, active, statuses, on_disk, expected):
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in on_disk:
+        _skill(skills, "demo", version)
+    _manifest(skills, {"demo": _entry(active, statuses)})
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge), "--skill", "demo")
+    assert code == 0
+    assert result["skills"][0]["keep_candidate"] == expected
+
+
+@pytest.mark.parametrize("missing", ["skf-skill-inventory.py", "skf-update-active-symlink.py"])
+def test_keep_candidate_is_null_without_its_helpers(tmp_path, project, missing):
+    skills, forge = project
+    code, result = _run("skills", str(skills), "--forge-data-folder", str(forge), script=_copy_without(tmp_path, missing))
+    assert code == 0
+    assert {s["name"]: s["keep_candidate"] for s in result["skills"]}["cognee"] is None
+
+
+# --------------------------------------------------------------------------
+# activation: the headless-purge guard, from the resolver JSON
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw, forbidden", [
+    ('{"workflow": {"forbid_purge_in_headless": true}}', True),
+    ('{"workflow": {"forbid_purge_in_headless": false}}', True),
+    ('{"workflow": {"forbid_purge_in_headless": "false"}}', True),
+    ('{"workflow": {"forbid_purge_in_headless": "x"}}', True),
+    ('{"workflow": {"forbid_purge_in_headless": ""}}', False),
+    ('{"workflow": {"on_complete": ""}}', False),
+    ("{}", False),
+    ('{"workflow.forbid_purge_in_headless": "true"}', True),
+    ('{"workflow.forbid_purge_in_headless": ""}', False),
+], ids=["true", "false", "string-false", "string-x", "empty", "absent", "no-workflow", "dotted", "dotted-empty"])
+def test_activation_reads_any_value_but_the_empty_string_as_on(raw, forbidden):
+    code, result = _run("activation", stdin=raw.encode("utf-8"))
+    assert (code, result) == (0, {"status": "ok", "purge_forbidden": forbidden})
+
+
+def test_activation_reads_a_fact_path_that_is_not_utf8():
+    raw = b'{"workflow": {"forbid_purge_in_headless": "", "persistent_facts": ["file:/p/caf\xe9.md"]}}'
+    code, result = _run("activation", stdin=raw)
+    assert (code, result["purge_forbidden"]) == (0, False)
+
+
+@pytest.mark.parametrize("value, forbidden", [('""', False), ("true", True)], ids=["empty", "true"])
+def test_activation_drops_a_leading_bom_as_the_resolver_does(value, forbidden):
+    """A file staged with a UTF-8 BOM reads as the JSON after it, not as stdin that is no JSON."""
+    raw = b"\xef\xbb\xbf" + f'{{"workflow": {{"forbid_purge_in_headless": {value}}}}}'.encode("utf-8")
+    code, result = _run("activation", stdin=raw)
+    assert (code, result) == (0, {"status": "ok", "purge_forbidden": forbidden})
+
+
+@pytest.mark.parametrize("raw", [b"", b"not json", b"[]", b'"true"', b'{"workflow": "true"}'],
+                         ids=["empty", "not-json", "list", "string", "workflow-not-object"])
+def test_activation_refuses_what_is_not_the_resolver_json(raw):
+    """The caller counts a failed call as on: the guard fails closed."""
+    code, result = _run("activation", stdin=raw)
+    assert code == 1 and result["status"] == "error" and result["code"] == "bad-input"
+
+
+def test_skill_md_binds_the_guard_from_the_call_it_documents(tmp_path):
+    [call] = _documented(SKILL, "activation")
+    assert call == 'uv run {dropRosterHelper} activation < "{run_dir}/customization.json"'
+    staged = tmp_path / "customization.json"
+    staged.write_bytes(b'{"workflow": {"forbid_purge_in_headless": false, "on_complete": ""}}\n')
+    code, result = _run("activation", stdin=staged.read_bytes())
+    assert (code, result["purge_forbidden"]) == (0, True)
+    activation = SKILL.read_text(encoding="utf-8").split("## On Activation", 1)[1]
+    assert "Bind `{forbidPurgeInHeadless}` ← its `purge_forbidden`" in activation
+    assert "a non-zero exit, or no JSON, counts as on" in activation
+
+
+# --------------------------------------------------------------------------
+# verify: the state a drop should leave
+# --------------------------------------------------------------------------
+
+def _verify(skills: Path, mode: str, *args: str, script: Path = SCRIPT) -> tuple[int, dict]:
+    return _run("verify", str(skills), "--skill", "cognee", "--mode", mode, *args, script=script)
+
+
+@pytest.mark.parametrize("mode", ["deprecate", "purge"])
+@pytest.mark.parametrize("statuses, failed", [
+    ({"0.6.0": "active", "0.5.0": "deprecated"}, None),
+    ({"0.6.0": "active", "0.5.0": "archived"}, "the manifest lists `cognee` 0.5.0 as `archived`, not `deprecated`"),
+    ({"0.6.0": "active"}, "the manifest's `cognee` entry has no 0.5.0"),
+    (None, "the manifest has no `cognee` entry"),
+], ids=["met", "not-deprecated", "version-gone", "entry-gone"])
+def test_verify_a_version_drop(tmp_path, mode, statuses, failed):
+    skills = tmp_path / "skills"
+    _manifest(skills, {} if statuses is None else {"cognee": _entry("0.6.0", statuses)})
+    code, result = _verify(skills, mode, "--version", "0.5.0")
+    assert code == 0 and result["status"] == "ok"
+    fix = f"correct the `cognee` entry of `{skills / '.export-manifest.json'}` by hand"
+    assert result["failures"] == ([] if failed is None else [{"check": "manifest", "detail": failed, "manual_fix": fix}])
+
+
+@pytest.mark.parametrize("mode, exports, failed", [
+    ("deprecate", {"cognee": _entry("0.6.0", {"0.6.0": "deprecated", "0.5.0": "deprecated"})}, []),
+    ("deprecate", {"cognee": _entry("0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"})},
+     ["the manifest lists `cognee` 0.6.0 as `active`, not `deprecated`"]),
+    ("deprecate", {}, ["the manifest has no `cognee` entry"]),
+    ("purge", {"other": _entry("1.0.0", {"1.0.0": "active"})}, []),
+    ("purge", {"cognee": _entry("0.6.0", {"0.6.0": "deprecated"})}, ["the manifest still has a `cognee` entry"]),
+], ids=["deprecate-met", "deprecate-unmet", "deprecate-entry-gone", "purge-met", "purge-unmet"])
+def test_verify_a_whole_skill_drop(tmp_path, mode, exports, failed):
+    """A draft purge expects no entry too: the manifest never listed it."""
+    skills = tmp_path / "skills"
+    _manifest(skills, exports)
+    code, result = _verify(skills, mode)
+    assert code == 0
+    assert [f["detail"] for f in result["failures"]] == failed
+    assert {f["check"] for f in result["failures"]} <= {"manifest"}
+
+
+@pytest.mark.parametrize("raw", [b"{not json", '{"exports": {"caf\u00e9": {}}}'.encode("cp1252")],
+                         ids=["not-json", "cp1252"])
+def test_verify_a_manifest_it_cannot_read_is_a_failure(tmp_path, raw):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / ".export-manifest.json").write_bytes(raw)
+    code, result = _verify(skills, "purge")
+    assert code == 0
+    [failure] = result["failures"]
+    assert failure["check"] == "manifest" and failure["detail"].startswith(f"{skills / '.export-manifest.json'} cannot be read")
+
+
+def test_verify_lists_each_row_left_and_each_file_it_cannot_check(tmp_path):
+    skills = tmp_path / "skills"
+    _manifest(skills, {"cognee": _entry("0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"})})
+    claude, agents, missing = tmp_path / "CLAUDE.md", tmp_path / "AGENTS.md", tmp_path / ".cursorrules"
+    _write(claude, _section([("cognee", "0.6.0"), ("cognee", "0.5.0")]))
+    agents.write_bytes("# caf\xe9\n".encode("cp1252"))
+    code, result = _verify(skills, "deprecate", "--version", "0.5.0", str(claude), str(agents), str(missing))
+    assert code == 0
+    left, unchecked = result["failures"]
+    assert left == {"check": "context-rows", "detail": f"{claude} still lists `cognee` v0.5.0",
+                    "manual_fix": "re-run `[EX] Export Skill`"}
+    assert (unchecked["check"], unchecked["manual_fix"]) == ("context-rows", "re-run `[EX] Export Skill`")
+    assert unchecked["detail"].startswith(f"{agents} could not be checked: {agents} is not UTF-8 text")
+    # The context files may come before the flags as well as after them.
+    code, before = _run("verify", str(skills), str(claude), "--skill", "cognee", "--mode", "deprecate", "--version", "0.5.0")
+    assert code == 0 and [f["detail"] for f in before["failures"]] == [f"{claude} still lists `cognee` v0.5.0"]
+
+
+@pytest.mark.parametrize("missing, files", [("skf-manifest-ops.py", False), ("skf-rebuild-managed-sections.py", True)])
+def test_verify_without_a_helper_exits_1(tmp_path, project, missing, files):
+    skills, _ = project
+    claude = tmp_path / "CLAUDE.md"
+    _write(claude, _section([("cognee", "0.6.0")]))
+    code, result = _verify(skills, "purge", *([str(claude)] if files else []), script=_copy_without(tmp_path, missing))
+    assert code == 1 and result["code"] == "helper-missing" and missing in result["error"]
+
+
+def test_verify_usage_errors_exit_2(tmp_path):
+    code, result = _run("verify", str(tmp_path), "--skill", "cognee")
+    assert code == 2 and "--mode" in result["error"]
+    code, result = _run("verify", str(tmp_path), "--skill", "cognee", "--mode", "remove")
+    assert code == 2 and result["error"].startswith("usage error:")
