@@ -40,7 +40,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
 
-**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
 **Extraction bundle.** What this step extracts goes to `{bundleFile}`, so no later step works from memory: step 5 reads each library's tier there and adds the pairs it keeps, step 6 compiles from it, and step 7 writes the reference files, `metadata.json` and the provenance map from it. It is one JSON object, written with the run's other files in `{run_dir}`:
 
@@ -70,11 +70,11 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 
 For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below): its usage patterns come from there.
 
-**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor (S13) is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
+**Re-resolve at step 4 entry:** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
 
 Use `skill_package_path` directly — it points to the package the helper resolved.
 
-**Exports resolution order (H1), script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
+**Exports resolution order, script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
 
 **Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:enumerate`) with "**Cannot proceed.** `skf-enumerate-stack-skills.py` is missing, so no constituent's exports can be read. Re-install SKF, then re-run."
 
@@ -213,7 +213,7 @@ Each subprocess:
 
 **If parallel subprocess unavailable:** Process libraries sequentially in main thread. Report progress after each library.
 
-**Per-subprocess budget (S6):** Tell each library's extraction subprocess to stop and return what it has after about 20 tool calls, adding `"extraction budget reached"` to its `warnings` when it stops there, and wait for it in the foreground. A library whose subprocess returned partial data is a `partial-failure`: store that data and continue with the remaining libraries. One whose subprocess returned no usable data is a complete failure (§3): it goes in `failed[]` with an `extraction-failed` warning and counts toward the `all-extractions-failed` halt. Do NOT abort the batch on a single library that reached its budget or failed.
+**Per-subprocess budget:** Tell each library's extraction subprocess to stop and return what it has after about 20 tool calls, adding `"extraction budget reached"` to its `warnings` when it stops there, and wait for it in the foreground. A library whose subprocess returned partial data is a `partial-failure`: store that data and continue with the remaining libraries. One whose subprocess returned no usable data is a complete failure (§3): it goes in `failed[]` with an `extraction-failed` warning and counts toward the `all-extractions-failed` halt. Do NOT abort the batch on a single library that reached its budget or failed.
 
 ### 3. Handle Extraction Failures
 
@@ -229,7 +229,7 @@ For each library extraction:
 
 Record each excluded library in the bundle's `failed[]` and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-failed"`, `message`: the library and the reason).
 
-**If ALL extractions fail:** HALT (exit 2, `halt_reason: "all-extractions-failed"`, phase `parallel-extract:all-failed`, `stack_libraries` the confirmed library names that failed): nothing remains to build a stack from (B7). The run folder stays, as after every halt but a cancel: its `warnings.jsonl` holds the `extraction-failed` entry that says why each library failed.
+**If ALL extractions fail:** HALT (exit 2, `halt_reason: "all-extractions-failed"`, phase `parallel-extract:all-failed`, `stack_libraries` the confirmed library names that failed): nothing remains to build a stack from. The run folder stays, as after every halt but a cancel: its `warnings.jsonl` holds the `extraction-failed` entry that says why each library failed.
 
 **Otherwise** write `{bundleFile}`: `mode`, `scope`, one `per_library_extractions[]` entry per library that returned (each export record moves to `{exportRecordsFile}` in §3a, so the entry keeps none) and `failed[]`.
 

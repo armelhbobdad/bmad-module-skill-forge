@@ -13,6 +13,10 @@ scanManifestsProbeOrder:
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+runFile: '{run_dir}/run.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -51,7 +55,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If the emitter exits non-zero or prints no line, display the halt message alone.
 
-**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
 **Resolver warning.** When SKILL.md On Activation bound `{customization_resolver_unavailable}` (the customization resolver could not run, so the `{project-root}/_bmad/custom/` overrides do not apply), record it now, as the run's first warning: write `[activation/warn] customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/warning.txt` with a file write, never an `echo` or a quoted `--warning` argument (a resolver error can hold quotes or `$( )`), then run the `record` command above.
 
@@ -74,6 +78,17 @@ uv run {frontmatterValidator} --check-name {stack_name}
 ```
 
 On exit `1` (a name over 64 characters, two hyphens in a row, an upper-case letter or another character the rule refuses), HALT (exit 2, `halt_reason: "input-invalid"`, phase `init:stack-name`, no `skill_name`: the name was refused) with "**Cannot proceed.** `stack_name` `{value}` gives `{stack_name}`, which is not a skill name: {each `issues[]` message}. Fix the input and re-run."
+
+### 0b. Offer to Resume at the Review Gate
+
+Only an interactive run looks for an earlier run: a headless run always starts fresh. Read each `{project-root}/_bmad-output/.skf-run/skf-create-stack-skill-*/run.json` and keep each folder whose `run.json` parses, names this `{stack_name}` and holds `headless_mode` false, and that holds a `draft/SKILL.md` changed after `{forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json` was written, when that file exists (a run that finished this stack since then replaced that draft). With none, go on to §1. Otherwise offer the one whose `draft/SKILL.md` changed last:
+
+"**An interrupted run left a draft of `{stack_name}` for review** (last changed: {that file's modification time}).
+  [Y] Resume at the review of that draft
+  [N] Start fresh (that run folder stays as it is: {its path})"
+
+- **[Y]:** delete this run's new folder, the one the pre-flight created (it holds at most the resolver warning), bind `{run_dir}` to the found folder and restore every binding its `run.json` holds, the earlier run's template paths and hook among them, since they built the draft. Set `{resumed_at_review}` true and, when On Activation bound `{customization_resolver_unavailable}`, record it in that folder as the resolver warning above does. Then load, read the full file and execute `references/compile-stack.md`, which goes straight to the review of the draft.
+- **[N]:** leave the found folder as it is and go on to §1 in this run's own folder.
 
 ### 1. Load Forge Tier Configuration
 
@@ -148,7 +163,7 @@ A `mode` other than `code` or `compose`, a `scope_overrides` value other than `i
 
    When its `kept[]` is not empty, suggest compose mode, naming its `{N}` skills, and ask for an optional architecture document path (ask again for a path that is not a readable file). If the user accepts, set `compose_mode: true` and store `architecture_doc_path` (`null` when the user gives none); if the user declines, code mode stays. In every other case the run uses code mode: step 2 ranks `explicit_deps` when given.
 
-   **GATE [default: accept]**, headless default (B8): do NOT prompt: accept the suggestion (`compose_mode: true`, `architecture_doc_path: null`). With no manifests, code mode would only halt at step 2 (`no-manifests`) or rank `explicit_deps` in a tree that declares none of them, while `kept[]` holds SKF skills (those `explicit_deps` names, when given): compose is the path that produces the stack. Record the auto-decision: stage `{"gate": "init.compose-suggestion", "default_action": "accept", "taken_action": "accept", "reason": "headless: no manifests and {N} SKF skills, so compose mode", "evidence": {"discoverable_skills": {N}}}` as `{run_dir}/decision.json` and run:
+   **GATE [default: accept]**, headless default: do NOT prompt: accept the suggestion (`compose_mode: true`, `architecture_doc_path: null`). With no manifests, code mode would only halt at step 2 (`no-manifests`) or rank `explicit_deps` in a tree that declares none of them, while `kept[]` holds SKF skills (those `explicit_deps` names, when given): compose is the path that produces the stack. Record the auto-decision: stage `{"gate": "init.compose-suggestion", "default_action": "accept", "taken_action": "accept", "reason": "headless: no manifests and {N} SKF skills, so compose mode", "evidence": {"discoverable_skills": {N}}}` as `{run_dir}/decision.json` and run:
 
    ```bash
    uv run {emitEnvelopeHelper} record --workflow skf-create-stack-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
@@ -158,7 +173,7 @@ A `mode` other than `code` or `compose`, a `scope_overrides` value other than `i
 
 "**This project holds several packages.** Type **A** to build the stack for the whole project (the default), or the folder of one package: {each `folders[]` entry's `path`, with its `names`}."
 
-A folder answer resolves from `project_root`. When it is no folder, ask again; otherwise set `{scan_root}` to it and run the scan call again, replacing `{manifest_scan}`. **GATE [default: A]**: headless, do not ask; keep the project root, record the auto-decision as B8 does, with `{"gate": "init.scan-root", "default_action": "A", "taken_action": "A", "reason": "headless: manifests in {N} folders, so the whole project; pass project_path to scan one package", "evidence": {"folders": {N}}}`, `{N}` being the `folders[]` count: its `reason` tells the user to pass `project_path`.
+A folder answer resolves from `project_root`. When it is no folder, ask again; otherwise set `{scan_root}` to it and run the scan call again, replacing `{manifest_scan}`. **GATE [default: A]**: headless, do not ask; keep the project root, record the auto-decision as the compose-suggestion gate above does, with `{"gate": "init.scan-root", "default_action": "A", "taken_action": "A", "reason": "headless: manifests in {N} folders, so the whole project; pass project_path to scan one package", "evidence": {"folders": {N}}}`, `{N}` being the `folders[]` count: its `reason` tells the user to pass `project_path`.
 
 Skills use version-nested directories: see `knowledge/version-paths.md` for the path templates.
 
@@ -169,7 +184,26 @@ If compose_mode:
 
 Report that the Stack Skill Forge is initialized, naming: the project (`{project_name}`); the forge tier (`{forge_tier}`) with its positive-capability framing (Quick = source reading and import counting; Forge = AST-backed structural analysis; Forge+ = AST structural + CCC semantic search for the files that show each integration; Deep = full intelligence: structural + contextual + temporal); the available tools (`{tool_list}`); the stack name (`{stack_name}`); and the resolved input mode (auto-detect, explicit dependency list, or compose mode), with the folder code mode scans (`{scan_root}`).
 
-### 5. Auto-Proceed to Next Step
+### 5. Save the Run's Bindings
+
+Save the bindings above in `{runFile}`, so a step that lost one to compaction reads it back. Resolve `{atomicWriteHelper}` from `{atomicWriteProbeOrder}`; first existing path wins. If neither exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `init:run-state`) with "**Cannot proceed.** `skf-atomic-write.py` is missing, so the run's bindings cannot be saved. Re-install SKF, then re-run." Otherwise stage `{run_dir}/run-bindings.json` with a file write: one JSON object keyed by each binding's own name, an input not given being `null`:
+
+```json
+{"stack_name": "<stack name>", "headless_mode": false, "project_root": "<path>", "scan_root": "<path>",
+ "compose_mode": false, "architecture_doc_path": null, "explicit_deps": null, "scope_overrides": null,
+ "stackSkillTemplatePath": "<path>", "integrationPatternsPath": "<path>", "onCompleteCommand": "",
+ "forge_tier": "<tier>", "detected_tier": "<tier>", "available_tools": ["<tool>"]}
+```
+
+`forge_tier` is the run tier, after §1's override and §2's downgrade; `detected_tier` is the one `forge-tier.yaml` names. Then run:
+
+```bash
+uv run {atomicWriteHelper} write --target "{runFile}" < "{run_dir}/run-bindings.json"
+```
+
+If it exits non-zero, HALT (exit 4, `halt_reason: "write-failure"`, phase `init:run-state`) with "**Cannot proceed.** The run's bindings could not be saved to `{runFile}`: {the first stderr line}."
+
+### 6. Auto-Proceed to Next Step
 
 Load, read the full file and then execute `{nextStepFile}`.
 

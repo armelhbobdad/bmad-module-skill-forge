@@ -122,6 +122,12 @@ compose branch of the sections they govern.
   skill-check 1.2.0's JSON lists no fix: a changed or unhashed SKILL.md
   raises S15 and runs the §1 validator again, and the step still has no
   HALT (#901).
+- Each warning stage states the whole record rule, the file write and,
+  after step 1, the emitter fallback its frontmatter backs; SKILL.md keeps
+  the entry shape and the sink, binds its three scalars in Quick Skill's
+  shape and keeps no ticket tag. Step 1 saves its bindings to `run.json`,
+  which step 2 updates and steps 7 and 8 read the tier from, and an
+  interactive run can resume at step 6's review gate (#1150).
 
 The step calls run as written, on small fixtures.
 
@@ -1331,7 +1337,7 @@ def test_section_3_tells_a_fix_from_the_file_hash():
                    "taken as changed, not hashed, when no `{hashContentProbeOrder}` path exists (run the skill-check "
                    "call alone) or a `hash` call prints no `content_hash`"):
         assert needle in three, needle
-    s15 = _slice(three, "**Post-fix provenance drift guard (S15):**", "\n")
+    s15 = _slice(three, "**Post-fix provenance drift guard:**", "\n")
     assert "When SKILL.md changed across the `--fix` call" in s15 and "Emit one **WARNING** finding" in s15
     tail = "after step 7 wrote it: metadata.json hashes and provenance may be out of date"
     assert f'`"skill-check --fix modified SKILL.md {tail}"`' in s15
@@ -2056,7 +2062,7 @@ def test_compose_candidates_come_from_the_helper():
     assert ".export-manifest.json" not in three, "step 1 still reads the export manifest by hand"
     assert "**Compose-mode skill names.**" not in three, "step 1 still reduces package paths by hand"
     # A headless run accepts the suggestion, which names only the listed skills when a list is given.
-    headless = _from(three, "**GATE [default: accept]**, headless default (B8):").split("\n\n")[0]
+    headless = _from(three, "**GATE [default: accept]**, headless default:").split("\n\n")[0]
     assert "accept the suggestion" in headless and "With `explicit_deps`, keep code mode" not in headless
 
 
@@ -2141,7 +2147,7 @@ def test_step_5_takes_co_imports_from_step_3s_counts():
         assert needle in code, needle
     # Step 5 types no co-import file: step 7's helper copies them from the saved pairs (determinism-2).
     assert "`co_import_files` ←" not in text
-    guard = _from(code, "**CCC precision guard (H3):**").split("\n\n")[0]
+    guard = _from(code, "**CCC precision guard:**").split("\n\n")[0]
     assert "keep a CCC-surfaced file only when the pair's `files[]` lists it" in guard
     # A file that imports both libraries is already a pair file: CCC never raises a count.
     assert "CCC never changes which pairs qualify" in code
@@ -2269,7 +2275,8 @@ def test_in_file_anchor_links_name_a_heading(path):
 # The halts a missing shared helper raises, by phase (generate-output §6's goes
 # through the rollback contract and is checked on its own).
 HELPER_MISSING_PHASES = {
-    "init:emitter", "init:stack-name", "init:mode", "detect-manifests:enumerate", "detect-manifests:scan",
+    "init:emitter", "init:stack-name", "init:mode", "init:run-state", "detect-manifests:enumerate",
+    "detect-manifests:scan",
     "rank-and-confirm:count", "parallel-extract:enumerate", "parallel-extract:library-tiers",
     "detect-integrations:pair-intersect", "detect-integrations:comention", "detect-integrations:pair-tiers",
     "compile-stack:stats", "generate-output:atomic-writer",
@@ -2477,8 +2484,12 @@ def test_the_run_folder_is_created_before_anything_can_halt(tmp_path):
     assert (3, "helper-missing", "init:emitter") in _halts(preflight)
     skill = _read(STACK_SKILL)
     assert "no mid-run checkpoint" not in skill and "State lives in memory" not in skill
-    (state,) = [p for p in skill.split("\n\n") if p.startswith("**Single-pass, no resume:**")]
+    assert "Single-pass, no resume" not in skill
+    (state,) = [p for p in skill.split("\n\n") if p.startswith("**Resume only at the review gate:**")]
     assert "`{run_dir}`" in state and state.count(". ") == 0, "the run state is one sentence naming the run folder"
+    assert "re-read from its `run.json`" in state and "unless step 1 resumes an interactive one" in state
+    # `run.json` holds step 1's bindings (and step 2's rebinds), not every binding a later step makes.
+    assert "a step 1 binding lost to compaction" in state
 
 
 def test_the_extraction_bundle_is_written_and_read_from_disk():
@@ -2766,7 +2777,7 @@ def test_the_integration_patterns_comment_says_what_step_5_does_with_it():
 
 
 def test_the_constituent_hash_anchor_is_stated_once():
-    homes = [path.name for path in sorted(STACK.rglob("*.md")) if "provenance anchor (S13)" in _read(path)]
+    homes = [path.name for path in sorted(STACK.rglob("*.md")) if "The provenance anchor is the hash" in _read(path)]
     assert homes == ["parallel-extract.md"], homes
     for path in sorted(STACK.rglob("*.md")):
         assert "manifest-detection" not in _read(path), path.name
@@ -2781,8 +2792,9 @@ def test_the_lifted_contract_keeps_skill_md_short():
     for heading in ("## Exit Codes", "## Result Contract"):
         assert heading not in skill, heading
     assert "`references/invocation-contract.md`" in _from(skill, "## Invocation Contract")
-    # About 2,000 cl100k tokens today; 10,000 characters stays below the 2,500-token guideline.
-    assert len(skill) < 10_000, len(skill)
+    # #1150: 8,590 characters measured 1,990 cl100k tokens, under the 2,000-token target; the ceiling is that
+    # length rounded up to 50, so a SKILL.md that grows past it is measured again.
+    assert len(skill) < 8_600, len(skill)
     assert "| 1 | Initialize & Mode Detection | references/init.md | Conditional |" in skill
 
 
@@ -2793,7 +2805,7 @@ def test_generate_output_states_each_rule_once():
     assert "#" not in _frontmatter(text), "generate-output's frontmatter still carries comments"
     one = _sections(_body(text))["1"]
     assert one.index("**The atomic writer.**") < one.index("stage-dir --target {skill_package}")
-    assert one.index("**Pre-flight: ownership, phase 1 (S3).**") < one.index("**Stack version.**") \
+    assert one.index("**Pre-flight: ownership, phase 1.**") < one.index("**Stack version.**") \
         < one.index("**Pre-flight: ownership, phase 2.**")
     assert "the pre-flight below resolves it" not in one and "S11" not in one
     five = _sections(_body(text))["5"]
@@ -2814,20 +2826,33 @@ def test_the_co_import_shape_is_the_pair_helpers():
 
 RECORD_WARNING = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
                   '--warning "$(cat "{run_dir}/warning.txt")"')
+FILE_WRITE = "`{run_dir}/warning.txt` with a file write, never an `echo`"
+# #1150: a stage after step 1 may have lost the emitter's binding, so it names the probe list it resolves from.
+EMITTER_FALLBACK = "resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound"
+EMITTER_PROBES = ("emitEnvelopeProbeOrder:\n"
+                  "  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'\n"
+                  "  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'")
 
 
 def test_a_warning_reaches_the_sink_as_text(tmp_path):
-    """A message can quote backticks, a Mermaid edge or `$( )`: the shell must never run it."""
+    """A message can quote backticks, a Mermaid edge or `$( )`: the shell must never run it. #1150: the stage
+    holds the record command and the file-write rule, and SKILL.md's contract keeps only the shape and the sink."""
+    (warnings,) = [p for p in _body(_read(INIT)).split("\n\n") if p.startswith("**Warnings.**")]
+    assert FILE_WRITE in warnings
+    (record,) = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]+)`", warnings)
+    assert record == RECORD_WARNING, record
     contract = _h2_section(_read(STACK_SKILL), "## Workflow state contract")
-    assert RECORD_WARNING in _fence_lines(contract)
-    assert "`{run_dir}/warning.txt` with a file write, never an `echo`" in contract
+    assert "warning.txt" not in contract and "```" not in contract and "a shell runs" not in contract
+    for token in ("`{run_dir}/warnings.jsonl`", "step 7 §8b", "step 9 §1 renders it",
+                  "the result envelope carries it"):
+        assert token in contract, token
     if sys.platform == "win32":
         return
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     message = "[step-05/warn] comention-unconfirmed: react + express: `react --> express` $(touch pwned) café"
     (run_dir / "warning.txt").write_bytes(message.encode("utf-8") + b"\n")
-    command = (RECORD_WARNING.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER.as_posix()}"')
+    command = (record.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER.as_posix()}"')
                .replace("{run_dir}", run_dir.as_posix()))
     result = subprocess.run(["sh", "-c", command], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -2839,12 +2864,20 @@ def test_a_warning_reaches_the_sink_as_text(tmp_path):
 
 @pytest.mark.parametrize("path", [p for p in STEP_FILES if p != CONTRACT], ids=lambda p: p.name)
 def test_every_step_that_warns_records_in_the_sink(path):
-    """Each step file shows the record command itself, so a step read on its own still records."""
+    """Each step file shows the record command itself, so a step read on its own still records. #1150: it also
+    states the file write, and after step 1 resolves a lost emitter from its own frontmatter."""
     text = _read(path)
     if "workflow_warnings[]" not in text:
         return
     assert RECORD_WARNING in text, f"{path.name} appends warnings but never shows the record command"
     assert "--warning \"[" not in text, f"{path.name} puts a message inside the shell command"
+    clauses = [line for line in text.splitlines() if RECORD_WARNING in line]
+    for clause in clauses:
+        assert FILE_WRITE in clause, f"{path.name}: a record command with no file-write rule"
+        if path != INIT:
+            assert EMITTER_FALLBACK in clause, f"{path.name}: a record command with no emitter fallback"
+    assert EMITTER_PROBES in _frontmatter(text), f"{path.name} declares no emitEnvelopeProbeOrder"
+    assert "Workflow state contract shows" not in text, f"{path.name} defers the rule to SKILL.md"
 
 
 def test_evidence_report_facts_are_recorded_warnings():
@@ -2948,3 +2981,173 @@ def test_the_hook_gets_the_latest_record_and_is_skipped_without_one():
                   "It is skipped, with a report line saying so, when the emitter wrote no result file or not that "
                   "-latest copy"):
         assert token in comment, token
+
+
+# --- #1150: each stage carries its rules, step 1 saves its bindings, resume at the review gate --------
+
+# Phrases SKILL.md no longer holds: the fallback said four times, its own design note, the `references/` note,
+# the Workflow Rules' pointer at the contract and the trace rule the Overview already states.
+SKILL_GONE = ("so stage files don't have to repeat", "empty-string overrides fall through", "if non-empty, else",
+              "Stash both paths", "carved out of SKILL.md", "Warnings use a single accumulator", "Zero hallucination")
+BINDING_LEAD = ("   Bind these three as workflow-context variables, taking the default when the merged value is "
+                "empty or absent:")
+BOUND = (("stackSkillTemplatePath", "stack_skill_template_path"),
+         ("integrationPatternsPath", "integration_patterns_path"),
+         ("onCompleteCommand", "on_complete"))
+# A maintainer's ticket tag, (B2) or (S7, 20); a Markdown header level such as "H1/H2 header" is none.
+TICKET_TAG_RE = re.compile(r"\b[BSHM]\d{1,2}\b")
+HEADER_LEVEL_RE = re.compile(r"\bH[1-6](?:/H[1-6])? (?:header|structure)\b")
+RUN_KEYS = ["stack_name", "headless_mode", "project_root", "scan_root", "compose_mode", "architecture_doc_path",
+            "explicit_deps", "scope_overrides", "stackSkillTemplatePath", "integrationPatternsPath",
+            "onCompleteCommand", "forge_tier", "detected_tier", "available_tools"]
+RUN_WRITE = 'uv run {atomicWriteHelper} write --target "{runFile}" < "{run_dir}/run-bindings.json"'
+ATOMIC_WRITER = SCRIPTS / "skf-atomic-write.py"
+
+
+def test_skill_md_states_each_rule_once():
+    """leanness-2: the three bindings in Quick Skill's shape, one lead and one bullet each, and no rule twice."""
+    skill = _read(STACK_SKILL)
+    for gone in SKILL_GONE:
+        assert gone not in skill, gone
+    lines = skill.splitlines()
+    (lead,) = [k for k, line in enumerate(lines) if line == BINDING_LEAD]
+    assert lines[lead + 1] == "" and lines[lead + 5] == "", "the lead, a blank line, three bullets, a blank line"
+    for line, (variable, key) in zip(lines[lead + 2: lead + 5], BOUND):
+        assert line.startswith(f"   - `{{{variable}}}` ← `workflow.{key}`, else "), line
+    assert "Every finding must trace to actual code" in _h2_section(skill, "## Overview")
+    # The trace rule as a word: a later rule may say "traceback" or "tracing".
+    assert not re.search(r"\btrace\b", _h2_section(skill, "## Workflow Rules"))
+    (headless,) = [line for line in lines if line.startswith("2. **Resolve `{headless_mode}`**")]
+    # A `-H=false` turns nothing on: it falls through to the preferences, as before the rules became one sentence.
+    rules = ["`false` when `--headless=false` or `--no-headless`",
+             "`true` when `--headless` or `-H` was passed without `=false`",
+             "otherwise `headless_mode` from `{sidecar_path}/preferences.yaml`", "otherwise `false`."]
+    positions = [headless.index(rule) for rule in rules]
+    assert positions == sorted(positions), "the four rules in their order of precedence"
+
+
+def test_no_stage_keeps_a_ticket_tag():
+    """leanness-8: a tag such as (B8) or (S13) names a maintainer's ticket and tells the model nothing."""
+    for path in [STACK_SKILL, *STEP_FILES]:
+        tags = TICKET_TAG_RE.findall(HEADER_LEVEL_RE.sub("", _read(path)))
+        assert not tags, f"{path.name}: {tags}"
+    three = _sections(_body(_read(INIT)))["3"]
+    assert "as B8 does" not in three
+    assert "record the auto-decision as the compose-suggestion gate above does" in three
+
+
+def test_step_1_saves_its_bindings_to_run_json(tmp_path):
+    """enhancement-5: step 1's bindings, the tier after its downgrade among them, go to `run.json` with the
+    atomic writer, and a missing writer or a failed write halts there."""
+    init = _read(INIT)
+    assert "runFile: '{run_dir}/run.json'" in _frontmatter(init)
+    assert _probe_script(init, "atomicWrite") == ATOMIC_WRITER
+    sections = _sections(_body(init))
+    assert list(sections)[-3:] == ["4", "5", "6"] and "{nextStepFile}" in sections["6"]
+    five = sections["5"]
+    assert five.startswith("### 5. Save the Run's Bindings")
+    bindings = json.loads(_first_fence(five))
+    assert list(bindings) == RUN_KEYS
+    for token in ("`{run_dir}/run-bindings.json` with a file write", "keyed by each binding's own name",
+                  "an input not given being `null`", "`forge_tier` is the run tier, after §1's override and §2's "
+                  "downgrade", "`detected_tier` is the one `forge-tier.yaml` names"):
+        assert token in five, token
+    assert RUN_WRITE in _fence_lines(five)
+    assert _halts(five) == [(3, "helper-missing", "init:run-state"), (4, "write-failure", "init:run-state")]
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
+    assert "`skf-atomic-write.py` (step 1 §5, step 7 §1)" in row
+    # The documented call, run with the real writer, leaves the staged object in run.json.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-bindings.json").write_bytes(json.dumps(bindings).encode("utf-8"))
+    argv = _argv(RUN_WRITE.split(" < ")[0], "atomicWriteHelper", {"{runFile}": str(run_dir / "run.json")})
+    with open(run_dir / "run-bindings.json", "rb") as staged:
+        result = subprocess.run([sys.executable, str(ATOMIC_WRITER), *argv], stdin=staged, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((run_dir / "run.json").read_bytes().decode("utf-8")) == bindings
+
+
+def test_an_interactive_run_offers_to_resume_at_the_review_gate():
+    """enhancement-5: an interactive run finds an interrupted run of the same stack that holds a draft, and
+    resumes at step 6's review or starts fresh; a headless run never looks."""
+    sections = _sections(_body(_read(INIT)))
+    keys = list(sections)
+    assert keys.index("0") + 1 == keys.index("0b") == keys.index("1") - 1, "the offer follows §0's stack name"
+    offer = sections["0b"]
+    assert offer.startswith("### 0b. Offer to Resume at the Review Gate")
+    for token in ("Only an interactive run looks for an earlier run: a headless run always starts fresh.",
+                  "`{project-root}/_bmad-output/.skf-run/skf-create-stack-skill-*/run.json`",
+                  "whose `run.json` parses", "names this `{stack_name}`", "holds `headless_mode` false",
+                  "With none, go on to §1.",
+                  "the one whose `draft/SKILL.md` changed last", "(last changed: {that file's modification time})"):
+        assert token in offer, token
+    # A run that finished the stack since replaced that draft, so a declined or abandoned one is not offered
+    # again once the stack's group-root result copy (step 9) is newer than it.
+    assert ("that holds a `draft/SKILL.md` changed after "
+            "`{forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json` was written, "
+            "when that file exists") in offer
+    options = [line.strip().rstrip('"') for line in offer.splitlines() if re.match(r"\s+\[[YN]\] ", line)]
+    assert options == ["[Y] Resume at the review of that draft",
+                       "[N] Start fresh (that run folder stays as it is: {its path})"]
+    (yes,) = [line for line in offer.splitlines() if line.startswith("- **[Y]:**")]
+    for token in ("delete this run's new folder, the one the pre-flight created",
+                  "bind `{run_dir}` to the found folder", "restore every binding its `run.json` holds",
+                  "Set `{resumed_at_review}` true", "when On Activation bound `{customization_resolver_unavailable}`, "
+                  "record it in that folder as the resolver warning above does",
+                  "execute `references/compile-stack.md`"):
+        assert token in yes, token
+    (no,) = [line for line in offer.splitlines() if line.startswith("- **[N]:**")]
+    assert "leave the found folder as it is and go on to §1" in no
+    # No gate a headless run reaches: nothing to record, and the contract says so.
+    assert "GATE [default:" not in offer and "--decision" not in offer
+    assert "step 1: the resume offer [Y]/[N] (interactive only; a headless run always starts fresh)" in \
+        _contract_row("Gates")
+
+
+def test_a_resumed_run_goes_to_the_review_of_its_draft():
+    body = _body(_read(COMPILE))
+    (resumed,) = [p for p in body.split("\n\n") if p.startswith("**A resumed run.**")]
+    assert body.index("**Halt envelope.**") < body.index("**A resumed run.**") < body.index("### 1.")
+    for token in ("(`{resumed_at_review}` true)", "run §1's counts call", "go to §7's display and §8's menu",
+                  "the draft in `{draftFolder}` stays as the interrupted run left it, the user's own edits included",
+                  # §7's display and step 7's copy both follow §4's catalog decision, which the resume skips.
+                  "§4 moved the catalog out when `{draftFolder}/stack-catalog.md` exists"):
+        assert token in resumed, token
+
+
+def test_steps_7_and_8_take_the_run_tier_from_run_json():
+    """architecture-2, enhancement-5: a step that lost `{forge_tier}` to compaction reads step 1's saved tier."""
+    for path in (MANIFESTS, GENERATE, VALIDATE):
+        assert "runFile: '{run_dir}/run.json'" in _frontmatter(_read(path)), path.name
+    assert "`forge_tier` ← the `forge_tier` of `{runFile}`" in _sections(_body(_read(GENERATE)))["6"]
+    one = _sections(_body(_read(VALIDATE)))["1"]
+    assert one.index("--forge-tier {forge_tier}") < one.index("`{forge_tier}` is the `forge_tier` of `{runFile}`")
+    for path in STEP_FILES:
+        assert "step 1's run tier" not in _read(path), path.name
+
+
+def test_step_2_saves_a_binding_it_changes():
+    """enhancement-5: the no-manifests answer rebinds `explicit_deps` or `{scan_root}`, so run.json follows it."""
+    text = _read(MANIFESTS)
+    assert _probe_script(text, "atomicWrite") == ATOMIC_WRITER
+    two = _sections(_body(text))["2"]
+    options = _from(two, "STOP and wait").split("\n\n")[0]
+    assert "Option 1 binds `explicit_deps` to the names the user gives" in options
+    # Option 1's own sentences save the list before they go on to §3.
+    one = options[options.index("Option 1 binds"): options.index("Option 2 sets")]
+    assert one.index("saves `explicit_deps` as **Save the new binding** below shows") \
+        < one.index("goes on to [Display Detection Summary](#3-display-detection-summary)")
+    save = _from(two, "**Save the new binding.**")
+    save = save[:save.index("When `manifests` is not empty")]
+    for token in ("When option 1 binds `explicit_deps` or option 2 sets `{scan_root}`", "read `{runFile}`",
+                  "stage the whole object as `{run_dir}/run-bindings.json` with a file write",
+                  "resolving `{atomicWriteHelper}` from `{atomicWriteProbeOrder}` if it is not bound"):
+        assert token in save, token
+    assert RUN_WRITE in _fence_lines(save)
+    assert _halts(save) == [(4, "write-failure", "detect-manifests:run-state")]
+    # The message names the binding the answer changed; nothing binds a `{binding}`.
+    assert "{binding}" not in save
+    assert "The new `explicit_deps` could not be saved to `{runFile}`" in save
+    assert "naming `scan_root` in place of `explicit_deps` after option 2" in save
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 4 ")]
+    assert "step 1 §5 and step 2 §2: `run.json` cannot be written" in row

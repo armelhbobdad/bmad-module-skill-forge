@@ -32,7 +32,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
 
-**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
 ### 1. Count Import Frequency
 
@@ -42,10 +42,10 @@ Skip import counting entirely. All skills are included by default: the recommend
 
 **Apply scope_overrides:** If `scope_overrides` were provided in step 01, apply them now — force-include or force-exclude skills as specified. Log any overrides applied.
 
-**Validate override keys (S4):** Every key in `scope_overrides` MUST be present in `raw_dependencies`. For any unknown key, append a `workflow_warnings[]` entry (`step: "step-03"`, `severity: "warn"`, `code: "scope-override-unknown"`, `message`: "scope_override: unknown dependency '{key}', skipped") and drop that override entry (do not fail the run). Known-key overrides still apply.
+**Validate override keys:** Every key in `scope_overrides` MUST be present in `raw_dependencies`. For any unknown key, append a `workflow_warnings[]` entry (`step: "step-03"`, `severity: "warn"`, `code: "scope-override-unknown"`, `message`: "scope_override: unknown dependency '{key}', skipped") and drop that override entry (do not fail the run). Known-key overrides still apply.
 
 Present skills sorted by architectural layer (from architecture doc if available):
-- If `architecture_doc_path` is not null: **wrap the architecture-doc parse in try/except (S5)**. On any parse error (file unreadable, malformed markdown, no H2 structure), fall back to alphabetical ordering and log a warning `"architecture-doc parse failed: {error} — falling back to alphabetical"`. Otherwise parse section headers to determine layer grouping.
+- If `architecture_doc_path` is not null: **wrap the architecture-doc parse in try/except**. On any parse error (file unreadable, malformed markdown, no H2 structure), fall back to alphabetical ordering and log a warning `"architecture-doc parse failed: {error}; falling back to alphabetical"`. Otherwise parse section headers to determine layer grouping.
 - If `architecture_doc_path` is null or layers not detectable: present alphabetically.
 
 Display skills as a table:

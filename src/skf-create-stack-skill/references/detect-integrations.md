@@ -45,7 +45,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
 
-**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
 Every library's tier (`per_library_extractions[].confidence`) comes from `{bundleFile}`, which step 4 wrote.
 
@@ -65,7 +65,7 @@ uv run {pairIntersectHelper} intersect --counts "{importCountsFile}" --only "<na
 
 `{importCountsFile}` is the step 3 import-count JSON, read as it stands, and `--only` names the confirmed libraries, comma-separated, less those step 4 reported an extraction failure for. Its JSON, in `{pairsFile}`, holds `pairs[]` (`a`, `b`, `intersection_count` and `files[]`, each `{path, line_a, line_b}`: a file that imports both libraries, with the first line that imports each), sorted by `intersection_count` and capped at the Top-K below, with `truncated` and `total_pairs`. Use `pairs[]` as the candidate-pair set for §2 onward.
 
-**Top-K cap (S7, 20):** When the script reports `truncated: true`, warn the user and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "pair-cap-truncated"`, `message`: "non-empty-intersection pair count {total_pairs} exceeds cap: analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"), which the evidence report lists.
+**Top-K cap:** When the script reports `truncated: true`, warn the user and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "pair-cap-truncated"`, `message`: "non-empty-intersection pair count {total_pairs} exceeds cap: analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"), which the evidence report lists.
 
 Report: "**Analyzing {pair_count} library pairs for integration patterns** (pruned from {N*(N-1)/2} via file-list intersection; {capped_count} after Top-K if applicable)**...**"
 
@@ -129,7 +129,7 @@ If `tools.ccc` is true in forge-tier.yaml, augment each qualifying pair with one
 
 For each pair with 2 or more co-import files, run `ccc_bridge.search("{libA} {libB}", project_root, top_k=10)` (`project_root` from step 1, where setup built the index) to rank the files where the two libraries interact. CCC never changes which pairs qualify: a file that imports both libraries is already in the pair's `files[]`, so a pair below the threshold, or one past the Top-K cap, gains nothing from a search.
 
-**CCC precision guard (H3):** keep a CCC-surfaced file only when the pair's `files[]` lists it (both paths are relative to `{project_root}`, so they compare as they stand), and use the files kept to pick the ones §3 cites. Drop every other CCC file (one library only name-dropped in a comment or a string, say), and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "info"`, `code: "ccc-files-dropped"`, `message`: the pair and each file dropped) for the evidence report.
+**CCC precision guard:** keep a CCC-surfaced file only when the pair's `files[]` lists it (both paths are relative to `{project_root}`, so they compare as they stand), and use the files kept to pick the ones §3 cites. Drop every other CCC file (one library only name-dropped in a comment or a string, say), and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "info"`, `code: "ccc-files-dropped"`, `message`: the pair and each file dropped) for the evidence report.
 
 **Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {project_root} && ccc search --limit 10 "{libA} {libB}"` (CLI). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`). See `knowledge/tool-resolution.md`.
 
@@ -156,7 +156,7 @@ piping `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence
 For each detected integration:
 - Identify the top 3 files demonstrating the pattern (the CCC files §2 kept first, when there are any)
 - Extract a brief description of how the libraries connect
-- **Assign confidence (M1/M3): the pair's `tier` and a detection-method qualifier, never AST:** integration detection here is co-import file evidence from step 3's import counts, or a compose-mode candidate §2 confirmed. Append the qualifier that says how the pair was found:
+- **Assign confidence: the pair's `tier` and a detection-method qualifier, never AST:** integration detection here is co-import file evidence from step 3's import counts, or a compose-mode candidate §2 confirmed. Append the qualifier that says how the pair was found:
   - `grep-co-import`: the pair qualified on the co-import files its two libraries' import counts share (the default).
   - `architecture-co-mention`: compose-mode pair the architecture document names together, confirmed from its excerpt in §2. Maps to `detection_method: architecture_co_mention` in `provenance-map.json`.
   - `constituent-documented-contract`: compose-mode pair with no architecture document whose contract a constituent's own docs state, a docs mention §2 confirmed. Maps to `detection_method: constituent_documented_contract` in `provenance-map.json`.

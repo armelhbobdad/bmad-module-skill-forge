@@ -9,6 +9,10 @@ enumerateStackSkillsProbeOrder:
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+runFile: '{run_dir}/run.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -47,10 +51,10 @@ uv run {enumerateStackSkillsHelper} candidates {skills_output_folder} [--explici
 
 Render its JSON as it stands, never re-joining candidates by hand. An exit `1` (no skills folder) counts as an empty `kept[]`:
 
-- `manifest_parse_error` is not null: log `"{manifest_parse_error}: using the active links instead"` (B3).
+- `manifest_parse_error` is not null: log `"{manifest_parse_error}: using the active links instead"`.
 - `not_skf_output` is not empty: display it once, "Skipped (not SKF output): {not_skf_output}".
 - Each `excluded[]` entry: log its `message` as given, one line each.
-- `stale_manifest_keys` is not empty (**stale manifest, H6**: the export manifest names a skill whose folder is gone): HALT (exit 3, `halt_reason: "resolution-failure"`, phase `detect-manifests:stale-manifest`) with a manifest-corruption diagnostic naming each key and pointing the user at `[SKF-update-skill]` to repair.
+- `stale_manifest_keys` is not empty (**stale manifest**: the export manifest names a skill whose folder is gone): HALT (exit 3, `halt_reason: "resolution-failure"`, phase `detect-manifests:stale-manifest`) with a manifest-corruption diagnostic naming each key and pointing the user at `[SKF-update-skill]` to repair.
 - `kept[]` is empty: HALT (exit 3, `halt_reason: "resolution-failure"`, phase `detect-manifests:no-skills`) with "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (stack skills are never constituents). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]."
 
 A composes cycle is not an exclusion: step 4 §0 halts on one that involves a confirmed skill.
@@ -59,7 +63,7 @@ For each `kept[]` entry:
 1. Store its `name`, the top-level folder, as `skill_dir` (distinct from the metadata `name`).
 2. `skill_package_path` ← `{skills_output_folder}/{path}` from that entry: the package whose exports and `metadata_hash` the helper reported, so path and hash come from one resolution (the helper follows `active`, as the manifest-lag guard in `knowledge/version-paths.md` does).
 3. Read `metadata.json` from `skill_package_path` for the fields the entry lacks: name, version and source_authority. The entry gives language, confidence_tier, source_repo and the export count (`exports`).
-4. **Record the constituent metadata_hash (S13):** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `kept[]` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash (never hand-compute it); step 4 §0 checks it for drift and records the provenance anchor.
+4. **Record the constituent metadata_hash:** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `kept[]` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash (never hand-compute it); step 4 §0 checks it for drift and records the provenance anchor.
 5. Store as `raw_dependencies` with source: "existing_skill" (`"explicit"` for a name from `explicit_deps`)
 
 Report the `{N}` loaded skills — for each: name, language, confidence tier, export count, and source.
@@ -108,7 +112,7 @@ uv run {scanManifestsHelper} scan {scan_root} --include-dev
 
 If `manifests` is empty:
 
-**GATE [default: HALT]**, headless auto-cancel (S2): if `{headless_mode}` is true, do NOT wait for user input: HALT (exit 2, `halt_reason: "no-manifests"`, phase `detect-manifests:no-manifests`) with "**Cannot proceed.** No dependency manifests in `{scan_root}`, and a headless run needs one or an explicit `skills` list."
+**GATE [default: HALT]**, headless auto-cancel: if `{headless_mode}` is true, do NOT wait for user input: HALT (exit 2, `halt_reason: "no-manifests"`, phase `detect-manifests:no-manifests`) with "**Cannot proceed.** No dependency manifests in `{scan_root}`, and a headless run needs one or an explicit `skills` list."
 
 **Interactive mode:**
 
@@ -123,9 +127,17 @@ Searched for: {the `searched_filenames`, comma-separated}
 
 **Halting: please provide input.**"
 
-STOP and wait for the user's response. Option 2 sets `{scan_root}` to the folder the user names (a relative path resolves from `project_root`) and runs the scan call above again, replacing `{manifest_scan}`. Option 3 is a HALT (exit 6, `halt_reason: "user-cancelled"`, phase `detect-manifests:no-manifests`): emit it, then delete the run folder (`rm -rf "{run_dir}"`).
+STOP and wait for the user's response. Option 1 binds `explicit_deps` to the names the user gives (comma-separated or one per line) and stores them as `raw_dependencies` as §1 does. It then saves `explicit_deps` as **Save the new binding** below shows, and only then goes on to [Display Detection Summary](#3-display-detection-summary). Option 2 sets `{scan_root}` to the folder the user names (a relative path resolves from `project_root`) and runs the scan call above again, replacing `{manifest_scan}`. Option 3 is a HALT (exit 6, `halt_reason: "user-cancelled"`, phase `detect-manifests:no-manifests`): emit it, then delete the run folder (`rm -rf "{run_dir}"`).
 
-Otherwise, `raw_dependencies` is `{manifest_scan}` as it stands (the scanner already deduplicates, and step 3 pipes it to the import counter). Surface any `warnings[]` to the user as parse-quality notes. When `folders[]` lists more than one folder, the detection summary says so and names `{scan_root}`, the folder step 1 §3 chose (the whole project unless `project_path` or the user's answer named one package): to stack one package, re-run with `project_path` set to its folder.
+**Save the new binding.** When option 1 binds `explicit_deps` or option 2 sets `{scan_root}`, save it in `{runFile}` before going on, so a later step that lost it to compaction reads this value and not step 1's: read `{runFile}`, set its `explicit_deps` (the list of names) or `scan_root` to the new value, stage the whole object as `{run_dir}/run-bindings.json` with a file write and run:
+
+```bash
+uv run {atomicWriteHelper} write --target "{runFile}" < "{run_dir}/run-bindings.json"
+```
+
+resolving `{atomicWriteHelper}` from `{atomicWriteProbeOrder}` if it is not bound (step 1 §5 found it). If it exits non-zero, HALT (exit 4, `halt_reason: "write-failure"`, phase `detect-manifests:run-state`) with "**Cannot proceed.** The new `explicit_deps` could not be saved to `{runFile}`: {the first stderr line}.", naming `scan_root` in place of `explicit_deps` after option 2.
+
+When `manifests` is not empty, `raw_dependencies` is `{manifest_scan}` as it stands (the scanner already deduplicates, and step 3 pipes it to the import counter). Surface any `warnings[]` to the user as parse-quality notes. When `folders[]` lists more than one folder, the detection summary says so and names `{scan_root}`, the folder step 1 §3 chose (the whole project unless `project_path` or the user's answer named one package): to stack one package, re-run with `project_path` set to its folder.
 
 ### 3. Display Detection Summary
 

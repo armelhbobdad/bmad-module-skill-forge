@@ -37,6 +37,8 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
 
+**A resumed run.** When step 1 resumed this run (`{resumed_at_review}` true), run §1's counts call, then go to §7's display and §8's menu: the draft in `{draftFolder}` stays as the interrupted run left it, the user's own edits included, and §4 moved the catalog out when `{draftFolder}/stack-catalog.md` exists.
+
 ### 1. Load Template Structure
 
 Load `{stackSkillTemplatePath}` and prepare SKILL.md section structure. Every section below compiles from `{bundleFile}`: step 4's per-library extractions and step 5's integration graph (`integrations[]`, `hubs`, `cross_cutting`), never from memory. A library's key exports are its records in `{exportRecordsFile}` in code mode (each with its `source_library`), and its bundle entry's `exports` in compose mode.

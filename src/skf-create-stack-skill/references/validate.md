@@ -9,6 +9,10 @@ hashContentProbeOrder:
 securityScanProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-security-scan.py'
   - '{project-root}/src/shared/scripts/skf-security-scan.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runFile: '{run_dir}/run.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -34,6 +38,8 @@ Run the shared deterministic output validator once against the committed package
 ```bash
 python3 {outputValidator} {skill_package} --generated-by create-stack-skill --skill-type stack --forge-tier {forge_tier}
 ```
+
+`{forge_tier}` is the `forge_tier` of `{runFile}`, the run tier step 1 saved.
 
 Consume from its JSON:
 
@@ -63,14 +69,14 @@ Record any missing files (from `files_found` or the manual rows) as **ERROR** fi
 
 ### 2. Check Tool Availability
 
-Probe skill-check with `--no-install` to avoid cold-install hangs, wrap in a short timeout, and treat any hang or non-zero exit as unavailable (S14):
+Probe skill-check with `--no-install` to avoid cold-install hangs, wrap in a short timeout, and treat any hang or non-zero exit as unavailable:
 
 ```bash
 timeout 10s npx --no-install skill-check -h
 ```
 
 - If exits 0: Use skill-check for automated validation in section 3.
-- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used"`) so step 9 does not report the run as skill-check validated, recording it at once (write its `[step-08/warn] skill-check-unavailable: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`), and list every skipped check in the §10 validation results.
+- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used"`) so step 9 does not report the run as skill-check validated, recording it at once (write its `[step-08/warn] skill-check-unavailable: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound), and list every skipped check in the §10 validation results.
 
 **Important:** Do not assume availability — empirical check required.
 
@@ -82,7 +88,7 @@ This validates frontmatter, description, body limits, links and formatting, and 
 
 Bind `{quality_score}` ← that score, from the latest skill-check run (§3 runs it again after a split); `{quality_score}` is null when skill-check is unavailable. It is the skill-check score, not a test-skill score, and step 9 puts it in the result envelope and the result contract.
 
-**Post-fix provenance drift guard (S15):** When SKILL.md changed across the `--fix` call, `skill-check --fix` modified it after step 7 wrote it, so the `metadata.json` hashes and provenance recorded against the earlier body may now be stale. Emit one **WARNING** finding, `"skill-check --fix modified SKILL.md after step 7 wrote it: metadata.json hashes and provenance may be out of date"` (`"SKILL.md may have been rewritten (not hashed) by skill-check --fix after step 7 wrote it: metadata.json hashes and provenance may be out of date"` when SKILL.md was not hashed), rather than silently accepting the fix, so the drift is surfaced. If the caller wants authoritative metadata, they should re-run the workflow.
+**Post-fix provenance drift guard:** When SKILL.md changed across the `--fix` call, `skill-check --fix` modified it after step 7 wrote it, so the `metadata.json` hashes and provenance recorded against the earlier body may now be stale. Emit one **WARNING** finding, `"skill-check --fix modified SKILL.md after step 7 wrote it: metadata.json hashes and provenance may be out of date"` (`"SKILL.md may have been rewritten (not hashed) by skill-check --fix after step 7 wrote it: metadata.json hashes and provenance may be out of date"` when SKILL.md was not hashed), rather than silently accepting the fix, so the drift is surfaced. If the caller wants authoritative metadata, they should re-run the workflow.
 
 **If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplatePath}` "Sizing Guidance"). The moved catalog's links resolve from `references/`, so rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`. This is the **intended** large-stack layout, not a violation: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. After the split, verify that any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve, and that every link inside a moved section resolves from its new file.
 

@@ -34,6 +34,7 @@ pairsFile: '{run_dir}/pair-intersect.json'
 stackInventoryFile: '{run_dir}/stack-inventory.json'
 composeEntriesFile: '{run_dir}/compose-entries.json'
 draftFolder: '{run_dir}/draft'
+runFile: '{run_dir}/run.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -58,7 +59,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints and stop with the halt's exit code (`references/invocation-contract.md` lists every halt); when `{emitEnvelopeHelper}` resolves to no path or prints no line, display the halt message alone.
 
-**Warnings.** Every `workflow_warnings[]` entry here has `step: "step-07"` and `severity: "warn"` unless its section names another severity. Record each at once, as SKILL.md's Workflow state contract shows: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Every `workflow_warnings[]` entry here has `step: "step-07"` and `severity: "warn"` unless its section names another severity. Record each at once: write its `[step-07/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
 **Advisory checks.** §5's snippet count, §7's source-line check and §8's validator and export-name check never halt the run: when a check's helper resolves to no path, cannot run or prints no JSON (exit `2`), append a `workflow_warnings[]` entry (`code`: the one the section names, `message`: the reason) and go on.
 
@@ -68,7 +69,7 @@ Display the line it prints and stop with the halt's exit code (`references/invoc
 
 **The atomic writer.** Resolve `{atomicWriteHelper}` from `{atomicWriteProbeOrder}`; first existing path wins. If neither exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `generate-output:atomic-writer`) with "**Cannot proceed.** `skf-atomic-write.py` is missing, so the stack cannot be written safely. Re-install SKF, then re-run." Nothing is written before this check: §2 to §6 stage the package, which §9 commits whole before §10 flips the `active` link, and §7 and §8b write each workspace file atomically.
 
-**Pre-flight: ownership, phase 1 (S3).** Before any prior metadata is read, resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}` and run:
+**Pre-flight: ownership, phase 1.** Before any prior metadata is read, resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}` and run:
 
 ```bash
 uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --forge-data-folder {forge_data_folder}
@@ -150,7 +151,7 @@ While `{token_estimate}` exceeds **120**, apply the next trim and measure again:
 
 ### 6. Stage metadata.json
 
-Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← step 1's run tier. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}` and run:
+Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← the `forge_tier` of `{runFile}`, the run tier step 1 saved. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}` and run:
 
 ```bash
 uv run {renderStackMetadataHelper} metadata --input -

@@ -1791,7 +1791,8 @@ def test_stack_skill_documents_its_inputs_run_state_and_result_fields():
         assert token in inputs, token
     state = _paragraph(section, "**Run state:**")
     for token in ("`_bmad-output/.skf-run/`", "deleted when the run finishes or you cancel it",
-                  "the full draft only when you ask, and never in a headless run"):
+                  "the full draft only when you ask, and never in a headless run",
+                  "offers to resume at that review"):
         assert token in state, token
     halts = _paragraph(section, "**Halts:**")
     assert "exit `3` (`helper-missing`)" in halts and "exit `2` (`unknown-verdict-token`)" in halts
