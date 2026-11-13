@@ -611,7 +611,7 @@ def test_rename_recreates_active_with_flip_link():
     assert fix.index("{skillInventoryHelper} resolve") < fix.index("is not one of `renamed_versions`") < fix.index(
         'then rm -f "{new_skill_group}/active"') < fix.index("{atomicWriteHelper} flip-link \\")
     rollback = _section(fix, "**Rollback on a failure in step 1, 2 or 4:**", "Report:")
-    assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
+    assert "- Take the rollback (Transactional boundary)." in rollback
     # The halt procedure releases the run lock after the rollback, through the helper.
     assert "Release the lock" not in rollback
     assert '`emit-halt` phase `execute:active-link`' in rollback
@@ -701,7 +701,7 @@ def test_rename_restores_the_manifest_with_write_target():
     assert "set `{manifest_restore}` to `unchanged` and write nothing" in rollback
     assert rollback.index("Only when the first prints") < rollback.index("write --target")
     assert "Otherwise restore the backup" not in rollback
-    assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
+    assert "- Take the rollback (Transactional boundary)." in rollback
     assert "Release the lock" not in rollback, "the halt procedure releases the run lock after the rollback"
     assert '`halt_reason: "manifest-write-failed"`, `emit-halt` phase `execute:manifest`' in rollback
     assert 'uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}' in manifest
@@ -1010,7 +1010,7 @@ def test_rename_moves_only_an_skf_forge_folder():
     assert "context-snippet.md, provenance-map.json.\"" not in update, "name only the files rewritten"
     assert "Name only the kinds whose `rewrite_counts` entry is above 0, never a count taken from the version count." \
         in update
-    assert "`same_folder`: carried from step 1" in _section(execute, "### 9. Store Results", "### 10. ")
+    assert "`same_folder`" in _section(execute, "### 9. Store Results", "### 10. ")
     rewrite = _section(execute, "### 2. Rename the Packages and Rewrite the Name", "### 3. ")
     assert "Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true" in rewrite
     assert ("when `{forge_move}` or `{same_folder}` is true, provenance-map.json"
@@ -1876,7 +1876,8 @@ def test_rename_run_lock_goes_through_the_shared_helper():
     assert _fenced_calls(copy, "{runLockHelper} acquire") == [
         'uv run {runLockHelper} acquire --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
         '--owner "{lock_owner}" --stale-after 60' + CALL_ERR]
-    assert copy.index("**Renew the run lock first.**") < copy.index("**Precondition:**")
+    assert copy.index("**Renew the run lock first.**") < copy.index(
+        "1. If `{new_skill_group}` or `{new_forge_group}` exists on disk")
     renew = _section(copy, "- **Exit 0 with `refreshed` false, or exit 3:**", "- **Any other exit")
     assert '`halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase `execute:run-lock`' in renew
     assert "before anything is copied" in renew
@@ -2474,13 +2475,12 @@ def test_rename_counts_come_from_the_helper_results():
     assert "`rewrite_counts` ← `counts` (`files_rewritten` tallied by kind)" in update
     results = _section(execute, "### 9. Store Results in Context", "### 10. ")
     assert "`{run_dir}/rename-rewrite.json`, holds `renamed_versions`, `files_rewritten`, `counts`" in results
-    for bullet in ("- `run_id`, `run_dir` and `lock_owner`:",
-                   "- `manifest_rekeyed`: true only when section 6 ran the re-key and the helper exited 0"):
-        assert bullet in results, bullet
+    for name in ("`run_dir`", "`lock_owner`", "`manifest_rekeyed`"):
+        assert name in results, name
     decisions = _section(_read(RENAME_SELECT), "### 9. Store Decisions in Context", "### 10. ")
     assert "manifest_exists" not in decisions, "#1180: step 2 §6 asks the manifest helper itself"
-    for bullet in ("- `lock_owner`:", "- `run_id` and `run_dir`:"):
-        assert bullet in decisions, bullet
+    for name in ("`run_dir`", "`lock_owner`"):
+        assert name in decisions, name
     for section in (results, decisions):
         assert "- `headless_decisions`" not in section, "the run sink holds the decisions"
     report = _read(RENAME_REPORT)

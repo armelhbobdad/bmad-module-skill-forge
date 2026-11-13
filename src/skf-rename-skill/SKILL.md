@@ -12,12 +12,12 @@ Renames a skill across all its versions with transactional safety — copy to th
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` holds the new-name validator (`skf-validate-rename-name.py`).
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md`, which the terminal step chains to, and the envelope schema `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`.
-- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one. On Activation step 1 cites `skf-export-skill/assets/managed-section-format.md`, the format the context-file rebuild writes.
+- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 
 ## Role
 
@@ -56,7 +56,7 @@ Headless callers: the inputs, flags, gate map, outputs, concurrency rule and `SK
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
+   - `snippet_skill_root_override` (optional)
 
 2. **Bind the invocation once**, in every mode:
    - `{headless_mode}`: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
@@ -72,12 +72,12 @@ Headless callers: the inputs, flags, gate map, outputs, concurrency rule and `SK
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-rename-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) for select.md §1 to record once it has created `{run_dir}`.
 
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
+   Apply the scalar fallback now. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
 
    - `{forceSourceAuthorityInHeadless}` ← true when `workflow.force_source_authority_in_headless` is `"true"` or the TOML boolean `true`, else false (a headless run halts on an `"official"` skill unless it passes `--acknowledge-official`)
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — step 3 skips the post-completion hook invocation)
 
-   Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
+   Stash both as workflow-context variables.
 
    Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file); then, before step 4 loads select.md, execute each entry in `workflow.activation_steps_append` in order.
 

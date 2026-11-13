@@ -44,7 +44,7 @@ Identify the skill the user wants to rename, validate the new name against the a
 - Do not accept a new name that fails validation (kebab-case, length, uniqueness)
 - Present the list of affected versions clearly so the user understands the scope
 
-**Halt procedure.** Every HALT below names, in parentheses, its exit code, its `halt_reason` and the phase its `emit-halt` reports (see `references/exit-codes.md`), and runs these, in order, before it stops:
+**Halt procedure.** Every HALT below names, in parentheses, its exit code, its `halt_reason` and the phase its `emit-halt` reports, and runs these, in order, before it stops:
 
 1. Once §4b has bound `{lock_owner}`, release the run lock (a release never removes a lock another run holds). From `{project-root}`:
 
@@ -181,7 +181,7 @@ uv run {runLockHelper} acquire \
     --stale-after 60 2> "{run_dir}/call.err"
 ```
 
-The lock sits beside the forge folders, never inside one: a skill can have no forge folder, or one SKF did not generate, and a lock inside it would be copied into the new one. The helper creates `{forge_data_folder}` when it is missing.
+The helper creates `{forge_data_folder}` when it is missing.
 
 It prints one JSON line. Dispatch on its exit code:
 
@@ -195,8 +195,6 @@ It prints one JSON line. Dispatch on its exit code:
 
 - **3** (`acquired` false): another rename of `{old_name}` holds a lock that has not gone stale. Display "**Another rename of `{old_name}` is in progress.** {message}", with the helper's `message`, and HALT (exit code 5, `halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase `select:concurrency-guard`, with the lock file as `path`). This run took no lock, so the halt releases none.
 - **Any other exit, or no JSON:** HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:concurrency-guard`, with the lock file as `path`): "**The run lock could not be taken:** {the `message` the helper printed on stderr}. Nothing was changed." An interactive run reads that stderr in `{run_dir}/call.err`. No lock was taken, so none is released.
-
-A crashed run's lock goes stale 60 minutes after it was taken or last renewed, so step 2 §1 renews it before the copy.
 
 ### 5. Ask for New Name
 
@@ -225,7 +223,7 @@ Read `valid`, `first_failure`, `checks`, `interrupted_rename`, `interrupted_afte
 - **`format`** → "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting and ending with a lowercase letter or digit. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`, `emit-halt` phase `select:validate-new-name`)
 - **`length`** → "**Invalid name length.** The new name must be 1-64 characters. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`, `emit-halt` phase `select:validate-new-name`)
 - **`identity`** → "**The new name is identical to the current name.** Nothing to rename. Try again or abort the workflow." (headless HALT: exit code 2, `halt_reason: "input-invalid"`, `emit-halt` phase `select:validate-new-name`)
-- **`collision`** → "**Name collision.** `{new-name}` already exists at: {the `path` of each entry in `checks.collision.locations`}. Pick a different name." When `checks.collision.locations` has a `reserved` entry, say instead: "**Reserved name.** `improvement-queue` is SKF's own folder in `{forge_data_folder}`. Pick a different name." When `interrupted_rename` is true, append: "This may be a stranded partial rename from an earlier interrupted run: `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then remove `{skills_output_folder}/{new_name}`, and `{forge_data_folder}/{new_name}` only when it holds a copy of `{old_name}`'s forge folder, and re-run this rename." This gives headless pipelines a named recovery path instead of a dead-end collision halt. (headless HALT: exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`)
+- **`collision`** → "**Name collision.** `{new-name}` already exists at: {the `path` of each entry in `checks.collision.locations`}. Pick a different name." When `checks.collision.locations` has a `reserved` entry, say instead: "**Reserved name.** `improvement-queue` is SKF's own folder in `{forge_data_folder}`. Pick a different name." When `interrupted_rename` is true, append: "This may be a stranded partial rename from an earlier interrupted run: `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then remove `{skills_output_folder}/{new_name}`, and `{forge_data_folder}/{new_name}` only when it holds a copy of `{old_name}`'s forge folder, and re-run this rename." (headless HALT: exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`)
 
 **Recovery after the manifest re-key.** When `interrupted_after_rekey` is true, an earlier rename of `{old_name}` to `{new_name}` stopped between its manifest re-key and its delete, and `leftover_folders` lists the old folders it left. Re-asking would invite a third name and a second copy of the skill, so in both modes display "**An earlier rename of `{old_name}` to `{new_name}` stopped after it moved the export manifest to `{new_name}`.** `{new_name}` is the renamed skill, and these old folders are still on disk: {leftover_folders}. Nothing was changed. If `{old_name}` is not a skill you want to keep, finish that rename: delete them with SKF's checked delete, `uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" --root "{forge_data_folder}" {each path in leftover_folders, quoted}`, then run `[EX] Export Skill` to rebuild the context files that may still name `{old_name}`." and HALT (exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`).
 
@@ -251,11 +249,11 @@ registry will still get the original name. Rename is a LOCAL operation only — 
 does not rename anything at the registry.
 ```
 
-**GATE [default: HALT in headless]**: When `{acknowledge_official}` is true, `--acknowledge-official` answers this warning for this run in either mode: set `source_authority_override = true` and proceed without asking. Otherwise, in `{headless_mode}`, proceed only when `{forceSourceAuthorityInHeadless}` is true (set `source_authority_override = true`); when it is not, HALT (exit code 5, `halt_reason: "source-authority-blocked"`, `emit-halt` phase `select:source-authority`) with "**`{old_name}` is an official skill** (its `source_authority` is `official`). Nothing was changed. To rename it in a headless run, pass `--acknowledge-official` with the invocation, or set `force_source_authority_in_headless = "true"` under `[workflow]` in `{project-root}/_bmad/custom/skf-rename-skill.toml` (or `.user.toml`) to approve every headless rename of an official skill." Otherwise ask: "**Continue anyway?** [Y/N] (or `cancel` / `exit` / `:q` to abort)"
+**GATE [default: HALT in headless]**: When `{acknowledge_official}` is true, `--acknowledge-official` answers this warning for this run in either mode: proceed without asking. Otherwise, in `{headless_mode}`, proceed only when `{forceSourceAuthorityInHeadless}` is true; when it is not, HALT (exit code 5, `halt_reason: "source-authority-blocked"`, `emit-halt` phase `select:source-authority`) with "**`{old_name}` is an official skill** (its `source_authority` is `official`). Nothing was changed. To rename it in a headless run, pass `--acknowledge-official` with the invocation, or set `force_source_authority_in_headless = "true"` under `[workflow]` in `{project-root}/_bmad/custom/skf-rename-skill.toml` (or `.user.toml`) to approve every headless rename of an official skill." Otherwise ask: "**Continue anyway?** [Y/N] (or `cancel` / `exit` / `:q` to abort)"
 
 Wait for response.
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → display "**Cancelled.** No changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`, `emit-halt` phase `select:source-authority`).
-- **If `Y`** → proceed. Set `source_authority_override = true`.
+- **If `Y`** → proceed.
 
 **Record a headless pass.** When `{headless_mode}` is true and the run proceeded past the warning, record the decision in the run sink, with `{source_authority_reason}` ← `--acknowledge-official flag` when `{acknowledge_official}` is true, else `force_source_authority_in_headless override`. From `{project-root}`:
 
@@ -280,7 +278,7 @@ uv run {manifestOpsHelper} {skills_output_folder} affected-versions {old_name} 2
 
 Store `affected_versions` = `result.affected_versions` (newest first) and `affected_versions_count` = `result.count`. When it prints no JSON, or its `status` is not `"ok"`, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:affected-versions`) with "**Rename Skill cannot list the versions of `{old_name}`:** {its `error`, or the helper's stderr}. Nothing was changed." An interactive run reads that stderr in `{run_dir}/call.err`.
 
-Also bind the four outer paths, each without a trailing `/`:
+Also bind the four outer paths, each absolute and without a trailing `/`:
 
 - `old_skill_group` = `{skills_output_folder}/{old_name}`
 - `new_skill_group` = `{skills_output_folder}/{new_name}`
@@ -368,23 +366,7 @@ Wait for explicit user response.
 
 ### 9. Store Decisions in Context
 
-Store the following decisions in workflow context for step 2:
-
-- `old_name`: the current skill name
-- `new_name`: the validated new name
-- `affected_versions`: every version §7 listed, the version folders step 2 copies; step 2 §2 renames the package of each one that holds it
-- `old_skill_group`: absolute path `{skills_output_folder}/{old_name}` (no trailing `/`, like the three below)
-- `new_skill_group`: absolute path `{skills_output_folder}/{new_name}`
-- `old_forge_group`: absolute path `{forge_data_folder}/{old_name}`
-- `new_forge_group`: absolute path `{forge_data_folder}/{new_name}`
-- `forge_move`: boolean from §4a (true when this rename moves the forge folder)
-- `forge_left_in_place`: the forge folder §4a leaves under the old name because SKF did not generate it, or null
-- `same_folder`: boolean from §4a (true when `skills_output_folder` and `forge_data_folder` name one folder)
-- `source_authority_override`: boolean (true if the user acknowledged the `"official"` warning, false/absent otherwise)
-- `run_id` and `run_dir`: the run id and the run folder from §1
-- `lock_owner`: the run lock's owner from §4b
-
-The run's auto-decisions stay in `{run_dir}`, where each gate recorded them for the emitter.
+Step 2 reads the decisions this step bound where it made them: `run_dir` (§1), `old_name` (§4), `forge_move`, `forge_left_in_place` and `same_folder` (§4a), `lock_owner` (§4b), `new_name` (§5), and `affected_versions`, `old_skill_group`, `new_skill_group`, `old_forge_group` and `new_forge_group` (§7). The run's auto-decisions stay in `{run_dir}`, where each gate recorded them for the emitter.
 
 ### 10. Load Next Step
 

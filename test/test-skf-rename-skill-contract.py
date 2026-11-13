@@ -8,7 +8,10 @@ stage files and one manifest flag name (#600), and the w3 re-check findings
 the manifest backup as a file in the run folder. The step 5b gate adds two:
 a copy `npx skills add` installed under the old name is named in the plan,
 recorded as a warning and given its reinstall step in the report, and the
-verify-failed halt says how to recover.
+verify-failed halt says how to recover. #1182 keeps the stage files lean: each
+section 9 handoff is one roster of the names the next stage reads, execute.md
+states its rollback once, and the narration and the stored flag no stage acts
+on are gone.
 
 Step prose is not executed by any test, so most checks pin the prose an agent
 follows. The source-authority decision is also run through the shared emitter,
@@ -607,7 +610,7 @@ def test_the_rename_names_the_installed_copies_it_leaves():
     assert INSTALLED_RECORD in copies
     stored = _section(_read(EXECUTE), "### 9. Store Results in Context", "### 10. ")
     for name in ("installed_copies", "target_version"):
-        assert f"- `{name}`:" in stored, name
+        assert f"`{name}`" in stored, name
     report = _section(_read(REPORT), "### 2. Render the Report", "### 3. ")
     # Each copy is shown once, in the next steps with its fix, not again among the warnings.
     assert ("`{run_warnings}`, as warnings, except a `{run_warnings}` entry that starts with "
@@ -622,7 +625,9 @@ def test_the_rename_names_the_installed_copies_it_leaves():
     assert ("Copies installed in your IDE skill folders (`npx skills add`) are not renamed;\n"
             "  unless `snippet_skill_root_override` is set, the report names any it finds.") in plan
     # select.md binds new_skill_group absolute, and renamed_versions keeps affected_versions' newest-first order.
-    assert "- `new_skill_group`: absolute path `{skills_output_folder}/{new_name}`" in _read(SELECT)
+    paths = _section(_read(SELECT), "### 7. Enumerate Affected Versions", "### 7b. ")
+    assert "- `new_skill_group` = `{skills_output_folder}/{new_name}`" in paths
+    assert "Also bind the four outer paths, each absolute and without a trailing `/`:" in paths
     assert "`affected_versions` = `result.affected_versions` (newest first)" in _read(SELECT)
 
 
@@ -933,3 +938,127 @@ def test_the_documented_prediction_runs_and_changes_nothing(tmp_path, forge_move
     assert [(Path(w["file"]).name, w["text"]) for w in out["body_warnings"]] == [("SKILL.md", f"# {old}")]
     assert out["missing_files"] == []
     assert _tree(tmp_path) == before, "the prediction writes and moves nothing"
+
+
+# --------------------------------------------------------------------------
+# #1182: each section 9 handoff is a roster, execute.md states its rollback
+# once, and the narration and the flag no stage acts on are gone
+# --------------------------------------------------------------------------
+
+ROLLBACK_POINTER = "- Take the rollback (Transactional boundary)."
+# Each handoff: its heading, the roster's lead, and the sentences it keeps after the roster.
+HANDOFFS = {
+    SELECT: ("### 9. Store Decisions in Context", "Step 2 reads the decisions this step bound where it made them: ",
+             ("The run's auto-decisions stay in `{run_dir}`, where each gate recorded them for the emitter.",)),
+    EXECUTE: ("### 9. Store Results in Context", "Step 3 reads what this step bound where it ran: ",
+              ("§2's record, `{run_dir}/rename-rewrite.json`, holds `renamed_versions`, `files_rewritten`, `counts`, "
+               "`package_warnings` and `missing_files`: step 3 reads them there.",
+               "The run's auto-decisions stay in `{run_dir}`, where step 1's gates recorded them.")),
+}
+
+
+def _bound(text: str) -> set[str]:
+    """The snake_case names a stage file binds, in each form its prose binds one."""
+    found = set()
+    for pattern in (r"`\{(\w+)\}` ←", r"`(\w+)` ← ", r"`(\w+)` = ", r"`(\w+) = (?:true|false)`",
+                    r"(?:selection|input) as `(\w+)`", r"[Bb]ind `(\w+)` to ", r"^- `(\w+)` \W "):
+        found |= set(re.findall(pattern, text, re.M))
+    return {name for name in found if name == name.lower()}
+
+
+def test_no_stage_stores_a_source_authority_override():
+    """leanness-3: no stage read `source_authority_override`, so §6 proceeds without setting it."""
+    for path in sorted(RENAME.rglob("*")):
+        if path.is_file():
+            assert b"source_authority_override" not in path.read_bytes(), path
+    gate = _source_authority()
+    assert "answers this warning for this run in either mode: proceed without asking." in gate
+    assert "proceed only when `{forceSourceAuthorityInHeadless}` is true; when it is not, HALT" in gate
+    assert "- **If `Y`** → proceed." in gate.splitlines()
+
+
+@pytest.mark.parametrize("rel", [SELECT, EXECUTE], ids=["select", "execute"])
+def test_each_handoff_is_one_roster_of_what_the_next_stage_reads(rel):
+    """leanness-1: section 9 is one paragraph that names, backticked, each name the next stage reads, and no
+    other: step 2 reads step 1's bindings, and step 3 reads step 2's and step 1's, except the two it binds
+    itself from the rewrite record."""
+    heading, lead, kept = HANDOFFS[rel]
+    handoff = _section(_read(rel), heading, "### 10. ")
+    lines = [line for line in handoff.splitlines() if line.strip()]
+    assert len(lines) == 2 and lines[0] == heading, lines
+    assert "- `" not in handoff, "no bullet restates a binding"
+    paragraph = lines[1]
+    assert paragraph.startswith(lead) and paragraph.endswith(" ".join(kept)), paragraph
+    named = re.findall(r"`(\w+)`", paragraph[:paragraph.index(kept[0])])
+    assert len(named) == len(set(named)), named
+    if rel == SELECT:
+        execute = _body(EXECUTE)
+        reader = execute[:execute.index("### 9. ")] + execute[execute.index("### 10. "):]
+        bound, own = _bound(_body(SELECT)), set()
+    else:
+        reader = _body(REPORT)
+        bound, own = _bound(_body(SELECT)) | _bound(_body(EXECUTE)), {"renamed_versions", "rewrite_counts"}
+        assert "bind from it `renamed_versions`, `rewrite_counts` ← `counts`" in reader
+    read = {name for name in bound - own if re.search(rf"\b{name}\b", reader)}
+    assert set(named) == read, (sorted(set(named) - read), sorted(read - set(named)))
+
+
+def test_execute_states_its_rollback_once():
+    """leanness-2: the Transactional boundary is the one home of the rollback pair, each rollback block of
+    sections 2 to 6 points at it, and the STEP GOAL states the outcome with bound names."""
+    execute = _read(EXECUTE)
+    boundary = _section(execute, "**Transactional boundary.**", "### 0. ")
+    assert ("That rollback is `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is "
+            "true (this run created it), each without a trailing `/`.") in boundary
+    assert execute.count("rm -rf {new_skill_group}") == 1 and execute.count("rm -rf {new_forge_group}") == 1
+    assert execute.count(ROLLBACK_POINTER) == 4
+    for start, end, block in (("### 2. ", "### 3. ", "**Rollback on any other exit than 0:**"),
+                              ("### 4. ", "### 5. ", "**Rollback on a failure in step 1, 2 or 4:**"),
+                              ("### 5. ", "### 6. ", "- **If `clean` is `false`:**"),
+                              ("### 6. ", "### 7. ", "**Rollback on a failed backup or a helper non-zero exit:**")):
+        section = _section(execute, start, end)
+        assert section.count(ROLLBACK_POINTER) == 1 and section.index(block) < section.index(ROLLBACK_POINTER), start
+    # Section 1 lies before the boundary, so each failed copy deletes what it made: a failed `cp -a` leaves a part.
+    copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
+    assert ("- If the copy fails: delete whatever the copy created at `{new_skill_group}` (§1.1 confirmed nothing "
+            "was there), then halt with") in copy
+    assert "**rollback** by deleting `{new_skill_group}` and whatever the copy created at `{new_forge_group}`" in copy
+    goal = _section(execute, "## STEP GOAL:", "## Rules")
+    assert [line for line in goal.splitlines() if line.strip()][1:] == [
+        "Carry out step 1's rename of `{old_name}` to `{new_name}` as a transaction: the new name is fully "
+        "materialized and verified before the old one is deleted."]
+    assert "{skill_group}" not in execute and "{forge_group}" not in execute
+    rebuild = _section(execute, "### 7. Rebuild Context Files", "### 8. ")
+    [item4] = [line for line in rebuild.splitlines() if line.startswith("4. **On per-file failure**")]
+    assert "Do not halt the rename on a per-context-file error, and never delete `{new_skill_group}`:" in item4
+    for stale in ("**Precondition:**", "Rollback procedure for this section",
+                  "Do not delete anything from old directories", "Do not proceed past a verification failure",
+                  "It runs only on the success path", "**Note:** §7", "Precondition: §1"):
+        assert stale not in execute, stale
+
+
+def test_the_narration_no_stage_acts_on_is_gone():
+    """leanness-4 and leanness-5: maintainer asides and pointers to files no stage loads are cut."""
+    skill = _read(SKILL)
+    for stale in ("don't have to repeat", "no conditional at the usage site", "for full semantics",
+                  "skf-export-skill/"):
+        assert stale not in skill, stale
+    lines = skill.splitlines()
+    for line in ("   - `snippet_skill_root_override` (optional)", "   Stash both as workflow-context variables."):
+        assert line in lines, line
+    assert "   Apply the scalar fallback now. For each of the two scalars," in skill
+    select, execute = _read(SELECT), _read(EXECUTE)
+    for stale in ("The lock sits beside", "renews it before the copy", "named recovery path"):
+        assert stale not in select, stale
+    for stale in ("the call create-skill", "preserves `active_version`"):
+        assert stale not in execute, stale
+    for rel, text in ((SELECT, select), (EXECUTE, execute)):
+        assert "(see `references/exit-codes.md`)" not in text, rel
+
+
+def test_the_conventions_name_the_validator_the_skill_holds():
+    """leanness-4: Rename has scripts/ and no assets/, so its Conventions name the one helper it holds."""
+    conventions = _section(_read(SKILL), "## Conventions", "## Role")
+    assert not (RENAME / "assets").exists() and "`assets/`" not in conventions
+    assert sorted(p.name for p in (RENAME / "scripts").glob("*.py")) == ["skf-validate-rename-name.py"]
+    assert "`scripts/` holds the new-name validator (`skf-validate-rename-name.py`)." in conventions
