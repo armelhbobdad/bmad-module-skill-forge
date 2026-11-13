@@ -61,7 +61,7 @@ Ferris shows his menu as a numbered table and waits for your choice. A code, ali
 | 9 | VS | Before you write code, check that your chosen libraries can deliver your architecture and product requirements (PRD) | `skf-verify-stack` |
 | 10 | RA | Improve your architecture document with verified skill data and the VS findings | `skf-refine-architecture` |
 | 11 | TS | Test a skill for completeness, the quality gate before export | `skf-test-skill` |
-| 12 | EX | Package a skill and add its context to CLAUDE.md, AGENTS.md or .cursorrules | `skf-export-skill` |
+| 12 | EX | Package a skill and add its context to CLAUDE.md, AGENTS.md or .cursorrules; `--version <v>` makes an earlier version of the skill active again | `skf-export-skill` |
 | 13 | RS | Rename a skill across all its versions, all or nothing | `skf-rename-skill` |
 | 14 | DS | Drop a skill: deprecate it (soft) or purge it (hard) | `skf-drop-skill` |
 | 15 | CA | Run a campaign that builds many coordinated skills across sessions; start it with `@Ferris CA` or `@Ferris campaign` | `skf-campaign` |

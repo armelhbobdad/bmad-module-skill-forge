@@ -441,7 +441,7 @@ flowchart TD
 | Orchestration             | Campaign          | Multi-library skill production with dependency tracking and resume                                                               |
 | Management                | RS, DS            | Rename a skill across all its versions, or drop one version or a whole skill                                                     |
 | Utility                   | EX                | Package and export for consumption                                                                                               |
-| In-Agent                  | WS, KI            | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |
+| In-Agent                  | WS, KI            | WS: show lifecycle position, active briefs, audit drift, an unfinished campaign, and forge tier; KI: list knowledge fragments and explain one (both in-agent, no file-based workflow) |
 
 ---
 

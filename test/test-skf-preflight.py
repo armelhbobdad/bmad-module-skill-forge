@@ -1136,6 +1136,9 @@ class TestForgerMenu:
                          if line.startswith("- Zero hallucination tolerance"))
         assert principle == ("- Zero hallucination tolerance: every claim traces to the source, with a line-level "
                              "citation wherever the forge parses it and a T1-low label where it only reads it")
+        # The install-time roster copy of the persona says the same (lane review finding 12).
+        manifest = next(line for line in _read(FORGER_MANIFEST).splitlines() if line.startswith("principles:"))
+        assert manifest.startswith(f'principles: "{principle[2:]}. ')
         greeting = _step("Greet, then dispatch or wait.")
         assert ("**QS** (fastest trial: a skill from a GitHub URL or package name in under a minute, its public API "
                 "read from the source)") in greeting
