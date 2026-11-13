@@ -799,6 +799,9 @@ class TestCli:
 CS = REPO / "src" / "skf-create-skill"
 TS = REPO / "src" / "skf-test-skill"
 VALIDATE = CS / "references" / "validate.md"
+# validate §6b's collect loop, bindings and report lines, loaded only after a `submit` that returned `pending` or
+# `reviewed`, or printed no JSON (#1147).
+COLLECT = CS / "references" / "tessl-review-collect.md"
 EXTERNAL = TS / "references" / "external-validators.md"
 REFERENCE = REPO / "src" / "shared" / "references" / "tessl-review.md"
 HELPER_PROBE = [
@@ -831,12 +834,19 @@ COUNT_WORDS = {3: ("three", "third"), 4: ("four", "fourth"), 5: ("five", "fifth"
 VALIDATOR_CMD = 'uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md" --forbid-angle-brackets'
 SANITIZE_CMD = 'uv run {descriptionGuardHelper} sanitize "<staging-skill-dir>/SKILL.md"'
 HALT_MESSAGE = "Description sanitization failed: "
-STOPPED = "failed — stopped before skf-tessl-review.py reported a result"
-# A call the shell tool stops replaces the pending values the calls before it bound.
-SHELL_FALLBACK = ("If the shell tool stops a call before it prints its JSON, or it prints none, make that the last "
-                  f"call: set `{{tessl_status}}` to `failed`, `{{tessl_summary}}` to `{STOPPED}` and "
-                  "`{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, keep `{tessl_run_id}` and "
-                  "the other values the calls before it bound,")
+# The summary a stopped call sets: create-skill's moved line names it with a colon (#1147), test-skill keeps its own.
+STOPPED = {VALIDATE: "failed: stopped before skf-tessl-review.py reported a result",
+           EXTERNAL: "failed \u2014 stopped before skf-tessl-review.py reported a result"}
+
+
+def _shell_fallback(path: Path) -> str:
+    """A call the shell tool stops replaces the pending values the calls before it bound."""
+    return ("If the shell tool stops a call before it prints its JSON, or it prints none, make that the last "
+            f"call: set `{{tessl_status}}` to `failed`, `{{tessl_summary}}` to `{STOPPED[path]}` and "
+            "`{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, keep `{tessl_run_id}` and "
+            "the other values the calls before it bound,")
+
+
 MISSING_HELPER = ("If neither path exists, set `{tessl_summary}` to `not run — skf-tessl-review.py is missing` and "
                   "`{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`,")
 RETIRED = ("tessl skill review", "tesslDismissal", "tessl-dismissal-rules", "[TESSL:", 'confidence: "TESSL"',
@@ -887,11 +897,14 @@ class TestWorkflowWiring:
                       if npx.search(p.read_text(encoding="utf-8")) or command.search(p.read_text(encoding="utf-8")))
         assert hits == []
 
-    @pytest.mark.parametrize("subcommand", ["submit", "collect"])
-    def test_helper_call_sites_are_exactly_two(self, subcommand):
+    @pytest.mark.parametrize("subcommand, create_skill_site", [
+        ("submit", "validate.md"),
+        ("collect", "tessl-review-collect.md"),  # #1147: loaded only when the review is pending or done
+    ])
+    def test_helper_call_sites_are_exactly_two(self, subcommand, create_skill_site):
         sites = sorted(p.relative_to(REPO).as_posix() for p in (REPO / "src").rglob("*.md")
                        if f"{{tesslReviewHelper}} {subcommand}" in p.read_text(encoding="utf-8"))
-        assert sites == ["src/skf-create-skill/references/validate.md",
+        assert sites == [f"src/skf-create-skill/references/{create_skill_site}",
                          "src/skf-test-skill/references/external-validators.md"]
 
     @pytest.mark.parametrize("path", [VALIDATE, EXTERNAL])
@@ -901,6 +914,12 @@ class TestWorkflowWiring:
         assert fm["tesslReviewProbeOrder"] == HELPER_PROBE
         assert fm["tesslReviewRulesProbeOrder"] == RULES_PROBE
         assert fm["preferencesFile"] == "{sidecar_path}/preferences.yaml"
+        if path == VALIDATE:
+            # #1147: create-skill keeps no frontmatter comment its body states; §6b and the collect file say what a
+            # missing helper or rules file does
+            assert "# Resolve `{tesslReviewHelper}`" not in fm_text
+            assert not [line for line in fm_text.splitlines() if line.startswith("#") and "HALT" in line]
+            return
         block = _section(fm_text, "# Resolve `{tesslReviewHelper}`", "preferencesFile:")
         assert "HALT" not in block, "the review is advisory: its probe orders never halt"
 
@@ -918,6 +937,14 @@ class TestWorkflowWiring:
     ])
     def test_helper_calls_and_bindings(self, path, start, end, submit, collect, bound_from):
         section = _section(_read(path), start, end)
+        if path == VALIDATE:
+            # #1147: §6b loads the collect file after a `pending` or `reviewed` submit, or one that printed no JSON
+            assert ("When `{tessl_status}` is `pending` or `reviewed`, or the call printed no JSON, load "
+                    "`{tesslReviewCollectData}`, follow its **Collect the Review** section and continue to §7.") \
+                in section
+            assert yaml.safe_load(_frontmatter_text(VALIDATE))["tesslReviewCollectData"] == (
+                "references/tessl-review-collect.md")
+            section += _read(COLLECT)
         # The only commands: one submit, then collect while pending, the last collect with --final.
         commands = re.findall(r"^```bash\n(.*?)\n```$", section, re.M | re.S)
         assert commands == [submit, collect]
@@ -929,7 +956,7 @@ class TestWorkflowWiring:
         assert "with your shell tool's default time limit" in section
         for longer in ("600000", "ten-minute", "10-minute", "ten minutes"):
             assert longer not in section
-        assert SHELL_FALLBACK in section and MISSING_HELPER in section
+        assert _shell_fallback(path) in section and MISSING_HELPER in section
         assert "record `Tessl Review:" not in section, "every recorded line goes through {tessl_summary}"
         assert "HALT" not in section
         # Names the tessl command next to the reviewed folder (the staging-validate-promote memory note keys on it).
@@ -942,8 +969,8 @@ class TestWorkflowWiring:
         assert "After the last call," in section and "each entry of `{tessl_warnings}`" in section
 
     @pytest.mark.parametrize("path, rule", [
-        (VALIDATE, "the `## Tessl Review` section holds only its Result line and, when `{tessl_run_id}` is set, "
-                   "its Workspace line"),
+        (COLLECT, "the `## Tessl Review` section holds only its Result line and, when `{tessl_run_id}` is set, "
+                  "its Workspace line"),
         (EXTERNAL, "the Tessl Review block holds only its Result line and, when `{tessl_run_id}` is set, its "
                    "Run line"),
     ])
@@ -998,15 +1025,21 @@ class TestWorkflowWiring:
                         "`{angle_brackets_sanitized}` ← `sanitized`",
                         "`{sanitized_description}` ← `description`"):
             assert binding in check
-        assert "(exit code 5, `description-angle-brackets`, phase `validate`;" in check
+        # #1147: the HALT names its code, reason, phase and message; the stage's Rules hold the emit command
+        assert '(exit code 5, `description-angle-brackets`, phase `validate`): "' + HALT_MESSAGE in check
+        assert "emit-halt" not in check
+        rules = _section(text, "## Rules", "## MANDATORY SEQUENCE")
         assert ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
-                '--target stderr < "{run_dir}/halt.json"`): "' + HALT_MESSAGE) in check
+                '--target stderr < "{run_dir}/halt.json"`') in rules
+        # the rule and its reason live once, in compile-assembly-rules.md's Frontmatter rules
+        assert "by the Frontmatter rules of `assets/compile-assembly-rules.md`" in check
         assert "--captured-description" not in check, "the description never goes through the shell"
         hook = _section(text, "**This skill's post-restore re-validation hook:**", "### 1. Check Tool Availability")
         assert "--forbid-angle-brackets" not in hook, "§6 owns the check; the §0 hook must not flip Schema to FAIL"
-        comment = _section(_frontmatter_text(VALIDATE), "# Resolve `{frontmatterValidator}`",
-                           "frontmatterValidatorProbeOrder:")
-        assert "HALT (exit code 3, helper-missing) if neither resolves" in comment
+        # the frontmatter keeps no comment its body states (#1147): the Helpers line and §6 halt without the validator
+        assert "# Resolve `{frontmatterValidator}`" not in _frontmatter_text(VALIDATE)
+        assert "If neither path resolves, or the command below prints no JSON object, **HARD HALT** (exit code 3, " \
+            "`helper-missing`, phase `validate`)" in check
         schema = json.loads(_read(REPO / "src" / "shared" / "scripts" / "schemas" /
                                   "skf-create-skill-result-envelope.v1.json"))
         codes = schema["$defs"]["skf-envelope"]["const"]["exit_codes"]
@@ -1050,14 +1083,22 @@ class TestWorkflowWiring:
         assert HALT_MESSAGE in check
 
     def test_evidence_rows_match_the_template(self):
-        rows = _section(_read(VALIDATE), "## Validation Results\n", "\n\n## Quality Score Breakdown")
-        template = _section(_read(CS / "assets" / "skill-sections.md"), "## Validation Results\n",
-                            "\n\n## Quality Score Breakdown")
-        assert rows == template
-        assert "- Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}" in rows
+        """#1147: validate §8 fills skill-sections.md's blocks by name and keeps no copy of them."""
+        sections = _read(CS / "assets" / "skill-sections.md")
+        rows = _section(sections, "## Validation Results\n", "\n\n## Quality Score Breakdown")
+        assert "## Validation Results\n" not in _read(VALIDATE)
+        eight = _section(_read(VALIDATE), "### 8. Update Evidence Report", "### 9. Auto-Proceed")
+        assert ("Fill the `## Validation Results`, `## Quality Score Breakdown`, `## Description Guard`, "
+                "`## Auto-Fixed Issues`, `## Remaining Warnings` and `## Tessl Review` blocks of "
+                "`{skillSectionsData}`'s evidence-report.md Structure") in eight
+        assert "- Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked \u2014 no description}" in rows
         assert "- Tessl Review: {tessl_summary}" in rows and "Content Quality" not in rows
-        for text in (_read(VALIDATE), _read(CS / "assets" / "skill-sections.md")):
-            assert "## Tessl Review\n- Result: {tessl_summary}\n" in text
+        assert ("## Tessl Review\n- Result: {tessl_summary}\n- {when step 6 §6b loaded "
+                "references/tessl-review-collect.md: the lines its Report the Review section gives}\n") in sections
+        assert "- Workspace: {tessl_workspace, or an em dash}" in _section(_read(COLLECT), "## Report the Review", "When")
+        # one Remaining Warnings line, the one update-skill and test-skill read too
+        assert ('## Remaining Warnings\n- {each warning from extraction and validation, the security findings among '
+                'them, then each entry of {tessl_warnings}; "none" when there is none}\n') in sections
 
     def test_create_skill_gates_match_the_step_files(self):
         skill = _read(CS / "SKILL.md")
@@ -1072,7 +1113,8 @@ class TestWorkflowWiring:
     def test_compile_rationale_names_the_real_rule(self):
         compile_md = _read(CS / "references" / "compile.md")
         sanitize = _section(compile_md, "### 2a. Description Sanitization Pass", "### 3. Build context-snippet.md Content")
-        assert "Claude platform" in sanitize and "step 6 §6" in sanitize
+        # #1147: the reason lives once, in the Frontmatter rules compile §1 loads
+        assert "Claude platform" not in sanitize and "step 6 §6" in sanitize
         rules = _read(CS / "assets" / "compile-assembly-rules.md")
         assert "Claude platform" in rules
         for text in (compile_md, rules):
@@ -1096,8 +1138,9 @@ class TestWorkflowWiring:
                        "did not answer within", "stopped before skf-tessl-review.py reported a result",
                        "something that is not a run id", "letters, digits, `.`, `_` and `-`"):
             assert needle in trouble
-        assert f"`{STOPPED}`" in reference and "letters, digits, `.`, `_` and `-`" in reference
-        assert STOPPED.startswith(_reference_prefixes()["failed"])
+        # the shared reference quotes test-skill's literal; create-skill's moved line uses a colon (#1147)
+        assert f"`{STOPPED[EXTERNAL]}`" in reference and "letters, digits, `.`, `_` and `-`" in reference
+        assert STOPPED[EXTERNAL].startswith(_reference_prefixes()["failed"])
 
     def test_every_call_fits_a_two_minute_shell_limit(self):
         """Hosts whose shell tool stops a command after two minutes must get every result.

@@ -134,14 +134,17 @@ def test_update_halt_removes_the_private_tree() -> None:
     assert "ephemeral" not in _read(PROTOCOL)
     # the halt emits its envelope after the tree is closed
     assert update.index("close --tree") < update.index("**HARD HALT**")
-    assert f"(exit code 6, `halted-for-brief-refinement`, phase `extract`; stage `{{run_dir}}/halt.json`" in update
-    assert EMIT_HALT in update
+    assert "(exit code 6, `halted-for-brief-refinement`, phase `extract`)" in update
+    # #1147: the protocol states the emit command once, in its Overview's Halts paragraph
+    assert "emit-halt" not in update
+    halts = _section(_read(PROTOCOL), "**Halts.**", "## Procedure")
+    assert EMIT_HALT in halts and "After its envelope, under `--batch` it ends only this brief" in halts
 
 
 def test_skip_reaches_the_evidence_report() -> None:
     assert f"the record is `{SKIP_RECORD}` instead" in _read(PROTOCOL)
     assert "step 6 lists that skip under the evidence report's Remaining Warnings" in _read(PROTOCOL)
-    report = _section(_read(VALIDATE), "### 8. Update Evidence Report", "```markdown")
+    report = _section(_read(VALIDATE), "### 8. Update Evidence Report", "### 9.")
     assert "under `## Remaining Warnings`" in report
     assert "the inventory's `authoritative_files_scan` records `not_scanned`" in report
 

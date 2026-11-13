@@ -787,9 +787,9 @@ def test_compile_2a_runs_the_guard_sanitize() -> None:
             "`description_sanitizations` ← `substitutions`") in section
     frontmatter = yaml.safe_load(_step_frontmatter(_read(CS_COMPILE)))
     assert frontmatter["descriptionGuardProbeOrder"] == GUARD_PROBE_ORDER
-    assert ("If neither path resolves, **HARD HALT** (exit code 3, `helper-missing`, phase `compile`;") in section
+    assert ("If neither path resolves, **HARD HALT** (exit code 3, `helper-missing`, phase `compile`):") in section
     exit2 = _slice(section, "- **Exit 2** (the rewrite failed):", "\n")
-    assert "**HARD HALT** (exit code 4, `write-failed`, phase `compile`;" in exit2
+    assert "**HARD HALT** (exit code 4, `write-failed`, phase `compile`)" in exit2
     assert 'with `"path"` the staged `SKILL.md`' in exit2
     exit1 = _slice(section, "- **Exit 1** (the frontmatter cannot be read):", "\n")
     assert "run the command once more; when it fails again, halt as for exit 2" in exit1
@@ -798,9 +798,14 @@ def test_compile_2a_runs_the_guard_sanitize() -> None:
     for by_hand in ("sanitize the assembled `description` string by replacing",
                     "Record the count of substitutions in context", "in context, then write the result"):
         assert by_hand not in _read(CS_COMPILE), by_hand
-    # The Why and Scope paragraphs stay.
-    assert "**Why unconditional?** The Claude platform does not accept" in section
-    assert "step 6 §6 checks the staged description" in section and "**Scope:**" in section
+    # #1147: the rule, its reason and its scope live once, in the Frontmatter rules of compile-assembly-rules.md
+    assert "**Why unconditional?**" not in section and "**Scope:**" not in section
+    assert "step 6 §6 checks the final description" in section
+    rules = _read(REPO_ROOT / "src" / "skf-create-skill" / "assets" / "compile-assembly-rules.md")
+    bullet = _slice(rules, "- **The `description` cannot contain angle brackets**", "\n- Only `name` and `description`")
+    assert "The Claude platform does not accept a skill description that contains XML tags" in bullet
+    assert ("The rule holds only for the `description`: the body, code examples and reference files keep their angle "
+            "brackets") in bullet
 
 
 def test_compile_2a_call_sanitizes_the_staged_description(tmp_path: Path) -> None:

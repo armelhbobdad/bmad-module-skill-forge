@@ -1,17 +1,9 @@
 ---
 nextStepFile: 'fetch-docs.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
-# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §2 and §4 read the collection's freshness through it and §4
-# changes the registry only through it. If neither resolves, §2 finds no fresh
-# collection and §4 skips the registry change with a warning: temporal
-# enrichment never halts the workflow.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
-# If neither path exists, §1 skips the step: temporal enrichment never
-# halts the workflow.
 fetchTemporalProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-fetch-temporal.py'
   - '{project-root}/src/shared/scripts/skf-fetch-temporal.py'

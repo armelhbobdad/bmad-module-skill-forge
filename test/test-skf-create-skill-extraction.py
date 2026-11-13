@@ -473,7 +473,8 @@ def test_filtered_list_is_built_by_the_runner_where_a_step_reads_it() -> None:
         in by_hand
     # the labels follow the run order, so no order note is left (#1144)
     assert "Sections 2b and 2a" not in two
-    ready = _slice(_section(EXTRACT, "2a"), "- **`ready`**", "\n")
+    # #1147: §2a's remote block, with its dispatch, lives in the file §2a loads for a remote source
+    ready = _slice(_read(REFS / "remote-source-access.md"), "- **`ready`**", "\n")
     assert ("Build the §2 filtered file list again from `{source_root}` when §2 builds one (a `component-library` "
             "brief)") in ready
 
@@ -892,8 +893,9 @@ def test_compile_stores_the_count_the_script_decides_to_store() -> None:
         assert gone not in four, gone
     assert "\u2014" not in bullet and "\u2013" not in bullet
     # the files that cited the conditions by number cite the decision
+    # #1147: the reference-app carve-out moved into the override file compile §2 loads for that shape
     assets = SRC / "skf-create-skill" / "assets"
-    for path in (assets / "compile-assembly-rules.md", assets / "skill-sections.md"):
+    for path in (REFS / "assembly-reference-app.md", assets / "skill-sections.md"):
         text = _read(path)
         assert "condition 1" not in text and "emit-conditions" not in text, path.name
         assert "effective_denominator_decision" in text, path.name
@@ -1082,8 +1084,9 @@ def test_relabel_rule_looks_the_kind_up_with_kind_at() -> None:
     for path, number in ((COMPILE, "4"), (VALIDATE, "7")):
         assert _frontmatter(_read(path))["verifyProvenanceCompletenessProbeOrder"] == VERIFIER_PROBE, path.name
         assert RESOLVE_VERIFIER in _section(path, number), path.name
-    # validate's frontmatter names both of its verifier users
-    assert "§7's relabel runs its `kind-at`, and §7a its `verify` and `fix`." in _read(VALIDATE)
+    # §7a resolves the verifier for its `verify` and `fix` where it runs them (#1147: no frontmatter comment)
+    assert ("Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in "
+            "`{verifyProvenanceCompletenessProbeOrder}`") in _section(VALIDATE, "7a")
 
 
 # --------------------------------------------------------------------------
@@ -1384,7 +1387,7 @@ def test_a_failed_scope_or_count_call_runs_once_more_then_halts(tmp_path: Path) 
         assert token in step, token
     two = _section(EXTRACT, "2")
     assert ("When a call of that file fails as its step 4 says, **HARD HALT** (exit code 4, `write-failed`, phase "
-            "`extract`, or exit code 3, `helper-missing`, when no path resolves;") in two
+            "`extract`, or exit code 3, `helper-missing`, when no path resolves)") in two
 
 
 HAND_COUNT_TREE = {

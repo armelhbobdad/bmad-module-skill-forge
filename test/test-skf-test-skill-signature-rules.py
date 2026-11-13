@@ -121,7 +121,7 @@ SCORING = REFS / "scoring-rules.md"
 SCORE_SIGNATURES = TEST_SKILL / "scripts" / "score-signatures.py"
 COMPONENT_EXTRACTION = REPO_ROOT / "src" / "skf-create-skill" / "references" / "component-extraction.md"
 # Create Skill's props table, whose empty Default cells must never read a prop as required.
-COMPILE_ASSEMBLY = REPO_ROOT / "src" / "skf-create-skill" / "assets" / "compile-assembly-rules.md"
+COMPILE_ASSEMBLY = REPO_ROOT / "src" / "skf-create-skill" / "references" / "assembly-component-library.md"
 
 SECTIONS = ["Reading a form", "Components", "Annotations", "Equivalent spellings", "Overload sets",
             "Difference tags"]

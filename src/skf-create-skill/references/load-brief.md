@@ -2,15 +2,9 @@
 nextStepFile: 'sub/ccc-discover.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 preferencesFile: '{sidecar_path}/preferences.yaml'
-# Resolve `{validateBriefSchemaHelper}` to the first existing path; HALT
-# (exit code 3, helper-missing) if neither exists. §3 relies on the helper
-# for deterministic schema-conformance checks (required fields, regex
-# patterns, enum membership, docs-only conditional rules) so this stage
-# does not re-run those checks in prose.
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
-# HARD HALT helper (Rules).
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -28,7 +22,7 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 
 - Focus only on loading brief, resolving source, and determining tier — do not begin extraction or compilation
 - Write nothing but the brief's run folder (§0) and the decisions recorded in it: this step loads and validates
-- A HARD HALT emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -55,7 +49,7 @@ SKF_JSON
 Load `{forgeTierFile}` completely.
 
 **If file does not exist:**
-**HARD HALT** (exit code 3, `forge-tier-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Forge halted: No forge configuration found. Run [SF] Setup Forge first to detect tools and set your tier."
+**HARD HALT** (exit code 3, `forge-tier-missing`, phase `load-brief`): "Forge halted: No forge configuration found. Run [SF] Setup Forge first to detect tools and set your tier."
 
 **If file exists:**
 Extract and report:
@@ -83,17 +77,17 @@ Step 5 §7 renders the sink into the evidence report's `## Auto-Decisions` table
 
 **If no brief path, skill name or `--batch` was given:** list the files that match `{forge_data_folder}/*/skill-brief.yaml`, the brief in each skill's forge folder.
 - **One brief:** load it, and record the pick in the run sink per the Workflow Rules, in every mode: `{"step": "load-brief", "gate": "brief-selection", "decision": "only-brief", "value": "<its path>", "rationale": "no brief named; the only brief in forge_data_folder"}`. §5's banner names it.
-- **Several briefs:** interactive, list each one by its skill name (its folder's name) and ask "Which brief should I compile?", then load the one the user names. **GATE [default: HALT]**: headless, ask nothing: **HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "No brief named, and {N} briefs are in `{forge_data_folder}`: {their skill names}. Pass the brief's path or skill name, or `--batch` to compile them all."
+- **Several briefs:** interactive, list each one by its skill name (its folder's name) and ask "Which brief should I compile?", then load the one the user names. **GATE [default: HALT]**: headless, ask nothing: **HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`): "No brief named, and {N} briefs are in `{forge_data_folder}`: {their skill names}. Pass the brief's path or skill name, or `--batch` to compile them all."
 - **None:** the halt below.
 
 **Bind `{brief_path}`** ← the path of the `skill-brief.yaml` this section loaded: the path given, `{forge_data_folder}/{skill-name}/skill-brief.yaml` for a skill name, the brief the list above gave, or under `--batch` the brief batch-mode.md handed out, never a folder. Later steps hand it to their helpers (`--brief`, `amend --target`).
 
 **If no brief found:**
-**HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill for brief-less generation."
+**HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`): "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill for brief-less generation."
 
 ### 3. Validate Brief Structure
 
-Resolve `{validateBriefSchemaHelper}` ← first existing path in `{validateBriefSchemaProbeOrder}`. If neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot validate the brief: skf-validate-brief-schema.py is missing. Re-install SKF, then re-run create-skill."
+Resolve `{validateBriefSchemaHelper}` ← first existing path in `{validateBriefSchemaProbeOrder}`. If neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `load-brief`): "Cannot validate the brief: skf-validate-brief-schema.py is missing. Re-install SKF, then re-run create-skill."
 
 Run the deterministic schema validator — it checks required fields, regex patterns (`name`, `version`), enum membership (`source_type`, `source_authority`, `forge_tier`, `scope.type`), type correctness, the docs-only conditional rule (`doc_urls` ≥ 1 when `source_type == "docs-only"`), and the version-non-empty-or-whitespace rule:
 
@@ -113,7 +107,7 @@ The helper emits:
 }
 ```
 
-**If `valid` is false:** **HARD HALT** (exit code 2, `{halt_reason}`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with the helper's `halt_reason` and the first error's `message` as the halt message, and display that `message` verbatim: the helper already formats messages in the "Brief validation failed: ..." form the user expects. For halt-reasons:
+**If `valid` is false:** **HARD HALT** (exit code 2, `{halt_reason}`, phase `load-brief`), with the helper's `halt_reason` and the first error's `message` as the halt message, and display that `message` verbatim: the helper already formats messages in the "Brief validation failed: ..." form the user expects. For halt-reasons:
 
 - `brief-missing` — the brief path doesn't exist. Display the helper's message (it includes the `Run [BS] Brief Skill` redirect).
 - `brief-malformed` — the YAML failed to parse. Display the helper's message.
@@ -140,7 +134,7 @@ The complete contract — required fields, optional fields, types, and rules —
 - Store resolved: local path as `source_root`, file listing
 
 **If source cannot be resolved:**
-**HARD HALT** (exit code 3, `source-not-found`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Source not found: `{source_repo}`. Verify the repository exists and is accessible."
+**HARD HALT** (exit code 3, `source-not-found`, phase `load-brief`): "Source not found: `{source_repo}`. Verify the repository exists and is accessible."
 
 ### 5. Report Initialization
 

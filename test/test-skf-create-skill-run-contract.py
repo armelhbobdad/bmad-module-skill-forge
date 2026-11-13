@@ -1,8 +1,10 @@
 """skf-create-skill's run contract: halts, decisions, the terminal sequence and run state on disk.
 
 - Every HARD HALT in steps 1 to 7 emits SKF_CREATE_SKILL_RESULT_JSON through
-  the shared emitter, inline where it fires, with an exit code and a
-  halt_reason that skf-create-skill-result-envelope.v1.json maps (#593).
+  the shared emitter, with an exit code and a halt_reason that
+  skf-create-skill-result-envelope.v1.json maps (#593); the stage file's Rules
+  state the emit command once and each HALT names its code, reason, phase and
+  message (#1147).
 - Each decision the run takes without asking lands in the run folder's sink
   through the emitter's `record`, the one trail the evidence report, the
   envelope and the result contract read (#593).
@@ -129,6 +131,19 @@ def _halt_lines() -> list[tuple[Path, str]]:
     return [(path, line) for path in STEP_FILES for line in _body(path).splitlines() if "**HARD HALT**" in line]
 
 
+HALT_PAYLOAD = ('it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", '
+                '"summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names '
+                'a file or folder, as `{run_dir}/halt.json`, runs ' + EMIT_HALT)
+
+
+def _halt_rules(path: Path) -> list[str]:
+    """The Rules bullets of a stage file that hold the emit command; the authoritative-files protocol, which has
+    no Rules and runs under step 3's, states it in a paragraph of its Overview (#1147)."""
+    if path.name == "authoritative-files-protocol.md":
+        return [p for p in _section(_read(path), "## Overview", "## Procedure").split("\n\n") if EMIT_HALT in p]
+    return [line for line in _rules(path).splitlines() if EMIT_HALT in line]
+
+
 # --------------------------------------------------------------------------
 # HARD HALTs emit the envelope where they fire (#593)
 # --------------------------------------------------------------------------
@@ -154,7 +169,10 @@ def test_the_envelope_rule_sits_beside_the_tree_rule():
         assert token in rule, token
 
 
-def test_every_hard_halt_names_a_mapped_code_and_emits():
+def test_every_hard_halt_names_a_mapped_code_and_its_file_states_the_emit():
+    """#1147 leanness-3: a HALT names its exit code, halt_reason, phase, path and message where it fires, and the
+    stage file's Rules (the protocol's Overview) state the emit command once, so a halt after a compaction that
+    dropped SKILL.md still finds it; the halts with nothing to stage in keep their own command."""
     codes = _exit_codes()
     lines = _halt_lines()
     assert len(lines) >= 25, len(lines)
@@ -169,7 +187,13 @@ def test_every_hard_halt_names_a_mapped_code_and_emits():
             assert reason == "{halt_reason}", where
         else:
             assert codes.get(reason) == code, where
-        assert ("emit-halt --workflow skf-create-skill" in line) or ("emit with nothing to stage in" in line), where
+        assert "emit-halt" not in line, where
+        if "emit with nothing to stage in" in line:
+            continue
+        rules = _halt_rules(path)
+        assert len(rules) == 1 and HALT_PAYLOAD in rules[0], where
+        assert ("displays the line it prints (the halt message alone when no path resolves) and stops with the "
+                "HALT's exit code") in rules[0], where
 
 
 def test_no_halt_is_left_without_its_envelope():
@@ -215,8 +239,9 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     # step 1 halts before the tree exists, but its halts find the emitter and, under --batch, end only the brief
     load_brief = [line for line in _rules(REFS / "load-brief.md").splitlines() if line.startswith("- A HARD HALT")]
     assert load_brief == ["- A HARD HALT emits through `{emitEnvelopeHelper}`, resolved from "
-                          "`{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` "
-                          f"it ends only this brief: {BATCH_RETURN}."], load_brief
+                          f"`{{emitEnvelopeProbeOrder}}` when it is not bound: {HALT_PAYLOAD}, displays the line it "
+                          "prints (the halt message alone when no path resolves) and stops with the HALT's exit code. "
+                          f"After its envelope, under `--batch` it ends only this brief: {BATCH_RETURN}."], load_brief
     # batch-mode.md, the loop every halt returns to, halts through the emitter too
     execution = _section(_read(REFS / "batch-mode.md"), "## Execution", "### 1.")
     assert ("`{emitEnvelopeHelper}`, which every HARD HALT here emits through, ← the first existing path in "
@@ -226,7 +251,7 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     record = _section(_read(REFS / "batch-mode.md"), "### 3. Record the Brief", "### 4.")
     assert "every HARD HALT of steps 1 to 7 returns here after its envelope (each stage's Rules say so)" in record
     five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
-    assert "it emits its envelope where it fires, as its HALT line says" in five
+    assert "it emits its envelope where it fires, as its stage file's Rules say" in five
     for path in STEP_FILES:
         assert "SKILL.md Workflow Rules" not in _read(path), path.name
 
@@ -295,25 +320,37 @@ def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
         halt = next(line for line in text.splitlines() if "`halted-for-brief-refinement`" in line)
         match = HALT_RE.search(halt)
         assert match and match.groups() == ("6", "halted-for-brief-refinement", phase), halt[:90]
-        assert EMIT_HALT in halt
+        assert "emit-halt" not in halt
         assert f"Fix {fix} in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`." in halt
+    for name in ("extract.md", "sub/fetch-docs.md"):
+        assert len(_halt_rules(REFS / name)) == 1, name
     assert _exit_codes()["halted-for-brief-refinement"] == 6
     gates = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |"))
     assert "step 3: Review Gate [C]/[R]" in gates and "step 3c: Zero-Export Gate [C]/[R]" in gates
 
 
 def test_the_promotion_and_post_promotion_halts_write_their_result_file():
+    """#1147: generate-artifacts.md's Rules bullet names both commands, the `--result-dir` one for the four halts
+    after §3's `promote` call has run, and no HALT line carries a command of its own."""
     generate = _body(REFS / "generate-artifacts.md")
+    [rule] = _halt_rules(REFS / "generate-artifacts.md")
+    assert EMIT_HALT_RESULT in rule and rule.index(EMIT_HALT) < rule.index(EMIT_HALT_RESULT)
+    assert ("(for every HARD HALT after §3's `promote` call has run, its exit 1 and exit 2, §4's `active-link-blocked` "
+            f"and §5's `references-missing`: {EMIT_HALT_RESULT}, so the emitter also writes the halt's result file in "
+            "`{forge_version}`)") in rule
+    # a halt after the package was promoted points its envelope at the promoted evidence report, as SKILL.md says
+    assert ('A HARD HALT that stages `"skill_package"` and `"outputs"` (the package was promoted) also sets '
+            "`summary.evidence_report` to `{forge_version}/evidence-report.md`.") in rule
     promotion = _section(generate, "### 3. Promote the Staged Skill", None)
     for reason in ("staging-unreadable", "write-failed", "active-link-blocked", "references-missing"):
         line = next(ln for ln in promotion.splitlines() if f"`{reason}`" in ln and "**HARD HALT**" in ln)
-        assert EMIT_HALT_RESULT in line, reason
+        assert "emit-halt" not in line and "--result-dir" not in line, reason
     refusal = next(p for p in generate.split("\n\n") if p.startswith("Each refusal is a **HARD HALT**"))
-    assert EMIT_HALT in refusal and "leaves out `--result-dir`" in refusal
+    assert "emit-halt" not in refusal and "leaves out `--result-dir`" in refusal
     # extraction-rules.yaml is written before the promotion creates {forge_version}: no result file yet
     rules = _section(generate, "### 2. Generate extraction-rules.yaml", "### 3.")
     for line in (ln for ln in rules.splitlines() if "**HARD HALT**" in ln):
-        assert EMIT_HALT in line and "--result-dir" not in line, line[:80]
+        assert "emit-halt" not in line and "--result-dir" not in line, line[:80]
 
 
 def test_the_halt_payload_the_rule_stages_is_schema_valid(tmp_path):
@@ -641,8 +678,11 @@ def test_the_result_payload_reads_the_security_row(tmp_path):
     payload = json.loads(payload_text.replace("{run_status}", "success").replace("{tier}", "Forge"))
     assert payload["summary"]["security_result"] == "{security_result}"
     assert payload["result_contract"]["summary"]["security_result"] == "{security_result}"
+    # §8 fills skill-sections.md's blocks by name (#1147): the row lives in that template
     results = _section(_read(REFS / "validate.md"), "### 8. Update Evidence Report", "### 9.")
-    assert "## Validation Results\n" in results and "\n- Security: {pass/warn/skipped} ({the note §5's Security row gives})\n" in results
+    assert "Fill the `## Validation Results`," in results and "of `{skillSectionsData}`'s evidence-report.md Structure" in results
+    template = _section(_read(CS / "assets" / "skill-sections.md"), "## Validation Results\n", "## Quality Score Breakdown")
+    assert "\n- Security: {pass/warn/skipped} ({the note §5's Security row gives})\n" in template
     # the row's three words are the schema's values
     schema = _schema()
     assert schema["properties"]["summary"]["properties"]["security_result"]["enum"] == ["pass", "warn", "skipped"]
@@ -816,7 +856,9 @@ def test_step_3_records_the_run_right_after_it_resolves_the_source(tmp_path, mod
     `init` keep the run it recorded, and compile §1's `summary` call reads it back."""
     extract = _read(REFS / "extract.md")
     two_a = _section(extract, "### 2a. Resolve Source Access", "### 2b.")
-    assert (two_a.index("Dispatch on `{source_resolve_status}`:")
+    # #1147: the remote block's dispatch lives in references/remote-source-access.md, which §2a loads first
+    assert "Dispatch on `{source_resolve_status}`:" in _read(REFS / "remote-source-access.md")
+    assert (two_a.index("load `{remoteSourceAccessData}` and follow its **Read the Source Into a Private Tree** section")
             < two_a.index("Then run Source Commit Capture and Version Reconciliation")
             < two_a.index(RECORD_THE_RUN) < two_a.index("**Deferred CCC Discovery"))
     assert two_a.count(RECORD_THE_RUN) == 1
@@ -957,7 +999,7 @@ def test_zero_content_check_halts_a_docs_only_brief():
     assert 'uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"' in check
     halt = next(line for line in check.splitlines() if "`docs-unreachable`" in line)
     assert "no URL or subpage fetched in this run, and `counts.items` is 0" in halt
-    assert "Stage and promote nothing" in halt and EMIT_HALT in halt
+    assert "Stage and promote nothing" in halt and "emit-halt" not in halt
     assert "Apply that check here" in check
     all_failed = next(line for line in docs.splitlines() if line.startswith("**If ALL URLs fail"))
     assert "continue at §5's **Zero-content check**" in all_failed and "section 7" not in all_failed
@@ -1094,7 +1136,7 @@ def test_validate_splits_the_body_by_one_rule_set():
     assert "the §4 Tier-1 preservation and cross-reference checks" in nine
     # the evidence report names the split that ran, never the split-body it no longer runs
     validate = _read(REFS / "validate.md")
-    assert "- Body: {pass/fail} {body split applied if applicable}" in validate
+    assert "- Body: {pass/fail} {body split applied if applicable}" in _read(CS / "assets" / "skill-sections.md")
     assert "(`skill-check --fix` in §2, `skf-shard-body.py` in §4)" in validate
     assert "skill-check split-body" not in validate.replace("Never run `npx skill-check split-body --write`", "")
     assert "`#quick-start` and `#key-types` anchors name two of them" in four
@@ -1153,9 +1195,9 @@ def test_validate_tells_a_fix_from_the_file_hash():
     line = ('- {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may '
             'have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: '
             'unchecked`, otherwise "none"}\n')
-    for text in (validate, sections):
-        assert f"## Auto-Fixed Issues\n{line}" in text
-    assert line in _section(validate, "### 8. Update Evidence Report", "### 9.")
+    # §8 fills skill-sections.md's `## Auto-Fixed Issues` block by name (#1147)
+    assert f"## Auto-Fixed Issues\n{line}" in sections and line not in validate
+    assert "`## Auto-Fixed Issues`" in _section(validate, "### 8. Update Evidence Report", "### 9.")
 
 
 QUICK_WRITE = REPO / "src" / "skf-quick-skill" / "references" / "write-and-validate.md"

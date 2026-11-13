@@ -700,8 +700,9 @@ def test_compile_stages_the_map_before_it_assembles_skill_md(tmp_path):
                                         "§1c staged the provenance map before §2 assembled SKILL.md."]
     four = _compile_section("### 4. Build metadata.json Content", "### 5. ")
     assert "(§6) first" not in four and "the `entries[]` of the `provenance-map.json` §1c staged" in four
-    frontmatter = text.split("\n---\n", 1)[0]
-    assert "§1c writes the\n# provenance map through its `provenance`" in frontmatter
+    # #1147: the frontmatter keeps no comment the body states; §1c runs `provenance` itself
+    assert "uv run {extractionInventoryHelper} provenance --inventory" in _compile_section(
+        "### 1c. Stage the Provenance Map", "### 2. Build SKILL.md Content")
     # the unsigned function: listed, patched as extract §5 says, then the call again gives its signature
     one_c = _compile_section("### 1c. Stage the Provenance Map", "### 2. Build SKILL.md Content")
     f = {"export_name": "f", "export_type": "function", "source_file": "a.py", "source_line": 4,
@@ -1567,7 +1568,8 @@ def test_compile_writes_metadata_through_the_helper(tmp_path):
     assert ("When step 3 ran the recipes without the runner (extraction-patterns.md's **When the Runner Cannot "
             "Run**), add `ast_grep_version`") in four
     assert ("For a component library, add `stats_extra`, the inventory's `component_stats` (the fields "
-            "`{assemblyRulesData}`'s Component Library stats block adds); for a reference app, only its `notes`") \
+            "`{assemblyComponentLibraryData}`'s Component Library stats block adds); for a reference app, only its "
+            "`notes`") \
         in four
     # metadata.json does not exist when §1c writes the map, and the helper owns which exports metadata.json lists
     assert "the source fields §4 set in metadata.json" not in text

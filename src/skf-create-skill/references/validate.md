@@ -1,87 +1,45 @@
 ---
 nextStepFile: 'generate-artifacts.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT (exit code 3, helper-missing) if neither resolves: the
-# staging-directory artifacts this step writes need atomic writes.
+skillSectionsData: 'assets/skill-sections.md'
+tesslReviewCollectData: 'references/tessl-review-collect.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# Resolve `{descriptionGuardHelper}` by probing `{descriptionGuardProbeOrder}`
-# in order (installed SKF module path first, src/ dev-checkout fallback);
-# first existing path wins. HALT (exit code 3, helper-missing) if neither
-# resolves: letting an external tool's rewrite of the description field
-# stand would silently regress discovery quality.
 descriptionGuardProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
   - '{project-root}/src/shared/scripts/skf-description-guard.py'
-# Resolve `{hashContentHelper}` by probing `{hashContentProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. Advisory: if neither resolves, §2 hashes nothing and reports that
-# SKILL.md may have been rewritten (not hashed) by skill-check --fix.
+# Advisory: with no path, §2 hashes nothing and records `skill_check_fix_changed: unchecked`.
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
-# Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
-# in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins.
-# HALT (exit code 3, helper-missing) if neither resolves: §6's description
-# check has no fallback, and §0's post-restore re-validation hook uses it
-# too; an installed module has no src/ tree, so a bare src/ path would
-# silently skip both.
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
-# Resolve `{shardBodyHelper}` by probing `{shardBodyProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §4 uses it as the deterministic selective splitter and reads its
-# `tier1_preserved` field instead of counting Tier-1 headings pre/post by hand.
 shardBodyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-shard-body.py'
   - '{project-root}/src/shared/scripts/skf-shard-body.py'
-# Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
-# in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. §7 uses it in --check mode to re-derive the metadata
-# `stats` / `confidence_distribution` instead of re-doing the arithmetic by hand.
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
-# Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
-# §7's relabel runs its `kind-at`, and §7a its `verify` and `fix`. Advisory:
-# if neither path resolves, §7a records that its check did not run, and a
-# node kind that needs `kind-at` stays a WARN.
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
-# Resolve `{tesslReviewHelper}` by probing `{tesslReviewProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. If neither path exists, §6b records that Tessl Review did not run
-# and continues: the review is optional and never gates the workflow.
 tesslReviewProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-tessl-review.py'
   - '{project-root}/src/shared/scripts/skf-tessl-review.py'
-# Resolve `{tesslReviewRules}` the same way. §6b loads it after a completed
-# review to mark the suggestions SKF does not follow; without it the
-# suggestions are listed unmarked.
 tesslReviewRulesProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/tessl-review.md'
   - '{project-root}/src/shared/references/tessl-review.md'
 preferencesFile: '{sidecar_path}/preferences.yaml'
-# Loaded only when §7 or §7a meets a provenance label or node-kind finding.
 relabelRuleData: 'references/relabel-rule.md'
-# Resolve `{extractionPatternsData}` to the first existing path, as step 3
-# did: the Relabel Rule's `kind-at` reads the recipes there.
+# Bind `{extractionPatternsData}` to its first existing path: the Relabel Rule's `kind-at` reads the recipes there.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
-# Resolve `{securityScanHelper}` by probing `{securityScanProbeOrder}` in
-# order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. If neither path exists, §5 records the scan as
-# skipped and continues: the scan is optional and never gates the workflow.
+# Advisory: with no path, §5 records the scan as skipped and continues.
 securityScanProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-security-scan.py'
   - '{project-root}/src/shared/scripts/skf-security-scan.py'
-# HARD HALT helpers (Rules).
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -106,11 +64,11 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 - If skill-check unavailable: skip validation, add warning to evidence report
 - For the validation verdict, ignore non-zero exit codes from skill-check if JSON output shows 0 errors; the security scan's row follows the result `skf-security-scan.py` prints (§5)
 - Tessl Review (§6b) is optional and advisory: it never halts, never asks the user anything and never changes the staged files, and SKF applies none of its suggestions
-- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
-**Helpers.** Resolve `{atomicWriteHelper}`, `{descriptionGuardHelper}` and `{frontmatterValidator}` now, each ← the first existing path of its probe order. If one has no path, **HARD HALT** (exit code 3, `helper-missing`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot validate the staged skill: {the missing script} is missing. Re-install SKF, then re-run create-skill."
+**Helpers.** Resolve `{atomicWriteHelper}`, `{descriptionGuardHelper}` and `{frontmatterValidator}` now, each ← the first existing path of its probe order. If one has no path, **HARD HALT** (exit code 3, `helper-missing`, phase `validate`): "Cannot validate the staged skill: {the missing script} is missing. Re-install SKF, then re-run create-skill."
 
 ### 0. Description Guard Protocol
 
@@ -219,8 +177,8 @@ If `restored: true` in the verify-restore output, apply §0's post-restore re-va
 
 The splitter extracts the Tier 2 sections, those whose heading starts `## Full`, largest first, to `references/` until the body fits, puts a cross-reference blockquote in each one's place, and reports `sections_extracted`, `body_lines_after`, `tier1_preserved` (with any pulled heading in `tier1_missing`), `xref_ok` and `under_budget`. Act on them:
 
-- **`tier1_preserved` is false:** **HARD HALT** (exit code 5, `tier1-not-preserved`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Split reduced Tier-1 section count (missing {tier1_missing}). Tier-1 sections must remain inline. Aborting the body split: manual review required." Every Tier 1 section must remain inline, and the context snippet's `#quick-start` and `#key-types` anchors name two of them, so this one check keeps the anchors resolving too.
-- **`xref_ok` is false:** **HARD HALT** (exit code 5, `shard-xref-broken`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "The body split left a cross-reference that does not resolve. Aborting."
+- **`tier1_preserved` is false:** **HARD HALT** (exit code 5, `tier1-not-preserved`, phase `validate`): "Split reduced Tier-1 section count (missing {tier1_missing}). Tier-1 sections must remain inline. Aborting the body split: manual review required." Every Tier 1 section must remain inline, and the context snippet's `#quick-start` and `#key-types` anchors name two of them, so this one check keeps the anchors resolving too.
+- **`xref_ok` is false:** **HARD HALT** (exit code 5, `shard-xref-broken`, phase `validate`): "The body split left a cross-reference that does not resolve. Aborting."
 - **`under_budget` is false** (rare: Tier 1 alone runs past about 300 lines): trim `## Key API Summary` and `## Architecture at a Glance` until the body fits, never moving a Tier 1 section to `references/`, then run the split again, guard included, and take `body_lines_after` from it.
 
 Then re-validate: `npx skill-check check <staging-skill-dir> --format json {security_scan_flag}`, with the flag cached from §2's probe. If `{skill_check_flag_fallback}` is true, skip re-validation and rely on the §3 manual check.
@@ -247,9 +205,9 @@ Display: "Security scan requires a Snyk Enterprise API token ([docs](https://doc
 
 ### 6. Description Angle-Bracket Check
 
-The Claude platform does not accept a skill whose frontmatter `description` contains XML tags, and none of the validators this step runs checks for them: skill-check has no such rule and Tessl Review accepts them. Step 5 §2a replaces every `<` with `{` and every `>` with `}` before SKILL.md is written, and the §0 guard puts that description back whenever a tool rewrites it; this section checks the staged result after every tool in this step has run, whether or not skill-check was available.
+The frontmatter `description` holds no angle brackets, by the Frontmatter rules of `assets/compile-assembly-rules.md`, and this section checks the staged description for them after every tool in this step has run, whether or not skill-check was available.
 
-Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If neither path resolves, or the command below prints no JSON object, **HARD HALT** (exit code 3, `helper-missing`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot check the staged description: skf-validate-frontmatter.py is missing or did not run. Re-install SKF, then re-run create-skill." Run:
+Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If neither path resolves, or the command below prints no JSON object, **HARD HALT** (exit code 3, `helper-missing`, phase `validate`): "Cannot check the staged description: skf-validate-frontmatter.py is missing or did not run. Re-install SKF, then re-run create-skill." Run:
 
 ```bash
 uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md" --forbid-angle-brackets
@@ -267,7 +225,7 @@ Rely on the parsed JSON, not the exit code: the validator also exits 1 for the f
 
   Bind `{angle_bracket_substitutions}` ← `substitutions`, `{angle_brackets_sanitized}` ← `sanitized` and `{sanitized_description}` ← `description`. Then run the validator command above once more and bind `{description_angle_brackets}` ← `description_angle_brackets` again.
   - **Recovered** (the guard helper exited 0, `{angle_brackets_sanitized}` is true and `{description_angle_brackets}` is now `0`): record `Description angle brackets: re-sanitized ({angle_bracket_substitutions} substitutions)` and continue to §6b.
-  - **Otherwise** **HARD HALT** (exit code 5, `description-angle-brackets`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Description sanitization failed: the staged SKILL.md description still holds angle brackets after step 5 §2a's substitution was applied again. The Claude platform does not accept XML tags in a skill description. Check that `<staging-skill-dir>/SKILL.md` can be written, then re-run create-skill." Nothing has been promoted yet, so the halt writes no result file.
+  - **Otherwise** **HARD HALT** (exit code 5, `description-angle-brackets`, phase `validate`): "Description sanitization failed: the staged SKILL.md description still holds angle brackets after step 5 §2a's substitution was applied again. The Claude platform does not accept XML tags in a skill description. Check that `<staging-skill-dir>/SKILL.md` can be written, then re-run create-skill." Nothing has been promoted yet, so the halt writes no result file.
 
 ### 6b. Tessl Review (optional)
 
@@ -279,32 +237,11 @@ Resolve `{tesslReviewHelper}` ← first existing path in `{tesslReviewProbeOrder
 uv run {tesslReviewHelper} submit "<staging-skill-dir>" --preferences "{preferencesFile}"
 ```
 
-A review takes Tessl about two minutes, so no call waits for all of it. When the review is on, `submit` sends a copy of the skill to Tessl and returns `pending` with Tessl's run id as soon as Tessl accepts it; when it is off or cannot run, `submit` returns that result instead. While `{tessl_status}` is `pending`, collect the review, at most six times, and add `--final` to the sixth call, which turns a review still running into `timeout`:
-
-```bash
-uv run {tesslReviewHelper} collect "{tessl_run_id}" --workspace "{tessl_workspace}" --tessl-version "{tessl_version}"
-```
-
-Each call ends within two minutes (a `collect` checks the review for up to 90 seconds, then returns `pending` again or the result), so run each one with your shell tool's default time limit. If the shell tool stops a call before it prints its JSON, or it prints none, make that the last call: set `{tessl_status}` to `failed`, `{tessl_summary}` to `failed — stopped before skf-tessl-review.py reported a result` and `{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, keep `{tessl_run_id}` and the other values the calls before it bound, add that line to the Remaining Warnings and continue to §7. Otherwise rely on the JSON, not the exit code, and bind these from the `submit` JSON and again from each `collect` JSON, whose values replace the earlier ones:
-
-- `{tessl_status}` ← `status`
-- `{tessl_summary}` ← `summary`
-- `{tessl_warnings}` ← `warnings`
-- `{tessl_workspace}` ← `workspace`
-- `{tessl_version}` ← `tessl_version`
-- `{tessl_run_id}` ← `run_id`
-- `{tessl_review_score}` ← `review_score`
-- `{tessl_description_score}` ← `description_score`
-- `{tessl_content_score}` ← `content_score`
-- `{tessl_validation}` ← `validation`
-- `{tessl_description_suggestions}` ← `description_suggestions`
-- `{tessl_content_suggestions}` ← `content_suggestions`
-
-Every key is always present: the scores and `{tessl_validation}` are null and the suggestion lists are empty unless `{tessl_status}` is `reviewed`, and `{tessl_run_id}` is null until Tessl has accepted the review. After the last call, add each entry of `{tessl_warnings}` to the evidence report's Remaining Warnings: a score below 60%, validation errors or, for any status other than `reviewed` and `off`, why the review produced no score. When `{tessl_status}` is `reviewed`, resolve `{tesslReviewRules}` ← first existing path in `{tesslReviewRulesProbeOrder}`, load it, and mark each entry of `{tessl_content_suggestions}` that one of its rules matches with `(not applicable: <rule-id>)`; if neither path exists, list the suggestions unmarked. Apply no suggestion: content suggestions would add text SKF cannot cite to source, and the description comes from the brief. The staged skill holds no `scripts/` or `assets/` until step 7 copies them, so for a brief with scripts or assets, validation findings about missing `scripts/` or `assets/` paths are expected here; test-skill reviews the finished package. §8 records the result.
+Rely on the JSON, not the exit code: bind `{tessl_status}` ← `status`, `{tessl_summary}` ← `summary` and `{tessl_warnings}` ← `warnings`. When `{tessl_status}` is `pending` or `reviewed`, or the call printed no JSON, load `{tesslReviewCollectData}`, follow its **Collect the Review** section and continue to §7. Otherwise add each entry of `{tessl_warnings}` to the evidence report's Remaining Warnings and continue to §7: the `## Tessl Review` section holds only its Result line.
 
 ### 7. Validate metadata.json
 
-**Re-derive the computed fields with `{renderMetadataStatsHelper}` in check mode** rather than re-doing the arithmetic by hand. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}` (first existing path wins; if neither resolves, **HARD HALT** (exit code 3, `helper-missing`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot check metadata.json: skf-render-metadata-stats.py is missing. Re-install SKF, then re-run create-skill."), then run it against the staged provenance-map and metadata.json:
+**Re-derive the computed fields with `{renderMetadataStatsHelper}` in check mode** rather than re-doing the arithmetic by hand. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}` (first existing path wins; if neither resolves, **HARD HALT** (exit code 3, `helper-missing`, phase `validate`): "Cannot check metadata.json: skf-render-metadata-stats.py is missing. Re-install SKF, then re-run create-skill."), then run it against the staged provenance-map and metadata.json:
 
 ```bash
 uv run {renderMetadataStatsHelper} <staging-skill-dir>/provenance-map.json \
@@ -366,55 +303,13 @@ Record the result on the evidence report's `Provenance lines` line (§8): `pass`
 
 Write the validation results into the staged `<staging-skill-dir>/evidence-report.md`, in place of the `[PENDING: populated by step 6]` placeholders compile left and of the line under `## Auto-Fixed Issues`, which compile wrote before §2 ran, with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/evidence-report.md`: step 7 promotes that file as it is. In the same write, add under `## Remaining Warnings` the notes steps 5a to 5c kept for the evidence report (the doc-sources note, `{temporal_feeder_notice}` when step 5c set it, because the Deep-tier temporal feeder held no files) and, once each, the skipped authoritative-files scan when the inventory's `authoritative_files_scan` records `not_scanned` (a remote source that was never cloned; the `skipped` count of candidates the user skipped is not a warning). When no split ran and the staged `references/` holds no file, the Body line says `Tier-2 kept inline (references/ empty)`, so an audit can tell inline by design from a split that failed.
 
-```markdown
-## Validation Results
-- Schema: {pass/fail} (quality score: {score}/100)
-- Frontmatter: {pass/fail}
-- Body: {pass/fail} {body split applied if applicable}
-- Security: {pass/warn/skipped} ({the note §5's Security row gives})
-- Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
-- Tessl Review: {tessl_summary}
-- Metadata: {pass/fail}
-- Provenance labels: {pass | relabeled {N} to match extraction_method: {export names}}{; WARN, no node kind found: {export names}}
-- Provenance lines: {pass | findings | fixed {N} source lines, {M} citation prefixes and {K} node kinds | not run: verifier missing | not run: verifier error}{; second run: verifier error}{; unverified, no definition line found: {export names}}{; WARN: {each line, citation or node-kind warning §7a lists}}{; source lines not checked: no local source tree}{; node kinds not checked: no ast-grep CLI | unrecognized ast-grep}{; node kinds unchecked: {export name (reason) for each node_kinds_unchecked item}}{; node kinds skipped: {N} in files ast-grep has no language for}
-
-## Quality Score Breakdown
-- Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}
-
-## Description Guard
-- Restored: {true/false}
-- Triggering tool: {tool_name or —}
-- Original description preserved: {true/false}
-- Notes: {one-sentence detail or —}
-
-## Auto-Fixed Issues
-- {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: unchecked`, otherwise "none"}
-
-## Remaining Warnings
-- {warnings and security results, then each entry of {tessl_warnings} — or "none"}
-
-## Tessl Review
-- Result: {tessl_summary}
-- Workspace: {tessl_workspace or —} · tessl {tessl_version or —} · Run: {tessl_run_id or —}
-- Validation findings: {each {tessl_validation} finding as `name (status): message`, or "none"}
-- Description suggestions (to act on one, edit the description in the brief and re-run create-skill): {each of {tessl_description_suggestions}, or "none"}
-- Content suggestions (advisory, not applied): {each of {tessl_content_suggestions} with its `(not applicable: <rule-id>)` mark, or "none"}
-```
-
-When `{tessl_status}` is not `reviewed`, the `## Tessl Review` section holds only its Result line and, when `{tessl_run_id}` is set, its Workspace line, so the report names the run of a review that may still finish.
+Fill the `## Validation Results`, `## Quality Score Breakdown`, `## Description Guard`, `## Auto-Fixed Issues`, `## Remaining Warnings` and `## Tessl Review` blocks of `{skillSectionsData}`'s evidence-report.md Structure (load that section) with what §1 to §7a recorded.
 
 **Auto-Decisions:** keep the `## Auto-Decisions` section step 5 §7 rendered from the run sink as it is: every gate decided before step 5, and no step records a decision after it, so its rows already match `summary.auto_decision_count`.
 
-**Description Guard population:** if the §0 protocol fired during §2 (`skill-check --fix`) or §4 (the body split), fill the four Description Guard fields from context:
-
-- `Restored: true` when `description_guard_restored == true`, otherwise `false`.
-- `Triggering tool`: the tool name recorded by §0 (`skill-check --fix` in §2, `skf-shard-body.py` in §4), or the template's no-fire dash if the guard did not fire.
-- `Original description preserved`: `true` if the restore succeeded (on-disk now matches the pre-tool snapshot), `false` if restoration itself failed (rare — treat as a halt condition in a future version).
-- `Notes`: a one-sentence description of what the tool had changed, based on the recorded `description_guard_diff_kind` (`replaced`, `truncated` or `deleted`). Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
-
-When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state — with one exception: when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule — `verify-restore` exited 1 and no in-context copy allowed a re-run), the guard did fire and must not render as a clean run. Set `Restored: false`, `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`.
+**Description Guard population:** fill the block's four fields from §0's records: `Restored` is `true` when `description_guard_restored` is true, else `false`; `Triggering tool` is the tool name §0 recorded (`skill-check --fix` in §2, `skf-shard-body.py` in §4); `Original description preserved` is `true` when the restore succeeded (the file on disk matches the pre-tool snapshot) and `false` when the restore itself failed; and `Notes` is one sentence on what the tool had changed, based on the recorded `description_guard_diff_kind` (`replaced`, `truncated` or `deleted`), such as `"replaced with generic summary"` or `"truncated at N chars"`. When the guard did not fire, `Restored: false` and the other three fields keep the template's no-fire value. One exception: when `description_guard_refused` is `empty-capture` (§0's empty-snapshot rule: `verify-restore` exited 1 and no in-context copy allowed a re-run), the guard did fire and must not read as a clean run: set `Restored: false`, `Triggering tool` to the recorded tool name, `Original description preserved: false` and `Notes: guard refused {an em dash} empty captured snapshot (empty-capture)`.
 
 ### 9. Auto-Proceed
 
-No user interaction: this step has no gate. After validation completes, load `{nextStepFile}`, read it fully, then execute it. Tool unavailability, validation failures and every Tessl Review result are recorded as skips and warnings; the step halts only where a section above says HALT: a helper whose probe order says HALT and that no path resolves, the §4 Tier-1 preservation and cross-reference checks, and the §6 description check.
+No user interaction: this step has no gate. After validation completes, load `{nextStepFile}`, read it fully, then execute it. Tool unavailability, validation failures and every Tessl Review result are recorded as skips and warnings; the step halts only where a section above says HALT: a required helper no path resolves (the Helpers line, §6, §7), the §4 Tier-1 preservation and cross-reference checks, and the §6 description check.
 

@@ -326,9 +326,8 @@ FENCE_LINE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Where SKF's snippet templates live today; a new template must be added here
 # (and so to the rename checks below) on purpose.
 TEMPLATE_SITES = {
-    "src/skf-create-skill/references/compile.md": 1,
     "src/skf-create-skill/assets/skill-sections.md": 1,
-    "src/skf-create-skill/assets/compile-assembly-rules.md": 1,
+    "src/skf-create-skill/references/assembly-component-library.md": 1,
     "src/skf-quick-skill/assets/skill-template.md": 1,
     "src/skf-export-skill/assets/snippet-format.md": 2,
     "src/skf-create-stack-skill/assets/stack-skill-template.md": 1,
@@ -460,7 +459,7 @@ class TestSnippetTemplates:
 
     def test_a_skill_called_like_a_field_label_rolls_back(self, tmp_path):
         """`api` renamed: the snippet keeps its `|api:` label and §5 stops the rename on it."""
-        template = next(t for t in SNIPPET_TEMPLATES if t.rel.endswith("skf-create-skill/references/compile.md"))
+        template = next(t for t in SNIPPET_TEMPLATES if t.rel.endswith("skf-create-skill/assets/skill-sections.md"))
         code, verdict = _rename_and_verify(tmp_path, "api", "api-client", _render(template, "api"))
         assert code == 1 and verdict["clean"] is False
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [
@@ -844,7 +843,7 @@ class TestSkillNamedAfterItsLibrary:
 
     def test_a_create_skill_skill_renames_clean(self, tmp_path):
         metadata, provenance = _create_skill_json(self.OLD)
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 0 and verdict["clean"] is True, verdict["hard_matches"]
         assert [w["text"] for w in verdict["body_warnings"]] == [f"# {self.OLD}"]
@@ -863,7 +862,7 @@ class TestSkillNamedAfterItsLibrary:
         on it, with every file as it was.
         """
         metadata, provenance = _create_skill_json(self.OLD, repo=f"acme/{self.OLD}")
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 1
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [
@@ -877,7 +876,7 @@ class TestSkillNamedAfterItsLibrary:
         """
         metadata, provenance = _create_skill_json(self.OLD, repo=f"skills/{self.OLD}")
         metadata["source_ref"] = provenance["source_ref"] = f"skills/{self.OLD}/v1.0.0"
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         meta_after, after = self._after(tmp_path)
         assert meta_after == {**metadata, "name": self.NEW}
@@ -894,7 +893,7 @@ class TestSkillNamedAfterItsLibrary:
         script.update(file="scripts/fill.py", source_file=f"skills/{old}/scripts/fill.py")
         metadata["scripts"] = [script]
         provenance["file_entries"][0].update(file_name="scripts/fill.py", source_file=f"skills/{old}/scripts/fill.py")
-        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", old)
         code, verdict = _rename_and_verify(tmp_path, old, new, snippet, metadata, provenance)
         meta_after, after = self._after(tmp_path, new)
         assert meta_after == {**metadata, "name": new}
@@ -913,7 +912,7 @@ class TestSkillNamedAfterItsLibrary:
         else:
             provenance["entries"][0]["source_file"] = f"src/{self.OLD}/core.py"
             expected = ("provenance-json", f'"source_file": "src/{self.OLD}/core.py",')
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 1
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [expected]

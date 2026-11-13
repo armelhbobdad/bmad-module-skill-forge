@@ -1,14 +1,9 @@
 ---
 nextStepFile: 'load-brief.md'
 healthCheckStepFile: 'health-check.md'
-# Resolve `{quickBatchHelper}` to the first existing path. It keeps the
-# batch on disk: §1 starts it, §2 hands out each brief, §3 records how each
-# one ended and §4 ends the batch. If neither path exists, §1 halts before
-# any brief compiles.
 quickBatchProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-quick-batch.py'
   - '{project-root}/src/shared/scripts/skf-quick-batch.py'
-# HARD HALT helper (Execution).
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'

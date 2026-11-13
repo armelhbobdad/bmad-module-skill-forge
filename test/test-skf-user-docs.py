@@ -786,7 +786,8 @@ def test_audit_section_names_the_version_it_reads_and_its_data_folder():
 
 def test_verifying_lists_create_skill_private_source_tree():
     """Create Skill reads a remote source at the resolved commit and moves SKF's clone there, or says why not."""
-    extract = _read(SRC / "skf-create-skill" / "references" / "extract.md")
+    # #1147: extract §2a loads the remote block from references/remote-source-access.md
+    extract = _read(SRC / "skf-create-skill" / "references" / "remote-source-access.md")
     assert "--update-clone" in extract and "this run skips ccc discovery and the ccc index registration" in extract
     enforcement = _slice(_read(VERIFYING), "### Workflow-time enforcement", "\n---\n")
     [bullet] = [line for line in enforcement.splitlines() if line.startswith("- **Create Skill (`@Ferris CS`)**")]

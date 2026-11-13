@@ -1000,7 +1000,7 @@ class TestTemporalFeederNotice:
 
     def test_notice_reaches_the_evidence_report(self) -> None:
         """Step 7 promotes the staged evidence report as it is, so step 6 writes the notice into it."""
-        report = _section(_read(VALIDATE_FILE), "### 8. Update Evidence Report", "```markdown")
+        report = _section(_read(VALIDATE_FILE), "### 8. Update Evidence Report", "### 9.")
         assert "under `## Remaining Warnings`" in report
         assert "`{temporal_feeder_notice}` when step 5c set it" in report
         assert "{temporal_feeder_notice}" not in _read(GENERATE_ARTIFACTS)

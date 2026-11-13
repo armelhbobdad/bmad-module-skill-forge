@@ -12,9 +12,11 @@ Once §2a has resolved source access, scan the resolved source tree (the local s
 
 This protocol detects such files, prompts the user, and records the decision in the brief so future runs (re-create, update, audit) honor it.
 
+**Halts.** A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+
 ## Procedure
 
-1. **Resolve, scan, classify, and load previews in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` (step 3's frontmatter); if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot scan for authoritative files: skf-resolve-authoritative-files.py is missing. Re-install SKF, then re-run create-skill." The helper walks the tree, classifies each candidate and hashes it:
+1. **Resolve, scan, classify, and load previews in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` (step 3's frontmatter); if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`): "Cannot scan for authoritative files: skf-resolve-authoritative-files.py is missing. Re-install SKF, then re-run create-skill." The helper walks the tree, classifies each candidate and hashes it:
 
    ```bash
    uv run {resolveAuthoritativeFilesHelper} resolve \
@@ -108,7 +110,7 @@ This protocol detects such files, prompts the user, and records the decision in 
 
    - **[U] Update:**
      1. When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints: the scan read the tree §2a made, and nothing reads it after this halt.
-     2. **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
+     2. **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `extract`): "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
 
 6. **Summary.** After all candidates are resolved (or none were found), display a one-line summary:
 

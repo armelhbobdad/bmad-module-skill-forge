@@ -59,6 +59,9 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent
 SRC = REPO_ROOT / "src"
 EXTRACT = SRC / "skf-create-skill" / "references" / "extract.md"
+# Extract §2a's remote block and its Deferred CCC Discovery, loaded only for a remote source at Forge tier and
+# above (#1147).
+REMOTE_ACCESS = SRC / "skf-create-skill" / "references" / "remote-source-access.md"
 GENERATE = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
 CCC_CHECK = SRC / "skf-create-skill" / "references" / "ccc-index-check.md"
 CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.md"
@@ -107,7 +110,9 @@ def _fences(text: str) -> list[str]:
 
 
 def _deferred_block() -> str:
-    return _slice(_read(EXTRACT), "**Deferred CCC Discovery", "**CCC Discovery Integration")
+    text = _read(REMOTE_ACCESS)
+    assert text.count("## Deferred CCC Discovery\n") == 1
+    return text[text.index("## Deferred CCC Discovery\n"):]
 
 
 def _extract_item(number: int, heading: str, next_heading: str) -> str:
@@ -166,15 +171,15 @@ def test_the_one_repair_procedure_forbids_ccc_reset():
     assert "A plain `ccc index` is enough after any `settings.yml` edit" in section
 
 
-@pytest.mark.parametrize("path, section", [
-    (EXTRACT, ("**Deferred CCC Discovery", "**CCC Discovery Integration")),
-    (GENERATE, ("### 6b.", "### 7.")),
+@pytest.mark.parametrize("path, body_path, section", [
+    (EXTRACT, REMOTE_ACCESS, ("## Deferred CCC Discovery", "**Leave the workspace clone clean")),
+    (GENERATE, GENERATE, ("### 6b.", "### 7.")),
 ], ids=["extract", "generate-6b"])
-def test_both_stages_load_the_one_check(path, section):
+def test_both_stages_load_the_one_check(path, body_path, section):
     """The verify-and-repair procedure is written once, in the file both stages load."""
     text = _read(path)
     assert yaml.safe_load(_frontmatter(text))["cccIndexCheckData"] == "references/ccc-index-check.md"
-    body = _slice(text, *section)
+    body = _slice(_read(body_path), *section)
     assert "load `{cccIndexCheckData}` and run it with `{ccc_root}`" in body
     for copy in ("Indexing in progress:", "**No project of its own:**", "**Language not included:**",
                  "Do not run `ccc reset`"):
@@ -613,28 +618,34 @@ def _line_starting(text: str, prefix: str) -> str:
 
 
 @pytest.mark.parametrize(
-    "loader, users",
+    "loader, users, commented",
     [
-        (EXTRACT, [EXTRACT, SOURCE_RESOLUTION]),
-        (UPDATE_WRITE, [UPDATE_WRITE]),
-        (GENERATE, [GENERATE]),
-        (CCC_DISCOVER, [CCC_DISCOVER]),
+        (EXTRACT, [REMOTE_ACCESS, SOURCE_RESOLUTION], False),
+        (UPDATE_WRITE, [UPDATE_WRITE], True),
+        (GENERATE, [GENERATE], False),
+        (CCC_DISCOVER, [CCC_DISCOVER], False),
     ],
     ids=["extract", "update-write", "generate", "ccc-discover"],
 )
-def test_hygiene_probe_order_declared(loader, users):
+def test_hygiene_probe_order_declared(loader, users, commented):
+    """Create Skill's stages keep no frontmatter comment their body states (#1147): the call site says the
+    helper never gates the run."""
     frontmatter = _frontmatter(_read(loader))
-    assert HYGIENE_PROBE_BLOCK in frontmatter
+    assert (HYGIENE_PROBE_BLOCK in frontmatter) is commented
     assert yaml.safe_load(frontmatter)["cccGitHygieneProbeOrder"] == HYGIENE_PROBE_PATHS
     assert "never gates the workflow" in HYGIENE_PROBE_BLOCK
     assert "HALT" not in HYGIENE_PROBE_BLOCK
     for user in users:
         assert "{cccGitHygieneHelper}" in _read(user), user.relative_to(REPO_ROOT)
+    if not commented:
+        body = "".join(_read(user) for user in users)
+        assert any(skip in body for skip in ("if neither path exists or the command fails, continue",
+                                             "If no candidate exists, or the helper exits non-zero or prints no JSON"))
 
 
 def _resolve_command() -> str:
-    """extract.md §2a's fenced resolve command, its backslash continuations joined."""
-    section = _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "**Deferred CCC Discovery")
+    """§2a's fenced resolve command, in the remote block it loads, its backslash continuations joined."""
+    section = _slice(_read(REMOTE_ACCESS), "## Read the Source Into a Private Tree", "## Deferred CCC Discovery")
     [fence] = [f for f in _fences(section) if " resolve " in f]
     return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
@@ -677,6 +688,7 @@ def test_only_the_ccc_steps_name_the_workspace_clone():
     """`{remote_clone_path}` is SKF's clone, which another run can move: only ccc indexes it."""
     allowed = {
         "extract.md": _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "### 2b."),
+        "remote-source-access.md": _read(REMOTE_ACCESS),
         "generate-artifacts.md": _generate_6b(),
         "source-resolution-protocols.md": _slice(_read(SOURCE_RESOLUTION), "## Shell Path Quoting",
                                                  "## Tag Resolution"),

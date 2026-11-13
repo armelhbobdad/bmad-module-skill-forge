@@ -1,9 +1,5 @@
 ---
 nextStepFile: '../extract.md'
-# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
-# index folders and SKF's workspace lock out of git, and undoes the
-# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
-# exists, skip the call and continue: it never gates the workflow.
 cccGitHygieneProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
   - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
@@ -71,7 +67,7 @@ Where:
 
 Run `ccc_bridge.search(query, source_root, top_k=20)`:
 
-**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 20 "{query}"` (CLI). Note: `ccc search` operates on the index in the current working directory — there is no flag to specify a project directory. See `knowledge/tool-resolution.md`.
+**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or the CLI command below. Note: `ccc search` operates on the index in the current working directory: there is no flag to specify a project directory. See `knowledge/tool-resolution.md`.
 
 **Setup's index (every section 2 status except `"none"` and `"failed"`):** search with `cd "{source_root}" && ccc search --refresh --limit 20 "{query}"` (the `/ccc` skill or the CLI), with an extended timeout, because the refresh pass runs before the search. The ccc MCP search tool refreshes by default: leave its `refresh_index` set to true. No status says that the index still matches the source (after `"skipped"` there may be no index yet), and a plain `ccc search` does not re-index a project the daemon already has loaded. The pass is incremental: it re-reads `settings.yml`, indexes new and changed files, and drops deleted files and the ones a pattern now leaves out, so on an unchanged project it returns almost as fast as a plain search. If the refresh search fails or times out, run the plain `cd "{source_root}" && ccc search --limit 20 "{query}"` once, with the same timeout, before treating the search as failed: the daemon finishes the pass on its own, and the plain search reads the index as it stands. After lazy indexing in section 2, the plain search is enough.
 

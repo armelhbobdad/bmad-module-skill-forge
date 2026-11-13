@@ -1,0 +1,5 @@
+type: changed
+scope: skf-create-skill
+summary: |
+  When the shell tool stops a Tessl Review check before `skf-tessl-review.py` reports a result, Create Skill's evidence report and its Remaining Warnings line now read `failed: stopped before skf-tessl-review.py reported a result`, with a colon where they read a dash before. Test Skill's report keeps its own wording. Create Skill also loads less on each run: the remote-source steps, the Tessl Review collect steps and the component-library, reference-app and whole-language assembly rules now load only on the runs that need them, and every halt, gate and generated file stays as it was.
+issues: [1147]

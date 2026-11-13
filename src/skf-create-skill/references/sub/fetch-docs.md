@@ -1,35 +1,22 @@
 ---
 nextStepFile: '../enrich.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
-# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §5b changes the registry only through it. If neither resolves,
-# §5b skips the registry change with a warning: a docs fetch never halts the
-# workflow.
+# If neither path exists, §5b skips the registry change with a warning.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
-# Resolve `{deriveAssemblyShapeHelper}` the same way — used in §1 to decide
-# whether this is a whole-language reference (registry-corpora prose retained
-# as a Language Guide) or a standard skill (unchanged behaviour).
 deriveAssemblyShapeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-derive-assembly-shape.py'
   - '{project-root}/src/shared/scripts/skf-derive-assembly-shape.py'
-# If neither path exists, §3 looks for no subpages.
 detectDocsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
-# §5 merges the T3 items into the extraction inventory and counts it through
-# it; step 3 §5 already halted when neither path exists.
 extractionInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
   - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
-# §4a writes the Language Guide's index beside the inventory through it; if
-# neither path exists, step 5 has no guide and says so.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# HARD HALT helpers (Rules).
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -53,7 +40,7 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 - Do not halt the workflow if web fetching is unavailable or fails, with one exception: a `docs-only` brief left with nothing to compile halts at §5's zero-content check, before anything is staged. The user may still stop the run at §5's zero-export gate ([R])
 - Do not override existing T1, T1-low, or T2 extraction data with T3 content
 - Never delete the staging directory of a `docs-only` skill, whose only source corpus is the fetched pages, or of a whole-language reference, whose Language Guide step 5 reads from them
-- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -206,8 +193,8 @@ SKF_T3
 
 **Zero-content check.** Run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"` from `{project-root}` and read its `counts`:
 
-- **`source_type: "docs-only"`, no URL or subpage fetched in this run, and `counts.items` is 0:** there is nothing to compile, and a docs-only skill has no other source. Stage and promote nothing: **HARD HALT** (exit code 3, `docs-unreachable`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**No documentation could be fetched for `{skill-name}`, so there is nothing to compile.** Failed: {each `doc_urls` URL with its reason}. Check the network and that this environment has a web fetch tool, or fix `doc_urls` in the brief, then re-run create-skill."
-- **`source_type: "source"`, `counts.exports` is 0 (or equals `counts.not_public`) and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue. On [R], **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**Halting create-skill:** no public export was extracted (or, for a `public-api` brief, every export found is off the public surface: the `Off the public surface` warning names them) and no `doc_urls` page could be fetched. Fix `scope.include`, `target_version` or `doc_urls` in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`."
+- **`source_type: "docs-only"`, no URL or subpage fetched in this run, and `counts.items` is 0:** there is nothing to compile, and a docs-only skill has no other source. Stage and promote nothing: **HARD HALT** (exit code 3, `docs-unreachable`, phase `fetch-docs`): "**No documentation could be fetched for `{skill-name}`, so there is nothing to compile.** Failed: {each `doc_urls` URL with its reason}. Check the network and that this environment has a web fetch tool, or fix `doc_urls` in the brief, then re-run create-skill."
+- **`source_type: "source"`, `counts.exports` is 0 (or equals `counts.not_public`) and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue. On [R], **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `fetch-docs`): "**Halting create-skill:** no public export was extracted (or, for a `public-api` brief, every export found is off the public surface: the `Off the public surface` warning names them) and no `doc_urls` page could be fetched. Fix `scope.include`, `target_version` or `doc_urls` in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`."
 - **Otherwise:** continue. When no page of this run was saved (every fetch failed, or no fetch tool), skip §5b and §5c, which have nothing to index or remove, and go on to §6: `{docs_staging}` stays as it was.
 
 ### 5b. Index into QMD (Deep Tier Only)

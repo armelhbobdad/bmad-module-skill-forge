@@ -58,6 +58,8 @@ SRC = REPO_ROOT / "src"
 CS = SRC / "skf-create-skill"
 REFS = CS / "references"
 EXTRACT = REFS / "extract.md"
+# §2a's remote block, which §2a loads for a remote source at Forge tier and above (#1147).
+REMOTE_ACCESS = REFS / "remote-source-access.md"
 PROTOCOLS = REFS / "source-resolution-protocols.md"
 GENERATE = REFS / "generate-artifacts.md"
 FETCH_TEMPORAL = REFS / "sub" / "fetch-temporal.md"
@@ -114,14 +116,19 @@ def _section_2a() -> str:
     return _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "**Deferred CCC Discovery")
 
 
+def _remote_block() -> str:
+    """The section of references/remote-source-access.md that §2a follows for a remote source."""
+    return _slice(_read(REMOTE_ACCESS), "## Read the Source Into a Private Tree", "## Deferred CCC Discovery")
+
+
 def _resolve_command() -> str:
-    """The fenced resolve command of §2a, its backslash continuations joined."""
-    [fence] = [f for f in _fences(_section_2a()) if " resolve " in f]
+    """The fenced resolve command of §2a's remote block, its backslash continuations joined."""
+    [fence] = [f for f in _fences(_remote_block()) if " resolve " in f]
     return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
 
 def _dispatch() -> str:
-    return _slice(_section_2a(), "Dispatch on `{source_resolve_status}`:", "Then run Source Commit Capture")
+    return _slice(_read(REMOTE_ACCESS), "Dispatch on `{source_resolve_status}`:", "## Deferred CCC Discovery")
 
 
 # --------------------------------------------------------------------------
@@ -137,7 +144,7 @@ def test_resolve_command_takes_the_brief_fields_and_moves_the_clone():
                  '[--version "{brief.version}" --implicit]', "--update-clone",
                  '[--hygiene-helper "{cccGitHygieneHelper}"]', '--timeout "{tree_timeout}"'):
         assert part in command, part
-    section = _section_2a()
+    section = _remote_block()
     assert ("Pass the first `--version` line when the brief sets `target_version`, else the second when it "
             "sets `version`, never both") in section
     table = _slice(_read(PROTOCOLS), "| The brief sets |", "\n\n")
@@ -151,7 +158,7 @@ def test_resolve_command_takes_the_brief_fields_and_moves_the_clone():
 
 
 def test_every_bound_key_is_a_key_resolve_prints(tmp_path):
-    bind = _slice(_section_2a(), "Bind from its JSON", "\n")
+    bind = _slice(_remote_block(), "Bind from its JSON", "\n")
     keys = set(re.findall(r"← `(\w+)`", bind))
     for handoff in ("source_ref", "source_commit", "tag_resolution", "workspace_path"):
         assert f"`{handoff}` ← `{handoff}`" in bind or f"`{{{handoff}}}` ← `{handoff}`" in bind, handoff
@@ -214,8 +221,11 @@ def test_unavailable_degrades_to_source_reading():
     unavailable = _slice(_dispatch(), "- **`unavailable`**", "\n")
     # A retry starts the fetch again with only a little more time: the first call gets the longest one.
     assert "run the command once more" not in unavailable and "without the retry" not in _dispatch()
-    remote = _slice(_section_2a(), "**Remote source at Forge, Forge+ or Deep tier:**", "\n")
+    remote = _slice(_remote_block(), "`{sourceTreeHelper}` reads the source into a private tree", "\n")
     assert "a little under the longest timeout your shell tool can be given" in remote
+    # §2a loads the block only for a remote source at Forge tier and above
+    load = _slice(_section_2a(), "**Remote source at Forge, Forge+ or Deep tier:**", "\n")
+    assert "load `{remoteSourceAccessData}` and follow its **Read the Source Into a Private Tree** section" in load
     assert "Give the command that longest shell timeout" in remote
     assert "Degrading to source reading (T1-low) for this run." in unavailable
     assert "Keep `{source_root}` the remote URL" in unavailable
@@ -498,12 +508,19 @@ def test_registry_changes_only_through_the_helper(path):
 
 @pytest.mark.parametrize("path", REGISTRY_FILES, ids=[p.name for p in REGISTRY_FILES])
 def test_a_missing_registry_helper_never_halts(path):
-    """Steps 3b, 3c and 7 share one policy: registration is skipped with a warning, never a HALT."""
+    """Steps 3b, 3c and 7 share one policy: registration is skipped with a warning, never a HALT. Each states it
+    once (#1147): where the body resolves the helper, or, for step 3c, whose §5b does not, in the one frontmatter
+    comment it keeps."""
     text = _read(path)
     end = text.index("\n---\n", 4)
-    comment = text[text.index("# Resolve `{forgeTierRwHelper}`"):text.index("forgeTierRwProbeOrder:")]
-    probe = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
-    assert "HALT" not in probe and "the registry change with a warning" in probe
+    comments = [line for line in text[:end].splitlines() if line.startswith("#")]
+    assert not any("HALT" in line for line in comments), comments
+    stated = {"fetch-temporal.md": "If a registry command fails, or `{forgeTierRwHelper}` does not resolve: log the "
+                                   "error, continue.",
+              "fetch-docs.md": "# If neither path exists, §5b skips the registry change with a warning.",
+              "generate-artifacts.md": 'If no candidate exists, warn "forge-tier.yaml registry not updated: '
+                                       'skf-forge-tier-rw.py is missing; re-install SKF"'}
+    assert stated[path.name] in text, path.name
     for line in text[end:].splitlines():
         assert not ("{forgeTierRwHelper}" in line and "HALT" in line), line[:100]
 

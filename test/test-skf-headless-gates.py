@@ -559,7 +559,8 @@ FORMER_BACKGROUND_SITES = {
         "tool; a call the shell stops at that timeout is ccc indexing that failed, which **Error handling** at the "
         "end of this section covers.",
         "**Error handling:** If ccc indexing or registry update fails, log and continue: do not fail the workflow."),
-    "skf-create-skill/references/extract.md": (
+    # #1147: extract §2a's deferred ccc discovery moved into the file it loads for a remote source
+    "skf-create-skill/references/remote-source-access.md": (
         f"ccc index` in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}); a call the shell "
         "stops at that timeout is a `ccc index` that failed, below.",
         "When `ccc index` fails, or the check returns **degraded**, set `{ccc_discovery: []}` and continue"),

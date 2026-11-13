@@ -315,6 +315,11 @@ async function runTests() {
         'entry-points-by-hand.md',
         'source-resolution-protocols.md',
         'tier-degradation-rules.md',
+        'remote-source-access.md',
+        'tessl-review-collect.md',
+        'assembly-component-library.md',
+        'assembly-reference-app.md',
+        'assembly-whole-language.md',
       ],
     },
     'quick-skill': {

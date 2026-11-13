@@ -1,17 +1,12 @@
 ---
 returnToStep: 'extract.md'
 extractionPatternsData: 'references/extraction-patterns.md'
-# If neither path exists, Phase 1 goes on without demo exclusion or
-# registry detection, and Phase 4 without the component sort and counts.
 detectRegistryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
   - '{project-root}/src/shared/scripts/skf-detect-registry.py'
-# If neither path exists, Phase 4 runs the AST Extraction Protocol instead.
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
-# If neither path exists, Phase 2b saves no answer and the next run asks
-# again.
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'

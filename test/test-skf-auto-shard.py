@@ -114,14 +114,18 @@ class TestNoManualFallback:
 
     def test_halts_emit_the_envelope(self, text: str) -> None:
         body = text.split("\n---\n", 1)[1]
-        # the halt sites; the Rules bullet that every one of them follows names no reason of its own
+        # the halt sites; the Rules bullet that every one of them follows names no reason of its own and holds
+        # the emit command, once (#1147)
         halts = [line for line in body.splitlines() if "**HARD HALT**" in line]
         assert len(halts) == 3, halts
         for reason in ("`helper-missing`", "`tier1-not-preserved`", "`shard-xref-broken`"):
             line = next(h for h in halts if reason in h)
-            assert ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
-                    '--target stderr < "{run_dir}/halt.json"`') in line, reason
+            assert "emit-halt" not in line, reason
             assert "phase `auto-shard`" in line, reason
+        rules = body[body.index("## Rules"):body.index("## MANDATORY SEQUENCE")]
+        emit = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
+                '--target stderr < "{run_dir}/halt.json"`')
+        assert body.count(emit) == 1 and emit in rules
 
 
 # ---------------------------------------------------------------------------
