@@ -806,6 +806,13 @@ def test_campaign_status_names_its_real_exits() -> None:
     table = _exit_table()
     assert (table["invalid-input"][0], table["invalid-state"][0]) == (2, 3)
     assert "HALT (exit code 3, `invalid-state`) on non-zero" in skill
+    # The user doc names the same exits.
+    [doc] = [line for line in (REPO_ROOT / "docs" / "campaign.md").read_text(encoding="utf-8").splitlines()
+             if line.startswith("- **`campaign status`**")]
+    for token in ("With no `_campaign-state.yaml` it says no campaign has started and stops with exit code 2 "
+                  "(`invalid-input`).", "A state that fails validation stops it with exit code 3 (`invalid-state`)",
+                  "when `_campaign-state.yaml.bak` exists it points to `campaign resume`"):
+        assert token in doc, token
 
 
 def test_the_removed_customize_keys_are_named_nowhere() -> None:
@@ -1064,6 +1071,11 @@ def test_strategy_shows_the_view_campaign_deps_renders() -> None:
     assert "`tier_counts`" not in text
     for gone in ("last review surface", "display the strategy view"):
         assert gone not in text, gone
+    # §3 only parses --compute's JSON: the view the operator sees is §5's --render output, ordered as --compute is.
+    write = _section(text, 7)
+    assert ("from the same `campaign-deps.py --compute` §3 ran, which orders the skills as the §5 view does, "
+            "so the order on disk is the order shown.") in write
+    assert "§3 view" not in text
     gate = _section(text, 6)
     assert "- `[P]roceed`: write the plan (§7)" in gate and "- `[C]ancel`: log the cancel" in gate
     assert "exit code 12 (`user-cancelled`)" in gate
@@ -1302,6 +1314,10 @@ def test_resume_sets_unattended_before_it_chains() -> None:
     skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "1. **`campaign resume [--from=<skill>] [--unattended]`**" in skill
     assert "`campaign resume [--from=<skill>] [--unattended]` to resume" in skill
+    # docs/workflows.md lists the resume options too.
+    workflows = (REPO_ROOT / "docs" / "workflows.md").read_text(encoding="utf-8")
+    assert "`@Ferris campaign resume [--from=<skill>] [--unattended]` resumes" in workflows
+    assert "`@Ferris campaign resume [--from=<skill>]` resumes" not in workflows
     assert re.search(r"^   \| `--unattended` \| With `campaign resume`:", skill, re.M)
     assert "| 2 | Pin Validation | references/step-03-pins.md | Conditional (an invalid pin; headless HALTs) |" in skill
 

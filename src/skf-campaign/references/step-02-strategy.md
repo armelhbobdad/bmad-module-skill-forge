@@ -71,7 +71,7 @@ On `[P]roceed` or `[U]nattended`, write the plan and the stage in one write, wit
 uv run {stateScript} apply-plan --state-file {stateFile} --stage 1 [--unattended]
 ```
 
-It sets `dependency_graph.execution_order` and `circular_deps_detected` from the same `campaign-deps.py --compute` the §3 view came from, so the order on disk is the order shown. On exit 4 (the graph can no longer be followed: the state changed since §3), HALT (exit code 4, `circular-deps`) with its `errors[]`; on exit 3, HALT (exit code 3, `invalid-state`).
+It sets `dependency_graph.execution_order` and `circular_deps_detected` from the same `campaign-deps.py --compute` §3 ran, which orders the skills as the §5 view does, so the order on disk is the order shown. On exit 4 (the graph can no longer be followed: the state changed since §3), HALT (exit code 4, `circular-deps`) with its `errors[]`; on exit 3, HALT (exit code 3, `invalid-state`).
 
 ## OUTPUT
 

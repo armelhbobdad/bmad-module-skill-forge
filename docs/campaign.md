@@ -30,7 +30,7 @@ Ask Ferris to run `campaign`, or call the `skf-campaign` skill directly.
 
 - **`campaign`** starts a new campaign from stage 0 (Setup). If a `_campaign-state.yaml` or its backup already exists, Ferris offers a choice: resume the existing campaign or overwrite with a new one.
 - **`campaign resume`** picks up where the last session left off. Ferris checks the state file first. If it is damaged, Ferris restores the `.bak` backup copy and continues from that.
-- **`campaign status`** checks the state file and shows the campaign name, the current stage, how many skills are done out of the total, and how many skills have each status. After that come the last lines of the decision log. Then it stops. It makes no backup, changes nothing and starts no stage, so you can check on a long campaign without moving it forward.
+- **`campaign status`** checks the state file and shows the campaign name, the current stage, how many skills are done out of the total, and how many skills have each status. After that come the last lines of the decision log. Then it stops. It makes no backup, changes nothing and starts no stage, so you can check on a long campaign without moving it forward. With no `_campaign-state.yaml` it says no campaign has started and stops with exit code 2 (`invalid-input`). A state that fails validation stops it with exit code 3 (`invalid-state`), and when `_campaign-state.yaml.bak` exists it points to `campaign resume`, which can recover the state from that backup.
 - **`--from=<skill>`** moves the resume point to the named skill. To rebuild a skill that already finished, choose `[R]e-run` when Ferris asks.
 
 ### Override flags
