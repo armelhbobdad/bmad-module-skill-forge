@@ -104,6 +104,12 @@ securityScanProbeOrder:
 shardBodyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-shard-body.py'
   - '{project-root}/src/shared/scripts/skf-shard-body.py'
+# Resolve `{rebuildManagedSectionsHelper}` to the first existing path: §5
+# reads and writes the snippet's gotchas line with its `gotchas` action.
+# HALT if neither exists.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 # `{extractPublicApiHelper}`: §2's public API counts, the runner's or those
 # `{entryPointsByHandData}` has it make; if neither exists, §2 halts.
 extractPublicApiProbeOrder:
@@ -395,11 +401,11 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 `context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, **gotchas** or **section anchors** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip: a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
 
-**Staleness triggers:**
+**Staleness triggers:** run the two `gotchas` calls of the regeneration paragraph below first, before you check any trigger: `gotchas prior` binds the `prior_api` the **Headline exports changed** ranking starts from, and `gotchas resolve` returns the line **Gotchas changed** compares. When no trigger fires, nothing is written from them.
 
 - **Headline exports changed**: the api names `skf-export-skill/references/generate-snippet.md` §3b ranks for this run differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, or a `NEW_EXPORT` took a free slot). In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it deprecated or removed: a line that differs by the ranking alone (its order, a free slot or the tier's limit) waits for the next export.
 - **Version changed** — §2 bumped `version` (normal mode with detected source drift; never fires in gap-driven mode per §2's carve-out).
-- **Gotchas changed**: the gotchas line `skf-export-skill/references/generate-snippet.md` §3a resolves from the merged SKILL.md and this run's evidence report (at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, `[CARRIED]` markers aside.
+- **Gotchas changed**: the `line` `gotchas resolve` returned (`skf-export-skill/references/generate-snippet.md` §3a, from the merged SKILL.md and this run's evidence report: at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, `[CARRIED]` markers aside.
 - **Anchors changed**: the prior snippet's `|quick-start:` or `|key-types:` anchor differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md (an anchor points into `references/` although SKILL.md has the heading, or a heading moved). Record it as `anchors` in `Triggers fired`.
 
 **Record the decision on the on-disk evidence report:** open `{forge_version}/evidence-report.md` (written by §4 with placeholder values in the `### Context Snippet` sub-block) and update that sub-block under the Update Operation section just written. Set `Regenerated: true|false`, fill `Triggers fired:` with the list of triggers that fired (or `—` when none), and write a one-sentence `Notes:` entry. See §4's "Context Snippet population" note for field semantics.
@@ -408,9 +414,9 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **If at least one trigger fired:** regenerate the snippet. Its content comes from `skf-export-skill/references/generate-snippet.md` §3a and §3b, as the paragraph below says; `skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format), not the `()` its `|api:` placeholder gives functions: §3b item 2 sets each api name's `()`.
 
-Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/` — see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 3 when the skill is exported. Do not choose an IDE-specific prefix in update-skill — that is an export-time decision that depends on config.yaml.
+Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`; see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 2 when the skill is exported. Do not choose an IDE-specific prefix in update-skill: that is an export-time decision that depends on config.yaml.
 
-Take the version from the updated metadata.json and the inline summaries from the merged SKILL.md. Rank the api names and verify the section anchors as `skf-export-skill/references/generate-snippet.md` §3b states, and derive the gotchas as its §3a states: the merged SKILL.md, this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote (`{forge_version}/provenance-map.json`, its `{forge_provenance_map}`) are the current sources, and the prior `context-snippet.md` gives `prior_api` and `prior_gotchas` (its §2.5). A prior pitfall no current source states takes a free slot with the `[CARRIED]` marker, or is dropped when already carried, by that file's carry-forward protocol (one-cycle limit).
+Take the version from the updated metadata.json and the inline summaries from the merged SKILL.md. Rank the api names and verify the section anchors as `skf-export-skill/references/generate-snippet.md` §3b states, and derive the gotchas as its §3a states: the merged SKILL.md, this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote (`{forge_version}/provenance-map.json`, its `{forge_provenance_map}`) are the current sources. That file's two `gotchas` calls read and write the line, on the prior snippet before the regenerated one replaces it, and run before the staleness triggers above, which read them: resolve `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` and, from `{project-root}`, run `uv run {rebuildManagedSectionsHelper} gotchas prior "{skill_package}/context-snippet.md" --skills-folder "{skills_output_folder}" --skill {skill_name}` and bind `prior_api`, `prior_gotchas` and `is_first_export` as its §2.5 does; write the judgments its §3a gives to `{run_dir}/gotchas-judgments.json` with a file write, then run `uv run {rebuildManagedSectionsHelper} gotchas resolve "{skill_package}/context-snippet.md" --skills-folder "{skills_output_folder}" --skill {skill_name} --judgments "{run_dir}/gotchas-judgments.json"`, write its `line` as the `|gotchas:` value (leave the line out when it is null), and add each warning its §3a emits to `warnings[]`, recorded as **Warnings go to the run log** says. Until an export records the skill, `is_first_export` is true here too, so `resolve` writes an unbacked prior pitfall unmarked and marks it `[CARRIED]` only once the skill has been exported. When `resolve` exits non-zero, correct the judgments file as its `error` says and run it once more. When `prior` fails, or `resolve` fails again, HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:context-snippet"`, `path: "{skill_package}/context-snippet.md"`, `reason: "<its error>"`).
 
 Write the regenerated snippet to `{skill_package}/context-snippet.md`, preserving file permissions.
 

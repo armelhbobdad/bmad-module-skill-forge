@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-export-result-envelope.v1.json",
   "title": "SKF_EXPORT_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document skf-export-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_EXPORT_RESULT_JSON: ': once on stdout when a run ends (step 6, summary, with status success or dry-run) and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload the run passes it, folds in the auto-decisions the run's gates recorded in its run sink, derives exit_code from halt_reason and checks the line against this schema, so the model never types it. The skill's references/result-envelope.md holds the halt command and the Exit Codes table that maps each halt site to its code.",
+  "description": "Single-line JSON document skf-export-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_EXPORT_RESULT_JSON: ': once on stdout when a run ends (step 5, summary, with status success or dry-run) and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload the run passes it, folds in the auto-decisions the run's gates recorded in its run sink, derives exit_code from halt_reason and checks the line against this schema, so the model never types it. The skill's references/result-envelope.md holds the halt command and the Exit Codes table that maps each halt site to its code.",
   "$defs": {
     "skf-envelope": {
       "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
@@ -54,12 +54,12 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true,
-      "description": "The context files (CLAUDE.md, AGENTS.md, .cursorrules) whose managed section this run wrote and verified. Empty on a dry run, with passive context off, and when a halt came before any write."
+      "description": "The context files (CLAUDE.md, AGENTS.md, .cursorrules) whose managed section this run wrote and verified, or cleared (an orphaned context file after orphan-context (a)). Empty on a dry run, with passive context off, and when a halt came before any write."
     },
     "manifest_path": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The export manifest path once step 4 recorded every skill of the batch in it. Null when no manifest write completed: every dry run, and every halt before the manifest write finished."
+      "description": "The export manifest path once step 3 recorded every skill of the batch in it. Null when no manifest write completed: every dry run, and every halt before the manifest write finished."
     },
     "headless_decisions": {
       "type": "array",
@@ -78,7 +78,7 @@
               "update-context.orphan-rows",
               "update-context.write-confirmation"
             ],
-            "description": "The gate that auto-resolved: step 1's snippet-root layout question (no earlier export chose a root), snippet-root mismatch gate (an earlier export's root differs from the IDE mapping, resolved by the folder on disk that holds the skills) and confirmation gate, and step 4's orphaned context files gate, orphaned managed-section rows gate and write confirmation gate. Each gate records its decision in the run sink the moment it decides."
+            "description": "The gate that auto-resolved: step 1's snippet-root layout question (no earlier export chose a root), snippet-root mismatch gate (an earlier export's root differs from the IDE mapping, resolved by the folder on disk that holds the skills) and confirmation gate, and step 3's orphaned context files gate, orphaned managed-section rows gate and write confirmation gate. Each gate records its decision in the run sink the moment it decides."
           },
           "default_action": {
             "type": "string",
@@ -98,7 +98,20 @@
           "evidence": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Optional gate-specific data: the observed snippet-root prefixes, the orphaned context files, or the orphaned rows' skills."
+            "properties": {
+              "test_results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["skill", "verdict"],
+                  "properties": {
+                    "skill": { "type": "string", "minLength": 1 },
+                    "verdict": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            },
+            "description": "Optional gate-specific data: the observed snippet-root prefixes, the orphaned context files, or the orphaned rows' skills. The load-skill.confirmation decision holds test_results, one {skill, verdict, score, report} per skill of the batch from step 1's test-report check: verdict is the report's testResult (pass, fail, pass-with-drift, inconclusive), no-verdict, not-found or not-checked; score a number or null; report the report's file name or null."
           }
         }
       },
@@ -132,7 +145,7 @@
     "warnings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each (for example result_file_write_failed). Present only when there is at least one."
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each (for example result_file_write_failed). A warning a step displayed reads '<code>: <skill>: <detail>', with the codes the Run Folder section of the skill's references/result-envelope.md lists. Present only when there is at least one."
     },
     "error": {
       "type": "object",

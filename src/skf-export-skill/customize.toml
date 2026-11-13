@@ -47,7 +47,7 @@ persistent_facts = [
 ]
 
 # Optional post-export hook: a shell command run from {project-root}, not an
-# instruction. When non-empty, step 6 runs
+# instruction. When non-empty, step 5 runs
 # `<value> --result-path="<per-run result JSON>"` after it writes that file
 # (before the terminal health-check step); a --dry-run writes none and never
 # invokes it. Example, in {project-root}/_bmad/custom/skf-export-skill.toml:
@@ -64,7 +64,7 @@ on_complete = ""
 
 # --- Optional override. An empty string means the default named below. ---
 
-# The snippet template step 3 fills for each skill. Default:
+# The snippet template step 2 fills for each skill. Default:
 # assets/snippet-format.md, a path from the skill root. Keep a house-style
 # copy outside the skill folder, which every update overwrites, and name it
 # as {project-root}/<path to the copy>. Override it to restyle the free
@@ -72,19 +72,27 @@ on_complete = ""
 # the rest, so a copy keeps these as they are:
 #   - line 1, `[{skill-name} v{version}]|root: {skill_root}{skill-name}/`
 #     (for a stack, `[{project}-stack v{version}]|root: ...`): assemble
-#     builds each managed-section row from it and leaves out a snippet whose
+#     builds each managed-section row from it and refuses a snippet whose
 #     first line differs (skipped_malformed_snippet);
 #   - line 2, which starts `|IMPORTANT:` with the skill name as its first
 #     word (a single skill's also says `writing {skill-name} code`):
 #     skf-validate-output.py checks the start, and rename-skill rewrites the
 #     name in each place;
-#   - the `|gotchas:` label and its `[CARRIED]` marker, which step 3 reads
-#     to carry gotchas forward for one export;
+#   - the `|api:` label, and the `|gotchas:` label with its `; ` separator
+#     and its `[CARRIED]` marker: the rebuild helper's `gotchas` action
+#     reads them back in step 2, to rank the prior api names first and to
+#     carry gotchas forward for one export;
 #   - no line that is a bare `|`, which splits rows in the managed section.
-# The quick-start, api and key-types lines, and the stack and integrations
-# lines, are free to change. The managed-section format and the IDE mapping
-# have no override: drop-skill and rename-skill rebuild the same section
-# through the shared helper, so a copy only export read would put them out
-# of step.
+# Step 2 checks each draft with skf-validate-output.py --snippet-check,
+# which fails, among other things, a line 1 that does not start with the
+# skill at its metadata.json version, a blank or bare `|` line, and a
+# `SKILL.md#slug` or `references/<file>.md#slug` anchor the package has no
+# heading for; a draft that still fails after one correction stops the
+# export with exit 4 (context-rebuild-failed). The quick-start and
+# key-types lines, and the stack and integrations lines, are free to
+# change, as long as each anchor they hold resolves. The managed-section
+# format and the IDE mapping have no override: drop-skill and rename-skill
+# rebuild the same section through the shared helper, so a copy only
+# export read would put them out of step.
 
 snippet_format_path = "assets/snippet-format.md"

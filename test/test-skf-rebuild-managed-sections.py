@@ -532,6 +532,72 @@ class TestRootProbe:
         assert out["observed_prefixes"] == []
         assert out["mismatch"] is False
 
+    @staticmethod
+    def _exported(skills, name, version, root):
+        snippet = skills / name / version / name / "context-snippet.md"
+        snippet.parent.mkdir(parents=True)
+        snippet.write_bytes(f"[{name} v{version}]|root: {root}{name}/\n".encode("utf-8"))
+        return snippet
+
+    def test_skills_folder_builds_the_snippet_paths_from_the_manifest(self, tmp_path):
+        """#1163: the helper lists the snippets, so the prompt types no path."""
+        skills = tmp_path / "skills"
+        self._exported(skills, "bar", "2.1", "my-skills/")
+        self._exported(skills, "foo", "1.0", ".claude/skills/")
+        self._exported(skills, "unrecorded", "3.0", "other/")  # active_version has no versions record
+        exports = {
+            "foo": {"active_version": "1.0", "versions": {"1.0": {"status": "active"}}},
+            "bar": {"active_version": "2.1", "versions": {"2.1": {"status": "deprecated"}}},
+            "unrecorded": {"active_version": "3.0", "versions": {"2.0": {"status": "archived"}}},
+        }
+
+        def probe(*files):
+            manifest = {"schema_version": "2", "exports": exports}
+            (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+            proc = _run("root-probe", *files, "--skills-folder", str(skills), "--reference-root", ".claude/skills/")
+            assert proc.returncode == 0, proc.stderr
+            return json.loads(proc.stdout)
+
+        def built(*pairs):
+            return [skills / name / version / name / "context-snippet.md" for name, version in pairs]
+
+        # The deprecated entry is probed; a version with no `versions` record is not.
+        out = probe()
+        assert [Path(p) for p in out["snippet_files"]] == built(("bar", "2.1"), ("foo", "1.0"))
+        assert (out["observed_prefixes"], out["mismatched_skills"]) == ([".claude/skills/", "my-skills/"], ["bar"])
+        # A recorded version whose snippet is missing is built and skipped.
+        exports["gone"] = {"active_version": "1.0", "versions": {"1.0": {"status": "active"}}}
+        out = probe()
+        assert [Path(p) for p in out["snippet_files"]] == built(("bar", "2.1"), ("foo", "1.0"), ("gone", "1.0"))
+        assert out["observed_prefixes"] == [".claude/skills/", "my-skills/"]
+        # A positional file adds to the probe, not to `snippet_files`.
+        extra = self._write(tmp_path, "extra.md", "[baz v1.0]|root: third/baz/\n")
+        out = probe(extra)
+        assert out["observed_prefixes"] == [".claude/skills/", "my-skills/", "third/"]
+        assert [Path(p) for p in out["snippet_files"]] == built(("bar", "2.1"), ("foo", "1.0"), ("gone", "1.0"))
+
+    def test_skills_folder_with_no_manifest_probes_nothing(self, tmp_path):
+        out = json.loads(_run("root-probe", "--skills-folder", str(tmp_path), "--reference-root",
+                              ".claude/skills/").stdout)
+        assert (out["status"], out["snippet_files"], out["observed_prefixes"]) == ("ok", [], [])
+
+    @pytest.mark.parametrize("content", [b"{not json", b"[]", b'{"schema_version": "2", "exports": []}'],
+                             ids=["not-json", "list", "exports-list"])
+    def test_skills_folder_with_an_unreadable_manifest_exits_1(self, tmp_path, content):
+        (tmp_path / ".export-manifest.json").write_bytes(content)
+        proc = _run("root-probe", "--skills-folder", str(tmp_path), "--reference-root", ".claude/skills/")
+        out = json.loads(proc.stdout)
+        assert (proc.returncode, out["status"]) == (1, "error") and out["error"], out
+
+    def test_root_probe_needs_a_snippet_or_a_skills_folder(self, tmp_path):
+        proc = _run("root-probe", "--reference-root", ".claude/skills/")
+        assert proc.returncode == 2 and "needs a snippet file or --skills-folder" in proc.stderr
+        proc = _run("root-probe", "--skills-folder", "", "--reference-root", ".claude/skills/")
+        assert proc.returncode == 2 and "--skills-folder needs a folder" in proc.stderr
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: my-skills/foo/\n")
+        out = json.loads(_run("root-probe", a, "--reference-root", ".claude/skills/").stdout)
+        assert "snippet_files" not in out, "without --skills-folder the output keeps its keys"
+
 
 # ---------------------------------------------------------------------------
 # replace/insert take the body only: they write both markers themselves
@@ -826,9 +892,23 @@ class TestCallersPassTheBody:
 
     def test_export_writes_the_staged_body_by_case(self):
         text = _md(EXPORT_UPDATE)
-        calls = _helper_calls(_part(text, "### 9. Write and Verify", "### 9b. "))
+        writes = _part(text, "### 9. Write and Verify", "### 9b. ")
+        calls = _helper_calls(writes)
+        # #1165: an orphaned file orphan-context (a) listed is cleared here, after [C] and after the targets.
         assert calls == ['python3 {rebuildManagedSectionsHelper} "{context_path}" insert < "{content_file}"',
-                         'python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{content_file}"']
+                         'python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{content_file}"',
+                         'python3 {rebuildManagedSectionsHelper} "{context_path}" clear']
+        clear = writes[writes.index("Once every target is written, clear each file in `orphans_to_clear`"):]
+        assert "with `{context_path}` ← its `file_path`" in clear
+        assert ('On `action: "cleared"`, report "**{context_file} cleared.**" and add it to `context_files_updated` '
+                "and `orphans_cleared`") in clear
+        assert 'on `action: "no_change"`' in clear and "add it to neither" in clear
+        assert ('On a non-zero exit, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase '
+                "`update-context §9`) and report `{context_file}: {error}`") in clear
+        for rel in sorted((REPO / "src" / "skf-export-skill").rglob("*.md")):
+            for call in _helper_calls(rel.read_text(encoding="utf-8")):
+                if re.search(r"\s(insert|replace|clear)\b", call):
+                    assert rel.as_posix().endswith(EXPORT_UPDATE) and call in calls, (rel.name, call)
         assert "double-wraps" not in text and "{managed_section_full}" not in text
         assert "(inclusive)" not in text, "the helper writes the markers: a caller never replaces them"
         check = _part(text, "### 5. Check Each Target File", "### 6. ")
@@ -840,6 +920,40 @@ class TestCallersPassTheBody:
                                          else ", which swaps that section and keeps everything outside the markers |"))
         assert 'HALT (exit code 5, `halt_reason: "malformed-markers"`, phase `update-context §5`)' in check
         assert "They refuse (exit 1) a body that holds a marker of its own" in text
+
+    def test_export_previews_each_target_from_the_helper_diff(self):
+        """determinism-5 (#1165): §6 runs `diff` for every target, so §7 never compares two sections by eye."""
+        text = _md(EXPORT_UPDATE)
+        compare = _part(text, "### 6. ", "### 7. ")
+        assert _helper_calls(compare) == [
+            'python3 {rebuildManagedSectionsHelper} "{context_path}" diff --content-file "{content_file}"']
+        assert "Bind `{section_diff}` ← its result for that target" in compare
+        assert ('On a non-zero exit, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase '
+                "`update-context §6`) and report `{context_file}: {error}`") in compare
+        assert "from its `{section_diff}`" in _part(text, "### 7. ", "### 8. ")
+        for rel in sorted((REPO / "src" / "skf-export-skill").rglob("*.md")):
+            body = rel.read_text(encoding="utf-8")
+            assert '{rebuildManagedSectionsHelper} "{context_path}" read' not in body, rel.name
+        for stale in ("{old_section}", "{n_single}", "{n_stack}", "beside the new body", "For each `regenerate` target"):
+            assert stale not in text, stale
+
+    def test_the_documented_diff_call_runs(self, tmp_path):
+        """The §6 call, filled in as an agent would, prints the JSON cmd_diff returns."""
+        forge = Forge(tmp_path)
+        forge.export("zod", "1.3.0")
+        claude = _written(forge, tmp_path / "CLAUDE.md")
+        forge.export("zod", "1.4.0")
+        content = _staged(forge, claude)
+        [call] = _helper_calls(_part(_md(EXPORT_UPDATE), "### 6. ", "### 7. "))
+        values = {"{rebuildManagedSectionsHelper}": str(SCRIPT), "{context_path}": str(claude),
+                  "{content_file}": str(content)}
+        words = [values.get(word, word) for word in shlex.split(call)]
+        assert words[0] == "python3"
+        proc = subprocess.run([sys.executable, *words[1:]], stdin=subprocess.DEVNULL, capture_output=True,
+                              encoding="utf-8")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        out = json.loads(proc.stdout)
+        assert out == mod.cmd_diff(str(claude), str(content)) and out["rows"]["changed"][0]["new_version"] == "1.4.0"
 
     def test_export_assembles_every_body_outside_the_project_before_the_gate(self):
         """determinism-1: assemble builds each body into the stage folder; nothing lands beside a context file."""
@@ -1676,10 +1790,12 @@ class TestUnreadableContextFile:
         assert out["error"].startswith(says)
 
     @pytest.mark.parametrize("kind", ["cp1252", "folder"])
-    @pytest.mark.parametrize("action", ["read", "insert", "replace", "clear"])
-    def test_the_other_actions_refuse_it(self, tmp_path, kind, action):
+    @pytest.mark.parametrize("action", ["read", "insert", "replace", "clear", "diff"])
+    def test_the_other_actions_refuse_it(self, tmp_path, tmp_path_factory, kind, action):
         f, says = _unreadable(tmp_path, kind)
-        proc = _run(str(f), action, *(["--content", EMPTY_BODY] if action in ("insert", "replace") else []))
+        extra = {"insert": ["--content", EMPTY_BODY], "replace": ["--content", EMPTY_BODY],
+                 "diff": ["--content-file", str(_put(tmp_path_factory.mktemp("stage") / "body", EMPTY_BODY))]}
+        proc = _run(str(f), action, *extra.get(action, []))
         assert proc.returncode == 1 and proc.stderr == ""
         out = json.loads(proc.stdout)
         assert out["status"] == "error" and out["error"].startswith(says)
@@ -1716,3 +1832,539 @@ class TestUnreadableContextFile:
         proc = _run("root-probe", str(snippet), "--reference-root", ".claude/skills/")
         assert proc.returncode == 0, proc.stderr
         assert json.loads(proc.stdout)["observed_prefixes"] == []
+
+
+# ---------------------------------------------------------------------------
+# diff: the change preview export §6 builds for §7 (#1165)
+# ---------------------------------------------------------------------------
+
+
+def _written(forge: Forge, context_file: Path, **kw) -> Path:
+    """`context_file` with the body assemble builds for it, written as export §9 writes it."""
+    r, body = forge.assemble(context_file, **kw)
+    assert r["status"] == "ok", r
+    write = mod.cmd_replace if mod.cmd_check(str(context_file))["case"] == "regenerate" else mod.cmd_insert
+    assert write(str(context_file), body)["status"] == "ok"
+    return context_file
+
+
+def _staged(forge: Forge, context_file: Path, **kw) -> Path:
+    """The content file assemble stages for `context_file`, as export §4b does."""
+    r, _ = forge.assemble(context_file, **kw)
+    assert r["status"] == "ok", r
+    return Path(r["content_file"])
+
+
+def _diff(context_file: Path, content_file: Path) -> dict:
+    """cmd_diff's result, once the command line printed the same JSON with the exit code it implies."""
+    result = mod.cmd_diff(str(context_file), str(content_file))
+    proc = _run(str(context_file), "diff", "--content-file", str(content_file))
+    assert proc.stderr == "" and json.loads(proc.stdout) == result
+    assert proc.returncode == (0 if result["status"] == "ok" else 1)
+    return result
+
+
+def _diff_lines(unified: str, sign: str) -> list[str]:
+    """The body lines `unified` removes (`-`) or adds (`+`), its two file labels left out."""
+    return [line[1:] for line in unified.split("\n")[2:] if line.startswith(sign)]
+
+
+def _row(name: str, version: str, root: str) -> dict:
+    return {"skill_name": name, "version": version, "root": root}
+
+
+class TestDiff:
+    """Suite 22: diff compares a context file's section with the body staged for it, writing nothing."""
+
+    def test_a_version_bump_changes_the_row(self, forge):
+        forge.export("zod", "1.3.0")
+        claude = _written(forge, forge.root / "CLAUDE.md")
+        before = claude.read_bytes()
+        forge.export("zod", "1.4.0")
+        out = _diff(claude, _staged(forge, claude))
+        assert (out["status"], out["case"]) == ("ok", "regenerate")
+        assert out["header"] == {"old": "[SKF Skills]|1 skills|0 stack", "new": "[SKF Skills]|1 skills|0 stack"}
+        assert out["rows"] == {"added": [], "removed": [], "changed": [
+            {"skill_name": "zod", "old_version": "1.3.0", "new_version": "1.4.0",
+             "old_root": ".claude/skills/zod/", "new_root": ".claude/skills/zod/"}]}
+        assert out["unified"].split("\n")[:2] == ["--- CLAUDE.md (current)", "+++ CLAUDE.md (new)"]
+        assert _diff_lines(out["unified"], "-") == [
+            "|[zod v1.3.0]|root: .claude/skills/zod/", "|IMPORTANT: zod v1.3.0: read SKILL.md before writing zod code."]
+        assert _diff_lines(out["unified"], "+") == [
+            "|[zod v1.4.0]|root: .claude/skills/zod/", "|IMPORTANT: zod v1.4.0: read SKILL.md before writing zod code."]
+        assert claude.read_bytes() == before
+
+    def test_a_dropped_orphan_is_removed_and_the_header_changes(self, forge):
+        forge.export("foo", "1.0.0")
+        claude = _written(forge, forge.context("CLAUDE.md", "|[ext v1.0]|root: x/ext/"))
+        out = _diff(claude, _staged(forge, claude, orphans="drop"))
+        assert out["case"] == "regenerate"
+        assert out["header"] == {"old": "[SKF Skills]|2 skills|0 stack", "new": "[SKF Skills]|1 skills|0 stack"}
+        assert out["rows"] == {"added": [], "removed": [_row("ext", "1.0", "x/ext/")], "changed": []}
+        removed = _diff_lines(out["unified"], "-")
+        assert "[SKF Skills]|2 skills|0 stack" in removed and "|[ext v1.0]|root: x/ext/" in removed
+        assert _diff_lines(out["unified"], "+") == ["[SKF Skills]|1 skills|0 stack"]
+
+    def test_a_root_override_changes_each_rows_root(self, forge):
+        forge.export("foo", "1.0.0")
+        claude = _written(forge, forge.root / "CLAUDE.md")
+        out = _diff(claude, _staged(forge, claude, override="skills/"))
+        assert out["rows"] == {"added": [], "removed": [], "changed": [
+            {"skill_name": "foo", "old_version": "1.0.0", "new_version": "1.0.0",
+             "old_root": ".claude/skills/foo/", "new_root": "skills/foo/"}]}
+        assert _diff_lines(out["unified"], "+") == ["|[foo v1.0.0]|root: skills/foo/"]
+
+    @pytest.mark.parametrize("existing, case", [(None, "create"), ("# Project\n\nNotes.\n", "append")])
+    def test_a_new_section_adds_every_row(self, forge, existing, case):
+        for name in ("zod", "cognee"):
+            forge.export(name, "1.4.0")
+        claude = forge.root / "CLAUDE.md"
+        if existing is not None:
+            _put(claude, existing)
+        content = _staged(forge, claude)
+        out = _diff(claude, content)
+        assert (out["case"], out["header"]) == (case, {"old": None, "new": "[SKF Skills]|2 skills|0 stack"})
+        assert out["rows"] == {"added": [_row("cognee", "1.4.0", ".claude/skills/cognee/"),
+                                         _row("zod", "1.4.0", ".claude/skills/zod/")],
+                               "removed": [], "changed": []}
+        assert _diff_lines(out["unified"], "-") == []
+        assert _diff_lines(out["unified"], "+") == content.read_bytes().decode("utf-8").split("\n")
+        assert claude.exists() == (existing is not None)
+        assert existing is None or claude.read_bytes() == existing.encode("utf-8")
+
+    def test_an_unchanged_body_has_no_diff(self, forge):
+        forge.export("zod", "1.4.0")
+        claude = _written(forge, forge.root / "CLAUDE.md")
+        out = _diff(claude, _staged(forge, claude))
+        assert (out["case"], out["unified"]) == ("regenerate", "")
+        assert out["rows"] == {"added": [], "removed": [], "changed": []}
+        assert out["header"]["old"] == out["header"]["new"] == "[SKF Skills]|1 skills|0 stack"
+
+    def test_a_name_with_several_rows_on_one_side_pairs_by_version(self, forge):
+        claude = forge.context("CLAUDE.md", "|[ext v1.0]|root: x/ext/", "|[ext v2.0]|root: x/ext/", "|[other v1]")
+        body = "\n".join(["[SKF Skills]|2 skills|0 stack", *mod.SECTION_PREAMBLE, "|", "|[ext v2.0]|root: y/ext/",
+                          "|", "|[new v3]|root: y/new/", "|", "|[other v1]"])
+        out = _diff(claude, _put(forge.root / "body.skf-content", body))
+        assert out["rows"] == {
+            "added": [_row("new", "3", "y/new/")],
+            "removed": [_row("ext", "1.0", "x/ext/")],
+            "changed": [{"skill_name": "ext", "old_version": "2.0", "new_version": "2.0",
+                         "old_root": "x/ext/", "new_root": "y/ext/"}],
+        }
+
+    def test_a_name_with_several_rows_on_both_sides_pairs_by_version(self, forge):
+        claude = forge.context("CLAUDE.md", "|[ext v1.0]|root: x/ext/", "|[ext v2.0]|root: x/ext/")
+        body = "\n".join(["[SKF Skills]|2 skills|0 stack", *mod.SECTION_PREAMBLE, "|", "|[ext v2.0]|root: x/ext/",
+                          "|", "|[ext v3.0]|root: x/ext/"])
+        out = _diff(claude, _put(forge.root / "body.skf-content", body))
+        assert out["rows"] == {"added": [_row("ext", "3.0", "x/ext/")], "removed": [_row("ext", "1.0", "x/ext/")],
+                               "changed": []}
+
+    def test_a_row_without_a_root_gives_a_null_root(self, forge):
+        forge.export("foo", "1.0.0")
+        claude = _written(forge, forge.context("CLAUDE.md", "|[ext v1.0]"))
+        out = _diff(claude, _staged(forge, claude, orphans="drop"))
+        assert out["rows"] == {"added": [], "removed": [_row("ext", "1.0", None)], "changed": []}
+        claude = forge.context("CLAUDE.md", "|[ext v1.0]")
+        body = "\n".join(["[SKF Skills]|1 skills|0 stack", *mod.SECTION_PREAMBLE, "|", "|[ext v1.0]|root: y/ext/"])
+        out = _diff(claude, _put(forge.root / "body.skf-content", body))
+        assert out["rows"]["changed"] == [{"skill_name": "ext", "old_version": "1.0", "new_version": "1.0",
+                                           "old_root": None, "new_root": "y/ext/"}]
+
+    def test_a_text_change_alone_is_a_changed_row(self, forge):
+        claude = forge.context("CLAUDE.md", "|[ext v1.0]|root: x/ext/\n|IMPORTANT: old")
+        body = "\n".join(["[SKF Skills]|0 skills|0 stack", *mod.SECTION_PREAMBLE, "|", "|[ext v1.0]|root: x/ext/",
+                          "|IMPORTANT: new"])
+        out = _diff(claude, _put(forge.root / "body.skf-content", body))
+        assert out["rows"]["changed"] == [{"skill_name": "ext", "old_version": "1.0", "new_version": "1.0",
+                                           "old_root": "x/ext/", "new_root": "x/ext/"}]
+        assert (_diff_lines(out["unified"], "-"), _diff_lines(out["unified"], "+")) == (
+            ["|IMPORTANT: old"], ["|IMPORTANT: new"])
+
+    def test_a_section_with_no_header_line_has_a_null_old_header(self, forge):
+        claude = _put(forge.root / "CLAUDE.md", "<!-- SKF:BEGIN updated:2026-01-01 -->\n|[ext v1.0]\n<!-- SKF:END -->\n")
+        out = _diff(claude, _put(forge.root / "body.skf-content", "[SKF Skills]|1 skills|0 stack\n|\n|[ext v1.0]"))
+        assert (out["case"], out["header"]) == ("regenerate", {"old": None, "new": "[SKF Skills]|1 skills|0 stack"})
+
+    @pytest.mark.parametrize("begins, ends", LEFT_BY_OLD_REBUILDS)
+    def test_the_nested_markers_replace_removes_are_shown(self, tmp_path, begins, ends):
+        """An older rebuild's nested marker pair: the diff removes each marker line replace removes."""
+        claude = _put(tmp_path / "CLAUDE.md", _double_wrapped(begins, ends))
+        body = "[SKF Skills]|1 skills|0 stack\n|\n|[foo v1.0]|root: x/foo/"
+        out = _diff(claude, _put(tmp_path / "body.skf-content", body))
+        assert out["case"] == "regenerate" and out["header"]["old"] == out["header"]["new"]
+        assert out["rows"] == {"added": [], "removed": [], "changed": []}
+        nested = [f"<!-- SKF:BEGIN updated:2026-06-0{i} -->" for i in range(2, begins + 1)]
+        assert _diff_lines(out["unified"], "-") == nested + ["<!-- SKF:END -->"] * (ends - 1)
+        assert _diff_lines(out["unified"], "+") == []
+        assert mod.cmd_replace(str(claude), body)["status"] == "ok"
+        after = claude.read_bytes().decode("utf-8")
+        assert after.count("<!-- SKF:BEGIN") == 1 and after.count("<!-- SKF:END") == 1
+
+    def test_malformed_markers_are_checks_error(self, tmp_path):
+        claude = _put(tmp_path / "CLAUDE.md", DANGLING)
+        out = _diff(claude, _put(tmp_path / "body", EMPTY_BODY))
+        assert out == mod.cmd_check(str(claude)) and (out["status"], out["case"]) == ("error", "malformed")
+        assert claude.read_bytes() == DANGLING.encode("utf-8")
+
+    @pytest.mark.parametrize("kind", ["missing", "folder", "cp1252"])
+    def test_a_content_file_it_cannot_read_is_an_error(self, tmp_path, kind):
+        claude = _put(tmp_path / "CLAUDE.md", SAMPLE_FILE)
+        content = tmp_path / "body.skf-content"
+        if kind == "folder":
+            content.mkdir()
+        elif kind == "cp1252":
+            content.write_bytes("[SKF Skills]|0 skills|0 stack\n|Café".encode("cp1252"))
+        out = _diff(claude, content)
+        assert out == {"status": "error", "error": mod.read_context_file(str(content))[1]}
+        assert claude.read_bytes() == SAMPLE_FILE.encode("utf-8")
+
+    @pytest.mark.parametrize("extra", [[], ["--content-file"], ["--content-file", ""]])
+    def test_without_a_content_file_it_exits_1(self, tmp_path, extra):
+        claude = _put(tmp_path / "CLAUDE.md", SAMPLE_FILE)
+        proc = _run(str(claude), "diff", *extra)
+        assert proc.returncode == 1 and proc.stderr == ""
+        assert json.loads(proc.stdout) == {"status": "error", "error": "diff requires --content-file <file>"}
+
+
+# ---------------------------------------------------------------------------
+# gotchas: the snippet's `|gotchas:` line read back and placed (#1164)
+# ---------------------------------------------------------------------------
+
+# oh-my-skills a02403f, skills/oms-uitripled/0.1.0/oms-uitripled/context-snippet.md
+# line 6, its em dash written as a colon: the line that split into four pieces.
+UITRIPLED_A02403F = (
+    'Copy-paste distribution: NEVER barrel-import from @uitripled/react-shadcn (src/index.ts empty by design); '
+    'render entries from client components (170 of the 171 files start with `"use client"`; every entry declares '
+    'framer-motion); React 19 / Next.js 16 peer deps are required.'
+)
+# oh-my-skills HEAD, skills/oms-cocoindex/1.0.0/oms-cocoindex/context-snippet.md
+# line 6, its em dashes written as colons: three `; ` outside any parenthesis.
+COCOINDEX_HEAD = (
+    "v0.3.37 → v1.0.0 is a wholesale rewrite, NOT a rename: FlowBuilder/DataScope/DataSlice/@flow_def are gone "
+    "(107 exports deleted); rewrite as coco.App + @coco.fn. Settings moved from Postgres (DatabaseConnectionSpec) "
+    "to local LMDB (db_path): plan a re-index, not an in-place upgrade. LlmSpec/LlmApiType/VectorSimilarityMetric "
+    "removed: use cocoindex.ops.litellm and per-connector vector specs; the `cocoindex server` subcommand is gone. "
+    "cocoindex stays pre-1.x-stable in spirit despite the 1.0 tag: pin precisely. All mount*/App.update/coco.map "
+    "are async; use the *_blocking variants from sync code."
+)
+MANIFEST_OPS_PY = SCRIPT.parent / "skf-manifest-ops.py"
+
+
+def _pitfalls(value: str) -> list[tuple[str, bool]]:
+    """(text, already_carried) of each pitfall read_gotchas reads."""
+    return [(p["text"], p["already_carried"]) for p in mod.read_gotchas(value)]
+
+
+def _gotchas_snippet(gotchas: str | None = None, api: str | None = None, newline: str = "\n") -> str:
+    lines = ["[zod v1.4.0]|root: .claude/skills/zod/", "|IMPORTANT: zod v1.4.0: read SKILL.md before writing zod code."]
+    lines += [f"|api: {api}"] if api is not None else []
+    lines += [f"|gotchas: {gotchas}"] if gotchas is not None else []
+    return newline.join(lines) + newline
+
+
+def _exported(skills: Path, entry: dict | None, schema: str | None = "2") -> None:
+    """An export manifest with `entry` for zod (none when it is None)."""
+    data = {"exports": {} if entry is None else {"zod": entry}}
+    if schema is not None:
+        data["schema_version"] = schema
+    _put(skills / ".export-manifest.json", json.dumps(data))
+
+
+def _gotchas_cli(mode: str, snippet: Path, skills: Path, *extra: str):
+    proc = _run("gotchas", mode, str(snippet), "--skills-folder", str(skills), "--skill", "zod", *extra)
+    return proc, (json.loads(proc.stdout) if proc.stdout.strip() else None)
+
+
+def _judge(tmp_path: Path, backed: list, new_gotchas: list, name: str = "judgments.json") -> Path:
+    return _put(tmp_path / "stage" / "gotchas" / name, json.dumps({"backed": backed, "new_gotchas": new_gotchas}))
+
+
+RE_EXPORTED = {"active_version": "1.4.0", "versions": {"1.4.0": {"ides": [], "last_exported": "2026-09-01",
+                                                                   "status": "active"}}}
+
+
+class TestGotchasRead:
+    """Suite 22: gotchas prior reads the prior `|gotchas:` and `|api:` lines as §2.5 binds them (#1091, #1164)."""
+
+    @pytest.mark.parametrize("value, expected, whole", [
+        pytest.param(UITRIPLED_A02403F, [
+            ("Copy-paste distribution: NEVER barrel-import from @uitripled/react-shadcn (src/index.ts empty by "
+             "design)", False),
+            ('render entries from client components (170 of the 171 files start with `"use client"`; every entry '
+             'declares framer-motion)', False),
+            ("React 19 / Next.js 16 peer deps are required.", False),
+        ], False, id="issue-1091-line"),
+        pytest.param("x (a; b); y; `f(); g()`", [("x (a; b)", False), ("y", False), ("`f(); g()`", False)], False,
+                     id="code-span"),
+        pytest.param(COCOINDEX_HEAD, [(COCOINDEX_HEAD, False)], True, id="over-3-pieces"),
+        pytest.param("[CARRIED] a; b; c; d", [("a; b; c; d", True)], True, id="older-marked-line"),
+        pytest.param("1) a; 2) b", [("1) a", False), ("2) b", False)], False, id="stray-close"),
+        pytest.param("see (x; y", [("see (x; y", False)], False, id="unclosed-open"),
+        pytest.param("(see `f)`; x); y", [("(see `f)`; x)", False), ("y", False)], False, id="close-in-code-span"),
+    ])
+    def test_a_prior_gotchas_line_reads_back_as_its_pitfalls(self, value, expected, whole):
+        """#1091: the split outside code spans and parentheses, and a value of more than 3 pieces read whole."""
+        assert _pitfalls(value) == expected
+        assert [p["read_whole"] for p in mod.read_gotchas(value)] == [whole] * len(expected)
+
+    def test_carried_marks_are_read_whitespace_insensitive(self):
+        assert _pitfalls("a; [CARRIED]b;   [CARRIED]   c") == [("a", False), ("b", True), ("c", True)]
+        assert _pitfalls("[CARRIED] a, b") == [("a, b", True)], "an older export marked a whole line once"
+
+    def test_an_empty_piece_is_no_pitfall_and_does_not_count(self):
+        assert _pitfalls("a; ; b") == [("a", False), ("b", False)]
+        assert _pitfalls("a; ; b; c; ") == [("a", False), ("b", False), ("c", False)]
+        assert _pitfalls("a; [CARRIED]; b") == [("a", False), ("b", False)]
+        assert _pitfalls("[CARRIED]") == []
+        assert _pitfalls("a; b; ; c; d") == [("a; b; ; c; d", False)], "4 pitfalls: the whole value"
+
+    def test_a_written_line_reads_back_as_the_pitfalls_it_holds(self):
+        """#1091: a kept or carried prior pitfall loses its `; ` outside code spans, and the next read gives the same
+        pitfalls, in order, with the same `[CARRIED]` state; an unclosed `(` merges pitfalls, never cuts one."""
+        [first, second, third] = _pitfalls(UITRIPLED_A02403F)
+        line = mod.write_gotchas([first, (second[0], True), third])
+        assert "start with `\"use client\"`, every entry declares framer-motion); React 19" in line
+        assert "[CARRIED] render entries from client components (170 of" in line
+        assert mod.write_gotchas([("call `f(); g()` once (x; y)", False)]) == "call `f(); g()` once (x, y)"
+        for pitfalls in ([first, (second[0], True), third], [("a; b; c; d", True)], _pitfalls(COCOINDEX_HEAD),
+                         [("x (a; b)", False), ("`f(); g()`", True), ("y", False)]):
+            line = mod.write_gotchas(pitfalls)
+            assert _pitfalls(line) == [(mod.write_gotchas([(text, False)]), carried) for text, carried in pitfalls]
+            assert mod.write_gotchas(_pitfalls(line)) == line
+        assert _pitfalls(mod.write_gotchas([("see (x", False), ("y", False), ("z", True)])) == \
+            [("see (x; y; [CARRIED] z", False)]
+
+    @pytest.mark.parametrize("value, expected", [
+        pytest.param("a(), b , c(), a", [("a", True), ("b", False), ("c", True)], id="issue-matrix"),
+        pytest.param("a, a()", [("a", False)], id="first-mark-wins"),
+        pytest.param("useTheme (), , ThemeProvider,", [("useTheme", True), ("ThemeProvider", False)],
+                     id="spaces-and-empty-pieces"),
+        pytest.param("(), b", [("b", False)], id="no-name"),
+    ])
+    def test_the_api_line_reads_each_name_once_with_its_mark(self, tmp_path, value, expected):
+        assert [(n["name"], n["parens"]) for n in mod.read_api(value)] == expected
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet("a", api=value))
+        proc, out = _gotchas_cli("prior", snippet, tmp_path / "skills")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert [(n["name"], n["parens"]) for n in out["prior_api"]] == expected
+
+    def test_no_prior_snippet(self, tmp_path):
+        """No snippet: `prior_gotchas` null, `prior_api` [] (a missing file is no prior snippet)."""
+        proc, out = _gotchas_cli("prior", tmp_path / "missing" / "context-snippet.md", tmp_path / "skills")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert out == {"status": "ok", "prior_gotchas": None, "prior_api": [], "is_first_export": True}
+
+    @pytest.mark.parametrize("gotchas", [None, "", "   ", "[CARRIED]"], ids=["no-line", "empty", "blank", "marker-only"])
+    def test_no_or_empty_gotchas_line_is_null(self, tmp_path, gotchas):
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet(gotchas, api="parse()"))
+        proc, out = _gotchas_cli("prior", snippet, tmp_path / "skills")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert out["prior_gotchas"] is None and out["prior_api"] == [{"name": "parse", "parens": True}]
+        assert mod.read_prior(str(snippet), str(tmp_path / "skills"), "zod")[0]["prior_gotchas"] is None
+
+    def test_the_first_line_of_each_label_is_read_whatever_its_line_ends(self, tmp_path):
+        text = _gotchas_snippet("a; [CARRIED] b", api="a(), b", newline="\r\n")
+        text += "  |gotchas: later\r\n|api: later()\r\n"
+        snippet = _put(tmp_path / "context-snippet.md", "  " + text)
+        proc, out = _gotchas_cli("prior", snippet, tmp_path / "skills")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert out["prior_gotchas"] == [{"text": "a", "already_carried": False, "read_whole": False},
+                                        {"text": "b", "already_carried": True, "read_whole": False}]
+        assert out["prior_api"] == [{"name": "a", "parens": True}, {"name": "b", "parens": False}]
+        indented = _put(tmp_path / "indented.md", "   |gotchas:   x; y   \n")
+        assert mod.read_prior(str(indented), str(tmp_path / "skills"), "zod")[0]["prior_gotchas"] == [
+            {"text": "x", "already_carried": False, "read_whole": False},
+            {"text": "y", "already_carried": False, "read_whole": False}]
+
+    @pytest.mark.parametrize("entry, schema, first", [
+        pytest.param(None, None, True, id="no-manifest"),
+        pytest.param(None, "2", True, id="no-entry"),
+        pytest.param({"active_version": "1.4.0", "versions": {"1.4.0": {"ides": [], "status": "active"}}}, "2",
+                     True, id="no-last-exported"),
+        pytest.param({"active_version": "1.4.0", "versions": {"1.4.0": {"last_exported": ""}}}, "2", True,
+                     id="empty-last-exported"),
+        pytest.param(RE_EXPORTED, "2", False, id="re-export"),
+        pytest.param({"active_version": "1.4.0",
+                      "versions": {"1.3.0": {"last_exported": "2026-01-01"}, "1.4.0": {"status": "active"}}},
+                     "2", False, id="an-older-version-exported"),
+        pytest.param({"active_version": "1.4.0", "versions": ["1.4.0"]}, "v1-dated", False, id="v1-manifest"),
+        pytest.param({"active_version": "1.4.0", "versions": ["1.4.0"]}, "v1-undated", True,
+                     id="v1-manifest-undated"),
+    ])
+    def test_first_export_is_what_manifest_ops_get_reads(self, tmp_path, entry, schema, first):
+        """The rule §3a applied to manifest-ops `get`: not_found, or no `versions` record with a `last_exported`."""
+        skills = tmp_path / "skills"
+        if schema == "v1-dated":
+            _put(skills / ".export-manifest.json", json.dumps({"exports": {"zod": entry}, "updated_at": "2026-02-02"}))
+        elif schema == "v1-undated":
+            _put(skills / ".export-manifest.json", json.dumps({"exports": {"zod": entry}}))
+        elif schema is not None:
+            _exported(skills, entry)
+        else:
+            skills.mkdir()
+        got = subprocess.run([sys.executable, str(MANIFEST_OPS_PY), str(skills), "get", "zod"],
+                             capture_output=True, text=True, encoding="utf-8")
+        found = json.loads(got.stdout)
+        expected = found["status"] == "not_found" or not any(
+            record.get("last_exported") for record in found["entry"]["versions"].values())
+        proc, out = _gotchas_cli("prior", tmp_path / "context-snippet.md", skills)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert out["is_first_export"] is expected is first
+
+    @pytest.mark.parametrize("kind", ["folder", "cp1252"])
+    @pytest.mark.parametrize("mode", ["prior", "resolve"])
+    def test_an_unreadable_snippet_is_an_error(self, tmp_path, kind, mode):
+        snippet = tmp_path / "context-snippet.md"
+        if kind == "folder":
+            snippet.mkdir()
+        else:
+            snippet.write_bytes("[café v1.0]|root: skills/café/\n|gotchas: déjà vu\n".encode("cp1252"))
+        judgments = _judge(tmp_path, [], [])
+        proc, out = _gotchas_cli(mode, snippet, tmp_path / "skills",
+                                 *(["--judgments", str(judgments)] if mode == "resolve" else []))
+        assert proc.returncode == 1 and proc.stderr == ""
+        assert out["status"] == "error" and str(snippet) in out["error"]
+
+    @pytest.mark.parametrize("mode", ["prior", "resolve"])
+    def test_an_unreadable_manifest_is_an_error(self, tmp_path, mode):
+        skills = tmp_path / "skills"
+        _put(skills / ".export-manifest.json", "{not json")
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet("a"))
+        judgments = _judge(tmp_path, [True], [])
+        proc, out = _gotchas_cli(mode, snippet, skills, *(["--judgments", str(judgments)] if mode == "resolve" else []))
+        assert proc.returncode == 1 and proc.stderr == ""
+        assert out["status"] == "error" and ".export-manifest.json" in out["error"]
+
+
+# The I/O matrix's resolve rows: (prior line, backed, new gotchas, first export) and what the line holds.
+RESOLVE_ROWS = [
+    pytest.param("a; b; [CARRIED] c", [True, False, False], ["n"], False,
+                 ("a; n; [CARRIED] b", [], ["b"], [("c", "already-carried")]), id="re-export"),
+    pytest.param("a; b; [CARRIED] c", [True, False, False], ["n"], True,
+                 ("a; n; b", [], [], [("c", "no-slot")]), id="first-export"),
+    pytest.param("a; b; c", [True, True, True], ["n"], False, ("a; b; c", ["n"], [], []), id="full-line"),
+    pytest.param("a; b", [False, True], ["a"], False, ("a; b", [], [], []), id="echoed-prior"),
+    pytest.param("x (a; b)", [True], ["`f(); g()`"], False, ("x (a, b); `f(); g()`", [], [], []), id="escaping"),
+    pytest.param(None, [], [], False, (None, [], [], []), id="nothing"),
+    pytest.param(None, [], ["n", "m", "n", "o", "p"], False, ("n; m; o", ["p"], [], []), id="repeated-new"),
+    pytest.param("[CARRIED] a; b", [True, False], [], False, ("a; [CARRIED] b", [], ["b"], []),
+                 id="a-backed-carried-pitfall-loses-its-mark"),
+    pytest.param("a; [CARRIED] b; c", [False, False, False], ["n", "m"], False,
+                 ("n; m; [CARRIED] a", [], ["a"], [("b", "already-carried"), ("c", "no-slot")]),
+                 id="carry-then-no-slot"),
+    pytest.param("a; b", [False, False], ["a (x; y)"], True, ("a (x, y); a; b", [], [], []),
+                 id="a-new-gotcha-written-unlike-the-prior-one-is-new"),
+]
+
+
+class TestGotchasResolve:
+    """Suite 23: gotchas resolve places the judgments on the line by §3a's slot order, marker and escaping (#1164)."""
+
+    @pytest.mark.parametrize("prior_line, backed, new, first, expected", RESOLVE_ROWS)
+    def test_in_process(self, prior_line, backed, new, first, expected):
+        prior = mod.read_gotchas(prior_line) if prior_line else None
+        placed = mod.resolve_gotchas(prior, backed, new, first)
+        line, left_off, carried, dropped = expected
+        assert placed == {"line": line, "left_off": left_off, "carried": carried,
+                          "dropped": [{"text": t, "reason": r} for t, r in dropped]}
+
+    @pytest.mark.parametrize("prior_line, backed, new, first, expected", RESOLVE_ROWS)
+    def test_through_the_cli(self, tmp_path, prior_line, backed, new, first, expected):
+        skills = tmp_path / "skills"
+        _exported(skills, None if first else RE_EXPORTED)
+        snippet = _put(tmp_path / "zod" / "context-snippet.md", _gotchas_snippet(prior_line, api="parse()"))
+        judgments = _judge(tmp_path, backed, new)
+        proc, out = _gotchas_cli("resolve", snippet, skills, "--judgments", str(judgments))
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        line, left_off, carried, dropped = expected
+        assert out == {"status": "ok", "line": line, "is_first_export": first, "left_off": left_off,
+                       "carried": carried, "dropped": [{"text": t, "reason": r} for t, r in dropped]}
+
+    def test_the_written_line_reads_back_as_resolve_placed_it(self, tmp_path):
+        """A re-export of the line resolve wrote: a carried pitfall still unbacked is dropped, and the rest stay."""
+        skills = tmp_path / "skills"
+        _exported(skills, RE_EXPORTED)
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet("a; b; [CARRIED] c"))
+        proc, out = _gotchas_cli("resolve", snippet, skills, "--judgments", str(_judge(tmp_path, [True, False, False],
+                                                                                         ["n"])))
+        assert out["line"] == "a; n; [CARRIED] b"
+        _put(snippet, _gotchas_snippet(out["line"]))
+        proc, again = _gotchas_cli("resolve", snippet, skills, "--judgments", str(_judge(tmp_path, [True, True, False],
+                                                                                           [])))
+        assert (again["line"], again["carried"], again["dropped"]) == \
+            ("a; n", [], [{"text": "b", "reason": "already-carried"}])
+
+    def test_the_judgments_file_may_start_with_a_bom(self, tmp_path):
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet("a"))
+        judgments = tmp_path / "judgments.json"
+        judgments.write_bytes(b"\xef\xbb\xbf" + json.dumps({"backed": [True], "new_gotchas": ["`$HOME` é"]}).encode())
+        proc, out = _gotchas_cli("resolve", snippet, tmp_path / "skills", "--judgments", str(judgments))
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert out["line"] == "a; `$HOME` é"
+
+    @pytest.mark.parametrize("content, says", [
+        pytest.param(b"{not json", "is not JSON", id="not-json"),
+        pytest.param("é".encode("cp1252"), "is not UTF-8", id="not-utf-8"),
+        pytest.param(b"[true]", "must hold a JSON object", id="not-an-object"),
+        pytest.param(json.dumps({"new_gotchas": []}).encode(), "`backed`", id="no-backed"),
+        pytest.param(json.dumps({"backed": [True]}).encode(), "`new_gotchas`", id="no-new-gotchas"),
+        pytest.param(json.dumps({"backed": ["yes"], "new_gotchas": []}).encode(), "`backed`", id="backed-not-bools"),
+        pytest.param(json.dumps({"backed": [1], "new_gotchas": []}).encode(), "`backed`", id="backed-numbers"),
+        pytest.param(json.dumps({"backed": [True], "new_gotchas": "n"}).encode(), "`new_gotchas`",
+                     id="new-not-a-list"),
+        pytest.param(json.dumps({"backed": [True], "new_gotchas": [3]}).encode(), "`new_gotchas`",
+                     id="new-not-strings"),
+        pytest.param(json.dumps({"backed": [True, False], "new_gotchas": []}).encode(), "holds 2 values",
+                     id="wrong-count"),
+        pytest.param(json.dumps({"backed": [], "new_gotchas": []}).encode(), "holds 0 values", id="none-for-one"),
+        pytest.param(json.dumps({"backed": [True], "new_gotchas": ["  "]}).encode(), "is empty", id="empty"),
+        pytest.param(json.dumps({"backed": [True], "new_gotchas": ["a\nb"]}).encode(), "line break",
+                     id="line-break"),
+        pytest.param(json.dumps({"backed": [True], "new_gotchas": ["a b"]}).encode(), "line break",
+                     id="unicode-line-separator"),
+        pytest.param(json.dumps({"backed": [True], "new_gotchas": [" [CARRIED] n"]}).encode(), "`[CARRIED]`",
+                     id="carried-start"),
+    ])
+    def test_a_judgments_file_it_cannot_use_is_an_error(self, tmp_path, content, says):
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet("a"))
+        judgments = tmp_path / "judgments.json"
+        judgments.write_bytes(content)
+        proc, out = _gotchas_cli("resolve", snippet, tmp_path / "skills", "--judgments", str(judgments))
+        assert proc.returncode == 1 and proc.stderr == ""
+        assert out["status"] == "error" and says in out["error"], out["error"]
+
+    def test_a_missing_judgments_file_is_an_error(self, tmp_path):
+        proc, out = _gotchas_cli("resolve", tmp_path / "context-snippet.md", tmp_path / "skills",
+                                 "--judgments", str(tmp_path / "missing.json"))
+        assert proc.returncode == 1 and "does not exist" in out["error"]
+
+    def test_a_judgments_path_it_cannot_open_is_an_error(self, tmp_path):
+        """A folder at the judgments path is a JSON error §3a can correct from, never a traceback."""
+        snippet = _put(tmp_path / "context-snippet.md", _gotchas_snippet("a"))
+        judgments = tmp_path / "judgments.json"
+        judgments.mkdir()
+        proc, out = _gotchas_cli("resolve", snippet, tmp_path / "skills", "--judgments", str(judgments))
+        assert proc.returncode == 1 and proc.stderr == ""
+        assert out["status"] == "error" and "cannot read the judgments file" in out["error"], out["error"]
+
+    @pytest.mark.parametrize("argv", [
+        pytest.param(["resolve", "s.md", "--skills-folder", "x", "--skill", "zod"], id="resolve-without-judgments"),
+        pytest.param(["resolve", "s.md", "--skills-folder", "x", "--skill", "zod", "--judgments", ""],
+                     id="resolve-empty-judgments"),
+        pytest.param(["prior", "s.md", "--skills-folder", "x", "--skill", "zod", "--judgments", "j.json"],
+                     id="prior-with-judgments"),
+        pytest.param(["prior", "s.md", "--skills-folder", "x", "--skill", "../x"], id="skill-path"),
+        pytest.param(["prior", "s.md", "--skills-folder", "x", "--skill", ""], id="skill-empty"),
+        pytest.param(["prior", "s.md", "--skills-folder", "", "--skill", "zod"], id="skills-folder-empty"),
+        pytest.param(["prior", "s.md", "--skill", "zod"], id="no-skills-folder"),
+        pytest.param(["read", "s.md", "--skills-folder", "x", "--skill", "zod"], id="unknown-mode"),
+    ])
+    def test_a_usage_error_exits_2(self, tmp_path, argv):
+        proc = _run("gotchas", *argv)
+        assert proc.returncode == 2 and proc.stdout == ""
+        assert "usage: skf-rebuild-managed-sections.py gotchas" in proc.stderr
+
+    def test_resolve_refuses_a_count_that_differs_in_process(self):
+        with pytest.raises(ValueError):
+            mod.resolve_gotchas(mod.read_gotchas("a; b"), [True], [], False)

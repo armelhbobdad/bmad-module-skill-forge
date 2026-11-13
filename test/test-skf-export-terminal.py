@@ -13,30 +13,26 @@ commands it documents:
   timestamp in the result file. The exit-code table lives beside the halt
   command in references/result-envelope.md, not in SKILL.md.
 - #585: a --dry-run writes no result file and fires no on_complete hook, and
-  manifest_path stays null until step 4 §9b wrote the manifest. The §8 dry-run
+  manifest_path stays null until step 3 §9b wrote the manifest. The §8 dry-run
   branch shows the manifest line, and On Activation checks the skills folder
   without writing under --dry-run.
-- #587: step 3 only stages the snippet; step 4 §9c copies it into the package
+- #587: step 2 only stages the snippet; step 3 §9c copies it into the package
   after the §8 gate, the context files and the manifest, so a cancel, a dry run
   or a halt before §9c never spends a carried gotchas line's `[CARRIED]` cycle.
 - #583 and determinism-2: step 1 §2 binds the version, its package and its
   evidence report from `skf-skill-inventory.py resolve`, and §4b reads the test
   report of that version through `skf-find-test-report.py find`.
-- leanness-3: one gotchas decision tree, first-export branch included, serves
-  single and stack skills.
+- leanness-3: one gotchas resolution, first export included, serves single
+  and stack skills.
 - #810, #811, #818: the current SKILL.md is a gotchas source, so `[CARRIED]`
   marks only a prior pitfall no current source backs; the api line has one
   ranking (the prior `|api:` names, then `## Key API Summary`, then
-  metadata.json `exports`); an anchor SKILL.md holds stays on SKILL.md. The
-  snippet format and update-skill's regeneration say the same.
-- #1091: `; ` is reserved for the gotchas separator. §2.5 splits a prior line
-  only on a `; ` outside parentheses and code spans, and reads a line that
-  still gives more than 3 pieces as one pitfall, which §3a counts as
-  unbacked; §3a and the snippet format write a `; ` inside a pitfall, a prior
-  one included, as `, ` outside a code span, so a written line reads back as
-  the pitfalls it was written with unless a pitfall leaves a `(` open or holds
-  an odd number of backticks, which then runs on into the pitfalls after it;
-  neither file promises more.
+  metadata.json `exports`); an anchor SKILL.md holds stays on SKILL.md.
+  Update-skill's regeneration says the same.
+- #1091: `; ` is reserved for the gotchas separator. The rebuild helper's
+  `gotchas` action splits a prior line and writes a new one (its tests hold
+  the read matrix and the round trips), so no step file states the split or
+  the escaping.
 - #1092: a prior pitfall stays derived, without `[CARRIED]`, while a T2-future
   annotation states it or the current SKILL.md still states its main claim
   anywhere, its frontmatter description and whole body included, and no place
@@ -46,23 +42,36 @@ commands it documents:
   slot. A prior pitfall that joins several stays stated while one T2-future
   annotation or one of source 2's bullets, rows or Quick Start calls states it
   whole, and is written once; one SKILL.md states only apart or only in other
-  prose, a value §2.5 reads whole among them, stays unbacked, so it is carried
-  at most once, then dropped. §2.5, the carry and drop warnings and the snippet format
-  say the same.
+  prose, a pitfall `gotchas prior` reads whole among them, stays unbacked, so it
+  is carried at most once, then dropped. These judgments are modelled here and
+  handed to the helper's `resolve_gotchas`, which places them as §3a's
+  `resolve` call does.
 - #1093: §3b writes each name the prior `|api:` line lists with the mark that
   line gave it, `()` or bare, whatever its provenance `export_type`, and the
   map's kind sets `()` only for a name new to the line, so a re-export of an
-  unchanged surface writes the same line. The snippet format's api line rule
-  points to step 3 for `()`, its single-skill template's `|api:` placeholder
-  and Line 4 bullet send the marks to that rule instead of giving functions
-  `()`, and update-skill's headline-exports trigger no longer counts a listed
-  name's kind change; its regeneration takes no `()` rule from create-skill's
-  skill-sections.md placeholder, which still gives functions `()`.
+  unchanged surface writes the same line. The snippet format's single-skill
+  `|api:` placeholder sends the marks to step 2's ranking instead of giving
+  functions `()`, and update-skill's headline-exports trigger no longer counts
+  a listed name's kind change; its regeneration takes no `()` rule from
+  create-skill's skill-sections.md placeholder, which still gives functions
+  `()`.
+- #1164: §2.5 is one `gotchas prior` call and the binding of its output, and
+  §3a keeps its three sources, the judgments file, the `resolve` call and its
+  three warnings; update-skill's write.md §5 runs the same two calls. The
+  snippet format holds only its title, the parse-critical note and the two
+  templates, so each snippet rule lives in generate-snippet.md alone. The
+  documented calls run here on a fixture skill.
+- #1166: the headless-only run folder lives in result-envelope.md's Run
+  Folder section, behind one On Activation line; a headless run's envelope
+  carries each warning a step displayed and the confirmation's
+  `evidence.test_results`, when it ends and when it halts; update-context
+  §4c halts on a batch skill whose draft `assemble` refuses.
 """
 
 from __future__ import annotations
 
 import calendar
+import importlib.util
 import json
 import os
 import re
@@ -83,6 +92,10 @@ SCRIPTS = SRC / "shared" / "scripts"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 FIND_REPORT = SCRIPTS / "skf-find-test-report.py"
+REBUILD = SCRIPTS / "skf-rebuild-managed-sections.py"
+_RMS_SPEC = importlib.util.spec_from_file_location("skf_rms_export_terminal", REBUILD)
+rms = importlib.util.module_from_spec(_RMS_SPEC)
+_RMS_SPEC.loader.exec_module(rms)
 SCHEMA_PATH = SCRIPTS / "schemas" / "skf-export-result-envelope.v1.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 META = SCHEMA["$defs"]["skf-envelope"]["const"]
@@ -182,6 +195,11 @@ def _envelope(proc: subprocess.CompletedProcess, stream: str = "stdout") -> dict
     return envelope
 
 
+def _run_folder() -> str:
+    """result-envelope.md's Run Folder section, which On Activation §4 points at (#1166)."""
+    return _section(_read(ENVELOPE), "## Run Folder", "## Emission rule")
+
+
 def _call(rel: str, verb: str) -> tuple[str, str]:
     """The one documented emitter call of `rel` whose subcommand is `verb`."""
     found = [(c, b) for c, b in _heredoc_calls(_read(rel)) if c.split()[3:4] == [verb]]
@@ -217,7 +235,11 @@ def test_no_export_file_types_the_envelope_or_a_timestamp():
     assert ("`{emitEnvelopeHelper}` ← the first existing path of "
             "`{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and "
             "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`") in activation
-    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"' in activation
+    # #1166 architecture-7: the headless-only run folder lives in the envelope contract, behind one line.
+    assert "mktemp -d" not in activation
+    assert ("When `{headless_mode}` is true, create the run folder (`references/result-envelope.md`, Run Folder)."
+            in activation)
+    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"' in _run_folder()
     envelope = _read(ENVELOPE)
     assert "`shared/scripts/schemas/skf-export-result-envelope.v1.json` describes each field" in envelope
     for stale in ("stands alone", "back-references no other file", "## Fields"):
@@ -234,7 +256,7 @@ def test_the_schema_names_the_workflow_and_its_exit_codes():
     rows = {line.split("|")[1].strip(): line for line in exit_codes.splitlines() if re.match(r"\| \d ", line)}
     for reason, code in META["exit_codes"].items():
         assert f"`{reason}`" in rows[str(code)], (reason, code)
-    assert "step 4 §9c (a snippet write fails) → `write-failed`" in rows["4"]
+    assert "step 3 §9c (a snippet write fails) → `write-failed`" in rows["4"]
     # The table sits beside the halt command, and the headless contract in its own
     # reference, so the always-loaded SKILL.md keeps a pointer only.
     skill = _read(SKILL_MD)
@@ -284,7 +306,13 @@ def _decision_values(body: str) -> str:
                 .replace("{reference_root}", ".claude/skills/")
                 .replace("{choice}", "d").replace("{disk_root}", "my-skills/")
                 .replace("{file_path}", "/project/CLAUDE.md")
-                .replace("{skill_name} v{version}", "zod v1.4.0"))
+                .replace("{skill_name} v{version}", "zod v1.4.0")
+                .replace("{test_results}", json.dumps(TEST_RESULTS)))
+
+
+# #1166: the confirmation decision's evidence, one entry per skill of the batch from load-skill §4b.
+TEST_RESULTS = [{"skill": "zod", "verdict": "fail", "score": 62, "report": "test-report-zod-20261101T120000Z.md"},
+                {"skill": "yup", "verdict": "not-found", "score": None, "report": None}]
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_FILES), ids=sorted(GATE_FILES))
@@ -297,6 +325,121 @@ def test_the_documented_decision_passes_the_schema(tmp_path, gate):
     assert proc.returncode == 0, proc.stderr
     [line] = (run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(line)["gate"] == gate
+
+
+def _record_warning(run_dir: Path, code: str, skill: str, detail: str) -> None:
+    """SKILL.md's Run log rule, as an argv: one displayed warning, recorded under its code."""
+    proc = _run([sys.executable, str(EMITTER), "record", "--run-dir", run_dir.as_posix(), "--warning",
+                 f"{code}: {skill}: {detail}"])
+    assert proc.returncode == 0, proc.stderr
+
+
+def _record_confirmation(run_dir: Path) -> None:
+    """load-skill §6's documented decision, `{test_results}` filled."""
+    [(command, body)] = [(c, b) for c, b in _heredoc_calls(_read(LOAD)) if '"gate":"load-skill.confirmation"' in b]
+    proc = _run(_argv(command, {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix()}),
+                _decision_values(body))
+    assert proc.returncode == 0, proc.stderr
+
+
+RUN_WARNINGS = [("test_report_fail", "zod", "This skill failed its last test (score: 62%)."),
+                ("gotchas_carried", "zod", "Gotchas preserved from prior export: `parse()` throws on an unknown key.")]
+
+
+@pytest.mark.parametrize("end", ["success", "halt"])
+def test_a_headless_envelope_carries_the_displayed_warnings_and_the_test_results(tmp_path, end):
+    """#1166 enhancement-1: the warnings a run displayed and the test verdicts its confirmation saw."""
+    run_dir = tmp_path / ".skf-run" / "skf-export-skill-abcd1234"
+    _record_confirmation(run_dir)
+    for code, skill, detail in RUN_WARNINGS:
+        _record_warning(run_dir, code, skill, detail)
+    if end == "success":
+        command, _ = _call(SUMMARY, "emit")
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        manifest = (skills / ".export-manifest.json").as_posix()
+        values = {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix(),
+                  "skills_output_folder": skills.as_posix()}
+        proc = _run(_argv(command, values, keep=("--result-dir", "--run-dir")), _success_payload(skills, manifest))
+        envelope = _envelope(proc)
+    else:
+        command, body = _call(ENVELOPE, "emit-halt")
+        payload = (body.replace("<phase>", "update-context §4c")
+                       .replace("<the halt message>", "The snippet draft of zod cannot go in the managed section")
+                       .replace("<halt_reason>", "context-rebuild-failed").replace("<name>", "zod"))
+        values = {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix()}
+        proc = _run(_argv(command, values, keep=("--run-dir",)), payload)
+        envelope = _envelope(proc, "stderr")
+    assert proc.returncode == 0, proc.stderr
+    assert envelope["warnings"] == [f"{code}: {skill}: {detail}" for code, skill, detail in RUN_WARNINGS]
+    [decision] = envelope["headless_decisions"]
+    assert decision["gate"] == "load-skill.confirmation"
+    assert decision["evidence"] == {"test_results": TEST_RESULTS}
+
+
+def test_the_confirmation_evidence_is_described_and_checked(tmp_path):
+    """The schema describes test_results and refuses an entry with no verdict."""
+    evidence = SCHEMA["properties"]["headless_decisions"]["items"]["properties"]["evidence"]
+    item = evidence["properties"]["test_results"]["items"]
+    assert sorted(item["required"]) == ["skill", "verdict"]
+    assert "The load-skill.confirmation decision holds test_results" in evidence["description"]
+    assert "'<code>: <skill>: <detail>'" in SCHEMA["properties"]["warnings"]["description"]
+    gate = _section(_read(LOAD), "### 6. Confirmation Gate", None)
+    for token in ('"evidence":{"test_results":{test_results}}',
+                  "`{test_results}` is a JSON array with one `{\"skill\", \"verdict\", \"score\", \"report\"}` "
+                  "object per skill of the batch, from §4b",
+                  "`no-verdict` for a report that records none, `not-found` or `not-checked`"):
+        assert token in gate, token
+    decision = {"gate": "load-skill.confirmation", "default_action": "C", "taken_action": "C", "reason": "x",
+                "evidence": {"test_results": [{"skill": "zod", "score": 62}]}}
+    proc = _run([sys.executable, str(EMITTER), "record", "--workflow", "skf-export-skill", "--run-dir",
+                 tmp_path.as_posix(), "--decision"], json.dumps(decision))
+    assert proc.returncode == 1 and "verdict" in proc.stderr, proc.stderr
+    assert not (tmp_path / "headless-decisions.jsonl").exists()
+
+
+def test_the_run_folder_holds_what_on_activation_created():
+    """#1166 architecture-7: the folder's command, its binding and lifetime, its halt and the resolver record."""
+    run_folder = _run_folder()
+    for token in ('mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d '
+                  '"{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"',
+                  "Bind `{run_dir}` ← the path it prints. Step 5 deletes it once the run's envelope is built; a HARD "
+                  "HALT leaves it in place.",
+                  'If it cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`) at phase '
+                  '`on-activation §4`.',
+                  "(a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument)"):
+        assert token in run_folder, token
+    envelope = _read(ENVELOPE)
+    assert envelope.index("## Run Folder") < envelope.index("## Emission rule") < envelope.index("## Exit Codes")
+    skill = _read(SKILL_MD)
+    item = _section(skill, "4. **Resolve the helpers and create the run folder.**", "5. **Pre-flight write check.**")
+    assert item.rstrip().endswith("When `{headless_mode}` is true, create the run folder "
+                                  "(`references/result-envelope.md`, Run Folder).")
+    assert "{run_dir}" not in skill.replace('--run-dir "{run_dir}"', "")
+
+
+def test_a_refused_batch_draft_halts_at_4c(tmp_path):
+    """determinism-1: a batch skill whose staged draft `assemble` refuses stops the run before it is recorded."""
+    section = _section(_read(UPDATE), "#### 4c. Report What Was Left Out", "#### 4c.1 ")
+    halt = next(line for line in section.splitlines()
+                if line.startswith("When a `skipped_malformed_snippet[]` entry names a skill in `skill_batch`"))
+    assert ('delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, '
+            'phase `update-context §4c`)') in halt
+    assert section.index(halt) < section.index("Otherwise report each as a warning under its code:")
+    assert ("- each other `skipped_malformed_snippet[]` entry (code `managed_section_skipped_malformed_snippet`): "
+            '"Snippet of {skill_name} v{version} skipped: {reason}"') in section
+    # assemble lists the batch skill's refused draft, the entry the halt acts on.
+    drafts = tmp_path / "stage" / "drafts"
+    (drafts / "zod").mkdir(parents=True)
+    (drafts / "zod" / "context-snippet.md").write_text(
+        "[zod v1.4.0]|root: .claude/skills/zod/\n|IMPORTANT: <!-- SKF:END -->\n", encoding="utf-8")
+    (tmp_path / "skills").mkdir()
+    out = rms.cmd_assemble(str(tmp_path / "CLAUDE.md"), str(tmp_path / "skills"), ".claude/skills/",
+                           includes=[("zod", "1.4.0")], snippet_dir=str(drafts),
+                           out=str(tmp_path / "stage" / "previews" / "CLAUDE.md.skf-content"))
+    skill_batch = ["zod"]
+    assert out["status"] == "ok" and out["included"] == []
+    assert [e["skill_name"] for e in out["skipped_malformed_snippet"] if e["skill_name"] in skill_batch] == ["zod"]
 
 
 def test_record_refuses_a_gate_the_schema_does_not_list(tmp_path):
@@ -416,7 +559,7 @@ def test_a_dry_run_writes_no_result_file_and_fires_no_hook():
     dry = next(line for line in result.splitlines() if line.startswith("- **With `--dry-run`:**"))
     assert "leave out `--result-dir` and `result_contract`" in dry and "`manifest_path: null`" in dry
     real = next(line for line in result.splitlines() if line.startswith("- **Without `--dry-run`:**"))
-    assert "pass `--result-dir`" in real and "the `{manifest_path}` step 4 §9b bound" in real
+    assert "pass `--result-dir`" in real and "the `{manifest_path}` step 3 §9b bound" in real
     hook = _section(summary, "### 6b. Post-Export Hook (Optional)", "### 7. ")
     assert hook.startswith("### 6b. Post-Export Hook (Optional)\n\nSkip this section on a dry run")
     assert '{onCompleteCommand} --result-path="{result_path}"' in hook, "a path with a space stays one argument"
@@ -443,11 +586,11 @@ def test_manifest_path_is_bound_only_once_the_manifest_is_written():
 
 def test_a_step_4_halt_reports_the_batch_and_what_it_wrote():
     """A field a halt leaves out reads as empty, so every halt passes the batch it resolved,
-    and the fields step 4 writes follow the run's state, stated once (leanness-4)."""
+    and the fields step 3 writes follow the run's state, stated once (leanness-4)."""
     halt = _section(_read(ENVELOPE), "## Emitting a Halt", "## Exit Codes")
     assert "Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`" in halt
-    assert ("Add `context_files_updated`, the context files step 4 §9 wrote before the halt, once it has "
-            "written one, and `manifest_path`, the `{manifest_path}` step 4 §9b bound, once the manifest is "
+    assert ("Add `context_files_updated`, the context files step 3 §9 wrote before the halt, once it has "
+            "written one, and `manifest_path`, the `{manifest_path}` step 3 §9b bound, once the manifest is "
             "written") in halt
     assert "the emitter gives `context_files_updated` `[]` and `manifest_path` `null`" in halt
     update = _read(UPDATE)
@@ -459,7 +602,7 @@ def test_a_step_4_halt_reports_the_batch_and_what_it_wrote():
 
 # The step files whose HALTs leave their envelope to result-envelope.md, by the name their phases use.
 HALT_FILES = {LOAD: "load-skill", SNIPPET: "generate-snippet", UPDATE: "update-context"}
-SECTION_RE = re.compile(r"^###+ (\d+[a-z]?)\.", re.M)
+SECTION_RE = re.compile(r"^###+ (\d+(?:\.\d+)?[a-z]?)\.", re.M)
 
 
 @pytest.mark.parametrize("rel", sorted(HALT_FILES), ids=sorted(HALT_FILES))
@@ -494,10 +637,13 @@ def test_activation_halts_name_their_phase_and_leave_the_envelope_to_the_contrac
     activation = _section(skill, "## On Activation", None)
     assert "envelope per" not in activation and "`skills: []`" not in activation
     assert "context_files_updated: []" not in activation and "manifest_path: null" not in activation
-    sites = re.findall(r'HALT \(exit code (\d), `halt_reason: "([a-z-]+)"`\) at phase `([^`]+)`', activation)
-    assert sites == [("4", "context-rebuild-failed", "on-activation §4"), ("4", "write-failed", "on-activation §4"),
-                     ("4", "write-failed", "on-activation §5")]
-    for code, reason, _ in sites:
+    site_re = r'HALT \(exit code (\d), `halt_reason: "([a-z-]+)"`\) at phase `([^`]+)`'
+    sites = re.findall(site_re, activation)
+    assert sites == [("4", "context-rebuild-failed", "on-activation §4"), ("4", "write-failed", "on-activation §5")]
+    # #1166: the run folder's write-failed halt moved with the run folder, and keeps its On Activation phase.
+    moved = re.findall(site_re, _run_folder())
+    assert moved == [("4", "write-failed", "on-activation §4")]
+    for code, reason, _ in sites + moved:
         assert META["exit_codes"][reason] == int(code), reason
     # The contract covers what the cut sites stated: no --run-dir and `skills: []` before step 1.
     envelope = _read(ENVELOPE)
@@ -527,15 +673,18 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): a "
                   "headless run records it once step 4 creates its run folder, and an interactive run only "
                   "prints it.",
-                  'write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
-                  'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
-                  '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`',
                   "(the bundled default loads every `project-context.md` under `{project-root}`, none in "
                   "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` "
                   "entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names "
                   "one file)",
                   "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
         assert token in activation, token
+    # #1166: step 4's run folder records the reason; the folder and that record live in the Run Folder section.
+    run_folder = " ".join(_run_folder().split())
+    for token in ('write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
+                  'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                  '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`'):
+        assert token in run_folder and token not in activation, token
     assert "\u2014" not in _section(_read(SKILL_MD), "3. **Resolve workflow customization.**", "4. **Resolve")
     # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
     assert re.search(r"(?<!\{project-root\}/)_bmad/", activation) is None
@@ -565,7 +714,7 @@ def test_conventions_route_every_reference_file():
     assert not (EXPORT / "scripts").exists() and "`scripts/`" not in conventions
     assert "`assets/` holds the snippet and managed-section templates." in conventions
     assert sorted(p.name for p in (EXPORT / "assets").iterdir()) == ["managed-section-format.md", "snippet-format.md"]
-    routes = {"load-skill.md": ("multi-skill-mode.md", "preflight-snippet-root-probe.md"),
+    routes = {"load-skill.md": ("preflight-snippet-root-probe.md",),
               "update-context.md": ("orphan-context-detection.md", "orphan-row-detection.md", "manifest-rebuild.md")}
     for loader, files in routes.items():
         for name in files:
@@ -582,7 +731,7 @@ def test_conventions_route_every_reference_file():
 
 
 def test_the_dry_run_shows_the_manifest_line_where_it_runs():
-    """architecture-2: a dry run with passive context on leaves step 4 at §8, so §8 shows the line too."""
+    """architecture-2: a dry run with passive context on leaves step 3 at §8, so §8 shows the line too."""
     update = _read(UPDATE)
     line = "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**"
     menu = _section(update, "### 8. Present MENU OPTIONS", "**If NOT dry-run:**")
@@ -601,7 +750,7 @@ def test_activation_checks_the_skills_folder_without_writing_under_dry_run():
 
 
 # --------------------------------------------------------------------------
-# #587: the snippet is written after the step-4 gate, as the run's last write
+# #587: the snippet is written after the step-3 gate, as the run's last write
 # --------------------------------------------------------------------------
 
 SNIPPET_COPY = 'cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" "{resolved_skill_package}/context-snippet.md"'
@@ -617,15 +766,15 @@ def _writes_into_the_package(text: str) -> list[str]:
     return hits
 
 
-def test_step_3_stages_the_snippet_and_writes_nothing_into_the_package():
+def test_step_2_stages_the_snippet_and_writes_nothing_into_the_package():
     text = _read(SNIPPET)
     assert _writes_into_the_package(text) == []
     preview = _section(text, "### 5. Preview the Snippet", "### 6. ")
     assert "Nothing is written to a skill package in this step" in preview
-    assert "step 4 copies each measured draft into its package after its [C] gate (§9c)" in preview
+    assert "step 3 copies each measured draft into its package after its [C] gate (§9c)" in preview
 
 
-def test_step_4_writes_the_snippets_last_after_the_gate():
+def test_step_3_writes_the_snippets_last_after_the_gate():
     update = _read(UPDATE)
     assert _writes_into_the_package(update) == [SNIPPET_COPY]
     order = [update.index(marker) for marker in ("### 8. Present MENU OPTIONS", "### 9. Write and Verify",
@@ -641,17 +790,16 @@ def test_step_4_writes_the_snippets_last_after_the_gate():
     assert "the end of §9c" in _section(update, "### 2. Stage Folder", "### 3. ")
     rules = _section(_read(SKILL_MD), "## Workflow Rules", "## Stages")
     decision = next(line for line in rules.splitlines() if line.startswith("- **Snippet timing:**"))
-    assert "after its [C] gate, as step 4's last write" in decision and "`[CARRIED]`" in decision
+    assert "after its [C] gate, as step 3's last write" in decision and "`[CARRIED]`" in decision
     assert "A cancel, a dry run or a halt before §9c leaves every snippet" in decision, (
         "a §9c halt keeps the snippets copied before it")
     for path in sorted(EXPORT.rglob("*.md")):
         assert "the run's last write" not in path.read_text(encoding="utf-8"), (
-            f"{path.name}: step 6 writes the result files after §9c")
+            f"{path.name}: step 5 writes the result files after §9c")
 
 
-# Every step file and protocol a run reads before step 4 §9c, in run order.
-BEFORE_9C = ("references/load-skill.md", PROBE, "references/multi-skill-mode.md", "references/package.md",
-             SNIPPET, ORPHAN_CONTEXT, ORPHAN_ROWS)
+# Every step file and protocol a run reads before step 3 §9c, in run order.
+BEFORE_9C = ("references/load-skill.md", PROBE, SNIPPET, ORPHAN_CONTEXT, ORPHAN_ROWS)
 
 
 def test_nothing_before_9c_writes_into_a_package():
@@ -685,13 +833,124 @@ def test_the_9c_copy_publishes_the_carried_draft_byte_for_byte(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# #1165: every orphan choice reaches deviations[], and each reference holds what a run needs
+# --------------------------------------------------------------------------
+
+# Each variable an orphan choice binds, and the deviations[] kind summary §6 records it as, in §6's order.
+DEVIATION_KINDS = {"orphans_preserved": "preserve_external_skills", "orphans_dropped": "drop_external_skills",
+                   "orphans_cleared": "clear_orphan_context"}
+MANIFEST_REBUILD = "references/manifest-rebuild.md"
+# Each gated reference: the start of the sentence that states its purpose, and its headings.
+GATED = {ORPHAN_CONTEXT: ("update-context.md §3b loads this gate when", ["## Gate Protocol", "## Choice handling"]),
+         ORPHAN_ROWS: ("update-context.md §4c.1 loads this gate when", ["## Gate Protocol", "## Choice handling"]),
+         MANIFEST_REBUILD: ("The v2 shape of `{skills_output_folder}/.export-manifest.json`",
+                            ["## v2 Schema", "## Status enum"])}
+
+
+def _deviations() -> str:
+    return _section(_read(SUMMARY), "**`deviations[]` field", "### 6b. ")
+
+
+def test_every_orphan_choice_reaches_the_deviations_list():
+    """architecture-1 and architecture-5: summary §6 names each variable an orphan choice binds, with its kind."""
+    update = _read(UPDATE)
+    bound = set()
+    for text in (_read(ORPHAN_CONTEXT), _read(ORPHAN_ROWS), _section(update, "### 9. Write and Verify", "### 9b. ")):
+        bound |= set(re.findall(r"`(orphans_\w+)`", text))
+    assert bound - {"orphans_to_clear"} == set(DEVIATION_KINDS)
+    deviations = _deviations()
+    for var, kind in DEVIATION_KINDS.items():
+        [line] = [line for line in deviations.splitlines() if f"`{var}`" in line]
+        assert line.startswith(f"- `{kind}` from `{var}`: "), line
+    starts = [deviations.index(f"- `{kind}` from ") for kind in DEVIATION_KINDS.values()]
+    assert starts == sorted(starts)
+    [block] = _fenced_blocks(deviations)
+    entries = json.loads("\n".join(block))
+    assert [entry["kind"] for entry in entries] == list(DEVIATION_KINDS.values())
+    assert [sorted(entry) for entry in entries] == [["kind", "rationale", "skills"], ["kind", "skills"],
+                                                   ["files", "kind"]]
+    for entry in entries[:2]:
+        assert [sorted(skill) for skill in entry["skills"]] == [["name", "source_files", "version"]]
+    assert ("Each `skills` entry is one `orphan_rows` entry: its `skill_name` as `name`, its `version`, and its "
+            "`source_files`, the context files the row was found in.") in deviations
+    assert "Leave the field out when no kind applies" in deviations
+    # One path form across deviations[]: each source_files path as its {context_file}, as files gives a cleared one.
+    assert "`orphan_rows` gives each as its full path: write it as its `{context_file}`" in deviations
+    # A file §9 cleared is in context_files_updated, so the Files Written table lists it too.
+    assert "| {each file in `orphans_cleared`} managed section | ✅ cleared | n/a |" in _read(SUMMARY)
+    # The list orphan-context (a) fills is shown at §7 and §8 and cleared at §9 only.
+    for start, end in (("### 7. ", "### 8. "), ("### 8. ", "### 9. "), ("### 9. Write and Verify", "### 9b. ")):
+        assert "`orphans_to_clear`" in _section(update, start, end), start
+    assert "`orphans_to_clear`" in _section(_read(ORPHAN_CONTEXT), "### (a) clear", "### (b) keep")
+    # The headless defaults: keep binds nothing, so a headless run records preserve_external_skills alone.
+    assert "orphans_" not in _section(_read(ORPHAN_CONTEXT), "### (b) keep", None)
+    rows = _read(ORPHAN_ROWS)
+    assert "Bind `orphans_preserved` ← `orphan_rows`" in _section(rows, "### (b) Preserve verbatim", "### (c) ")
+    assert "bind `orphans_dropped` ← `orphan_rows`" in _section(rows, "### (a) Drop", "### (b) ")
+
+
+def test_each_orphan_rule_has_one_home():
+    """leanness-6: the deviations shape, the keep-the-row reasoning and the symmetry outcome are each stated once."""
+    homes = {"the row is often the only copy of that skill's snippet": UPDATE, "become symmetric": ORPHAN_ROWS,
+             '"kind": "preserve_external_skills"': SUMMARY}
+    for phrase, home in homes.items():
+        holders = {path.relative_to(EXPORT).as_posix(): path.read_text(encoding="utf-8").count(phrase)
+                   for path in sorted(EXPORT.rglob("*.md")) if phrase in path.read_text(encoding="utf-8")}
+        assert holders == {home: 1}, (phrase, holders)
+    for path in sorted(EXPORT.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if path.name == "summary.md":
+            text = text.replace(_deviations(), "")
+        assert not [b for b in _fenced_blocks(text) if '"kind"' in "\n".join(b)], path.name
+
+
+def test_the_exit_4_row_names_the_preview_and_the_clear():
+    exit_4 = next(line for line in _read(ENVELOPE).splitlines() if line.startswith("| 4 "))
+    assert ("step 3 §4b (the body cannot be built, for example a context file that is not UTF-8 text), §4c "
+            "(`assemble` refuses the snippet draft of a skill of the batch), §6 (the change preview cannot be built) "
+            "or §9 (a write fails its check, or an orphaned file's clear fails) → `context-rebuild-failed`") in exit_4
+    assert "§3b" not in exit_4, "§3b runs nothing that can fail on a clear"
+
+
+@pytest.mark.parametrize("rel, keys", [(LOAD, ["nextStepFile", "findTestReportProbeOrder"]),
+                                       (SNIPPET, ["nextStepFile", "snippetFormatData"]),
+                                       (UPDATE, ["nextStepFile"])])
+def test_the_step_frontmatters_hold_no_comment(rel, keys):
+    """leanness-9: a step's frontmatter holds its keys; its body says what each helper does where it runs it."""
+    text = _read(rel)
+    assert text.startswith("---\n")
+    frontmatter = text[len("---\n"):text.index("\n---\n")]
+    assert [line for line in frontmatter.splitlines() if line.lstrip().startswith("#")] == []
+    assert re.findall(r"^([A-Za-z]+):", frontmatter, re.M) == keys
+
+
+@pytest.mark.parametrize("rel", sorted(GATED))
+def test_the_gated_references_hold_what_a_run_needs(rel):
+    """leanness-9: one purpose sentence opens each, with no load comment, Purpose, Inputs or closing recap."""
+    purpose, headings = GATED[rel]
+    text = _read(rel)
+    assert text.startswith("<!-- Config: ")
+    after_title = text.split("\n# ", 1)[1].split("\n\n")
+    assert after_title[1].startswith(purpose) and after_title[1].count(". ") == 0, after_title[1]
+    assert re.findall(r"^## .+$", text, re.M) == headings
+    for stale in ("Static reference", "## Purpose", "## Inputs", "## Downstream contract", "## Scope note",
+                  "v1 → v2 migration", "Integrity invariant", "Strict ADR-K would silently drop",
+                  "Silent drop under automation", "```json\n{\n  \"kind\""):
+        assert stale not in text, stale
+    conventions = _section(_read(SKILL_MD), "## Conventions", "## Role")
+    assert ("`update-context.md` loads `orphan-context-detection.md` and `orphan-row-detection.md`); "
+            "`manifest-rebuild.md`, the v2 manifest shape `update-context.md` §9b names, which no step loads;") \
+        in conventions
+
+
+# --------------------------------------------------------------------------
 # #583 and determinism-2: the version and the test report come from helpers
 # --------------------------------------------------------------------------
 
 
 def test_load_skill_resolves_the_version_through_the_inventory_helper():
     load = _read(LOAD)
-    step = _section(load, "### 2. Load and Validate Skill Artifacts", "Load all files from `{resolved_skill_package}`:")
+    step = _section(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
     resolve = ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
                '--forge-data-folder "{forge_data_folder}"')
     assert [line for block in _fenced_blocks(step) for line in block] == [resolve]
@@ -779,7 +1038,7 @@ def test_the_documented_calls_read_the_report_of_the_version_being_exported(tmp_
     values = {"skillInventoryHelper": INVENTORY.as_posix(), "findTestReportHelper": FIND_REPORT.as_posix(),
               "skills_output_folder": skills.as_posix(), "skill-name": "zod",
               "forge_data_folder": forge.as_posix()}
-    step = _section(load, "### 2. Load and Validate Skill Artifacts", "Load all files")
+    step = _section(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
     [[resolve_call]] = _fenced_blocks(step)
     proc = _run(_argv(resolve_call, values))
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -810,24 +1069,46 @@ def test_the_documented_calls_read_the_report_of_the_version_being_exported(tmp_
 
 
 # --------------------------------------------------------------------------
-# leanness-3: one gotchas decision tree for both skill types
+# leanness-3: one gotchas resolution for both skill types
 # --------------------------------------------------------------------------
 
+# #1164: the two documented calls of the rebuild helper's `gotchas` action.
+PRIOR_CALL = ('python3 {rebuildManagedSectionsHelper} gotchas prior "{resolved_skill_package}/context-snippet.md" '
+              '--skills-folder "{skills_output_folder}" --skill {skill-name}')
+RESOLVE_CALL = ('python3 {rebuildManagedSectionsHelper} gotchas resolve "{resolved_skill_package}/context-snippet.md" '
+                '--skills-folder "{skills_output_folder}" --skill {skill-name} '
+                '--judgments "{export_stage_dir}/gotchas/{skill-name}.json"')
+FILL_GOTCHAS = "`gotchas` from `{gotchas_line}` (omit the line when it is null)"
 
-def test_both_skill_types_use_one_gotchas_decision_tree():
+
+def test_both_skill_types_use_one_gotchas_resolution():
     text = _read(SNIPPET)
     generate = _section(text, "### 3. Generate Snippet Content", "### 4. Verify Token Count")
     shared = _section(generate, "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
     single = _section(generate, "#### 3b. Single Skills", "#### 3c. ")
     stack = _section(generate, "#### 3c. Stack Skills", None)
-    assert "`python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`" in shared
+    assert "{manifestOpsHelper}" not in text and " get {skill-name}" not in text, "#1164: the helper reads the manifest"
     assert "the evidence report at `{forge_evidence_report}`" in shared, "the report step 1 §2 bound, never a guess"
-    assert "set `is_first_export = true`" in shared
-    assert shared.count("- **If ") == 5 and "`is_first_export == true`" in shared
-    assert "- **If " not in single and "is_first_export" not in single
-    assert "`gotchas` per the §3a decision tree" in single
-    assert "Stack skills: apply the gotchas decision tree above unchanged, including the first-export branch." in stack
+    assert [RESOLVE_CALL] in _fenced_blocks(shared)
+    assert "- **If " not in shared and "decision tree" not in text and "first-export branch" not in text
+    assert "is_first_export" not in single and "is_first_export" not in stack
+    assert FILL_GOTCHAS in _line(single, "Emit the single-skill template") and FILL_GOTCHAS in stack
     assert "Same one-cycle expiry logic" not in text and "See the single-skill steps" not in text
+
+
+def test_the_stack_fill_rule_reads_fields_a_stack_metadata_json_has():
+    """Review of #1164: §3c reads the libraries and pairs create-stack-skill writes, the fields the export gate
+    counts, not `components` and `integrations`, which a stack's metadata.json does not have."""
+    stack = _section(_read(SNIPPET), "#### 3c. Stack Skills", "### 4. Verify Token Count")
+    contract = (SRC / "skf-create-stack-skill" / "assets" / "metadata-contract.md").read_text(encoding="utf-8")
+    keys = json.loads(re.search(r"```json\n(.*?)```", contract, re.S).group(1)).keys()
+    named = re.findall(r"metadata\.json `(\w+)`", stack)
+    assert named == ["version", "libraries", "integration_pairs"]
+    assert set(named) <= keys
+    assert "each `@` the `**Version:**` its `references/{library}.md` gives (bare when it gives none)" in stack
+    gate = SCRIPTS.joinpath("skf-validate-output.py").read_text(encoding="utf-8")
+    assert '_stack_count(data, "library_count", "libraries")' in gate
+    assert '_stack_count(data, "integration_count", "integration_pairs")' in gate
 
 
 # --------------------------------------------------------------------------
@@ -844,7 +1125,14 @@ NEW_NAME_CLAUSE = ("A name new to the line (one `prior_api` does not hold, every
                    "snippet) takes `()` when its `export_type` in the provenance map at `{forge_provenance_map}` is "
                    "a function, and is written bare for any other kind, or when that map is null or gives no kind "
                    "for the name.")
-FORMAT_MARK_CLAUSE = "Step 3's single-skill api ranking alone sets which names take `()`."
+# The rule the snippet format's api line rule held before #1164 moved every rule to generate-snippet.md.
+FORMAT_MARK_CLAUSE = "Step 2's single-skill api ranking alone sets which names take `()`."
+# #1164: what the snippet format keeps, and the rule bullets it no longer has.
+FORMAT_HEADINGS = ["# Context Snippet Format (Vercel-Aligned Indexed Format)", "## Single Skill Snippet Template",
+                   "## Stack Skill Snippet Template"]
+FORMAT_RULE_STARTS = ("- **gotchas line**", "- **api line**", "- **key-types line**", "- **stack line**",
+                      "- **integrations line**", "- Section anchors must be verified", "- **Line ")
+GOTCHAS_PLACEHOLDER = "|gotchas: {at most 3 pitfalls, separated by `; `}"
 
 
 def _generate() -> str:
@@ -865,11 +1153,41 @@ def _regeneration() -> str:
     return _section(UPDATE_WRITE.read_text(encoding="utf-8"), "### 5. Regenerate context-snippet.md", "### 6. ")
 
 
+def _sources(shared: str) -> str:
+    """§3a's three sources and the sentences that close them, before the judgments file."""
+    return _section(shared, "A gotcha is **derived** when a current source states it:", "Write your judgments to ")
+
+
+def test_the_snippet_format_holds_only_its_templates():
+    """#1164 (leanness-1): the asset keeps its title, the parse-critical note and the two templates; the gotchas,
+    api, anchor and token rules live in generate-snippet.md alone, which the asset no longer restates."""
+    fmt = _read(SNIPPET_FORMAT)
+    assert [line for line in fmt.split("\n") if line.startswith("#")] == FORMAT_HEADINGS
+    blocks = _fenced_blocks(fmt)
+    assert len(blocks) == 2
+    prose = [line for line in fmt.split("\n") if line and not line.startswith("#")
+             and not any(line in block for block in blocks) and not line.startswith("```")]
+    assert len(prose) == 1 and prose[0].startswith("**A house-style copy** of this file"), prose
+    assert fmt.index("**A house-style copy**") < fmt.index("## Single Skill Snippet Template")
+    for start in FORMAT_RULE_STARTS:
+        assert not any(line.startswith(start) for line in fmt.split("\n")), start
+    for gone in ("## Skill Root Path", "## Format Rules", "## Rules", "80-120", "300 tokens", "up from ~50-80",
+                 "brief default", "Top exports"):
+        assert gone not in fmt, gone
+    for block in blocks:
+        assert block[-1] == GOTCHAS_PLACEHOLDER
+    note = prose[0]
+    assert _in_order(note, "line 1, which names the skill at its metadata.json version, with its `root:` field",
+                     "line 2's `|IMPORTANT:` start and skill name",
+                     "the `|api:` label", "the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker",
+                     "the rebuild helper's `gotchas` action", "no bare `|` line")
+
+
 def test_a_gotcha_the_current_skill_md_states_is_derived_not_carried():
     """#810: a deprecation SKILL.md states and the evidence report lacks is kept without `[CARRIED]`."""
     text = _read(SNIPPET)
     shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
-    sources = _section(shared, "A gotcha is **derived** when a current source states it:", "**Detect first-export state")
+    sources = _sources(shared)
     assert "a T2-future annotation in the evidence report at `{forge_evidence_report}`, when step 1 §2 bound" in sources
     skill_md = _line(sources, "2. **The current SKILL.md**")
     assert "a bullet of a section whose heading names gotchas, deprecations, migration, breaking changes or " \
@@ -881,50 +1199,62 @@ def test_a_gotcha_the_current_skill_md_states_is_derived_not_carried():
         _line(sources, "3. **A prior pitfall still stated:**")
     assert "`[CARRIED]` applies only to a prior pitfall no current source backs." in sources
     assert "cannot be derived from the current evidence report" not in text
-    drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
+    drop = _line(shared, "- **When `dropped` is not empty**")
     assert "no longer appear in the current SKILL.md or evidence report" in drop
     assert "re-forge the skill with update-skill" in drop and "the evidence report's T2-future section" in drop
-    rule = _line(_read(SNIPPET_FORMAT), "- **gotchas line**")
-    assert "the current SKILL.md, through a bullet of a section whose heading names gotchas, deprecations" in rule
-    assert "`[CARRIED]` marks only a prior pitfall no current source backs" in rule
+    assert "- **gotchas line**" not in _read(SNIPPET_FORMAT), "#1164: the rule lives in §3a alone"
     five = _regeneration()
     assert "new gotchas" not in five and "derive the gotchas as its §3a states" in five
     assert "this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote" in five
 
 
 def test_the_gotchas_line_has_one_selection():
-    """#810: at most 3 pitfalls split and joined on snippet-format's `; `; still-stated prior ones first;
-    an unbacked prior pitfall takes a free slot marked `[CARRIED]` and is never dropped silently."""
-    prior = _section(_read(SNIPPET), "### 2.5. Check Existing Snippet", "### 2.7. ")
-    assert "split `prior_gotchas_content` on the pitfall separator {snippetFormatData} gives (`; `)" in prior
-    assert "A pitfall that starts with the token `[CARRIED]` (whitespace-insensitive) is **already carried**" in prior
-    assert "prior_gotchas_already_carried" not in _read(SNIPPET)
+    """#810, #1164 (leanness-8): §2.5 is the `prior` call and one binding sentence that names the already-carried
+    flag and the null cases; §3a hands its judgments to `resolve`, which applies the slot order, the marker and
+    the separator, and shows each warning its result calls for."""
+    text = _read(SNIPPET)
+    prior = _section(text, "### 2.5. Check Existing Snippet", "### 2.7. ")
+    assert [PRIOR_CALL] in _fenced_blocks(prior)
+    binding = _line(prior, "Bind `prior_gotchas` ← its `prior_gotchas`")
+    assert _in_order(binding, "`{text, already_carried, read_whole}`", "`already_carried` when the line marked it "
+                     "`[CARRIED]`", "null for no prior snippet, no `|gotchas:` line or an empty one",
+                     "`prior_api` ← its `prior_api`", "`{name, parens}`", "`is_first_export` ← its `is_first_export`")
+    assert not re.search(r"^\d\. ", prior, re.M), "one call, not six numbered steps"
+    for gone in ("prior_gotchas_content", "prior_gotchas_already_carried", "hard one-cycle expiry",
+                 "Distinguish empty from absent", "split `prior_gotchas_content`"):
+        assert gone not in text, gone
     shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
-    assert "The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives " \
-           "(`|gotchas: {pitfall-1}; {pitfall-2}; {pitfall-3}`)" in shared
-    derived = _line(shared, "- **If gotchas are derived:**")
-    assert _in_order(derived, "the prior pitfalls a current source still states, in their prior order",
-                     "then the new ones, in source order", "the first 3 of them",
-                     "Each slot left free goes to an unbacked prior pitfall, in prior order")
-    carry = _line(shared, "- **If an unbacked prior pitfall gets a free slot AND `is_first_export == false`")
-    assert "write it as `[CARRIED] {pitfall}`, beside any derived ones" in carry
-    drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
-    assert "or gets no free slot:** Drop it. Emit warning" in drop
+    assert "The line holds at most 3 pitfalls" not in shared and "{pitfall-1}" not in shared
+    applies = _line(shared, "The helper reads `prior_gotchas` and `is_first_export` again")
+    assert _in_order(applies, "the slot order", "the `[CARRIED]` marker with its one-cycle expiry",
+                     "the `; ` separator", "on a first export it writes an unbacked prior pitfall unmarked",
+                     "since the workflow that built or updated the skill",
+                     "Bind `{gotchas_line}` ← its `line` (null when it writes no pitfall)")
+    carry = _line(shared, "- **When `carried` is not empty**")
     assert "Gotchas preserved from prior export" in carry
+    drop = _line(shared, "- **When `dropped` is not empty**")
+    assert "(`already-carried`: it was already carried forward once; `no-slot`: the line's 3 slots went to " \
+           "current gotchas)" in drop
     fmt = _read(SNIPPET_FORMAT)
-    assert "At most 3 pitfalls, separated by `; `" in _line(fmt, "- **gotchas line**")
-    assert "At most 3 pitfalls, separated by `; `" in _line(fmt, "- **Line 6 (gotchas):**")
+    assert fmt.count(GOTCHAS_PLACEHOLDER) == 2 and "- **Line 6 (gotchas):**" not in fmt
     trigger = _line(_regeneration(), "- **Gotchas changed**")
-    assert "(at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, " \
+    assert "the `line` `gotchas resolve` returned" in trigger
+    assert "at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, " \
            "`[CARRIED]` markers aside" in trigger
+    # Review of #1164: the two calls run before any trigger is checked, not only once one fired.
+    five = _regeneration()
+    assert _in_order(five, "**Staleness triggers:** run the two `gotchas` calls of the regeneration paragraph below "
+                     "first, before you check any trigger", "- **Headline exports changed**", "**If no trigger fired:**",
+                     "**If at least one trigger fired:**", "run before the staleness triggers above, which read them")
+    assert "the **Gotchas changed** trigger reads them too" not in five
 
 
 def test_the_api_line_has_one_ranking():
     """#811: the prior `|api:` names, then the `## Key API Summary` rows, then metadata.json `exports`."""
     text = _read(SNIPPET)
     prior = _section(text, "### 2.5. Check Existing Snippet", "### 2.7. ")
-    assert "capture the names, in order, as `prior_api` (no `()`, no spaces), noting each name the line wrote " \
-           "with `()`" in prior
+    assert "`prior_api` ← its `prior_api` (each name, in line order, as `{name, parens}`: `parens` when the line " \
+           "wrote it with `()`; `[]` with no `|api:` line)" in prior
     rank = _line(_section(_generate(), "#### 3b. Single Skills", "#### 3c. "), "2. ")
     assert _in_order(rank, "the prior snippet's `|api:` line", "SKILL.md's `## Key API Summary` table, in row order",
                      "the metadata.json `exports`, in order")
@@ -948,14 +1278,7 @@ def test_the_api_line_has_one_ranking():
     assert "Select top exports" not in text
     fmt = _read(SNIPPET_FORMAT)
     assert "Top exports from metadata.json" not in fmt
-    api_rule = _line(fmt, "- **api line**")
-    assert _in_order(api_rule, "the prior snippet's `|api:` names in order",
-                     "SKILL.md's `## Key API Summary` rows in row order", "then metadata.json `exports` in order",
-                     "never one the current SKILL.md marks deprecated or removed",
-                     "The first 10 for Deep tier, 5 for all other tiers", "names drop from the end",
-                     FORMAT_MARK_CLAUSE, "Comma-separated.")
-    assert "export_type" not in api_rule and "wrote it with `()`" not in api_rule, \
-        "#1093: the api line rule points to step 3 and keeps no `()` rule of its own"
+    assert "- **api line**" not in fmt and FORMAT_MARK_CLAUSE not in fmt, "#1164: the ranking lives in §3b item 2 alone"
     five = _regeneration()
     assert "top exports" not in five and "top-K" not in five
     assert "Rank the api names and verify the section anchors as " \
@@ -976,11 +1299,7 @@ def test_an_anchor_skill_md_holds_stays_on_skill_md():
                      "point the anchor at the `references/{file}.md#{slug}` that holds the heading",
                      "When neither holds it, omit that anchor line")
     assert "rewrite the anchor to point to the reference file path" not in anchor
-    rule = _line(_read(SNIPPET_FORMAT), "- Section anchors must be verified")
-    assert _in_order(rule, "Keep `SKILL.md#{slug}` when SKILL.md has the heading",
-                     "Only when SKILL.md lacks it and the skill is split-body",
-                     "point the anchor at the `references/{file}.md#{slug}` that holds it",
-                     "Omit the anchor line when neither")
+    assert "- Section anchors must be verified" not in _read(SNIPPET_FORMAT), "#1164: the rule lives in §3b item 4"
     # update-skill regenerates a snippet whose anchors §3b item 4 would place elsewhere.
     trigger = _line(_regeneration(), "- **Anchors changed**")
     assert "differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md" in trigger
@@ -991,9 +1310,8 @@ def test_an_anchor_skill_md_holds_stays_on_skill_md():
 # #1091: `; ` is reserved for the gotchas separator
 # --------------------------------------------------------------------------
 
-# The clauses §2.5 step 3, §3a and the snippet format add. `_read_gotchas` and
-# `_write_gotchas` follow them clause by clause, so the issue's lines can be run
-# through the rule as written.
+# The rule §2.5 step 3, §3a and the snippet format stated before #1164 moved the split and the escaping into
+# the rebuild helper's `gotchas` action. test-skf-rebuild-managed-sections.py runs the issue's lines through it.
 SEPARATOR_CLAUSE = ("A `; ` is a separator only when an even number of backticks precede it (it is outside a code "
                     "span) and every `(` before it outside a code span is closed before it (a `)` outside a code "
                     "span closes the last `(` still open, and one with no `(` open closes nothing); any other `; ` "
@@ -1003,14 +1321,34 @@ WHOLE_VALUE_CLAUSE = ("A split that gives more than 3 pieces comes from a line �
                       "`[CARRIED]`.")
 WHOLE_VALUE_UNBACKED_CLAUSE = ("§3a counts such a value as unbacked, even when the current SKILL.md states each of "
                                "its pitfalls, unless one T2-future annotation, or one bullet, row or Quick Start "
-                               "call of §3a's source 2, states it whole: a T2-future annotation and the SKILL.md "
-                               "places of §3a's source 2 give "
-                               "its still-true pitfalls back as new gotchas, and one that only other SKILL.md prose "
-                               "states is dropped with the value, which gets at most one `[CARRIED]` cycle.")
-WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or carried "
-                "included, write a `; ` outside a code span as `, ` (a code span keeps its `; `).")
-FORMAT_WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or "
-                       "carried included, a `; ` outside a code span is written as `, ` (a code span keeps its `; `).")
+                               "call of §3a's source 2, states it whole")
+WRITE_CLAUSE = "A pitfall never holds the separator: in every pitfall the line writes"
+GONE_GOTCHAS_RULES = (SEPARATOR_CLAUSE, WHOLE_VALUE_CLAUSE, WHOLE_VALUE_UNBACKED_CLAUSE, WRITE_CLAUSE,
+                      "write a `; ` outside a code span as `, `", "is written as `, ` (a code span keeps its `; `)",
+                      "split `prior_gotchas_content`", "The line holds at most 3 pitfalls",
+                      "{skills_output_folder} get {skill-name}")
+
+
+def _gotchas_step_files() -> list[Path]:
+    """Every file of export-skill, and update-skill's write.md, which runs the same two calls."""
+    return sorted(EXPORT.rglob("*.md")) + [EXPORT / "customize.toml", UPDATE_WRITE]
+
+
+def test_a_pitfall_never_holds_the_gotchas_separator():
+    """#1091, #1164 (determinism-4): the split and the escaping belong to the helper, so no step file states the
+    separator clause, the whole-value clause or the write clause, and §3a hands the line to `resolve`."""
+    for path in _gotchas_step_files():
+        text = path.read_text(encoding="utf-8")
+        for clause in GONE_GOTCHAS_RULES:
+            assert clause not in text, (path.relative_to(REPO).as_posix(), clause[:60])
+    shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+    assert [RESOLVE_CALL] in _fenced_blocks(shared)
+    assert "reads the line back as the same pitfalls" not in shared, \
+        "an unclosed `(` or an odd backtick count still joins a pitfall with the ones after it"
+    # The helper's split keeps a `; ` inside parentheses or a code span, and reads more than 3 pieces as one.
+    assert [p["text"] for p in rms.read_gotchas("x (a; b); y; `f(); g()`")] == ["x (a; b)", "y", "`f(); g()`"]
+    assert rms.write_gotchas([("x (a; b)", False), ("`f(); g()`", True)]) == "x (a, b); [CARRIED] `f(); g()`"
+
 
 # oh-my-skills a02403f, skills/oms-uitripled/0.1.0/oms-uitripled/context-snippet.md
 # line 6, its em dash written as a colon: the line that split into four pieces.
@@ -1019,114 +1357,6 @@ UITRIPLED_A02403F = (
     'render entries from client components (170 of the 171 files start with `"use client"`; every entry declares '
     'framer-motion); React 19 / Next.js 16 peer deps are required.'
 )
-# oh-my-skills HEAD, skills/oms-cocoindex/1.0.0/oms-cocoindex/context-snippet.md
-# line 6, its em dashes written as colons: three `; ` outside any parenthesis.
-COCOINDEX_HEAD = (
-    "v0.3.37 → v1.0.0 is a wholesale rewrite, NOT a rename: FlowBuilder/DataScope/DataSlice/@flow_def are gone "
-    "(107 exports deleted); rewrite as coco.App + @coco.fn. Settings moved from Postgres (DatabaseConnectionSpec) "
-    "to local LMDB (db_path): plan a re-index, not an in-place upgrade. LlmSpec/LlmApiType/VectorSimilarityMetric "
-    "removed: use cocoindex.ops.litellm and per-connector vector specs; the `cocoindex server` subcommand is gone. "
-    "cocoindex stays pre-1.x-stable in spirit despite the 1.0 tag: pin precisely. All mount*/App.update/coco.map "
-    "are async; use the *_blocking variants from sync code."
-)
-
-
-def _split_gotchas(value: str) -> list[str]:
-    """The pieces §2.5 step 3 splits a prior `|gotchas:` value into, before it reads more than 3 as one."""
-    pieces, start, ticks, depth = [], 0, 0, 0
-    for i, char in enumerate(value):
-        if char == "`":
-            ticks += 1
-        elif ticks % 2 == 0 and char == "(":
-            depth += 1
-        elif ticks % 2 == 0 and char == ")":
-            depth = max(depth - 1, 0)
-        elif value.startswith("; ", i) and ticks % 2 == 0 and depth == 0:
-            pieces.append(value[start:i])
-            start = i + 2
-    pieces.append(value[start:])
-    return pieces
-
-
-def _read_gotchas(value: str) -> list[tuple[str, bool]]:
-    """(pitfall, already carried) for each pitfall §2.5 step 3 reads from a prior `|gotchas:` value."""
-    pieces = _split_gotchas(value)
-    if len(pieces) > 3:
-        pieces = [value]
-    read = []
-    for piece in (piece.strip() for piece in pieces):
-        carried = piece.startswith("[CARRIED]")
-        read.append((piece.removeprefix("[CARRIED]").strip(), carried))
-    return read
-
-
-def _write_gotchas(pitfalls: list[tuple[str, bool]]) -> str:
-    """The `|gotchas:` value §3a writes: each `; ` outside a code span as `, `, the pitfalls joined on `; `."""
-    def written(text: str) -> str:
-        spans = text.split("`")
-        return "`".join(span.replace("; ", ", ") if k % 2 == 0 else span for k, span in enumerate(spans))
-    return "; ".join(("[CARRIED] " if carried else "") + written(text) for text, carried in pitfalls)
-
-
-def test_a_pitfall_never_holds_the_gotchas_separator():
-    """#1091: §2.5 splits a prior line only on a `; ` outside parentheses and code spans and reads one of more
-    than 3 pieces as one pitfall; §3a and the snippet format write a `; ` in a pitfall as `, `."""
-    prior = _line(_section(_read(SNIPPET), "### 2.5. Check Existing Snippet", "### 2.7. "), "3. ")
-    assert _in_order(prior, "split `prior_gotchas_content` on the pitfall separator {snippetFormatData} gives (`; `)",
-                     SEPARATOR_CLAUSE, WHOLE_VALUE_CLAUSE, WHOLE_VALUE_UNBACKED_CLAUSE,
-                     "A pitfall that starts with the token `[CARRIED]` (whitespace-insensitive) is **already carried**",
-                     "A line an older export marked once at its start (`[CARRIED] a, b`) reads as one pitfall, "
-                     "already carried.")
-    shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
-    assert _in_order(shared, "The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives",
-                     WRITE_CLAUSE, "A prior pitfall no current source states is **unbacked**.")
-    assert "reads the line back as the same pitfalls" not in shared, \
-        "an unclosed `(` or an odd backtick count still joins a pitfall with the ones after it"
-    rule = _line(_read(SNIPPET_FORMAT), "- **gotchas line**")
-    assert _in_order(rule, "At most 3 pitfalls, separated by `; ` (the separator step 3 splits a prior line on).",
-                     FORMAT_WRITE_CLAUSE, "Derived from the current sources")
-
-
-@pytest.mark.parametrize("value, expected", [
-    pytest.param(UITRIPLED_A02403F, [
-        ("Copy-paste distribution: NEVER barrel-import from @uitripled/react-shadcn (src/index.ts empty by design)",
-         False),
-        ('render entries from client components (170 of the 171 files start with `"use client"`; every entry '
-         'declares framer-motion)', False),
-        ("React 19 / Next.js 16 peer deps are required.", False),
-    ], id="issue-1091-line"),
-    pytest.param("x (a; b); y; `f(); g()`", [("x (a; b)", False), ("y", False), ("`f(); g()`", False)],
-                 id="code-span"),
-    pytest.param(COCOINDEX_HEAD, [(COCOINDEX_HEAD, False)], id="over-3-pieces"),
-    pytest.param("[CARRIED] a; b; c; d", [("a; b; c; d", True)], id="older-marked-line"),
-    pytest.param("1) a; 2) b", [("1) a", False), ("2) b", False)], id="stray-close"),
-    pytest.param("see (x; y", [("see (x; y", False)], id="unclosed-open"),
-    pytest.param("(see `f)`; x); y", [("(see `f)`; x)", False), ("y", False)], id="close-in-code-span"),
-])
-def test_a_prior_gotchas_line_reads_back_as_its_pitfalls(value, expected):
-    """#1091: the I/O matrix's prior lines, through §2.5 step 3 as written."""
-    assert SEPARATOR_CLAUSE in _read(SNIPPET) and WHOLE_VALUE_CLAUSE in _read(SNIPPET)
-    assert _read_gotchas(value) == expected
-
-
-def test_a_written_gotchas_line_reads_back_as_the_pitfalls_it_holds():
-    """#1091: a kept or carried prior pitfall loses its `; ` outside code spans, and the next read gives the
-    same pitfalls, in order, with the same `[CARRIED]` state; an unclosed `(` merges pitfalls, never cuts one."""
-    assert WRITE_CLAUSE in _read(SNIPPET) and FORMAT_WRITE_CLAUSE in _read(SNIPPET_FORMAT)
-    [first, second, third] = _read_gotchas(UITRIPLED_A02403F)
-    line = _write_gotchas([first, (second[0], True), third])
-    assert "start with `\"use client\"`, every entry declares framer-motion); React 19" in line
-    assert "[CARRIED] render entries from client components (170 of" in line
-    assert _write_gotchas([("call `f(); g()` once (x; y)", False)]) == "call `f(); g()` once (x, y)"
-    for pitfalls in ([first, (second[0], True), third], [("a; b; c; d", True)], _read_gotchas(COCOINDEX_HEAD),
-                     [("x (a; b)", False), ("`f(); g()`", True), ("y", False)]):
-        line = _write_gotchas(pitfalls)
-        assert _read_gotchas(line) == [(_write_gotchas([(text, False)]), carried) for text, carried in pitfalls]
-        assert _write_gotchas(_read_gotchas(line)) == line
-    assert _read_gotchas(_write_gotchas([("see (x", False), ("y", False), ("z", True)])) == \
-        [("see (x; y; [CARRIED] z", False)]
-
-
 # --------------------------------------------------------------------------
 # #1092: a prior pitfall the current SKILL.md still says anywhere stays derived
 # --------------------------------------------------------------------------
@@ -1148,14 +1378,13 @@ ONE_PITFALL_CLAUSE = ("SKILL.md prose outside source 2's places backs only a pri
                       "that each warn on their own is still stated only when one T2-future annotation, or one "
                       "bullet, row or Quick Start call of source 2, states it whole, every pitfall it joins "
                       "included, so it stays unbacked when SKILL.md states its pitfalls only apart or only in other "
-                      "prose, such as a value §2.5 reads whole, the one pitfall that value reads back as once §3a "
-                      "has written it (its `; ` written as `, `), or an older export's line that joined its "
-                      "pitfalls with `, `.")
+                      "prose, such as a pitfall `gotchas prior` marks `read_whole`, the one pitfall it reads back "
+                      "as once §3a has written it (its `; ` written as `, `), or an older export's line that "
+                      "joined its pitfalls with `, `.")
 WRITTEN_ONCE_CLAUSE = ("A prior pitfall that source 1 or source 2 states, one that joins several included, is "
                        "written once, as that prior pitfall in its prior wording, never also as a new gotcha.")
-# §3a's branches.
-DERIVED_RANK_CLAUSE = "(source 3, a pitfall only SKILL.md's prose states included)"
-NO_SLOT_WARNING = ("When a new gotcha gets no slot, emit warning: \"**New gotchas left off the line:** {each one, "
+# §3a's warnings, each shown when the `resolve` result it names is not empty.
+NO_SLOT_WARNING = ("- **When `left_off` is not empty**, emit warning: \"**New gotchas left off the line:** {each one, "
                    "with where it is stated: the evidence report's T2-future section, or the SKILL.md section, "
                    "`## Key API Summary` row or Quick Start call}. The line's 3 slots went first to the prior "
                    "pitfalls a T2-future annotation or the current SKILL.md still states, in their prior order, "
@@ -1185,7 +1414,7 @@ DROP_COMES_BACK = ("A dropped pitfall comes back only as a new gotcha: if one is
                    "the evidence report's T2-future section, then re-run export.")
 DROP_JOINED_ADVICE = ("For one that joins several pitfalls, state it whole in one such place, or each of its "
                       "pitfalls in its own.\"")
-# The snippet format's gotchas rule.
+# The snippet format's gotchas rule before #1164, which left the rule in §3a alone.
 FORMAT_PRIOR_STATED_CLAUSE = ("and a prior pitfall, already carried or not, that a T2-future annotation states or "
                               "that the current SKILL.md still says anywhere (its frontmatter description and its "
                               "whole body), kept in its prior wording without the `[CARRIED]` marker.")
@@ -1195,7 +1424,7 @@ FORMAT_MAIN_CLAIM_CLAUSE = ("SKILL.md says a pitfall when it states the pitfall'
 FORMAT_NEW_GOTCHAS_CLAUSE = ("New gotchas come only from the evidence report's T2-future annotations and those "
                              "SKILL.md places: a gotchas-type section's bullets, a deprecated or removed "
                              "`## Key API Summary` row and an async requirement the Quick Start shows.")
-FORMAT_JOINED_CLAUSE = ("A pitfall that joins several pitfalls, such as a value step 3 reads whole, is still stated "
+FORMAT_JOINED_CLAUSE = ("A pitfall that joins several pitfalls, such as a value step 2 reads whole, is still stated "
                         "only when one T2-future annotation or one of those bullets, rows or Quick Start calls "
                         "states it whole, not when SKILL.md states its pitfalls only apart or only in other prose, "
                         "and a prior pitfall one of those states is written once, never also as a new gotcha.")
@@ -1209,31 +1438,31 @@ def _resolve_gotchas(prior_value: str, skill_md: list[tuple[str, str]], is_first
                      ) -> tuple[str, list[str], list[str], list[str]]:
     """The `|gotchas:` value §3a writes, then the pitfalls its carry, drop and no-slot warnings name.
 
-    `skill_md` lists (place, pitfall) in SKILL.md order, one entry per place, a pitfall standing for the one
-    whose main claim that place states, whole, in SKILL.md's own words (source 3 checks meaning, not text, so
-    a test names the pitfall meant); a place that states only part of a joined pitfall names that part.
-    `report` holds source 1's T2-future annotations, one entry per annotation. `several` names the prior pitfalls that
-    join several pitfalls, a judgment of meaning too; a value §2.5 reads whole is one without being named."""
-    prior = _read_gotchas(prior_value) if prior_value else []
-    joined = set(several) | ({prior[0][0]} if prior_value and len(_split_gotchas(prior_value)) > 3 else set())
+    This models §3a's judgments, as the judgments file states them, and hands them to the rebuild helper's
+    `resolve_gotchas`, which places them as the `resolve` call does. `skill_md` lists (place, pitfall) in
+    SKILL.md order, one entry per place, a pitfall standing for the one whose main claim that place states,
+    whole, in SKILL.md's own words (source 3 checks meaning, not text, so a test names the pitfall meant); a
+    place that states only part of a joined pitfall names that part. `report` holds source 1's T2-future
+    annotations, one entry per annotation. `several` names the prior pitfalls that join several pitfalls, a
+    judgment of meaning too; a pitfall `gotchas prior` marks `read_whole` is one without being named."""
+    prior = rms.read_gotchas(prior_value) if prior_value else []
+    backed, new = _judgments(prior, skill_md, report, several)
+    placed = rms.resolve_gotchas(prior or None, backed, new, is_first_export)
+    return (placed["line"] or "", placed["carried"], [dropped["text"] for dropped in placed["dropped"]],
+            placed["left_off"])
+
+
+def _judgments(prior: list[dict], skill_md: list[tuple[str, str]], report: tuple[str, ...] = (),
+               several: tuple[str, ...] = ()) -> tuple[list[bool], list[str]]:
+    """§3a's judgments file for `prior` (the `prior_gotchas` entries): `backed` and `new_gotchas`."""
+    joined = set(several) | {pitfall["text"] for pitfall in prior if pitfall["read_whole"]}
     said = set(report) | {pitfall for _, pitfall in skill_md}
     sourced = list(report) + [pitfall for place, pitfall in skill_md if place in SOURCE_2_PLACES]
-    prior_texts = [text for text, _ in prior]
+    prior_texts = [pitfall["text"] for pitfall in prior]
     # Prose backs a prior pitfall that is one pitfall; one that joins several needs one annotation or one
     # source-2 place stating it whole. Either way a prior pitfall a source states is never also new.
-    backed = [text for text in prior_texts if text in (sourced if text in joined else said)]
-    new = [text for text in dict.fromkeys(sourced) if text not in prior_texts]
-    line, left_off = [(text, False) for text in (backed + new)[:3]], (backed + new)[3:]
-    carry, drop = [], []
-    for text, carried in prior:
-        if text in backed:
-            continue
-        if len(line) == 3 or (carried and not is_first_export):
-            drop.append(text)
-        else:
-            line.append((text, not is_first_export))
-            carry += [] if is_first_export else [text]
-    return _write_gotchas(line), carry, drop, left_off
+    backed = [text in (sourced if text in joined else said) for text in prior_texts]
+    return backed, [text for text in sourced if text not in prior_texts]
 
 
 # oh-my-skills a02403f, skills/oms-uitripled/0.1.0/oms-uitripled/SKILL.md, which has no gotchas-type section,
@@ -1245,7 +1474,7 @@ def _resolve_gotchas(prior_value: str, skill_md: list[tuple[str, str]], is_first
 #   "it is not an installable npm package for direct imports".
 # - USE_CLIENT, its Quick Start prose: "Render the copied components from client code: 170 of the 171 shadcn
 #   entries ship a file that starts with `"use client"`".
-BARREL, USE_CLIENT, REACT_19 = (text for text, _ in _read_gotchas(UITRIPLED_A02403F))
+BARREL, USE_CLIENT, REACT_19 = (pitfall["text"] for pitfall in rms.read_gotchas(UITRIPLED_A02403F))
 UITRIPLED_A02403F_SKILL_MD = [("description", REACT_19), ("description", BARREL), ("Overview", BARREL),
                               ("Overview", REACT_19), ("Quick Start prose", USE_CLIENT)]
 # The same SKILL.md with React 20 and Next.js 17 in place of React 19 and Next.js 16: another version.
@@ -1262,30 +1491,30 @@ def test_a_prior_pitfall_the_current_skill_md_still_says_anywhere_is_derived():
     current SKILL.md still states anywhere; new gotchas come only from source 1 and source 2's places, and one
     left without a slot is named with the way to free a slot; a pitfall that joins several needs one
     annotation or one source-2 place stating it whole, and a prior pitfall a source states is written once.
-    §2.5, the carry and drop warnings and the snippet format say the same."""
+    The judgments file and the carry and drop warnings say the same; the snippet format no longer restates it."""
     text, fmt = _read(SNIPPET), _read(SNIPPET_FORMAT)
     shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
-    sources = _section(shared, "A gotcha is **derived** when a current source states it:", "**Detect first-export state")
-    three = _line(sources, "3. **A prior pitfall still stated:**")
+    three = _line(_sources(shared), "3. **A prior pitfall still stated:**")
     assert _in_order(three, PRIOR_STATED_CLAUSE, MAIN_CLAIM_CLAUSE, NEW_GOTCHAS_CLAUSE, ONE_PITFALL_CLAUSE,
                      WRITTEN_ONCE_CLAUSE)
-    rule = _line(fmt, "- **gotchas line**")
-    assert _in_order(rule, "an async requirement its Quick Start shows; ", FORMAT_PRIOR_STATED_CLAUSE,
-                     FORMAT_MAIN_CLAIM_CLAUSE, FORMAT_NEW_GOTCHAS_CLAUSE, FORMAT_JOINED_CLAUSE,
-                     "The prior pitfalls still stated come first, in their prior order")
-    for clause in (three, rule):
-        assert "in its own wording" not in clause, "SKILL.md's own words: a check of meaning, never of text"
-    assert "listed before it" not in rule
+    assert "in its own wording" not in three, "SKILL.md's own words: a check of meaning, never of text"
+    for clause in (FORMAT_PRIOR_STATED_CLAUSE, FORMAT_MAIN_CLAIM_CLAUSE, FORMAT_NEW_GOTCHAS_CLAUSE,
+                   FORMAT_JOINED_CLAUSE):
+        assert clause not in fmt, "#1164: the gotchas rule lives in §3a alone"
     for gone in ("source 1 or 2 still states", "either of them still states", "dropped either way",
-                 "Source 3 backs only a prior pitfall that is one pitfall", "only a pitfall that is one pitfall counts"):
+                 "Source 3 backs only a prior pitfall that is one pitfall", "only a pitfall that is one pitfall counts",
+                 "a value §2.5 reads whole"):
         assert gone not in text and gone not in fmt
-    assert WHOLE_VALUE_UNBACKED_CLAUSE in _line(_section(text, "### 2.5. Check Existing Snippet", "### 2.7. "), "3. ")
-    assert _in_order(_line(shared, "- **If gotchas are derived:**"),
-                     "the prior pitfalls a current source still states, in their prior order", DERIVED_RANK_CLAUSE,
-                     "the first 3 of them", NO_SLOT_WARNING, NO_SLOT_REMEDY)
-    carry = _line(shared, "- **If an unbacked prior pitfall gets a free slot AND `is_first_export == false`")
+    judgments = _line(shared, "Write your judgments to ")
+    assert _in_order(judgments, "`{export_stage_dir}/gotchas/{skill-name}.json` with your file-write tool",
+                     "`backed` holds one `true` or `false` per `prior_gotchas` entry, in its order",
+                     "(`[]` when `prior_gotchas` is null)", "true when source 3 keeps that pitfall and false when no "
+                     "current source backs it", "`new_gotchas` holds the other gotchas source 1 and source 2's places "
+                     "state, in source order")
+    assert _in_order(_line(shared, "- **When `left_off` is not empty**"), NO_SLOT_WARNING, NO_SLOT_REMEDY)
+    carry = _line(shared, "- **When `carried` is not empty**")
     assert CARRY_PROMISE in carry and "unless the current SKILL.md or evidence report states them" not in carry
-    drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
+    drop = _line(shared, "- **When `dropped` is not empty**")
     assert _in_order(drop, DROP_REASONS, DROP_COMES_BACK, DROP_JOINED_ADVICE)
     assert "re-forge the skill with update-skill so its SKILL.md states it, or" not in drop
     # The user docs no longer say the current export needs a gotchas-type section to keep a prior pitfall.
@@ -1296,10 +1525,10 @@ def test_a_prior_pitfall_the_current_skill_md_still_says_anywhere_is_derived():
 
 @pytest.mark.parametrize("prior_value, skill_md, report, is_first_export, several, expected", [
     pytest.param(UITRIPLED_A02403F, UITRIPLED_A02403F_SKILL_MD, (), False, (),
-                 (_write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, False)]), [], [], []),
+                 (rms.write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, False)]), [], [], []),
                  id="issue-1092-uitripled"),
     pytest.param(UITRIPLED_A02403F, UITRIPLED_REACT_20_SKILL_MD, (), False, (),
-                 (_write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, True)]), [REACT_19], [], []),
+                 (rms.write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, True)]), [REACT_19], [], []),
                  id="another-version-is-unbacked"),
     pytest.param("[CARRIED] a; [CARRIED] b; c", [("Overview", "a")], (), False, (),
                  ("a; [CARRIED] c", ["c"], ["b"], []), id="carried-still-said"),
@@ -1319,8 +1548,8 @@ def test_a_prior_pitfall_the_current_skill_md_still_says_anywhere_is_derived():
     pytest.param("a; b", [("Overview", "a"), ("Overview", "b"), ("gotchas bullet", "n"), ("Quick Start await", "m")],
                  ("r",), False, (), ("a; b; r", [], [], ["n", "m"]), id="more-than-3-derived"),
     pytest.param(START_UI, [("gotchas bullet", START_UI)], (), False, (START_UI,),
-                 (_write_gotchas([(START_UI, False)]), [], [], []), id="a-gotchas-bullet-states-a-joined-one-whole"),
-    pytest.param(START_UI, [], (START_UI,), False, (START_UI,), (_write_gotchas([(START_UI, False)]), [], [], []),
+                 (rms.write_gotchas([(START_UI, False)]), [], [], []), id="a-gotchas-bullet-states-a-joined-one-whole"),
+    pytest.param(START_UI, [], (START_UI,), False, (START_UI,), (rms.write_gotchas([(START_UI, False)]), [], [], []),
                  id="an-annotation-states-a-joined-one-whole"),
     pytest.param("a, b", [("Overview", "a"), ("description", "b")], (), False, ("a, b",),
                  ("[CARRIED] a, b", ["a, b"], [], []), id="prose-states-a-joined-ones-parts-apart"),
@@ -1344,15 +1573,17 @@ def test_a_prior_pitfall_skill_md_no_longer_says_is_carried_once_then_dropped():
 
 
 def test_a_prior_value_that_joins_several_pitfalls_is_carried_once_then_dropped():
-    """#1092: a value §2.5 reads whole, then the one pitfall it reads back as once written, stays unbacked
+    """#1092: a value `gotchas prior` reads whole, then the one pitfall it reads back as once written, stays unbacked
     although SKILL.md states each of its pitfalls, so it gets one `[CARRIED]` cycle and is dropped; only its
     pitfall source 2 states comes back, as a new gotcha. An older `, `-joined line whose pitfalls SKILL.md
     states only in prose, or only apart, rides the same one cycle."""
     text = _read(SNIPPET)
-    assert ONE_PITFALL_CLAUSE in text and WHOLE_VALUE_UNBACKED_CLAUSE in text and CARRY_PROMISE in text
+    assert ONE_PITFALL_CLAUSE in text and CARRY_PROMISE in text
     whole = "a; b; c; d"
-    joined = _write_gotchas([(whole, False)])
-    assert _split_gotchas(whole) == ["a", "b", "c", "d"] and _read_gotchas(joined) == [(joined, False)], \
+    assert rms.read_gotchas(whole) == [{"text": whole, "already_carried": False, "read_whole": True}]
+    joined = rms.write_gotchas([(whole, False)])
+    assert rms.split_gotchas(whole) == ["a", "b", "c", "d"] and rms.read_gotchas(joined) == [
+        {"text": joined, "already_carried": False, "read_whole": False}], \
         "once written, the value is one piece the more-than-3 test no longer catches"
     # The Overview states each of a, b, c and d, so a check of meaning alone would find the value said, as
     # read and as read back; a gotchas bullet states d.
@@ -1397,9 +1628,9 @@ def test_a_prior_value_that_joins_several_pitfalls_is_carried_once_then_dropped(
 def test_a_joined_prior_pitfall_one_place_states_whole_stays_on_the_line(skill_md, report, is_first_export):
     """#1092: a prior pitfall that joins several, which one gotchas-type bullet or one T2-future annotation
     states whole, is kept unmarked, written once, on every export, never carried, dropped and added back."""
-    text, fmt = _read(SNIPPET), _read(SNIPPET_FORMAT)
-    assert ONE_PITFALL_CLAUSE in text and WRITTEN_ONCE_CLAUSE in text and FORMAT_JOINED_CLAUSE in fmt
-    line = _write_gotchas([(START_UI, False)])
+    text = _read(SNIPPET)
+    assert ONE_PITFALL_CLAUSE in text and WRITTEN_ONCE_CLAUSE in text
+    line = rms.write_gotchas([(START_UI, False)])
     for export in range(3):
         result = _resolve_gotchas(line, skill_md, is_first_export and export == 0, report, several=(START_UI,))
         assert result == (line, [], [], []), f"export {export + 1}"
@@ -1434,8 +1665,7 @@ KIND_REASON = ("a kind does not say how the line marks a name (an AST recipe lab
                "labeled `function` though the line can write it bare), so a kind never changes the mark of a name "
                "the line lists.")
 # The single-skill template §3b fills from the snippet format.
-TEMPLATE_API = "|api: {ranked exports, each with () or bare as the api line rule gives it, comma-separated}"
-TEMPLATE_LINE_4 = "- **Line 4 (api):** The ranked exports, each with `()` or bare as the api line rule below gives it"
+TEMPLATE_API = "|api: {ranked exports, each with () or bare as step 2's api ranking gives it, comma-separated}"
 
 # oh-my-skills forge-data/oms-uitripled/0.1.0/provenance-map.json: each name's
 # `export_type`. `ThemeProvider` and `UILibraryProvider` come from ast-grep, the
@@ -1454,20 +1684,16 @@ UITRIPLED_API_7A14E80 = ("ThemeProvider(), useTheme, UILibraryProvider(), useUIL
                          "generateUniqueSlug(), generateGridCode, mergeComponentImports(), add()")
 
 
-def _read_api(value: str) -> dict[str, bool]:
-    """§2.5 item 5: each `prior_api` name, in order, and whether the prior `|api:` value wrote it with `()`."""
-    names = {}
-    for piece in (piece.strip() for piece in value.split(",")):
-        if piece:
-            names[piece.removesuffix("()").strip()] = piece.endswith("()")
-    return names
+def _prior_marks(value: str) -> dict[str, bool]:
+    """The helper's `read_api` of an `|api:` value as {name: parens}, in order: `prior_api` as §3b ranks it."""
+    return {name["name"]: name["parens"] for name in rms.read_api(value)}
 
 
 def _api_marks(prior_line: str, ranked_names: list[str], kinds: dict[str, str] | None) -> str:
     """The `|api:` value §3b item 2 writes for the ranked names: a `prior_api` name with the mark the prior line
     gave it, whatever its kind, and a name new to the line with `()` only when the provenance map (`kinds`, None
     when there is no map) labels it `function`. The oracle reads no other kind as a function."""
-    prior = _read_api(prior_line)
+    prior = _prior_marks(prior_line)
 
     def parens(name: str) -> bool:
         if name in prior:
@@ -1483,9 +1709,9 @@ def test_the_prior_api_line_sets_the_mark_of_each_name_it_lists():
     rank = _line(_section(_generate(), "#### 3b. Single Skills", "#### 3c. "), "2. ")
     assert _in_order(rank, "so the `|api:` line stays the same from export to export while the surface does",
                      "first the `prior_api` names", PRIOR_MARK_CLAUSE + ": " + KIND_REASON, NEW_NAME_CLAUSE)
-    assert FORMAT_MARK_CLAUSE in _line(_read(SNIPPET_FORMAT), "- **api line**")
+    assert _line(_read(SNIPPET_FORMAT), "|api: ") == TEMPLATE_API
     assert "`{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the " \
-           "flat copy, else null), whose `export_type` gives step 3 the `()` of an api name new to the line." \
+           "flat copy, else null), whose `export_type` gives step 2 the `()` of an api name new to the line." \
            in _read(LOAD)
     exports = _line(_regeneration(), "- **Headline exports changed**")
     assert "differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, or a " \
@@ -1494,16 +1720,14 @@ def test_the_prior_api_line_sets_the_mark_of_each_name_it_lists():
 
 
 def test_the_single_skill_template_gives_no_mark_rule_of_its_own():
-    """#1093: §3b fills the single-skill template from the snippet format, so its `|api:` placeholder and its
-    Line 4 bullet send each name's mark to the api line rule; neither gives a function `()` on its own."""
+    """#1093, #1164: §3b fills the single-skill template from the snippet format, so its `|api:` placeholder sends
+    each name's mark to step 2's ranking and gives a function no `()` on its own; it has no Line 4 bullet."""
     assert "from {snippetFormatData}" in _line(_generate(), "Emit the single-skill template")
     fmt = _read(SNIPPET_FORMAT)
     template = _section(fmt, "## Single Skill Snippet Template", "## Stack Skill Snippet Template")
     assert _line(template, "|api: ") == TEMPLATE_API
-    assert _line(template, "- **Line 4 (api):**") == TEMPLATE_LINE_4
-    for text in (template, _line(fmt, "- **api line**")):
-        assert "for functions" not in text and "export_type" not in text, \
-            "#1093: only step 3 says which api names take `()`"
+    assert "- **Line 4 (api):**" not in fmt and "- **api line**" not in fmt
+    assert "for functions" not in fmt and "export_type" not in fmt, "#1093: only step 2 says which api names take `()`"
 
 
 @pytest.mark.parametrize("prior_line", [UITRIPLED_API_A02403F, UITRIPLED_API_7A14E80], ids=["a02403f", "7a14e80"])
@@ -1512,7 +1736,7 @@ def test_an_unchanged_surface_writes_the_same_api_line(prior_line, kinds):
     """#1093: re-ranked on the same surface, each oms-uitripled line comes back as it was, each of its 10 names
     with its prior mark, whichever marks the line holds and with or without a provenance map."""
     assert PRIOR_MARK_CLAUSE in _read(SNIPPET) and NEW_NAME_CLAUSE in _read(SNIPPET)
-    ranked = list(_read_api(prior_line))
+    ranked = list(_prior_marks(prior_line))
     assert ranked == list(UITRIPLED_KINDS), "the prior names rank first, and the surface lists all 10"
     assert _api_marks(prior_line, ranked, kinds) == prior_line
 
@@ -1522,7 +1746,7 @@ def test_the_kinds_alone_set_every_mark_only_when_there_is_no_prior_line():
     which differs from the a02403f line in the 5 marks the issue names."""
     assert NEW_NAME_CLAUSE in _read(SNIPPET)
     assert _api_marks("", list(UITRIPLED_KINDS), UITRIPLED_KINDS) == UITRIPLED_API_7A14E80
-    before, after = _read_api(UITRIPLED_API_A02403F), _read_api(UITRIPLED_API_7A14E80)
+    before, after = _prior_marks(UITRIPLED_API_A02403F), _prior_marks(UITRIPLED_API_7A14E80)
     assert {name for name in before if before[name] != after[name]} == \
         {"ThemeProvider", "useTheme", "UILibraryProvider", "sanitizeSlug", "generateGridCode"}
 
@@ -1543,3 +1767,128 @@ def test_only_a_name_new_to_the_api_line_takes_its_mark_from_its_kind(kinds, exp
     map, while the listed names keep their prior marks against their kinds."""
     assert PRIOR_MARK_CLAUSE in _read(SNIPPET) and NEW_NAME_CLAUSE in _read(SNIPPET)
     assert _api_marks("useTheme(), ThemeProvider", ["useTheme", "ThemeProvider", "createTheme"], kinds) == expected
+
+
+# --------------------------------------------------------------------------
+# #1164: the documented `gotchas prior` and `resolve` calls, run
+# --------------------------------------------------------------------------
+
+GOTCHAS_CALL_RE = re.compile(r"(?:python3|uv run) \{rebuildManagedSectionsHelper\} gotchas (?:prior|resolve) [^`\n]+")
+
+
+def _gotchas_calls(text: str) -> dict[str, str]:
+    """The documented `gotchas prior` and `gotchas resolve` calls of `text`, fenced or inline, by mode."""
+    calls: dict[str, str] = {}
+    for call in GOTCHAS_CALL_RE.findall(text):
+        mode = call.split("} gotchas ", 1)[1].split()[0]
+        assert mode not in calls, f"two documented `gotchas {mode}` calls"
+        calls[mode] = call
+    assert set(calls) == {"prior", "resolve"}, calls
+    return calls
+
+
+def _helper_argv(call: str, values: dict[str, str]) -> list[str]:
+    """The argv of a documented `python3 {helper} ...` or `uv run {helper} ...` call, run with this Python."""
+    words = shlex.split(re.sub(r"\{([A-Za-z_][\w-]*)\}", lambda m: values[m.group(1)], call))
+    runner = 2 if words[:2] == ["uv", "run"] else 1
+    assert words[:runner] in (["uv", "run"], ["python3"]), call
+    return [sys.executable, *words[runner:]]
+
+
+def _documented_gotchas(workflow: str) -> tuple[dict[str, str], str]:
+    """The two calls and the prose that binds their output: export's §2.5 and §3a, or update-skill's §5."""
+    if workflow == "update":
+        five = _regeneration()
+        return _gotchas_calls(five), five
+    text = _read(SNIPPET)
+    steps = _section(text, "### 2.5. Check Existing Snippet", "### 2.7. ") + \
+        _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+    return _gotchas_calls(steps), steps
+
+
+@pytest.mark.parametrize("workflow", ["export", "update"])
+@pytest.mark.parametrize("skill_md, exports", [
+    pytest.param(UITRIPLED_A02403F_SKILL_MD, [
+        (rms.write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, False)]), [], [], []),
+        (rms.write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, False)]), [], [], []),
+    ], id="unchanged-surface"),
+    pytest.param(UITRIPLED_REACT_20_SKILL_MD, [
+        (rms.write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, True)]), [], [REACT_19], []),
+        (rms.write_gotchas([(BARREL, False), (USE_CLIENT, False)]), [], [], [{"text": REACT_19,
+                                                                          "reason": "already-carried"}]),
+    ], id="another-version"),
+])
+def test_the_documented_gotchas_calls_rerun_an_oms_uitripled_export(tmp_path, workflow, skill_md, exports):
+    """#1164: generate-snippet.md's and write.md §5's documented calls, run on the oms-uitripled package with the
+    #1092 judgments, re-export it twice and give the line and warnings the old §3a tree gave."""
+    calls, prose = _documented_gotchas(workflow)
+    skills = tmp_path / "skills"
+    package = skills / "oms-uitripled" / "0.1.0" / "oms-uitripled"
+    package.mkdir(parents=True)
+    snippet = package / "context-snippet.md"
+    manifest = {"schema_version": "2", "exports": {"oms-uitripled": {"active_version": "0.1.0", "versions": {
+        "0.1.0": {"ides": ["claude-code"], "last_exported": "2026-09-01", "status": "active"}}}}}
+    (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+    values = {"rebuildManagedSectionsHelper": REBUILD.as_posix(), "skills_output_folder": skills.as_posix(),
+              "resolved_skill_package": package.as_posix(), "skill_package": package.as_posix(),
+              "skill-name": "oms-uitripled", "skill_name": "oms-uitripled",
+              "export_stage_dir": (tmp_path / "stage").as_posix(), "run_dir": (tmp_path / "run").as_posix()}
+    line = UITRIPLED_A02403F
+    for export, (expected_line, left_off, carried, dropped) in enumerate(exports, start=1):
+        snippet.write_bytes(("[oms-uitripled v0.1.0]|root: .claude/skills/oms-uitripled/\n"
+                             f"|api: {UITRIPLED_API_A02403F}\n|gotchas: {line}\n").encode("utf-8"))
+        proc = _run(_helper_argv(calls["prior"], values))
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        prior = json.loads(proc.stdout)
+        assert set(prior) == {"status", "prior_gotchas", "prior_api", "is_first_export"}
+        for name in ("prior_gotchas", "prior_api", "is_first_export"):
+            assert f"`{name}`" in prose, name
+        assert prior["is_first_export"] is False and len(prior["prior_api"]) == 10
+        # A place states the same claim whichever way the line wrote the pitfall's `; `, so the pitfall it
+        # names is the one the prior line now holds.
+        forms = {rms.write_gotchas([(p["text"], False)]): p["text"] for p in prior["prior_gotchas"]}
+        meant = [(place, forms.get(rms.write_gotchas([(pitfall, False)]), pitfall)) for place, pitfall in skill_md]
+        backed, new = _judgments(prior["prior_gotchas"], meant)
+        argv = _helper_argv(calls["resolve"], values)
+        judgments = Path(argv[argv.index("--judgments") + 1])
+        judgments.parent.mkdir(parents=True, exist_ok=True)
+        judgments.write_bytes(json.dumps({"backed": backed, "new_gotchas": new}).encode("utf-8"))
+        proc = _run(argv)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        placed = json.loads(proc.stdout)
+        assert (placed["line"], placed["left_off"], placed["carried"], placed["dropped"]) == \
+            (expected_line, left_off, carried, dropped), f"export {export}"
+        line = placed["line"]
+    assert workflow == "update" or "Bind `{gotchas_line}` ← its `line`" in prose
+
+
+@pytest.mark.parametrize("workflow", ["export", "update"])
+def test_a_failed_gotchas_call_halts(workflow):
+    """#1164: a `prior` that cannot read the snippet or the manifest, and a `resolve` that still fails after one
+    corrected retry, halt without a new halt reason."""
+    if workflow == "export":
+        text = _read(SNIPPET)
+        prior = _section(text, "### 2.5. Check Existing Snippet", "### 2.7. ")
+        assert ("When it exits non-zero, delete the `{export_stage_dir}` folder when it is bound and HALT (exit code 4, "
+                '`halt_reason: "context-rebuild-failed"`, phase `generate-snippet §2.5`)') in prior
+        shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+        assert _in_order(shared, "When it exits non-zero, correct the judgments file as its `error` says and run it "
+                         "once more.", "When it fails again, delete the `{export_stage_dir}` folder and HALT (exit "
+                         'code 4, `halt_reason: "context-rebuild-failed"`, phase `generate-snippet §3a`)')
+        exit_4 = next(line for line in _read(ENVELOPE).splitlines() if line.startswith("| 4 "))
+        assert "step 2 §2.5 (the prior snippet or the export manifest cannot be read), §3a (the gotchas cannot be " \
+               "placed, after one corrected retry) or §4 (the token counter fails, or the snippet draft fails its " \
+               "check after one corrected retry)" in exit_4
+    else:
+        five = _regeneration()
+        assert "When `resolve` exits non-zero, correct the judgments file as its `error` says and run it once more." \
+            in five
+        assert ("When `prior` fails, or `resolve` fails again, HALT with status `halted-for-write-failure` (halt "
+                'procedure: `phase: "write:context-snippet"`, `path: "{skill_package}/context-snippet.md"`') in five
+        write = UPDATE_WRITE.read_text(encoding="utf-8")
+        frontmatter = write.split("\n---\n", 1)[0]
+        assert ("rebuildManagedSectionsProbeOrder:\n"
+                "  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'\n"
+                "  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'\n") in frontmatter
+        assert "resolve `{rebuildManagedSectionsHelper}` ← first existing path in " \
+               "`{rebuildManagedSectionsProbeOrder}`" in five

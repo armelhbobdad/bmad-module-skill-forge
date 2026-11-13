@@ -1,0 +1,6 @@
+type: changed
+scope: skf-export-skill
+summary: |
+  With `passive_context: false` in your preferences, Export Skill no longer asks where the managed section should point your skills, and a headless run records no `load-skill.snippet-root-layout` or `load-skill.snippet-root-probe` decision: such a run writes no snippet and no managed-section row, so it has no `root:` path to choose. It used to ask the layout or mismatch question all the same, and answering [S] or (a) stopped an export that would never have written the root. Export now reads `passive_context` once, as it starts.
+issues: [1163]
+prs: [1209]

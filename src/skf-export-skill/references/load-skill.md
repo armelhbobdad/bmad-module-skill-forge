@@ -1,13 +1,5 @@
 ---
-nextStepFile: 'package.md'
-# SKILL.md's On Activation resolved {manifestOpsHelper},
-# {skillInventoryHelper}, {rebuildManagedSectionsHelper} and
-# {validateOutputHelper}. §2 runs the inventory's `resolve` action to choose
-# the version to export and bind its paths (the Manifest-lag guard included),
-# and runs it with `--skill` before a flat skill moves: only a flat skill
-# whose metadata.json carries an SKF marker (`flat_skf`) is migrated.
-# Resolve `{findTestReportHelper}` to the first existing path. §4b runs its
-# `find` action for the newest finished test report of the version §2 chose.
+nextStepFile: 'generate-snippet.md'
 findTestReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
   - '{project-root}/src/shared/scripts/skf-find-test-report.py'
@@ -19,12 +11,12 @@ findTestReportProbeOrder:
 
 ## STEP GOAL:
 
-To load the target skill's artifacts, validate they meet agentskills.io spec compliance, parse export flags, and confirm with the user before proceeding to packaging.
+To load the target skill's artifacts, validate they meet agentskills.io spec compliance, parse export flags, and confirm with the user before snippet generation starts.
 
 ## Rules
 
 - Focus only on loading, validating, and confirming the skill — this is read-only, except the flat-to-versioned migration in §2
-- Do not write any output files yet (packaging starts in Step 02)
+- Do not write any output files yet: step 3 writes them, after its own gate
 - Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
@@ -41,23 +33,29 @@ Determine the skill(s) to export and any flags.
 python3 {manifestOpsHelper} {skills_output_folder} read
 ```
 
-Use `result.manifest.exports`. On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run."
+On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run."
 
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
-- If `--all` was passed, build the list from every skill in `result.manifest.exports` whose `versions.{active_version}.status` is not `"deprecated"` (deprecated skills are excluded from all exports; a skill a v1 manifest marks deprecated reads as such through the helper). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set: enumerate skills on disk instead, with the same inventory scan as the no-argument branch below (steps 2-3), which keeps only skills SKF generated. Every disk-discovered skill is non-deprecated by definition, since deprecation status lives only in the manifest.
-- If no explicit skill and no `--all`, then:
-  - **Headless guard:** if `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`, phase `load-skill §1`): a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`.
-  - **Interactive:** discover available skills using the export manifest:
-    1. List the skill names of `result.manifest.exports`
-    2. Run `uv run {skillInventoryHelper} {skills_output_folder}` once. Add every `skills[]` entry whose `skf_skill` is true and whose `flat_skf` is true or `active_version` is not null (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link). Leave out every other folder. Bind `{not_skf_output}` ← `not_skf_output`; when it is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
+- **Headless guard:** if no explicit skill and no `--all` were passed and `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`, phase `load-skill §1`): a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`.
+- Otherwise (no explicit skill), list the skills SKF can export through the inventory helper, passing `--all` only when the run's `--all` flag was passed:
+
+  ```bash
+  uv run {skillInventoryHelper} exportable "{skills_output_folder}" [--all]
+  ```
+
+  The helper leaves out every skill whose active version the export manifest marks deprecated (deprecated skills are excluded from all exports, and a v1 manifest's `deprecated: true` reads the same) and every folder SKF did not generate that the manifest does not list, so this step filters nothing by hand.
+  - **`--all`:** `skill_batch` ← every `skills[].name`: the manifest's skills once it lists any, else, on a first export (no manifest, or an empty `exports`), every SKF skill on disk.
+  - **Interactive (no `--all`):** offer every `skills[]` entry by name: the manifest's skills, and each SKF skill on disk it does not list yet (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link).
+  - Bind `{not_skf_output}` ← `not_skf_output` and `{deprecated}` ← `deprecated`. Display each line below once, and only when its list is not empty: "Skipped (not SKF output): {not_skf_output}" and "Skipped (deprecated in the export manifest): {deprecated}".
+  - A non-zero exit (an export manifest the helper cannot read, or a `{skills_output_folder}` that is not a folder) is a HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`) with the helper's `error`.
 - If multiple skills are found, present the list and accept either a single selection or a comma-/space-separated multi-selection (e.g. `1, 2, 3` or `all`)
-- If no skills found, HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "No skills found in {skills_output_folder}/. Run create-skill first."
+- If no skills found (`skills` is empty), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "No skills found in {skills_output_folder}/. Run create-skill first."
 
 Store the resolved selection as `skill_batch` — a list of one or more skill names. `len(skill_batch) > 1` activates multi-skill mode (see §1c below).
 
 **Flag Parsing:**
-- `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is the full non-deprecated manifest set — or, when no manifest exists yet, the full on-disk discovery set (see the first-export fallback above).
+- `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is every `skills[].name` of the `exportable --all` call above.
 - `--context-file` flag: Check if explicitly provided (CLAUDE.md, .cursorrules, or AGENTS.md); `references/invocation-contract.md` lists it.
 - `--dry-run` flag: Check if provided. Default: `false`
 
@@ -69,7 +67,7 @@ Map the `ides` list of `config.yaml` (an absent key is an empty list) to the con
 python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"
 ```
 
-`{ides}` is the comma-joined `ides` list. Store `targets` as `target_context_files` (each entry `{context_file, skill_root, ides}`), bind `{other_context_files}` ← `other_context_files` (the known context files no configured IDE maps to, which step 4 §3b checks for a stale section), and display each `warnings[]` and `notes[]` line.
+`{ides}` is the comma-joined `ides` list. Store `targets` as `target_context_files` (each entry `{context_file, skill_root, ides}`), bind `{other_context_files}` ← `other_context_files` (the known context files no configured IDE maps to, which step 3 §3b checks for a stale section), and display each `warnings[]` and `notes[]` line (a `warnings[]` line under code `unknown_ide`).
 
 If `--context-file` was passed (CLAUDE.md, .cursorrules or AGENTS.md), run the call again with `--context-file {context-file}` added and store its `targets` as `target_context_files` instead: that file alone, with the skill root of the first configured IDE that maps to it, else the one the mapping gives that file. Drop that file from `{other_context_files}`, and display the call's `notes[]` (it names the configured IDEs this run leaves out).
 
@@ -81,15 +79,18 @@ A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper
 
 ### 1b. Snippet Root
 
-**Skip this if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo override already decides every `root:` path (see the override rules in `assets/managed-section-format.md`).
+**Skip this if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo override already decides every `root:` path (see the override rules in `assets/managed-section-format.md`). Skip it too when `{passive_context}` is false: this run writes no snippet and no managed-section row, so no `root:` path is chosen.
 
 **Otherwise:** load `references/preflight-snippet-root-probe.md` and follow it. It asks the layout question when no earlier export chose a snippet root, takes the mismatch gate when an earlier export's root differs from the IDE mapping, and states each one's headless default. It returns here on its fast path, after the layout question's [I], or after the mismatch gate's (b) or (d), where (d) binds `{snippet_skill_root_override}` for this run; continue at §1c.
 
 ### 1c. Multi-skill Mode (when `len(skill_batch) > 1`)
 
-**If `len(skill_batch) == 1`:** single-skill mode — every section below operates on the one skill without iteration. Skip this subsection.
+**If `len(skill_batch) == 1`:** single-skill mode: every section below runs once, on the one skill. Skip this subsection.
 
-**If `len(skill_batch) > 1`:** load `references/multi-skill-mode.md` and apply its per-step behavior matrix. The reference partitions work so that step 1 §2–5 iterates per skill, step 1 §6 presents a single consolidated [C] gate, step 4 batches once across the whole run, and step 7 health check runs once. It also defines the all-or-nothing halt semantics if any single skill fails §2 validation.
+**If `len(skill_batch) > 1`:** step 1 follows these rules, and each later stage's Rules state its own:
+
+- §2 to §5 run for each skill in `skill_batch`, in order, and §5 shows every skill in one table, a row per skill, so §6 asks once for the whole batch.
+- The batch is one unit of work, never a per-skill sweep: when any skill fails §2 (an export-gate FAIL, no version to export, or a flat folder §2 refuses as `not-skf-output`), HALT as §2 states for that skill, so no skill of the batch is exported. A partial export would leave the manifest and the managed sections half updated.
 
 ### 2. Load and Validate Skill Artifacts
 
@@ -99,10 +100,10 @@ The inventory helper chooses the version to export and binds its paths by the Re
 uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"
 ```
 
-Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{resolved_skill_package}` ← `skill_package`, `{forge_version}` ← `forge_version` (the version's forge folder), `{forge_evidence_report}` ← `paths.evidence_report.path` (that folder's `evidence-report.md`, else the flat copy an older skill keeps, else null), which step 3 derives the gotchas from, and `{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the flat copy, else null), whose `export_type` gives step 3 the `()` of an api name new to the line. Log each `resolve.errors` entry, and `resolve.manifest_error` when it is set, as an Info note, then act on `reason`:
+Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{resolved_skill_package}` ← `skill_package`, `{forge_version}` ← `forge_version` (the version's forge folder), `{forge_evidence_report}` ← `paths.evidence_report.path` (that folder's `evidence-report.md`, else the flat copy an older skill keeps, else null), which step 2 derives the gotchas from, and `{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the flat copy, else null), whose `export_type` gives step 2 the `()` of an api name new to the line. Log each `resolve.errors` entry, and `resolve.manifest_error` when it is set, as an Info note, then act on `reason`:
 
 1. `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Continue.
-2. `manifest-lags-link` (the Manifest-lag guard): the `active` link names a version the manifest has not caught up with, as when a create or update run flipped `active` after the last export (the SS→TS→EX order). Continue with the link's version, and emit the helper's `detail` as an Info note, followed by "Exporting v{resolved_version}: the manifest's active_version advances to it on this export." Step 4 publishes the version in `{resolved_skill_package}/metadata.json`, so the manifest catches up here.
+2. `manifest-lags-link` (the Manifest-lag guard): the `active` link names a version the manifest has not caught up with, as when a create or update run flipped `active` after the last export (the SS→TS→EX order). Continue with the link's version, and emit the helper's `detail` as an Info note, followed by "Exporting v{resolved_version}: the manifest's active_version advances to it on this export." Step 3 publishes the version in `{resolved_skill_package}/metadata.json`, so the manifest catches up here.
 3. `flat-layout`: fall back to the flat path `{skills_output_folder}/{skill-name}/`, where `SKILL.md` sits at the skill folder root with no version folder yet. Check that SKF generated it before anything moves:
    - Run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
    - **`{group_flat_skf}` is true:** if `--dry-run` is set, do not migrate: use the flat folder as the resolved path (the `skill_package` bound above; `{resolved_version}` and `{forge_version}` stay null) and note "would migrate {skill-name} to the versioned layout". Otherwise run `uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and show its `message` as an Info note, then run the `resolve` command above again and bind its values anew: they now name the version folder. When `migrate` exits 1, HALT as item 5 says, with its `error`.
@@ -112,15 +113,7 @@ Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{reso
 
 Every later step reads the skill from `{resolved_skill_package}`.
 
-Load all files from `{resolved_skill_package}`:
-
-**Required Files (the export gate below halts when one is missing):**
-- `SKILL.md` — The main skill document
-- `metadata.json` — Machine-readable skill metadata
-
-**Optional Files (note presence):**
-- `references/` — Progressive disclosure directory
-- `context-snippet.md` — Existing snippet (will be regenerated)
+The export gate below reads what §3 and §5 show: `metadata.json` and `SKILL.md`, each a high issue when it is missing, and the files under `references/`. Step 2 reads the prior `context-snippet.md` itself.
 
 **Validation (the export gate):**
 
@@ -130,33 +123,29 @@ Run the export gate against the resolved package:
 python3 {validateOutputHelper} {resolved_skill_package} --export-gate
 ```
 
-The script emits one JSON verdict; its docstring lists every check: `SKILL.md` and `metadata.json` present and valid; the required agentskills.io fields and their enums (`confidence_tier` on the scale of the `skill_type`: Quick/Forge/Forge+/Deep for a single skill, T1/T1-low/T2/T3 for a stack, where an older stack's forge tier passes with a low warning); the recommended fields for the `skill_type`, each missing one a low warning; and the SKILL.md Section 7b (`## Scripts & Assets`) cross-reference against the package's `scripts/` and `assets/` files, where a file the section names that is absent on disk is a high issue and a file it does not name a low orphan warning. Read `result` (PASS/FAIL), `export_status` (READY/WARNINGS/NOT_READY), the issue arrays under `validation.metadata.{issues,enum_issues,recommended_missing}` and `validation.crossref_7b.{missing,orphans}`, and `validation.crossref_7b.{heading,heading_line}`, the Section 7b heading the gate matched and its line in SKILL.md. **Retain this JSON as the export verdict**: step 2 (`package.md`) renders its status from it without re-deriving the checks.
+The script emits one JSON verdict. Read `result` (PASS/FAIL), `export_status` (READY/WARNINGS/NOT_READY), the issue arrays under `validation.metadata.{issues,enum_issues,recommended_missing}` and `validation.crossref_7b.{missing,orphans}`, and `validation.crossref_7b.{heading,heading_line}`, the Section 7b heading the gate matched and its line in SKILL.md, and `package`, the metadata fields and the reference count §3 binds. **Retain this JSON as the export verdict**: §5 renders each skill's package status from it without re-deriving the checks.
 
 **If `result` is `FAIL` / `export_status` is `NOT_READY`** (any high-severity issue in `validation.*`):
-"**Export cannot proceed.** Missing or invalid: {list the high-severity issue messages from the script's `validation.metadata.{issues,enum_issues}` and `validation.crossref_7b.missing`}
+"**Export cannot proceed for `{skill-name}`.** Missing or invalid: {list the high-severity issue messages from the script's `validation.metadata.{issues,enum_issues}` and `validation.crossref_7b.missing`}
 {when `validation.crossref_7b.missing` is not empty:} Section 7b is the `{validation.crossref_7b.heading}` heading at line {validation.crossref_7b.heading_line} of `{resolved_skill_package}/SKILL.md`.
 Fix each one in the package: add the file Section 7b names or correct its path there, and give `metadata.json` the field or value the message names, or run update-skill or create-skill to rebuild the skill. Then re-run the export."
 Then HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §2`).
 
 ### 3. Read Skill Metadata
 
-Extract from `metadata.json`:
-- `name` — Skill display name
-- `skill_type` — `single` or `stack`
-- `source_authority` — `official`, `internal`, or `community`
-- `exports` — Array of exported functions/types
-- `generation_date` — When the skill was last generated
-- `confidence_tier`: for a single skill, the forge tier it was compiled at (Quick/Forge/Forge+/Deep); for a stack, the dominant confidence tier of its libraries (T1/T1-low/T2/T3), with the forge tier in `forge_tier` (an older stack may hold its forge tier here instead, which the export gate reports as a low warning)
+Bind from the verdict's `package` object, which the gate read from `metadata.json` and `references/` (a field `metadata.json` lacks is null):
 
-**For stack skills, also extract:**
-- `components` — Array of dependencies with versions
-- `integrations` — Array of co-import patterns
+- `{name}` ← `package.name`, `{version}` ← `package.version` and `{generation_date}` ← `package.generation_date`, when the skill was last generated
+- `{skill_type}` ← `package.skill_type` (`single` or `stack`) and `{source_authority}` ← `package.source_authority` (`official`, `internal` or `community`)
+- `{confidence_tier}` ← `package.confidence_tier`: for a single skill, the forge tier it was compiled at (Quick/Forge/Forge+/Deep); for a stack, the dominant confidence tier of its libraries (T1/T1-low/T2/T3), with the forge tier in `{forge_tier}` ← `package.forge_tier` (an older stack may hold its forge tier in `confidence_tier` instead, which the export gate reports as a low warning)
+- `{exports_count}` ← `package.exports_count` and `{top_exports}` ← `package.top_exports`, the first 5 export names
+- `{references_count}` ← `package.references_count`, the files under `references/` at any depth
+- For a stack, `{components_count}` ← `package.components_count`, its libraries, and `{integrations_count}` ← `package.integrations_count`, its integration pairs
 
 ### 4. Check Forge Configuration
 
-Load `{sidecar_path}/preferences.yaml` (if exists):
-- Check `passive_context` setting
-- If `passive_context: false`, note that steps 3 and 4 skip the snippet and the context files; step 4 still records the export in the manifest
+Read `{passive_context}`, which SKILL.md's On Activation bound from the preferences file (true when the file or its `passive_context` key is absent), so this step loads no file:
+- If `passive_context: false` (`{passive_context}` is false), note that steps 2 and 3 skip the snippet and the context files; step 3 still records the export in the manifest
 
 ### 4b. Check Test Report (Quality Gate)
 
@@ -166,35 +155,34 @@ The shared helper finds the newest finished test report of the version §2 chose
 uv run {findTestReportHelper} find --forge-data-folder "{forge_data_folder}" --skill-name {skill-name} [--version {resolved_version}]
 ```
 
-Pass `--version` with the `{resolved_version}` §2 chose, never the manifest's `active_version`, which lags a version created or updated since the last export; leave it out when `{resolved_version}` is null (a flat skill in a dry run). Build the message from its JSON (`{score}` reads `n/a` when it is null), and display each `warnings[]` line as it is:
+Pass `--version` with the `{resolved_version}` §2 chose, never the manifest's `active_version`, which lags a version created or updated since the last export; leave it out when `{resolved_version}` is null (a flat skill in a dry run). Build the message from its JSON (`{score}` reads `n/a` when it is null), and display each `warnings[]` line as it is (code `test_report_warning`):
 
 - `status: "found"`: name the report the helper picked, the file name of its `path` (for example `test-report-my-base-ui-20260507T050917Z-487606-9b2f.md`), so an operator can open it from the log, with its verdict by `testResult`:
   - `pass`: note "Last test: **PASS** ({score}%)"
-  - `fail`: warn "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
-  - `pass-with-drift`: warn "**Warning:** This skill passed its last test only with `--allow-workspace-drift` (score: {score}%), against source that differs from its pinned commit. Re-test it against the pinned commit before export."
-  - `inconclusive`: warn "**Warning:** This skill's last test was inconclusive (score: {score}%). Review the report before export."
-  - no `testResult` (a result file that records no verdict): note "Last test report: no verdict recorded."
-- `status: "not-found"`: warn "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
+  - `fail`: warn (code `test_report_fail`) "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
+  - `pass-with-drift`: warn (code `test_report_pass_with_drift`) "**Warning:** This skill passed its last test only with `--allow-workspace-drift` (score: {score}%), against source that differs from its pinned commit. Re-test it against the pinned commit before export."
+  - `inconclusive`: warn (code `test_report_inconclusive`) "**Warning:** This skill's last test was inconclusive (score: {score}%). Review the report before export."
+  - no `testResult` (a result file that records no verdict): warn (code `test_report_no_verdict`) "**Note:** This skill's last test report records no verdict. Review the report, or run `@Ferris TS` again, before export."
+- `status: "not-found"`: warn (code `test_report_not_found`) "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
 
-If no helper candidate resolves, or the helper exits non-zero, note "**Note:** SKF could not check this skill's test report: {reason}." instead.
+If no helper candidate resolves, or the helper exits non-zero, warn (code `test_report_unchecked`) "**Note:** SKF could not check this skill's test report: {reason}." instead.
 
-Continue to step 5 regardless: this is advisory, not blocking.
+Continue to §5 regardless: this is advisory, not blocking.
 
 ### 5. Present Skill Summary
 
-**Single-skill mode:**
+Use the export-gate JSON §2 retained for each skill. Only when it is not in context, run `python3 {validateOutputHelper} {resolved_skill_package} --export-gate` again: the same package gives the same verdict. §2 halts on `NOT_READY`, so `export_status` is `READY` or `WARNINGS` here.
 
-"**Skill loaded and validated.**
+Display one table, a row per skill in `skill_batch`, then the configuration once and one question:
 
-| Field | Value |
-|-------|-------|
-| **Name** | {name} |
-| **Type** | {skill_type} |
-| **Authority** | {source_authority} |
-| **Confidence** | {confidence_tier} |
-| **Exports** | {count} functions/types |
-| **Generated** | {generation_date} |
-| **References** | {count files or 'none'} |
+"**{N} skill(s) loaded and validated.**
+
+| # | Name | Version | Type | Authority | Confidence | Exports | References | Generated | Test | Package |
+|---|---|---|---|---|---|---|---|---|---|---|
+| {i} | {name} | {Version} | {Type} | {source_authority} | {Confidence} | {Exports} | {References} | {generation_date} | {Test} | {export_status} |
+
+{For each skill whose `export_status` is `WARNINGS`:}
+**Warnings for {name}** (none of them stops the export): {its Warnings, joined with `; `}
 
 **Export Configuration:**
 | Setting | Value |
@@ -204,43 +192,32 @@ Continue to step 5 regardless: this is advisory, not blocking.
 | **Dry Run** | {yes/no} |
 | **Passive Context** | {enabled/disabled} |
 
-**Top Exports:**
-{list top 5 exports from metadata}
+**Export {this skill / these N skills}?**"
 
-**Is this the correct skill to export?**"
+Fill the capitalized cells of each skill's row from its §2 to §4b results:
 
-**Multi-skill mode** (`len(skill_batch) > 1`):
-
-"**{N} skills loaded and validated.**
-
-| # | Name | Type | Authority | Tier | Exports | Test |
-|---|------|------|-----------|------|---------|------|
-| 1 | {name-1} | {type} | {authority} | {tier} | {count} | {testResult, or none} |
-| 2 | {name-2} | ... | ... | ... | ... | ... |
-| N | {name-N} | ... | ... | ... | ... | ... |
-
-**Export Configuration (applies to all):**
-| Setting | Value |
-|---------|-------|
-| **Context File(s)** | {context-file-list} (skill root: {skill-root-list}) |
-| **Explicit --context-file** | {yes / no (from config.yaml)} |
-| **Dry Run** | {yes/no} |
-| **Passive Context** | {enabled/disabled} |
-
-**Are these the correct skills to export?**"
+- **Version:** `v{resolved_version}`, with ` (migrated from the flat layout)` when §2 migrated the skill on this run; `flat layout, would migrate` when `{resolved_version}` is null (a flat skill in a dry run).
+- **Type:** `{skill_type}`; for a stack, `stack ({components_count} libraries, {integrations_count} integrations)`, with `n/a` for a null count.
+- **Confidence:** `{confidence_tier}`, with ` (forge {forge_tier})` when `{forge_tier}` is set.
+- **Exports:** `{exports_count}`, then `{top_exports}`, comma-joined, in parentheses when it names one, as in `42 (z, ZodType, parse, safeParse, infer)`.
+- **References:** `{references_count}`, or `none` when it is 0.
+- **Test:** §4b's verdict: `{testResult} ({score}%)` for a report with a verdict, `{testResult}` alone when its score is null, `no verdict` for one that records none, `none` when no report was found, or `not checked` when §4b could not check.
+- **Warnings:** the `field` of each `validation.metadata.recommended_missing` entry, each path in `validation.crossref_7b.orphans`, and the message of each low issue in `validation.metadata.issues`, such as an empty `exports` array or a forge tier in an older stack's `confidence_tier`. Each **Warnings for {name}** line is a warning (code `export_gate_warnings`).
 
 ### 6. Confirmation Gate
 
-Display: "**Select:** [C] Continue to packaging | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)" (multi-skill mode: the single [C] gate covers the whole batch), then wait for the reply.
+Display: "**Select:** [C] Continue to snippet generation | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)", then wait for the reply.
 
 - **[C]** — proceed with the loaded skill data: load, read entirely, and execute `{nextStepFile}`.
-- **[X]** / `cancel` / `exit` / `:q`: display "Cancelled: no packaging or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `load-skill §6`).
+- **[X]** / `cancel` / `exit` / `:q`: display "Cancelled: no snippet or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `load-skill §6`).
 - **Any other input** — help the user respond, then redisplay this gate.
 - **GATE [default: C]**: headless, record the decision in the run sink with the command below, log "headless: auto-continue past skill confirmation", then auto-proceed with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
-{"gate":"load-skill.confirmation","default_action":"C","taken_action":"C","reason":"headless: auto-continue past skill confirmation"}
+{"gate":"load-skill.confirmation","default_action":"C","taken_action":"C","reason":"headless: auto-continue past skill confirmation","evidence":{"test_results":{test_results}}}
 SKF_JSON
 ```
+
+`{test_results}` is a JSON array with one `{"skill", "verdict", "score", "report"}` object per skill of the batch, from §4b: `verdict` is its `testResult` (`pass`, `fail`, `pass-with-drift` or `inconclusive`), `no-verdict` for a report that records none, `not-found` or `not-checked`; `score` its score as a number, else null; `report` the file name of its `path`, else null.
 

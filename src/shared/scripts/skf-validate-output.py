@@ -31,11 +31,12 @@ Two package shapes are supported via --skill-type (default: individual):
                metadata.json's forge_tier against the run's tier.
 
 The --export-gate flag selects a third, self-contained mode used by
-skf-export-skill's publishing gate (load-skill.md §2; package.md renders the
-verdict). It is additive and orthogonal to --skill-type: it does NOT touch the
-individual/stack code path above, so existing callers keep byte-identical
-output. Under the flag the script emits the deterministic verdict the export
-prompt previously derived by hand each run:
+skf-export-skill's publishing gate (load-skill.md §2 runs it, §3 binds its
+`package` object and §5 renders the verdict). It is additive and orthogonal
+to --skill-type: it does NOT touch the individual/stack code path above, so
+existing callers keep byte-identical output. Under the flag the script emits
+the deterministic verdict the export prompt previously derived by hand each
+run:
   - metadata.json required-field presence for the full agentskills.io set
     (name, version, skill_type, source_authority, exports, generation_date,
     confidence_tier) as high-severity issues under validation.metadata.issues;
@@ -62,7 +63,41 @@ prompt previously derived by hand each run:
     and its line (both null when SKILL.md has no Section 7b);
   - a deterministic export_status ∈ READY / WARNINGS / NOT_READY alongside the
     existing PASS/FAIL result (NOT_READY on any high issue, WARNINGS when only
-    medium/low issues remain, READY when clean).
+    medium/low issues remain, READY when clean);
+  - a `package` object, always present, with the fields load-skill.md's
+    confirm screen shows (see export_gate_package): name, version,
+    skill_type, source_authority, confidence_tier, forge_tier and
+    generation_date as metadata.json holds them; exports_count and
+    top_exports (the first 5 names); references_count, the files under
+    references/ at any depth, the count skf-count-tokens.py gives as
+    references_total.count; and, for a stack, components_count and
+    integrations_count. A field metadata.json lacks is null, and every
+    field but references_count is null when metadata.json is missing, does
+    not parse or is not a JSON object.
+
+The --snippet-check flag selects a fourth mode, which skf-export-skill's
+generate-snippet.md §4 runs on each context snippet draft before step 3
+lists it in a managed section and copies it into the package. The
+positional argument is then the draft folder, which holds
+context-snippet.md, and --package names the skill package the draft is
+for. It reports `issues`, each {severity, field, message}: first those of
+validate_context_snippet (content high for an empty draft, line 1 and
+line 2 medium, length low), then these high ones:
+  - content:   context-snippet.md is missing, a folder or not UTF-8 text;
+  - header:    line 1's `[name vX]` is not the package folder's basename at
+               metadata.json's `version`, or metadata.json gives no version;
+  - separator: a blank or bare `|` line between the first and last
+               non-blank lines (the managed section reads it as the end of
+               the row), naming its line;
+  - marker:    an SKF marker (`<!-- SKF:BEGIN` or `<!-- SKF:END`);
+  - anchor:    a `SKILL.md#slug` or `references/<file>.md#slug` anchor whose
+               file is not in the package, whose path has `..`, or whose
+               file has no heading with that slug (heading_slugs gives
+               GitHub's slugs).
+`result` is FAIL on any high or medium issue: exit 0 on PASS, 1 on FAIL.
+No --package value, or one that names no folder, prints `error: ...` on
+stderr and exits 2. The other modes ignore the flag's absence: their
+output is unchanged.
 
 CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --generated-by quick-skill
@@ -70,6 +105,7 @@ CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack --forge-tier Deep
      python3 skf-validate-output.py <skill-package-dir> --export-gate
+     python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>
 """
 
 from __future__ import annotations
@@ -400,6 +436,86 @@ def validate_metadata_export_gate(data):
             })
 
     return required_issues, enum_issues, recommended_missing
+
+
+# The number of export names the export gate's `package.top_exports` lists.
+_EXPORT_GATE_TOP_EXPORTS = 5
+
+
+def count_reference_files(skill_dir):
+    """The number of files under the package's references/ at any depth.
+
+    It walks references/ as skf-count-tokens.py's measure_reference_files
+    does (rglob, then is_file), so it equals that script's
+    references_total.count. 0 when references/ is absent.
+    """
+    references = Path(skill_dir) / "references"
+    if not references.is_dir():
+        return 0
+    return sum(1 for path in references.rglob("*") if path.is_file())
+
+
+def _export_name(item):
+    """An exports item's name, or None.
+
+    The item when it is a non-blank string, else a dict item's non-blank
+    string `name`.
+    """
+    if isinstance(item, dict):
+        item = item.get("name")
+    return item if isinstance(item, str) and item.strip() else None
+
+
+def _stack_count(data, count_key, list_key):
+    """A stack's count: `count_key` when it is an int, else the length of the `list_key` list, else None."""
+    count = data.get(count_key)
+    if isinstance(count, int) and not isinstance(count, bool):
+        return count
+    items = data.get(list_key)
+    return len(items) if isinstance(items, list) else None
+
+
+def export_gate_package(meta, references_count):
+    """The export gate's `package` object, which load-skill.md §3 binds and §5 renders.
+
+    `meta` is the parsed metadata.json, or None when it is missing, does not
+    parse or is not a JSON object: every field but `references_count` is then
+    null. A text field is null unless metadata.json holds it as a non-empty
+    string, the test validate_metadata_export_gate puts each required field
+    to, so a package the gate passes has every required field set.
+    `exports_count` is the length of the `exports` array and `top_exports`
+    its first 5 names (a non-blank string item, or a dict item's non-blank
+    string `name`; another item is skipped), both null when `exports` is not
+    an array. A stack's `components_count` is `library_count` when it is an int,
+    else the length of `libraries`, and its `integrations_count` is
+    `integration_count`, else the length of `integration_pairs`; both are
+    null for any other skill_type.
+    """
+    data = meta if isinstance(meta, dict) else {}
+
+    def text(field):
+        val = data.get(field)
+        return val if isinstance(val, str) and val else None
+
+    exports = data.get("exports")
+    names = None
+    if isinstance(exports, list):
+        names = [name for name in map(_export_name, exports) if name is not None]
+    stack = data.get("skill_type") == "stack"
+    return {
+        "name": text("name"),
+        "version": text("version"),
+        "skill_type": text("skill_type"),
+        "source_authority": text("source_authority"),
+        "confidence_tier": text("confidence_tier"),
+        "forge_tier": text("forge_tier"),
+        "generation_date": text("generation_date"),
+        "exports_count": len(exports) if isinstance(exports, list) else None,
+        "top_exports": names[:_EXPORT_GATE_TOP_EXPORTS] if names is not None else None,
+        "references_count": references_count,
+        "components_count": _stack_count(data, "library_count", "libraries") if stack else None,
+        "integrations_count": _stack_count(data, "integration_count", "integration_pairs") if stack else None,
+    }
 
 
 def _section_7b_bounds(skill_md_text):
@@ -1186,13 +1302,14 @@ def _validate_export_gate(skill_dir):
     """Export-gate validation for skf-export-skill's publishing gate.
 
     Self-contained: does not run the individual/stack passes. Emits the
-    deterministic verdict load-skill.md §2 and package.md previously
-    derived in-prompt: SKILL.md presence/non-emptiness; metadata.json as a
-    valid JSON object, with required-field presence and enum membership;
+    deterministic verdict load-skill.md §2 and §5 previously derived
+    in-prompt: SKILL.md presence/non-emptiness; metadata.json as a valid JSON
+    object, with required-field presence and enum membership;
     recommended-field presence by skill_type (low,
     validation.metadata.recommended_missing); and the SKILL.md Section 7b <->
     on-disk scripts/assets cross-reference. It adds a deterministic
-    export_status ∈ READY / WARNINGS / NOT_READY.
+    export_status ∈ READY / WARNINGS / NOT_READY, and the `package` object
+    load-skill.md §3 binds (export_gate_package).
     """
     skill_dir = Path(skill_dir)
     skill_name = skill_dir.name
@@ -1232,6 +1349,7 @@ def _validate_export_gate(skill_dir):
     # 2. metadata.json must exist, parse as a JSON object, and satisfy the
     #    required-field presence + enum-membership contract; missing
     #    recommended fields for its skill_type are low warnings.
+    meta_object = None
     if not meta_path.exists():
         meta_issues = [{"severity": "high", "field": "metadata.json", "message": "metadata.json not found"}]
         result["validation"]["metadata"] = {"issues": meta_issues, "enum_issues": [], "recommended_missing": []}
@@ -1246,6 +1364,7 @@ def _validate_export_gate(skill_dir):
             _record(meta_issues)
         else:
             if isinstance(meta, dict):
+                meta_object = meta
                 required_issues, enum_issues, recommended_missing = validate_metadata_export_gate(meta)
             else:
                 # Valid JSON that is not an object (e.g. `[]`) has no fields to read.
@@ -1298,7 +1417,141 @@ def _validate_export_gate(skill_dir):
         result["export_status"] = "READY"
     result["result"] = "PASS" if by_sev["high"] == 0 else "FAIL"
 
+    # 4. The fields load-skill.md's confirm screen shows, read once here.
+    result["package"] = export_gate_package(meta_object, count_reference_files(skill_dir))
+
     return result
+
+
+# --- Snippet-check mode (skf-export-skill generate-snippet.md §4) ----------
+#
+# Additive like --export-gate: nothing above calls these helpers.
+
+SNIPPET_FILE = "context-snippet.md"
+# A snippet's row header, as skf-rebuild-managed-sections.py reads it: `[name vX]`
+# at the start of line 1, optionally after the managed section's leading `|`.
+_SNIPPET_HEADER_RE = re.compile(r"^\|?\[(?P<name>[^\]]+?) v(?P<version>[^\]\s]+)\]")
+# Any SKF marker variant the managed-section writer refuses in a body.
+_SNIPPET_MARKER_RE = re.compile(r"<!--\s*SKF:(BEGIN|END)")
+# A section anchor of the snippet format: `SKILL.md#slug` or `references/<file>.md#slug`.
+# A slug holds only letters, digits, `-` and `_`, so the `}` of the template's
+# `{SKILL.md#quick-start}` or a sentence's closing `.` is not part of it.
+_SNIPPET_ANCHOR_RE = re.compile(r"(?<![\w./-])(SKILL\.md|references/[^\s#|,;()\[\]`'\"]+?\.md)#([\w-]+)")
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)", re.DOTALL)
+
+
+def heading_slugs(text):
+    """GitHub's anchor slug of each ATX heading outside fenced code and frontmatter, in order.
+
+    The heading text lowercased, each character that is not a letter, digit,
+    space, `-` or `_` dropped, each space made `-`; the second heading with
+    the same slug takes `-1`, the third `-2`.
+    """
+    m = _FRONTMATTER_RE.match(text)
+    if m:
+        text = "\n" * m.group(0).count("\n") + text[m.end():]
+    seen, slugs = {}, []
+    for _, heading, _ in _headings(text):
+        base = "".join(ch for ch in heading.lower() if ch.isalnum() or ch in " -_").replace(" ", "-")
+        n = seen.get(base, 0)
+        slugs.append(base if n == 0 else f"{base}-{n}")
+        seen[base] = n + 1
+    return slugs
+
+
+def _package_version(package_dir):
+    """metadata.json's `version` when it is a non-empty string, else None."""
+    try:
+        meta = json.loads((Path(package_dir) / "metadata.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = meta.get("version") if isinstance(meta, dict) else None
+    return version if isinstance(version, str) and version.strip() else None
+
+
+def _anchor_issue(package_dir, rel, slug, cache):
+    """The message of an anchor that does not resolve in the package, or None."""
+    if ".." in rel.split("/"):
+        return f"{rel}#{slug}: the path leaves the package (`..`)"
+    target = Path(package_dir) / rel
+    if rel not in cache:
+        try:
+            cache[rel] = heading_slugs(target.read_text(encoding="utf-8")) if target.is_file() else None
+        except (OSError, UnicodeDecodeError):
+            cache[rel] = None
+    if cache[rel] is None:
+        return f"{rel}#{slug}: {rel} is not a file of the package"
+    if slug not in cache[rel]:
+        return f"{rel}#{slug}: {rel} has no heading whose slug is {slug}"
+    return None
+
+
+def check_snippet_draft(draft_dir, package_dir):
+    """Check a staged context-snippet.md draft against the package it is for.
+
+    See the module docstring (--snippet-check) for each check. Returns the
+    result object; `result` is FAIL on any high or medium issue.
+    """
+    draft_dir, package_dir = Path(draft_dir), Path(package_dir)
+    skill_name = package_dir.name
+    version = _package_version(package_dir)
+    issues = []
+
+    snippet = draft_dir / SNIPPET_FILE
+    content = None
+    if not snippet.is_file():
+        what = "a folder" if snippet.is_dir() else "missing"
+        issues.append({"severity": "high", "field": "content", "message": f"{snippet.as_posix()} is {what}"})
+    else:
+        try:
+            content = snippet.read_bytes().decode("utf-8")
+        except UnicodeDecodeError as e:
+            issues.append({"severity": "high", "field": "content",
+                           "message": f"{snippet.as_posix()} is not UTF-8 text ({e})"})
+        except OSError as e:
+            issues.append({"severity": "high", "field": "content", "message": f"cannot read {snippet.as_posix()}: {e}"})
+
+    if content is not None:
+        issues += validate_context_snippet(content)
+    if content is not None and content.strip():
+        lines = content.split("\n")
+        filled = [i for i, line in enumerate(lines) if line.strip()]
+        first, last = filled[0], filled[-1]
+        header = _SNIPPET_HEADER_RE.match(lines[first].strip())
+        if version is None:
+            issues.append({"severity": "high", "field": "header",
+                           "message": f"metadata.json of {skill_name} gives no version, so line 1 cannot be checked"})
+        elif not header or (header.group("name"), header.group("version")) != (skill_name, version):
+            issues.append({"severity": "high", "field": "header",
+                           "message": f"line 1 must start with [{skill_name} v{version}], got: {lines[first].strip()[:60]}"})
+        for i in range(first + 1, last):
+            if lines[i].strip() in ("", "|"):
+                issues.append({"severity": "high", "field": "separator",
+                               "message": f"line {i + 1} is blank or a bare `|`: remove it, since the managed "
+                                          "section reads it as the end of the row"})
+        if _SNIPPET_MARKER_RE.search(content):
+            issues.append({"severity": "high", "field": "marker",
+                           "message": "the snippet holds an SKF marker (<!-- SKF:BEGIN or <!-- SKF:END)"})
+        cache = {}
+        for m in _SNIPPET_ANCHOR_RE.finditer(content):
+            message = _anchor_issue(package_dir, m.group(1), m.group(2), cache)
+            if message:
+                issues.append({"severity": "high", "field": "anchor", "message": message})
+
+    by_severity = {"high": 0, "medium": 0, "low": 0}
+    for issue in issues:
+        by_severity[issue["severity"]] += 1
+    return {
+        "status": "ok",
+        "mode": "snippet-check",
+        "draft": str(draft_dir),
+        "package": str(package_dir),
+        "skill_name": skill_name,
+        "version": version,
+        "issues": issues,
+        "summary": {"total_issues": len(issues), "by_severity": by_severity},
+        "result": "FAIL" if by_severity["high"] or by_severity["medium"] else "PASS",
+    }
 
 
 if __name__ == "__main__":
@@ -1306,12 +1559,32 @@ if __name__ == "__main__":
         print(
             "Usage: python3 skf-validate-output.py <skill-package-dir> "
             "[--generated-by <generator>] [--skip-frontmatter] "
-            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--export-gate]",
+            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--export-gate]\n"
+            "       python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>",
             file=sys.stderr,
         )
         sys.exit(1)
 
     pkg_dir = sys.argv[1]
+
+    # --snippet-check reads a snippet draft folder and the package it is for
+    # (skf-export-skill's generate-snippet.md §4); --package is read by index,
+    # as --generated-by is.
+    if "--snippet-check" in sys.argv:
+        package = None
+        if "--package" in sys.argv:
+            idx = sys.argv.index("--package")
+            if idx + 1 < len(sys.argv):
+                package = sys.argv[idx + 1]
+        if package is None:
+            print("error: --snippet-check needs --package <skill-package-dir>", file=sys.stderr)
+            sys.exit(2)
+        if not Path(package).is_dir():
+            print(f"error: --package {package} is not a folder", file=sys.stderr)
+            sys.exit(2)
+        result = check_snippet_draft(pkg_dir, package)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if result["result"] == "PASS" else 1)
 
     # --export-gate is a distinct, self-contained mode (skf-export-skill's
     # publishing gate). It ignores the individual/stack flags below.

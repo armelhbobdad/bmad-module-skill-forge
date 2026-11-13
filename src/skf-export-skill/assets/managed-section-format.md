@@ -68,7 +68,7 @@ All other IDEs use AGENTS.md as the context file, each with its own skill direct
 
 **`snippet_skill_root_override` (optional):** Authoring repos where all skills live under one shared on-disk directory (e.g. `skills/`) that does not match any per-IDE skill root may set `snippet_skill_root_override: skills/` in `config.yaml`. When set:
 
-- `export-skill/step 3` §2.7 uses the override as `{skill_root}` for snippet generation instead of the IDE-mapped value
+- `export-skill/step 2` §2.7 uses the override as `{skill_root}` for snippet generation instead of the IDE-mapped value
 - export-skill, drop-skill and rename-skill pass it to `assemble` as `--skill-root-override`, which makes it the `root:` prefix of every row it writes: a snippet whose prefix already matches passes through unchanged, and any other prefix (a per-IDE prefix on a snippet exported before the override was adopted, or a legacy `skills/` draft) is rewritten to it, so the section uniformly references the real on-disk location
 
 Consuming projects (the common case) omit the field and keep the default IDE-mapping behavior. The override is a narrow escape hatch for repos that author skills into `{skills_output_folder}` and never duplicate them into `.claude/skills/`-style directories.

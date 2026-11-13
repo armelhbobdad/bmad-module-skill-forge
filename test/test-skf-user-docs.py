@@ -672,14 +672,14 @@ def test_export_line_names_the_test_warnings_and_the_snippet_timing():
     load = _read(SRC / "skf-export-skill" / "references" / "load-skill.md")
     assert "- `pass-with-drift`: warn" in load and "- `inconclusive`: warn" in load
     timing = _slice(_read(SRC / "skf-export-skill" / "SKILL.md"), "- **Snippet timing:**", "\n")
-    assert "as step 4's last write" in timing and "as it was" in timing
+    assert "as step 3's last write" in timing and "as it was" in timing
     update_context = _read(SRC / "skf-export-skill" / "references" / "update-context.md")
     assert "a run with passive context off has none" in update_context
     good = _paragraph(_slice(_read(WORKFLOWS), "### Export Skill (EX)", "**Agent:**"), "**Good to know:**")
     for token in ("its last test was inconclusive or passed only under `--allow-workspace-drift`",
                   "With passive context on (the default), it writes each skill's `context-snippet.md` last",
                   "a cancelled or halted export leaves the snippet as it was",
-                  "`passive_context: false`", "such a run writes no snippet"):
+                  "`passive_context: false`", "such a run writes no snippet and asks no snippet-root question"):
         assert token in good, token
 
 

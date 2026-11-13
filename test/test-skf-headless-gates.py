@@ -27,7 +27,11 @@ left out):
 - export-skill (the W5-export-inputs-leanness handoff): each gate the Gates
   row of references/invocation-contract.md lists states the headless
   default that row gives, at its site, and records it, so the contract and
-  the step files cannot drift apart.
+  the step files cannot drift apart; and (#1166) its Run log rule records
+  each warning a step displays under the code that step names, each code
+  the Run Folder section of references/result-envelope.md lists is named
+  at the site it gives, and the rule's command records a detail holding
+  `$( )` and a backtick as it is.
 
 skf-forger is the agent, not a workflow.
 
@@ -65,7 +69,11 @@ printed no result line. So:
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -342,7 +350,7 @@ EXPORT_GATES = {
                                "references/orphan-context-detection.md", "## Gate Protocol", "{}"),
     "orphaned rows": (r"§4c\.1 orphaned managed-section rows \(headless: (\w+)\)",
                       "references/orphan-row-detection.md", "## Gate Protocol", "{}"),
-    "step 4 confirm": (r"step 4 §8: one Confirm Gate \[[A-Z]\][^|]*?\(headless: \[([A-Z])\]\)",
+    "step 3 confirm": (r"step 3 §8: one Confirm Gate \[[A-Z]\][^|]*?\(headless: \[([A-Z])\]\)",
                        "references/update-context.md", "### 8.", "[{}]"),
 }
 RECORD_COMMAND = 'record --workflow skf-export-skill --run-dir "{run_dir}" --decision'
@@ -377,6 +385,108 @@ def test_each_export_gate_states_the_row_default_and_records_it(name):
         written = form.format(default)
         assert written.lower() in gate.lower(), f"{rel} {heading}: the row's headless default {written} is not at the gate"
     assert RECORD_COMMAND in section, f"{rel} {heading}: the headless default is not recorded as a decision"
+
+
+# #1166 enhancement-1: a headless export records each warning it displays, under a code its site names.
+EXPORT_RUN_LOG_RULE = (
+    "- **Run log:** in a headless run, record each warning a step displays, under the code the step names: "
+    "`uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<code>: <skill>: <detail>'` "
+    "(`references/result-envelope.md`, Run Folder). A failed `record` never stops the run.")
+EXPORT_STEP_FILES = ("load-skill", "generate-snippet", "update-context")
+# "(code `x`)", "under code `x`" and "the codes `x`, `y` and `z`" at a display site.
+CODE_RE = re.compile(r"\bcodes? ((?:`[a-z_]+`(?:, | and )?)+)")
+EXPORT_SECTION_RE = re.compile(r"^###+ (\d+(?:\.\d+)?[a-z]?)\.", re.M)
+
+
+def _export_named_codes() -> dict[str, str]:
+    """Each code a step file names, with its site: `<step file> §<section>`."""
+    named = {}
+    for stem in EXPORT_STEP_FILES:
+        text = _read(EXPORT / "references" / f"{stem}.md")
+        for m in CODE_RE.finditer(text):
+            section = EXPORT_SECTION_RE.findall(text[:m.start()])[-1]
+            for code in re.findall(r"`([a-z_]+)`", m.group(1)):
+                assert code not in named, f"{code} is named twice"
+                named[code] = f"{stem} §{section}"
+    return named
+
+
+def _export_listed_codes() -> dict[str, str]:
+    """Each code the Run Folder section of result-envelope.md lists, with the site it gives."""
+    text = _read(EXPORT / "references" / "result-envelope.md")
+    run_folder = text[text.index("## Run Folder"):text.index("## Emission rule")]
+    listed = {}
+    for line in run_folder.splitlines():
+        m = re.match(r"^- ((?:`[a-z_]+`(?:, | and )?)+): ([a-z-]+ §\w+)", line)
+        if m:
+            for code in re.findall(r"`([a-z_]+)`", m.group(1)):
+                listed[code] = m.group(2)
+    return listed
+
+
+def test_the_export_run_log_rule_records_each_displayed_warning():
+    skill = _read(EXPORT / "SKILL.md")
+    rules = skill[skill.index("## Workflow Rules"):skill.index("## Stages")]
+    lines = rules.splitlines()
+    assert EXPORT_RUN_LOG_RULE in lines
+    assert lines[lines.index(EXPORT_RUN_LOG_RULE) - 1].startswith("- Every HALT names its exit code"), \
+        "the rule follows the HALT rule"
+    headless = next(line for line in _read(EXPORT_CONTRACT).splitlines() if line.startswith("| **Headless** |"))
+    assert "each warning a step displays is recorded too (SKILL.md Workflow Rules)" in headless
+    text = _read(EXPORT / "references" / "result-envelope.md")
+    run_folder = text[text.index("## Run Folder"):text.index("## Emission rule")]
+    assert ("`<skill>` is the skill the warning names, `-` when it names none, and `<detail>` is the displayed text "
+            "on one line, with each `'` written as a backtick") in run_folder
+    # A test-report or gotchas warning says "this skill": it is recorded under the skill the step processes.
+    assert ("A warning about the skill a step is processing, such as \"This skill failed its last test\" or a gotchas "
+            "warning, names that skill, and a `'` in `<skill>` is written as a backtick too.") in run_folder
+
+
+def test_each_export_step_names_a_code_at_its_display_site():
+    load = _read(EXPORT / "references" / "load-skill.md")
+    assert '- `fail`: warn (code `test_report_fail`) "**Warning:** This skill failed its last test' in load
+    # Review of #1166: a report that records no verdict is a warning too, so a headless envelope carries it.
+    assert ('- no `testResult` (a result file that records no verdict): warn (code `test_report_no_verdict`) '
+            '"**Note:** This skill\'s last test report records no verdict.') in load
+    snippet = _read(EXPORT / "references" / "generate-snippet.md")
+    assert ("In the run log, these warnings take the codes `gotchas_left_off`, `gotchas_carried` and "
+            "`gotchas_dropped_stale`, in the order of the bullets.") in snippet
+    assert 'emit warning (code `snippet_trimmed`): "**{skill-name}: snippet trimmed to 300 tokens:**' in snippet
+    update = _read(EXPORT / "references" / "update-context.md")
+    assert ('- each `skipped_integrity[]` entry (code `managed_section_skipped_integrity`): "**Manifest integrity '
+            'warning:**') in update
+
+
+def test_the_run_folder_lists_every_code_the_steps_name_at_its_site():
+    named, listed = _export_named_codes(), _export_listed_codes()
+    assert named == listed
+    assert set(listed) == {
+        "unknown_ide", "test_report_fail", "test_report_pass_with_drift", "test_report_inconclusive",
+        "test_report_no_verdict", "test_report_not_found", "test_report_unchecked", "test_report_warning", "export_gate_warnings",
+        "gotchas_left_off", "gotchas_carried", "gotchas_dropped_stale", "snippet_trimmed", "orphan_context_malformed",
+        "managed_section_skipped_integrity", "managed_section_skipped_deprecated",
+        "managed_section_skipped_missing_snippet", "managed_section_skipped_malformed_snippet",
+        "managed_section_warning"}
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_the_run_log_command_records_the_detail_as_it_is(tmp_path):
+    """The rule's single quotes keep `$( )`, `$` and a backtick as text: bash expands none of them."""
+    skill = _read(EXPORT / "SKILL.md")
+    [rule] = [line for line in skill.splitlines() if line.startswith("- **Run log:**")]
+    [command] = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]*'<code>: <skill>: <detail>')`", rule)
+    detail = "SKF could not check this skill`s test report: $(touch pwned) cost $HOME and `id`"
+    run_dir = tmp_path / ".skf-run" / "skf-export-skill-abcd1234"
+    emitter = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
+    line = (command.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{emitter.as_posix()}"')
+            .replace("{run_dir}", run_dir.as_posix())
+            .replace("<code>", "test_report_unchecked").replace("<skill>", "zod").replace("<detail>", detail))
+    proc = subprocess.run(["bash", "-c", line], capture_output=True, text=True, encoding="utf-8", timeout=60,
+                          cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    [recorded] = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
+    assert json.loads(recorded) == f"test_report_unchecked: zod: {detail}"
+    assert not (tmp_path / "pwned").exists()
 
 
 # ─── every subagent and long-running command is waited for ─────────────────

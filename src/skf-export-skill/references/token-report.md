@@ -1,13 +1,11 @@
 ---
 nextStepFile: 'summary.md'
-# SKILL.md's On Activation resolved {countTokensHelper}. It emits per-artifact
-# word and token metrics as JSON, so this step renders exact numbers instead of
-# word-counting every file in the prompt.
+# SKILL.md's On Activation resolved {countTokensHelper}.
 ---
 
 <!-- Config: communicate in {communication_language}. Render the token report in {document_output_language}. -->
 
-# Step 5: Token Report
+# Step 4: Token Report
 
 ## STEP GOAL:
 
@@ -15,9 +13,9 @@ To calculate approximate token counts for all exported artifacts and present a c
 
 ## Rules
 
-- Focus only on token counting and reporting — read-only measurement
+- Focus only on token counting and reporting: this step writes nothing, and deletes only a dry run's stage folder (§3)
 - Auto-proceed when complete
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), run the helper once per skill, then present one aggregate table with one row per skill (context-snippet.md, SKILL.md, metadata.json, references/, package total) and the Context Budget Impact per skill (its `context_budget.on_trigger`, `full_disclosure` and `snippet`). The `managed_section` and `context_budget.always_on` values are identical across runs (same target files): measure and report them once for the run. See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), run the helper once per skill, then present one aggregate table with one row per skill (context-snippet.md, SKILL.md, metadata.json, references/, package total) and the Context Budget Impact per skill (its `context_budget.on_trigger`, `full_disclosure` and `snippet`). The `managed_section` and `context_budget.always_on` values are identical across runs (same target files): measure and report them once for the run.
 
 ## MANDATORY SEQUENCE
 
@@ -31,23 +29,15 @@ python3 {countTokensHelper} {resolved_skill_package} --target-file {context_file
 
 Pass one `--target-file` per entry in `target_context_files` (resolved in step 1). The helper measures the managed section from the first target file that contains a `<!-- SKF:BEGIN -->…<!-- SKF:END -->` block.
 
-The helper emits JSON:
+**On a dry run with passive context on**, nothing was written, so measure what this run staged: the skill's draft, and the body step 3 §4b staged for the first entry of `target_context_files` (`{context_file_1}`), which the helper wraps in markers as §9 would write it:
 
-```json
-{
-  "files": [{"path": "…", "role": "…", "exists": true, "words": 0, "tokens": 0}],
-  "references_total": {"count": 0, "words": 0, "tokens": 0},
-  "managed_section": {"present": true, "source_file": "…", "target_files": ["…"], "skills": 0, "words": 0, "tokens": 0},
-  "package_total": {"words": 0, "tokens": 0},
-  "context_budget": {"always_on": 0, "on_trigger": 0, "full_disclosure": 0, "snippet": 0}
-}
+```bash
+python3 {countTokensHelper} {resolved_skill_package} --snippet "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" --section-file "{export_stage_dir}/previews/{context_file_1}.skf-content" --target-file {context_file_1} --target-file {context_file_2}
 ```
 
-**Read the JSON — do not re-count words in-prompt.** Each `tokens` value is a char-over-four estimate (`len(text)//4`, the SKF-wide convention shared with `skf-validate-output.py`); each `words` value is the whitespace-split count for the report's Words column. The `files` array carries one row per artifact — `role` is one of `context-snippet`, `skill-md`, `metadata`, `reference`. `package_total` already sums context-snippet.md + SKILL.md + metadata.json + `references_total` and **excludes** the `managed_section` row: the managed section is a shared all-skills cost (it bundles this skill's snippet plus every other skill's snippet), so folding it in would double-count this skill's snippet and pull in unrelated skills. It is reported separately under Context Budget Impact.
+Each `tokens` value is a char-over-four estimate (`len(text)//4`, the SKF-wide convention shared with `skf-validate-output.py`); each `words` value is the whitespace-split count for the report's Words column.
 
-`managed_section.skills` counts the skill rows (each `[name v…]` row header, as the managed-section rebuild counts them) in the measured block. `managed_section.target_files` lists every target file that holds a block, each once, and `managed_section.source_file` names the one the helper measured, the first of them; a target file that cannot be read is skipped. `context_budget` gives the Context Budget Impact values, in tokens: `always_on` is the managed section's (null when no target file holds a block: render it as N/A), `on_trigger` SKILL.md's, `full_disclosure` SKILL.md's plus `references_total.tokens` (what an agent loads when it reads every reference too: neither the snippet nor metadata.json, so it is not `package_total`), and `snippet` the context-snippet.md row's.
-
-**If `passive_context` was disabled:** the helper reports the `context-snippet.md` row with `exists: false` and `managed_section.present: false`: render both rows, the always-on cost and the benchmark as "N/A (disabled)".
+**If `passive_context` was disabled:** run `python3 {countTokensHelper} {resolved_skill_package} --no-snippet`, with no `--target-file`, so it reports no `context-snippet.md` row and no managed section whatever is on disk, and render the context-snippet.md and Managed section rows, the always-on cost and the benchmark as "N/A (disabled)", since `{passive_context}` is false.
 
 ### 2. Present Token Report
 
@@ -63,7 +53,7 @@ Render the report straight from the helper JSON, with no re-counting. In each ta
 The Context Budget Impact lines, per skill in multi-skill mode (the always-on cost once for the run):
 
 - `{managed-section-tokens}` ← `context_budget.always_on`, the managed section's tokens (N/A when null)
-- `{measured-file}` ← `managed_section.source_file`, the target file the helper measured
+- `{measured-file}` ← `managed_section.source_file`, the target file the helper measured; on a dry run, which measures the staged preview, `{context_file_1}` instead
 - `{skill-tokens}` ← `context_budget.on_trigger`, SKILL.md's tokens
 - `{total-tokens}` ← `context_budget.full_disclosure`, SKILL.md's tokens plus `references_total.tokens` (never `package_total`, which also counts the snippet and metadata.json)
 - `{snippet-tokens}` ← `context_budget.snippet`, the context-snippet.md row's tokens
@@ -96,6 +86,8 @@ The Context Budget Impact lines, per skill in multi-skill mode (the always-on co
 **Benchmark:** Target is ~80-120 tokens per skill in managed section."
 
 ### 3. Proceed to Summary
+
+On a dry run with passive context on, delete the `{export_stage_dir}` folder.
 
 Display: "**Proceeding to export summary...**"
 

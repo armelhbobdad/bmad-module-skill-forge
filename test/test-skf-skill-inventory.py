@@ -3455,3 +3455,150 @@ def test_test_skill_reads_a_failed_near_list_as_no_list(tmp_path):
     not_found = init[init.index("**Not found** (step 4)"):init.index("**If SKILL.md missing**")]
     assert "When the helper exits non-zero, or `near[]` is absent or empty" in not_found
     assert "show no list, only that create-skill line" in not_found
+
+
+# --------------------------------------------------------------------------
+# #1163: `exportable` lists the skills export-skill's menu and `--all` offer
+# --------------------------------------------------------------------------
+
+
+def _exportable_fixture(tmp_path: Path, manifest=None) -> Path:
+    """zod and old exported (linked, with a snippet), fresh only on disk, module not SKF output."""
+    skills = tmp_path / "skills"
+    for name, version in (("zod", "1.0.0"), ("old", "2.0.0"), ("fresh", "0.1.0")):
+        pkg = _make_version(skills, name, version, MARKED)
+        _write(pkg / "context-snippet.md", f"[{name} v{version}]|root: skills/{name}/\n")
+        _link_active(skills / name / "active", version)
+    _make_flat(skills, "module")
+    if manifest is not None:
+        _write(skills / ".export-manifest.json", manifest)
+    return skills
+
+
+def _v2(*deprecated: str, **versions: str) -> dict:
+    return {"schema_version": "2", "updated_at": "2026-11-01T00:00:00Z", "exports": {
+        name: {"active_version": version, "versions": {version: {
+            "ides": [], "last_exported": "2026-11-01T00:00:00Z",
+            "status": "deprecated" if name in deprecated else "active"}}}
+        for name, version in versions.items()}}
+
+
+EXPORTED = _v2("old", zod="1.0.0", old="2.0.0")
+
+
+def _exportable(skills: Path, all_skills: bool = False) -> dict:
+    """The in-process result, checked against the CLI's for the same folder."""
+    result = mod.exportable_skills(str(skills), all_skills=all_skills)
+    code, out, _ = _run_inventory("exportable", str(skills), *(["--all"] if all_skills else []))
+    assert out == json.loads(json.dumps(result)), "the CLI prints what the function returns"
+    assert code == (0 if result["status"] == "ok" else 1), result
+    return result
+
+
+def _named(result: dict) -> list[tuple[str, str]]:
+    return [(item["name"], item["source"]) for item in result["skills"]]
+
+
+class TestExportable:
+    def test_the_menu_leaves_out_a_deprecated_skill_still_on_disk(self, tmp_path):
+        skills = _exportable_fixture(tmp_path, EXPORTED)
+        out = _exportable(skills)
+        assert _named(out) == [("fresh", "disk"), ("zod", "manifest")]
+        assert (out["deprecated"], out["not_skf_output"]) == (["old"], ["module"])
+        zod = out["skills"][1]
+        assert zod["active_version"] == "1.0.0"
+        assert Path(zod["snippet_path"]) == skills / "zod" / "1.0.0" / "zod" / "context-snippet.md"
+        assert Path(out["skills_folder"]) == skills
+
+    def test_all_takes_the_manifest_set_once_the_manifest_lists_a_skill(self, tmp_path):
+        out = _exportable(_exportable_fixture(tmp_path, EXPORTED), all_skills=True)
+        assert _named(out) == [("zod", "manifest")]
+        assert (out["deprecated"], out["not_skf_output"]) == (["old"], ["module"])
+
+    @pytest.mark.parametrize("manifest", [None, {"schema_version": "2", "exports": {}}],
+                             ids=["no-manifest", "empty-exports"])
+    def test_a_first_export_takes_every_skf_skill_on_disk(self, tmp_path, manifest):
+        out = _exportable(_exportable_fixture(tmp_path, manifest), all_skills=True)
+        assert _named(out) == [("fresh", "disk"), ("old", "disk"), ("zod", "disk")]
+        assert (out["deprecated"], out["not_skf_output"]) == ([], ["module"])
+
+    def test_all_lists_nothing_when_every_entry_is_deprecated(self, tmp_path):
+        skills = _exportable_fixture(tmp_path, _v2("old", "zod", zod="1.0.0", old="2.0.0"))
+        out = _exportable(skills, all_skills=True)
+        assert (out["skills"], out["deprecated"]) == ([], ["old", "zod"])
+        assert _named(_exportable(skills)) == [("fresh", "disk")], "the menu still offers the disk skill"
+
+    def test_a_v1_deprecated_entry_reads_as_deprecated(self, tmp_path):
+        v1 = {"updated_at": "2026-11-01T00:00:00Z", "exports": {
+            "old": {"active_version": "2.0.0", "versions": ["1.0.0", "2.0.0"], "deprecated": True},
+            "zod": {"active_version": "1.0.0", "versions": ["1.0.0"]}}}
+        out = _exportable(_exportable_fixture(tmp_path, v1))
+        assert _named(out) == [("fresh", "disk"), ("zod", "manifest")]
+        assert out["deprecated"] == ["old"]
+
+    @pytest.mark.parametrize("with_snippet", [True, False], ids=["snippet", "no-snippet"])
+    def test_a_flat_skf_skill_is_a_disk_entry_with_no_version(self, tmp_path, with_snippet):
+        skills = tmp_path / "skills"
+        extra = ("context-snippet.md",) if with_snippet else ()
+        _make_flat(skills, "flatlib", metadata=MARKED, extra=extra)
+        _make_flat(skills, "module")
+        out = _exportable(skills)
+        [entry] = out["skills"]
+        assert (entry["name"], entry["source"], entry["active_version"]) == ("flatlib", "disk", None)
+        expected = skills / "flatlib" / "context-snippet.md" if with_snippet else None
+        assert (Path(entry["snippet_path"]) if entry["snippet_path"] else None) == expected
+        assert out["not_skf_output"] == ["module"]
+
+    def test_an_older_deprecated_version_leaves_the_skill_listed(self, tmp_path):
+        """Only the active version's status counts: drop-skill can deprecate one older version."""
+        manifest = {"schema_version": "2", "exports": {"zod": {"active_version": "1.0.0", "versions": {
+            "0.9.0": {"status": "deprecated"}, "1.0.0": {"status": "active"}}}}}
+        skills = _exportable_fixture(tmp_path, manifest)
+        out = _exportable(skills)
+        assert _named(out) == [("fresh", "disk"), ("old", "disk"), ("zod", "manifest")]
+        assert out["deprecated"] == []
+        out = _exportable(skills, all_skills=True)
+        assert (_named(out), out["deprecated"]) == ([("zod", "manifest")], [])
+
+    def test_a_disk_skill_needs_an_active_link_unless_it_is_flat(self, tmp_path):
+        """A marked version with no `active` link is no disk entry; a flat SKF skill with no version is one."""
+        skills = tmp_path / "skills"
+        _make_version(skills, "unlinked", "1.0.0", MARKED)
+        _make_flat(skills, "flatdocs", metadata=MARKED, subdirs=("docs/flatdocs",))
+        [flat] = [s for s in mod.scan_inventory(skills)["skills"] if s["name"] == "flatdocs"]
+        assert (flat["flat_skf"], flat["active_version"]) == (True, None), "the scan names no version for it"
+        for all_skills in (False, True):
+            out = _exportable(skills, all_skills=all_skills)
+            assert _named(out) == [("flatdocs", "disk")], all_skills
+            assert out["skills"][0]["active_version"] is None
+            assert (out["deprecated"], out["not_skf_output"]) == ([], []), all_skills
+
+    def test_a_manifest_entry_whose_folder_has_no_marker_is_offered_not_skipped(self, tmp_path):
+        skills = _exportable_fixture(tmp_path, _v2(zod="1.0.0", module="1.0.0"))
+        out = _exportable(skills)
+        assert _named(out) == [("fresh", "disk"), ("module", "manifest"), ("old", "disk"), ("zod", "manifest")]
+        assert out["not_skf_output"] == [], "a skill the menu offers is not on the Skipped line"
+        out = _exportable(skills, all_skills=True)
+        assert (_named(out), out["not_skf_output"]) == ([("module", "manifest"), ("zod", "manifest")], [])
+
+    @pytest.mark.parametrize("content", [b"{not json", b"[]", b'{"exports": []}', b'{"exports": null}'],
+                             ids=["not-json", "list", "exports-list", "exports-null"])
+    def test_a_manifest_it_cannot_read_fails_closed(self, tmp_path, content):
+        out = _exportable(_exportable_fixture(tmp_path, content))
+        assert (out["status"], out["code"]) == ("error", "MANIFEST_UNREADABLE")
+        assert "skills" not in out
+
+    def test_a_missing_folder_lists_nothing_and_a_file_is_not_a_folder(self, tmp_path):
+        out = _exportable(tmp_path / "missing")
+        assert (out["status"], out["skills"], out["deprecated"], out["not_skf_output"]) == ("ok", [], [], [])
+        _write(tmp_path / "file")
+        out = _exportable(tmp_path / "file", all_skills=True)
+        assert (out["status"], out["code"]) == ("error", "DIR_NOT_FOUND")
+
+    def test_usage_errors_name_the_action(self, tmp_path):
+        skills = _exportable_fixture(tmp_path, EXPORTED)
+        for argv in (["exportable"], ["exportable", "--all"], ["exportable", str(skills), "--bogus"],
+                     ["exportable", str(skills), "--all", "--all"], ["exportable", str(skills), "extra"]):
+            code, out, err = _run_inventory(*argv)
+            assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+            assert "Usage:" in err and "exportable <skills-output-folder> [--all]" in err, argv

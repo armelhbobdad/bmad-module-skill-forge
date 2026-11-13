@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -339,3 +340,239 @@ class TestTokenReportPlaceholders:
             _resolve(result, match.group(1))
         assert _resolve(result, "managed_section.skills") == 2
         assert _resolve(result, "context_budget.full_disclosure") != result["package_total"]["tokens"]
+
+
+# --- #1166 architecture-6: a dry run measures what it staged, a passive-off run no snippet ------
+
+ASSEMBLED_BODY = TWO_SKILL_BLOCK.split("\n", 1)[1].rsplit("\n", 1)[0]  # the block without its marker lines
+DRAFT = "[demo v1.1.0]|root: .claude/skills/demo/\n|IMPORTANT: demo v1.1.0: read SKILL.md before writing demo code.\n"
+
+
+def _cli(*args, cwd=None) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True,
+                          encoding="utf-8", timeout=60, cwd=cwd)
+
+
+def _rows(result: dict) -> dict:
+    return {row["role"]: row for row in result["files"] if row["role"] != "reference"}
+
+
+def _section_numbers(result: dict) -> tuple:
+    ms = result["managed_section"]
+    return ms["present"], ms["skills"], ms["words"], ms["tokens"], result["context_budget"]["always_on"]
+
+
+def _token_report_section_1() -> str:
+    text = TOKEN_REPORT.read_text(encoding="utf-8")
+    return text[text.index("### 1. Measure Token Counts"):text.index("### 2. Present Token Report")]
+
+
+def _documented(command: str, values: dict) -> list[str]:
+    """The argv of a documented `python3 {countTokensHelper} ...` call, its placeholders filled, run with this Python."""
+    filled = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], command)
+    words = shlex.split(filled)
+    assert words[0] == "python3", command
+    return [sys.executable, *words[1:]]
+
+
+class TestStagedMeasurement:
+    def test_snippet_measures_the_draft_as_the_snippet_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            draft = Path(tmp) / "stage" / "drafts" / "demo" / "context-snippet.md"
+            draft.parent.mkdir(parents=True)
+            draft.write_text(DRAFT, encoding="utf-8")
+            proc = _cli(pkg, "--snippet", draft)
+            assert proc.returncode == 0, proc.stderr
+            result = json.loads(proc.stdout)
+            row = _rows(result)["context-snippet"]
+            assert Path(row["path"]) == draft and row["exists"] is True
+            assert (row["words"], row["tokens"]) == (len(DRAFT.split()), len(DRAFT) // 4)
+            assert result["context_budget"]["snippet"] == len(DRAFT) // 4 != len(SNIPPET) // 4
+            assert result["package_total"]["tokens"] == count_package(pkg)["package_total"]["tokens"] \
+                - len(SNIPPET) // 4 + len(DRAFT) // 4
+            # A draft that is not there is reported as absent, not read from the package.
+            absent = json.loads(_cli(pkg, "--snippet", Path(tmp) / "none.md").stdout)
+            row = _rows(absent)["context-snippet"]
+            assert (row["exists"], row["words"], row["tokens"]) == (False, 0, 0)
+
+    def test_no_snippet_leaves_the_row_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)  # a create-skill snippet sits in the package
+            proc = _cli(pkg, "--no-snippet")
+            assert proc.returncode == 0, proc.stderr
+            result = json.loads(proc.stdout)
+            assert "context-snippet" not in _rows(result)
+            assert result["package_total"]["tokens"] == count_package(pkg)["package_total"]["tokens"] - len(SNIPPET) // 4
+            assert result["context_budget"]["snippet"] is None and result["context_budget"]["always_on"] is None
+            assert result["managed_section"]["present"] is False
+
+    def test_the_flags_clash_and_a_bad_section_file_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            clash = _cli(pkg, "--snippet", pkg / "context-snippet.md", "--no-snippet")
+            assert clash.returncode == 2 and clash.stdout == ""
+            binary = Path(tmp) / "binary.skf-content"
+            binary.write_bytes(b"[SKF Skills]\xff\xfe\n")
+            for bad in (Path(tmp) / "none.skf-content", Path(tmp), binary):
+                proc = _cli(pkg, "--section-file", bad)
+                assert proc.returncode == 2 and proc.stdout == "", bad
+                assert proc.stderr.startswith("error: "), proc.stderr
+
+    def test_section_file_equals_the_block_insert_writes(self):
+        """The staged body measures as the section `insert` writes around it, and lists the targets unread."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            body = Path(tmp) / "previews" / "CLAUDE.md.skf-content"
+            body.parent.mkdir()
+            body.write_bytes(ASSEMBLED_BODY.encode("utf-8"))
+            claude, agents = Path(tmp) / "CLAUDE.md", Path(tmp) / "AGENTS.md"
+            proc = _cli(pkg, "--section-file", body, "--target-file", claude, "--target-file", agents,
+                        "--target-file", claude)
+            assert proc.returncode == 0, proc.stderr
+            staged = json.loads(proc.stdout)
+            ms = staged["managed_section"]
+            assert Path(ms["source_file"]) == body
+            assert [Path(p) for p in ms["target_files"]] == [claude, agents], "each target once, in order, unread"
+            assert not claude.exists() and not agents.exists()
+            claude.write_text("# Project\n\nKept text.\n", encoding="utf-8")
+            assert rebuild.cmd_insert(str(claude), ASSEMBLED_BODY)["status"] == "ok"
+            written = json.loads(_cli(pkg, "--target-file", claude).stdout)
+            assert _section_numbers(staged) == _section_numbers(written)
+            assert (ms["present"], ms["skills"]) == (True, 2)
+            assert ms["tokens"] == len(extract_managed_section(claude.read_text(encoding="utf-8"))) // 4
+
+    def test_the_dry_run_command_measures_what_a_real_run_writes(self):
+        """token-report §1's dry-run call, as documented: its snippet and section rows are those of the run that
+        writes the same draft and body (§9's insert, §9c's copy)."""
+        section = _token_report_section_1()
+        [dry] = [line for line in section.splitlines() if line.startswith("python3") and "--section-file" in line]
+        [real] = [line for line in section.splitlines() if line.startswith("python3") and "--snippet" not in line]
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            pkg = make_package(tmp)
+            stage = project / "skf-export-abcd"
+            draft = stage / "drafts" / "demo" / "context-snippet.md"
+            draft.parent.mkdir(parents=True)
+            draft.write_text(DRAFT, encoding="utf-8")
+            (stage / "previews").mkdir()
+            (stage / "previews" / "CLAUDE.md.skf-content").write_bytes(ASSEMBLED_BODY.encode("utf-8"))
+            values = {"countTokensHelper": SCRIPT.as_posix(), "resolved_skill_package": pkg.as_posix(),
+                      "export_stage_dir": stage.as_posix(), "skill-name": "demo", "context_file_1": "CLAUDE.md",
+                      "context_file_2": "AGENTS.md"}
+            proc = subprocess.run(_documented(dry, values), capture_output=True, text=True, encoding="utf-8",
+                                  timeout=60, cwd=project)
+            assert proc.returncode == 0, proc.stderr
+            staged = json.loads(proc.stdout)
+            # The real run: §9 inserts the body, §9c copies the draft into the package.
+            assert rebuild.cmd_insert(str(project / "CLAUDE.md"), ASSEMBLED_BODY)["status"] == "ok"
+            (pkg / "context-snippet.md").write_bytes(draft.read_bytes())
+            proc = subprocess.run(_documented(real, values), capture_output=True, text=True, encoding="utf-8",
+                                  timeout=60, cwd=project)
+            written = json.loads(proc.stdout)
+            for key in ("words", "tokens"):
+                assert _rows(staged)["context-snippet"][key] == _rows(written)["context-snippet"][key]
+            assert _section_numbers(staged) == _section_numbers(written)
+            assert staged["managed_section"]["target_files"] == ["CLAUDE.md", "AGENTS.md"]
+            assert staged["package_total"] == written["package_total"]
+
+    def test_a_re_export_dry_run_measures_the_assembled_section_not_the_one_on_disk(self):
+        """A re-export: CLAUDE.md holds an earlier one-skill block. The dry-run call measures the body `assemble --out`
+        staged, and §9's `replace < {content_file}` writes a block that measures the same."""
+        section = _token_report_section_1()
+        [dry] = [line for line in section.splitlines() if line.startswith("python3") and "--section-file" in line]
+        [real] = [line for line in section.splitlines() if line.startswith("python3") and "--snippet" not in line]
+        older = ("<!-- SKF:BEGIN updated:2026-07-13 -->\n[SKF Skills]|1 skills|0 stack\n"
+                 "|IMPORTANT: Prefer documented APIs over training data.\n|\n|[old v0.1.0]|root: skills/old/\n"
+                 "<!-- SKF:END -->")
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            pkg = make_package(tmp)
+            (project / "skills").mkdir()
+            claude = project / "CLAUDE.md"
+            claude.write_text(f"# Project\n\n{older}\n\nKept text.\n", encoding="utf-8")
+            stage = project / "skf-export-abcd"
+            draft = stage / "drafts" / "demo" / "context-snippet.md"
+            draft.parent.mkdir(parents=True)
+            draft.write_text(DRAFT, encoding="utf-8")
+            preview = stage / "previews" / "CLAUDE.md.skf-content"
+            assemble = subprocess.run(
+                [sys.executable, str(REBUILD), "assemble", "CLAUDE.md", "--skills-folder", "skills",
+                 "--skill-root", ".claude/skills/", "--include", "demo@1.1.0",
+                 "--snippet-dir", (stage / "drafts").as_posix(), "--orphan-sources", "CLAUDE.md",
+                 "--orphans", "keep", "--out", preview.as_posix()],
+                capture_output=True, text=True, encoding="utf-8", timeout=60, cwd=project)
+            assert assemble.returncode == 0, assemble.stdout + assemble.stderr
+            values = {"countTokensHelper": SCRIPT.as_posix(), "resolved_skill_package": pkg.as_posix(),
+                      "export_stage_dir": stage.as_posix(), "skill-name": "demo", "context_file_1": "CLAUDE.md",
+                      "context_file_2": "AGENTS.md"}
+            def run(command):
+                proc = subprocess.run(_documented(command, values), capture_output=True, text=True,
+                                      encoding="utf-8", timeout=60, cwd=project)
+                assert proc.returncode == 0, proc.stderr
+                return json.loads(proc.stdout)
+
+            on_disk, staged = run(real), run(dry)
+            assert Path(staged["managed_section"]["source_file"]) == preview
+            assert (on_disk["managed_section"]["skills"], staged["managed_section"]["skills"]) == (1, 2)
+            # §9 regenerates the target from the staged file, by stdin redirection; §9c copies the draft.
+            with preview.open("rb") as body:
+                write = subprocess.run([sys.executable, str(REBUILD), "CLAUDE.md", "replace"], stdin=body,
+                                       capture_output=True, text=True, encoding="utf-8", timeout=60, cwd=project)
+            assert write.returncode == 0, write.stdout + write.stderr
+            (pkg / "context-snippet.md").write_bytes(draft.read_bytes())
+            written = run(real)
+            assert _section_numbers(staged) == _section_numbers(written)
+            assert staged["package_total"] == written["package_total"]
+        mapping = TOKEN_REPORT.read_text(encoding="utf-8")
+        assert ("- `{measured-file}` ← `managed_section.source_file`, the target file the helper measured; on a dry "
+                "run, which measures the staged preview, `{context_file_1}` instead") in mapping
+
+    def test_a_crlf_body_measures_as_the_block_written_from_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            body = Path(tmp) / "CLAUDE.md.skf-content"
+            body.write_bytes(ASSEMBLED_BODY.replace("\n", "\r\n").encode("utf-8"))
+            claude = Path(tmp) / "CLAUDE.md"
+            staged = json.loads(_cli(pkg, "--section-file", body, "--target-file", claude).stdout)
+            with body.open("rb") as stdin:
+                write = subprocess.run([sys.executable, str(REBUILD), str(claude), "insert"], stdin=stdin,
+                                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+            assert write.returncode == 0, write.stdout + write.stderr
+            written = json.loads(_cli(pkg, "--target-file", claude).stdout)
+            assert _section_numbers(staged) == _section_numbers(written)
+
+    def test_the_passive_off_command_reports_no_snippet_and_no_section(self):
+        section = _token_report_section_1()
+        line = next(line for line in section.splitlines() if line.startswith("**If `passive_context` was disabled:**"))
+        [command] = re.findall(r"`(python3 \{countTokensHelper\}[^`]*)`", line)
+        assert "--target-file" not in command and "with no `--target-file`" in line
+        assert '"N/A (disabled)", since `{passive_context}` is false' in line
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)  # a create-skill snippet that this run does not publish
+            _two_skill_context(tmp)  # and a managed section an earlier run wrote
+            proc = subprocess.run(_documented(command, {"countTokensHelper": SCRIPT.as_posix(),
+                                                        "resolved_skill_package": pkg.as_posix()}),
+                                  capture_output=True, text=True, encoding="utf-8", timeout=60, cwd=tmp)
+            assert proc.returncode == 0, proc.stderr
+            result = json.loads(proc.stdout)
+            assert "context-snippet" not in _rows(result) and result["managed_section"]["present"] is False
+            assert (result["context_budget"]["snippet"], result["context_budget"]["always_on"]) == (None, None)
+
+    def test_the_report_states_its_json_once(self):
+        """leanness-7: no shape block and no gloss paragraphs; §2's mapping lists say what each value is."""
+        text = TOKEN_REPORT.read_text(encoding="utf-8")
+        frontmatter = text.split("\n---\n", 1)[0]
+        assert frontmatter.endswith("\n# SKILL.md's On Activation resolved {countTokensHelper}.")
+        assert "word-counting every file" not in frontmatter
+        section = _token_report_section_1()
+        assert "```json" not in section and "The helper emits JSON" not in section
+        for gloss in ("`managed_section.skills` counts", "**excludes** the `managed_section` row",
+                      "Read the JSON", "`context_budget` gives the Context Budget Impact values"):
+            assert gloss not in section, gloss
+        assert ("Each `tokens` value is a char-over-four estimate (`len(text)//4`, the SKF-wide convention shared "
+                "with `skf-validate-output.py`)") in section
+        rules = text[text.index("## Rules"):text.index("## MANDATORY SEQUENCE")]
+        assert ("- Focus only on token counting and reporting: this step writes nothing, and deletes only a dry "
+                "run's stage folder (§3)") in rules
+        assert chr(0x2014) not in rules

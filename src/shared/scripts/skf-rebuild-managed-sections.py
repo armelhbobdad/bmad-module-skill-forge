@@ -20,6 +20,16 @@ Actions:
                 `case`: create (no file), append (no section: insert),
                 regenerate (a section: replace), or, with status "error",
                 malformed or unreadable
+  diff --content-file FILE
+                Compare the section between the markers (empty for create
+                and append) with the body FILE holds: `case` as check gives
+                it, `header` {old, new} (each body's `[SKF Skills]` line or
+                null), `rows` {added, removed, changed} (rows pair by skill
+                name, or by name and version when a name has several rows on
+                one side; a changed pair gives both versions and both `root:`
+                values), and `unified`, a unified diff of the two bodies ("" when
+                they are equal). check's errors are its own; a FILE that is
+                missing, a folder or not UTF-8 text is an error too.
 
 replace and insert take only the body that goes between the markers: they
 write `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` around it
@@ -62,7 +72,7 @@ Action-first actions (the action name comes first):
                 as `orphan_managed_rows`. A file with malformed markers is
                 skipped and listed in `malformed_files`; an unreadable one is
                 an error.
-  root-probe <snippet-file>... --reference-root .claude/skills/
+  root-probe [<snippet-file>...] [--skills-folder DIR] --reference-root .claude/skills/
              [--project-root DIR]
                 Read each snippet's first line, parse its `root:` prefix
                 (trailing `{skill-name}/` stripped), collect the unique
@@ -73,7 +83,12 @@ Action-first actions (the action name comes first):
                 as no evidence: its skill is listed in `draft_roots`. With
                 --project-root, `disk_root` names the root under DIR that
                 holds every mismatched skill's SKILL.md (the reference first,
-                then the one observed prefix), or is null.
+                then the one observed prefix), or is null. With
+                --skills-folder, also probe DIR/{name}/{active_version}/{name}/
+                context-snippet.md for each export manifest entry whose
+                active_version has a `versions` record (deprecated ones too),
+                listed in name order in `snippet_files`; a manifest it cannot
+                read is an error. It needs a snippet file or --skills-folder.
   assemble <context-file> --skills-folder DIR --skill-root PREFIX
            [--skill-root-override PREFIX] [--include NAME@VERSION]...
            [--snippet NAME=FILE]... [--snippet-dir DIR] [--renamed OLD:NEW]
@@ -125,11 +140,36 @@ Action-first actions (the action name comes first):
                 or AGENTS.md). `ides_written` is the union of targets[].ides
                 over the files written; `other_context_files` lists the known
                 context files no target names.
+  gotchas prior <snippet> --skills-folder DIR --skill NAME
+  gotchas resolve <snippet> --skills-folder DIR --skill NAME --judgments FILE
+                Read and write a skill's `|gotchas:` line, so no caller
+                splits, marks or counts it. prior reads the snippet's first
+                `|gotchas:` line into `prior_gotchas`, each pitfall {text,
+                already_carried, read_whole} (null for no snippet, no line or
+                an empty one): it splits on each `; ` outside code spans and
+                parentheses, a leading `[CARRIED]` marks a pitfall already
+                carried, and a value of more than 3 pitfalls is one pitfall,
+                read whole. It reads the first `|api:` line into `prior_api`,
+                each name once as {name, parens}, and sets `is_first_export`
+                when the export manifest (read through skf-manifest-ops.py)
+                records no `last_exported` for the skill. resolve reads the
+                same, and a JSON judgments file {"backed": [one boolean per
+                prior pitfall], "new_gotchas": [in source order]}, and returns
+                {line, is_first_export, left_off, carried, dropped}: the backed
+                prior pitfalls, then the new gotchas, at most 3 (the new ones
+                past them in left_off), then each unbacked prior pitfall in a
+                free slot, marked `[CARRIED]` on a re-export (carried), or
+                dropped when it was already carried on a re-export or no slot
+                is left. Every pitfall it writes has each `; ` outside a code
+                span written as `, `; line is null when it writes none. A
+                snippet that is a folder or not UTF-8, a manifest it cannot
+                read and a judgments file it cannot use are errors.
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
 import importlib.util
 import json
 import os
@@ -534,6 +574,108 @@ def parse_managed_rows(body):
     return rows
 
 
+def _row_root(snippet_text):
+    """The `root:` value of a row's first line as written, else None."""
+    match = SNIPPET_ROOT_PATTERN.search(snippet_text.split("\n", 1)[0])
+    return match.group("root") if match else None
+
+
+def _section_header(body):
+    """The first line of `body` that starts with `[SKF Skills]`, else None."""
+    return next((line for line in body.split("\n") if line.startswith("[SKF Skills]")), None)
+
+
+def _pair_rows(old_rows, new_rows):
+    """(added, removed, changed) between two bodies' rows, each in skill-name order.
+
+    Rows pair by skill name. A name with several rows on one side pairs by name
+    and version instead, and its rows left without a partner are added or
+    removed. A pair whose text differs is changed.
+    """
+
+    def by_name(rows):
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(row["skill_name"], []).append(row)
+        return grouped
+
+    def lone(row):
+        return {"skill_name": row["skill_name"], "version": row["version"], "root": _row_root(row["snippet_text"])}
+
+    old_by_name, new_by_name = by_name(old_rows), by_name(new_rows)
+    added, removed, changed = [], [], []
+    for name in sorted(set(old_by_name) | set(new_by_name)):
+        olds, news = old_by_name.get(name, []), new_by_name.get(name, [])
+        if len(olds) == 1 and len(news) == 1:
+            pairs, left_old, left_new = [(olds[0], news[0])], [], []
+        else:
+            pairs, left_old, left_new = [], list(olds), []
+            for new in news:
+                at = next((i for i, old in enumerate(left_old) if old["version"] == new["version"]), None)
+                if at is None:
+                    left_new.append(new)
+                else:
+                    pairs.append((left_old.pop(at), new))
+        for old, new in pairs:
+            if old["snippet_text"] != new["snippet_text"]:
+                changed.append(
+                    {
+                        "skill_name": name,
+                        "old_version": old["version"],
+                        "new_version": new["version"],
+                        "old_root": _row_root(old["snippet_text"]),
+                        "new_root": _row_root(new["snippet_text"]),
+                    }
+                )
+        removed += [lone(row) for row in left_old]
+        added += [lone(row) for row in left_new]
+    return added, removed, changed
+
+
+def cmd_diff(file_path, content_file):
+    """Compare the managed section of `file_path` with the body in `content_file`.
+
+    `case` and its errors are check's. The old body is the section between the
+    markers without the newline after the BEGIN marker and the one before the
+    END marker, as replace writes it, and empty for create and append. The
+    unified diff runs it on to the last END marker section_end takes in, so it
+    shows the nested marker lines an older rebuild left that replace removes;
+    the rows come from the body the first marker pair holds.
+    """
+    checked = cmd_check(file_path)
+    if checked["status"] != "ok":
+        return checked
+    new, err = read_context_file(content_file)
+    if err:
+        return {"status": "error", "error": err}
+    old = section = ""
+    if checked["case"] == "regenerate":
+        content, err = read_context_file(file_path)
+        if err:
+            return {"status": "error", "error": err}
+        match = find_managed_section(content)
+        if match:
+            old = match.group(2).removeprefix("\n").removesuffix("\n")
+            end = section_end(content, match) - len(END_MARKER)
+            section = content[match.start(2) : end].removeprefix("\n").removesuffix("\n")
+    added, removed, changed = _pair_rows(parse_managed_rows(old), parse_managed_rows(new))
+    name = Path(file_path).name
+    unified = difflib.unified_diff(
+        section.split("\n") if section else [],
+        new.split("\n") if new else [],
+        fromfile=f"{name} (current)",
+        tofile=f"{name} (new)",
+        lineterm="",
+    )
+    return {
+        "status": "ok",
+        "case": checked["case"],
+        "header": {"old": _section_header(old), "new": _section_header(new)},
+        "rows": {"added": added, "removed": removed, "changed": changed},
+        "unified": "\n".join(unified),
+    }
+
+
 def _scan_rows(context_files, known_names):
     """Rows of skills outside `known_names` across `context_files`, the malformed files and the unreadable ones.
 
@@ -611,7 +753,7 @@ def _holds_skill(project_root, prefix, name):
     return (base / "SKILL.md").is_file() or (base / "active" / name / "SKILL.md").is_file()
 
 
-def cmd_root_probe(snippet_files, reference_root, project_root=None):
+def cmd_root_probe(snippet_files, reference_root, project_root=None, skills_folder=None):
     """Observe snippet root prefixes and flag mismatch against a reference.
 
     Reads the first line of each snippet that exists, parses its `root:` value,
@@ -626,11 +768,25 @@ def cmd_root_probe(snippet_files, reference_root, project_root=None):
     mismatched skills: `reference_root` when it holds every one, else the one
     observed prefix when only one was observed and it holds every one, else
     None (also when nothing mismatched).
+
+    With `skills_folder`, the snippet of each version its export manifest
+    records is probed too, `{name}/{active_version}/{name}/context-snippet.md`
+    for each entry `_active_version` accepts, and `snippet_files` lists those
+    paths in name order. A manifest `_read_manifest` cannot read is an error.
     """
+    built = []
+    if skills_folder is not None:
+        exports, err = _read_manifest(skills_folder)
+        if err:
+            return {"status": "error", "error": err}
+        for name in sorted(exports):
+            active, reason = _active_version(name, exports[name])
+            if reason is None:
+                built.append(str(Path(skills_folder) / name / active / name / "context-snippet.md"))
     observed = set()
     drafts = set()
     mismatched = []  # (skill name or None, prefix)
-    for sf in snippet_files:
+    for sf in [*built, *snippet_files]:
         content, err = read_context_file(sf)
         if err:
             continue  # a missing or unreadable snippet: skip
@@ -659,6 +815,8 @@ def cmd_root_probe(snippet_files, reference_root, project_root=None):
         "mismatched_skills": sorted({name for name, _ in mismatched if name}),
         "draft_roots": sorted(drafts),
     }
+    if skills_folder is not None:
+        result["snippet_files"] = built
     if project_root is not None:
         def held_by(prefix):
             return all(name and _holds_skill(project_root, prefix, name) for name, _ in mismatched)
@@ -1082,10 +1240,261 @@ def cmd_resolve_targets(ides_csv, context_file=None):
 
 
 # ---------------------------------------------------------------------------
+# gotchas: a snippet's `|gotchas:` line read back, and the judgments placed on it
+# ---------------------------------------------------------------------------
+
+GOTCHAS_LABEL = "|gotchas:"
+API_LABEL = "|api:"
+CARRIED_MARK = "[CARRIED]"
+GOTCHA_SEPARATOR = "; "
+# What a `; ` inside a pitfall is written as, so no pitfall holds the separator.
+GOTCHA_SEPARATOR_WRITTEN = ", "
+GOTCHA_SLOTS = 3
+
+
+def split_gotchas(value):
+    """The pieces a `|gotchas:` value splits into, before more than 3 are read as one.
+
+    A `; ` separates two pieces only outside a code span (an even number of
+    backticks before it) and outside parentheses (every `(` before it outside
+    a code span is closed before it: a `)` outside a code span closes the last
+    `(` still open, and one with no `(` open closes nothing). Any other `; `
+    stays inside its piece.
+    """
+    pieces, start, ticks, depth = [], 0, 0, 0
+    for i, char in enumerate(value):
+        if char == "`":
+            ticks += 1
+        elif ticks % 2 == 0 and char == "(":
+            depth += 1
+        elif ticks % 2 == 0 and char == ")":
+            depth = max(depth - 1, 0)
+        elif value.startswith(GOTCHA_SEPARATOR, i) and ticks % 2 == 0 and depth == 0:
+            pieces.append(value[start:i])
+            start = i + len(GOTCHA_SEPARATOR)
+    pieces.append(value[start:])
+    return pieces
+
+
+def _pitfall(piece):
+    """(text, already_carried) of one piece: stripped, its leading `[CARRIED]` marker removed."""
+    text = piece.strip()
+    carried = text.startswith(CARRIED_MARK)
+    return (text[len(CARRIED_MARK):].strip() if carried else text), carried
+
+
+def read_gotchas(value):
+    """The pitfalls of a `|gotchas:` value, in order, each {text, already_carried, read_whole}.
+
+    A piece left empty is no pitfall. A value that splits into more than 3
+    pitfalls comes from a line resolve never writes, such as an older or
+    hand-written one: the whole value is then one pitfall, `read_whole`, and
+    already carried when it starts with `[CARRIED]`.
+    """
+    pitfalls = [pitfall for pitfall in map(_pitfall, split_gotchas(value)) if pitfall[0]]
+    if len(pitfalls) > GOTCHA_SLOTS:
+        text, carried = _pitfall(value)
+        return [{"text": text, "already_carried": carried, "read_whole": True}]
+    return [{"text": text, "already_carried": carried, "read_whole": False} for text, carried in pitfalls]
+
+
+def _written(text):
+    """A pitfall as the line writes it: each `; ` outside a code span as `, ` (a code span keeps its `; `)."""
+    spans = text.split("`")
+    return "`".join(
+        span.replace(GOTCHA_SEPARATOR, GOTCHA_SEPARATOR_WRITTEN) if k % 2 == 0 else span for k, span in enumerate(spans)
+    )
+
+
+def write_gotchas(pitfalls):
+    """The `|gotchas:` value of (text, carried) pairs: each pitfall written, a carried one after `[CARRIED] `,
+    joined on `; `."""
+    return GOTCHA_SEPARATOR.join((CARRIED_MARK + " " if carried else "") + _written(text) for text, carried in pitfalls)
+
+
+def read_api(value):
+    """The names of an `|api:` value, in order, each {name, parens}.
+
+    `parens` is true for a name written with `()`, which is removed with its
+    spaces. Each name is kept once: its first place and its first mark win.
+    """
+    names = {}
+    for piece in (piece.strip() for piece in value.split(",")):
+        parens = piece.endswith("()")
+        name = piece[:-2].strip() if parens else piece
+        if name and name not in names:
+            names[name] = parens
+    return [{"name": name, "parens": parens} for name, parens in names.items()]
+
+
+def _line_value(content, label):
+    """The value of the first line that starts with `label`, leading whitespace aside: label removed, stripped."""
+    for line in content.splitlines():
+        text = line.lstrip()
+        if text.startswith(label):
+            return text[len(label):].strip()
+    return None
+
+
+def _first_export(skills_folder, skill):
+    """(is_first_export, None) from the export manifest, or (None, error).
+
+    True when the manifest has no entry for the skill, or no `versions` record
+    of it with a non-empty `last_exported`: the workflow that built or updated
+    the skill wrote its snippet, and no export has written one yet.
+    """
+    exports, err = _read_manifest(skills_folder)
+    if err:
+        return None, err
+    entry = exports.get(skill)
+    versions = entry.get("versions") if isinstance(entry, dict) else None
+    if not isinstance(versions, dict):
+        return True, None
+    return not any(isinstance(record, dict) and record.get("last_exported") for record in versions.values()), None
+
+
+def read_prior(snippet, skills_folder, skill):
+    """({prior_gotchas, prior_api, is_first_export}, None) for a skill's prior snippet, or (None, error).
+
+    A missing snippet is no prior snippet. `prior_gotchas` is null for no
+    snippet, no `|gotchas:` line or a value that holds no pitfall.
+    """
+    content, err = read_context_file(snippet)
+    if err and not is_missing(err):
+        return None, err
+    first, err = _first_export(skills_folder, skill)
+    if err:
+        return None, err
+    gotchas = _line_value(content, GOTCHAS_LABEL) if content is not None else None
+    api = _line_value(content, API_LABEL) if content is not None else None
+    return {
+        "prior_gotchas": (read_gotchas(gotchas) or None) if gotchas else None,
+        "prior_api": read_api(api) if api else [],
+        "is_first_export": first,
+    }, None
+
+
+def read_judgments(path, prior_count):
+    """({backed, new_gotchas}, None) from a judgments file, or (None, error).
+
+    The file is a UTF-8 JSON object (a BOM is allowed): `backed` holds one
+    boolean per prior pitfall, in order, and `new_gotchas` the new gotchas,
+    each a non-empty line that does not start with `[CARRIED]`.
+    """
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return None, f"the judgments file {path} does not exist: write it, then run resolve again"
+    except UnicodeDecodeError as e:
+        return None, f"the judgments file {path} is not UTF-8 text ({e}): write it as UTF-8"
+    except ValueError as e:
+        return None, f"the judgments file {path} is not JSON ({e})"
+    except OSError as e:
+        return None, f"cannot read the judgments file {path}: {e}"
+    if not isinstance(data, dict):
+        return None, f"the judgments file {path} must hold a JSON object with `backed` and `new_gotchas`"
+    backed, new = data.get("backed"), data.get("new_gotchas")
+    if not isinstance(backed, list) or not all(isinstance(value, bool) for value in backed):
+        return None, f"`backed` in {path} must be a list of true or false, one per prior pitfall"
+    if not isinstance(new, list) or not all(isinstance(value, str) for value in new):
+        return None, f"`new_gotchas` in {path} must be a list of strings, one per new gotcha"
+    if len(backed) != prior_count:
+        return None, (
+            f"`backed` in {path} holds {len(backed)} values, but the prior snippet has {prior_count} pitfalls: "
+            "give one per `prior_gotchas` entry, in its order"
+        )
+    for number, gotcha in enumerate(new, start=1):
+        text = gotcha.strip()
+        if not text:
+            return None, f"`new_gotchas` entry {number} in {path} is empty: remove it"
+        if gotcha.splitlines() != [gotcha]:
+            return None, f"`new_gotchas` entry {number} in {path} holds a line break: write each gotcha on one line"
+        if text.startswith(CARRIED_MARK):
+            return None, (
+                f"`new_gotchas` entry {number} in {path} starts with `{CARRIED_MARK}`: give the gotcha without it, "
+                "since only resolve marks a carried pitfall"
+            )
+    return {"backed": backed, "new_gotchas": new}, None
+
+
+def resolve_gotchas(prior_gotchas, backed, new_gotchas, is_first_export):
+    """Place the judgments on the `|gotchas:` line: {line, left_off, carried, dropped}.
+
+    `prior_gotchas` is read_gotchas's list (None for none), `backed` one bool
+    per entry, `new_gotchas` the new gotchas in source order. A new gotcha
+    written as a prior pitfall is written is that prior pitfall, backed, and
+    a repeated one is kept once. The line takes the backed prior pitfalls in
+    prior order, then the new gotchas, the first 3, unmarked (the new ones
+    past them go to `left_off`, as given); then each unbacked prior pitfall in
+    prior order: already carried on a re-export, it is dropped
+    (`already-carried`); with no free slot, dropped (`no-slot`); else written,
+    `[CARRIED]` and in `carried` on a re-export, unmarked on a first export.
+    `line` is null when nothing is written.
+    """
+    prior = list(prior_gotchas or [])
+    backed = list(backed)
+    if len(backed) != len(prior):
+        raise ValueError(f"{len(backed)} judgments for {len(prior)} prior pitfalls")
+    prior_forms = [_written(pitfall["text"]) for pitfall in prior]
+    new, seen = [], set()
+    for gotcha in new_gotchas:
+        text = gotcha.strip()
+        form = _written(text)
+        if form in prior_forms:
+            backed = [b or f == form for b, f in zip(backed, prior_forms)]
+        elif form not in seen:
+            seen.add(form)
+            new.append((text, gotcha))
+    ordered = [(pitfall["text"], None) for pitfall, b in zip(prior, backed) if b] + new
+    line = [(text, False) for text, _ in ordered[:GOTCHA_SLOTS]]
+    left_off = [given for _, given in ordered[GOTCHA_SLOTS:] if given is not None]
+    carried, dropped = [], []
+    for pitfall, b in zip(prior, backed):
+        if b:
+            continue
+        if pitfall["already_carried"] and not is_first_export:
+            dropped.append({"text": pitfall["text"], "reason": "already-carried"})
+        elif len(line) >= GOTCHA_SLOTS:
+            dropped.append({"text": pitfall["text"], "reason": "no-slot"})
+        else:
+            line.append((pitfall["text"], not is_first_export))
+            if not is_first_export:
+                carried.append(pitfall["text"])
+    return {"line": write_gotchas(line) if line else None, "left_off": left_off, "carried": carried, "dropped": dropped}
+
+
+def cmd_gotchas_prior(snippet, skills_folder, skill):
+    prior, err = read_prior(snippet, skills_folder, skill)
+    if err:
+        return {"status": "error", "error": err}
+    return {"status": "ok", **prior}
+
+
+def cmd_gotchas_resolve(snippet, skills_folder, skill, judgments_file):
+    prior, err = read_prior(snippet, skills_folder, skill)
+    if err:
+        return {"status": "error", "error": err}
+    judgments, err = read_judgments(judgments_file, len(prior["prior_gotchas"] or []))
+    if err:
+        return {"status": "error", "error": err}
+    placed = resolve_gotchas(
+        prior["prior_gotchas"], judgments["backed"], judgments["new_gotchas"], prior["is_first_export"]
+    )
+    return {
+        "status": "ok",
+        "line": placed["line"],
+        "is_first_export": prior["is_first_export"],
+        "left_off": placed["left_off"],
+        "carried": placed["carried"],
+        "dropped": placed["dropped"],
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
-ACTION_FIRST = ("orphan-detect", "root-probe", "assemble", "resolve-targets")
+ACTION_FIRST = ("orphan-detect", "root-probe", "assemble", "resolve-targets", "gotchas")
 
 
 def _include_list(value):
@@ -1123,6 +1532,13 @@ def _snippet_pair(value):
     return name, path
 
 
+def _skill_name(value):
+    """--skill: one skill name, a plain folder name."""
+    if not is_plain_name(value):
+        raise argparse.ArgumentTypeError(f"expected a skill name, got {value!r}")
+    return value
+
+
 def _action_parser(action):
     """The argparse parser of one action-first action."""
     prog = f"skf-rebuild-managed-sections.py {action}"
@@ -1140,7 +1556,11 @@ def _action_parser(action):
         parser = argparse.ArgumentParser(
             prog=prog, description="Observe snippet root prefixes and flag mismatch against a reference."
         )
-        parser.add_argument("snippet_files", nargs="+", help="Snippet file paths to probe")
+        parser.add_argument("snippet_files", nargs="*", help="Snippet file paths to probe")
+        parser.add_argument(
+            "--skills-folder",
+            help="skills_output_folder: also probe the snippet of each version its export manifest records",
+        )
         parser.add_argument(
             "--reference-root",
             required=True,
@@ -1215,6 +1635,25 @@ def _action_parser(action):
             help="Write the body to FILE instead of <context-file>.skf-content (a dry run, or a preview "
             "before the user confirms, passes a path outside the project)",
         )
+    elif action == "gotchas":
+        parser = argparse.ArgumentParser(
+            prog=prog,
+            description="Read a snippet's prior `|gotchas:` and `|api:` lines and whether an export wrote it "
+            "(prior), or place the gotchas judgments on the line (resolve).",
+        )
+        parser.add_argument(
+            "mode",
+            choices=("prior", "resolve"),
+            help="prior: read the prior lines; resolve: place the judgments of --judgments on the gotchas line",
+        )
+        parser.add_argument("snippet", help="The skill's prior context-snippet.md (a missing file is no prior snippet)")
+        parser.add_argument("--skills-folder", required=True, help="skills_output_folder, which holds .export-manifest.json")
+        parser.add_argument("--skill", required=True, type=_skill_name, help="The skill's name in the export manifest")
+        parser.add_argument(
+            "--judgments",
+            metavar="FILE",
+            help='resolve only: a JSON file {"backed": [one boolean per prior pitfall], "new_gotchas": [...]}',
+        )
     else:  # resolve-targets
         parser = argparse.ArgumentParser(
             prog=prog, description="Map config.yaml's IDE list to the context files to write and their skill roots."
@@ -1241,7 +1680,11 @@ def _run_action_first(argv):
     if action == "orphan-detect":
         result = cmd_orphan_detect(args.context_files, args.exported_skills)
     elif action == "root-probe":
-        result = cmd_root_probe(args.snippet_files, args.reference_root, args.project_root)
+        if args.skills_folder == "":
+            parser.error("--skills-folder needs a folder")
+        if not args.snippet_files and args.skills_folder is None:
+            parser.error("root-probe needs a snippet file or --skills-folder")
+        result = cmd_root_probe(args.snippet_files, args.reference_root, args.project_root, args.skills_folder)
     elif action == "assemble":
         includes = [item for group in args.include for item in group]
         names = [name for name, _ in includes]
@@ -1264,6 +1707,17 @@ def _run_action_first(argv):
             orphans=args.orphans,
             out=args.out,
         )
+    elif action == "gotchas":
+        if args.skills_folder == "":
+            parser.error("--skills-folder needs a folder")
+        if args.mode == "resolve" and not args.judgments:
+            parser.error("gotchas resolve needs --judgments FILE")
+        if args.mode == "prior" and args.judgments is not None:
+            parser.error("gotchas prior takes no --judgments")
+        if args.mode == "prior":
+            result = cmd_gotchas_prior(args.snippet, args.skills_folder, args.skill)
+        else:
+            result = cmd_gotchas_resolve(args.snippet, args.skills_folder, args.skill, args.judgments)
     else:
         result = cmd_resolve_targets(args.ides, args.context_file)
     return result, 0 if result["status"] == "ok" else 1
@@ -1279,8 +1733,8 @@ def main():
         sys.exit(code)
 
     if len(sys.argv) < 3:
-        print("Usage: python3 skf-rebuild-managed-sections.py <context-file> <action> [--content <text>]", file=sys.stderr)
-        print("Actions: read, replace, clear, insert, check", file=sys.stderr)
+        print("Usage: python3 skf-rebuild-managed-sections.py <context-file> <action> [--content <text>] [--content-file <file>]", file=sys.stderr)
+        print("Actions: read, replace, clear, insert, check, diff", file=sys.stderr)
         print("   or: python3 skf-rebuild-managed-sections.py {" + ",".join(ACTION_FIRST) + "} ...", file=sys.stderr)
         sys.exit(1)
 
@@ -1314,6 +1768,17 @@ def main():
             result = cmd_replace(file_path, content_arg)
     elif action == "clear":
         result = cmd_clear(file_path)
+    elif action == "diff":
+        # Read by hand, as --content is: `"--content" in sys.argv` never matches it.
+        content_file = None
+        if "--content-file" in sys.argv:
+            idx = sys.argv.index("--content-file")
+            if idx + 1 < len(sys.argv):
+                content_file = sys.argv[idx + 1]
+        if not content_file:
+            result = {"status": "error", "error": "diff requires --content-file <file>"}
+        else:
+            result = cmd_diff(file_path, content_file)
     elif action == "insert":
         if content_arg is None or not content_arg.strip():
             result = {"status": "error", "error": "insert requires non-empty --content or stdin"}

@@ -4,7 +4,7 @@ nextStepFile: 'health-check.md'
 
 <!-- Config: communicate in {communication_language}. Render the user-facing summary in {document_output_language}. -->
 
-# Step 6: Summary
+# Step 5: Summary
 
 ## STEP GOAL:
 
@@ -13,7 +13,7 @@ To present a complete export summary showing all files written, token counts, an
 ## Rules
 
 - Focus only on summarizing what was done and providing next steps: the only files this step writes are the result files the emitter writes in §6 (none on a dry run)
-- **Multi-skill mode:** emit ONE consolidated summary and ONE result contract for the whole batch. The files-written table lists every skill in `skill_batch` (one row per skill's `context-snippet.md` + one row per target managed-section file, shared across the batch). The result contract's `outputs` enumerates every context-snippet file, every target context file and the manifest. Distribution instructions (§2) key off `source_authority` per skill: present one block per distinct authority value observed in the batch, listing the skills it applies to. See step 1 §1c.
+- **Multi-skill mode:** emit ONE consolidated summary and ONE result contract for the whole batch. The files-written table lists every skill in `skill_batch` (one row per skill's `context-snippet.md` + one row per target managed-section file, shared across the batch). The result contract's `outputs` enumerates every context-snippet file, every target context file and the manifest. Distribution instructions (§2) key off `source_authority` per skill: present one block per distinct authority value observed in the batch, listing the skills it applies to.
 
 ## MANDATORY SEQUENCE
 
@@ -36,6 +36,7 @@ To present a complete export summary showing all files written, token counts, an
 | context-snippet.md | {✅ written / ⚠️ skipped (passive off) / 👁️ previewed} | ~{t} |
 | {target-file-1} managed section | {✅ updated ({case}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
 | {target-file-N} managed section | {✅ updated ({case}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
+| {each file in `orphans_cleared`} managed section | ✅ cleared | n/a |
 | Package structure | ✅ validated | ~{t} total |
 
 **Total context cost:** ~{always-on-tokens} tokens always-on, ~{on-trigger-tokens} tokens on-trigger"
@@ -138,7 +139,7 @@ SKF_JSON
 ```
 
 - Pass `--run-dir` in a headless run: the emitter folds the auto-decisions the gates recorded there into `headless_decisions`, in the line and in the result file.
-- **Without `--dry-run`:** pass `--result-dir`, and give `status` `"success"`, `skills` (every skill in `skill_batch`), `context_files_updated` (the files step 4 §9 wrote; `[]` with passive context off), `manifest_path` (the `{manifest_path}` step 4 §9b bound) and `result_contract` (below). The emitter writes the per-run record `export-skill-result-{YYYYMMDD-HHmmss}.json` in `{skills_output_folder}` (its name from the clock, with `-2`, `-3` and so on when a run already took that second), then its copy `export-skill-result-latest.json`, the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_EXPORT_RESULT_JSON` line.
+- **Without `--dry-run`:** pass `--result-dir`, and give `status` `"success"`, `skills` (every skill in `skill_batch`), `context_files_updated` (the files step 3 §9 wrote; `[]` with passive context off), `manifest_path` (the `{manifest_path}` step 3 §9b bound) and `result_contract` (below). The emitter writes the per-run record `export-skill-result-{YYYYMMDD-HHmmss}.json` in `{skills_output_folder}` (its name from the clock, with `-2`, `-3` and so on when a run already took that second), then its copy `export-skill-result-latest.json`, the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_EXPORT_RESULT_JSON` line.
 - **With `--dry-run`:** leave out `--result-dir` and `result_contract`, and give `status` `"dry-run"`, `skills`, `context_files_updated: []` and `manifest_path: null`. The emitter writes no file, so a dry run leaves `export-skill-result-latest.json` as the last real export wrote it.
 
 The emitter derives `exit_code` (0) and `halt_reason` (null) and sets `result_path`: leave them out. Bind `{result_path}` ← the line's `result_path` (null on a dry run). When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. If the emitter exits non-zero, correct the payload field its stderr message names and run it once more; if it fails again, leave `{result_envelope_line}` empty, display "**Result contract not written:** {message}" and continue with `{result_path}` null.
@@ -162,23 +163,32 @@ The emitter derives `exit_code` (0) and `halt_reason` (null) and sets `result_pa
 }
 ```
 
-`outputs` holds one `skill` entry per file in `snippets_written` (step 4 §9c), one `config` entry per file in `context_files_updated` and the `manifest` entry. In `summary`, `always_on_tokens` is the managed section's `tokens` step 5 measured (`null` when step 5 found no managed section, as with passive context off), and `on_trigger_tokens` maps each skill to its `SKILL.md` `tokens` from step 5.
+`outputs` holds one `skill` entry per file in `snippets_written` (step 3 §9c), one `config` entry per file in `context_files_updated` and the `manifest` entry. In `summary`, `always_on_tokens` is the managed section's `tokens` step 4 measured (`null` when step 4 found no managed section, as with passive context off), and `on_trigger_tokens` maps each skill to its `SKILL.md` `tokens` from step 4.
 
-**`deviations[]` field (export-skill-specific extension):** when step 4 §4c.1 detected manifest-orphan managed rows and the operator (or `{headless_mode}`) chose **(b) Preserve verbatim**, also include a `deviations[]` array in `result_contract`. Each entry has the shape:
+**`deviations[]` field (export-skill-specific extension):** the one place a run records each choice that left the canonical export path. Add to `result_contract` one entry per kind below whose variable is not empty, in this order:
+
+- `preserve_external_skills` from `orphans_preserved`: the orphaned managed-section rows step 3 §4c.1 kept verbatim (orphan-row (b), the headless default)
+- `drop_external_skills` from `orphans_dropped`: the orphaned rows step 3 §4c.1 left out (orphan-row (a))
+- `clear_orphan_context` from `orphans_cleared`: the orphaned context files step 3 §9 cleared after orphan-context (a)
 
 ```json
-{
-  "kind": "preserve_external_skills",
-  "skills": [
-    {"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md", ".cursorrules"]}
-  ],
-  "rationale": "managed-section row exists but no manifest entry / no source draft"
-}
+[
+  {
+    "kind": "preserve_external_skills",
+    "skills": [
+      {"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md", ".cursorrules"]}
+    ],
+    "rationale": "managed-section row exists but no manifest entry / no source draft"
+  },
+  {
+    "kind": "drop_external_skills",
+    "skills": [{"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md"]}]
+  },
+  {"kind": "clear_orphan_context", "files": ["AGENTS.md"]}
+]
 ```
 
-`source_files` per skill records the prior context files the orphan was found in (the §4c.1 multi-file scan deduplicates by `(skill, version)` and tracks which target context files originally carried the row — useful when an operator later debugs which IDE's managed section first introduced the external skill).
-
-Other workflow choices that diverge from the strict spec path may add their own entries with a distinct `kind` value — auditors then have one place to look for "what did this run choose to do differently from the canonical flow." Omit the field when there are no deviations rather than writing an empty array, so the absence is readable as "ran the canonical path."
+Each `skills` entry is one `orphan_rows` entry: its `skill_name` as `name`, its `version`, and its `source_files`, the context files the row was found in. `orphan_rows` gives each as its full path: write it as its `{context_file}`, relative to `{project-root}` (`CLAUDE.md`). Each `files` entry is a cleared file's `{context_file}`. Leave the field out when no kind applies rather than writing an empty array, so its absence reads as "ran the canonical path."
 
 ### 6b. Post-Export Hook (Optional)
 

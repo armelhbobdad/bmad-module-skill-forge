@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-export-skill, skf-update-skill
+summary: |
+  Export Skill and Update Skill now read a skill's prior `|gotchas:` and `|api:` lines, and write its new gotchas line, through the `gotchas` action of `skf-rebuild-managed-sections.py`, where the model used to split the line, track the `[CARRIED]` marker, fill the 3 slots and rewrite each `; ` by following prose. `gotchas prior` reads the prior snippet and whether an export recorded the skill, and `gotchas resolve` takes the run's judgments from a JSON file (which prior pitfalls a current source still states, and the new gotchas) and returns the line with the gotchas it left off, carried or dropped, so the same judgments give the same line on every run. Update Skill now marks a prior pitfall no current source states `[CARRIED]` only once an export has recorded the skill, as Export Skill does: before the skill's first export it keeps that pitfall unmarked. A prior snippet SKF cannot read, such as one saved in an encoding other than UTF-8, now stops the run: Export Skill exits `4` (`context-rebuild-failed`) and Update Skill halts with `halted-for-write-failure`. Update Skill halts there on an export manifest that does not parse too, which Export Skill already stops on in step 1, with exit `3`.
+migration: |
+  If Export Skill now stops with exit `4` (`context-rebuild-failed`), or Update Skill with `halted-for-write-failure`, on a skill's prior `context-snippet.md`, save that file as UTF-8 and run the workflow again. If Update Skill stops on the export manifest, fix or remove `.export-manifest.json` in your skills folder, as Export Skill's exit `3` already asks, then run it again.
+issues: [1164]
+prs: [1209]
