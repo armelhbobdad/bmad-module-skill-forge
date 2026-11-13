@@ -1815,12 +1815,12 @@ EACH_VERSION = "{each version in target_versions, space-separated}"
 KEEP_CHECK = ("When a `keep` argument was supplied, check it first, in either mode: it names a `{version_rows}` entry "
               "that is not in `target_versions`, with `in_manifest` and `on_disk` true and a `status` other than "
               "`\"deprecated\"`, and `target_versions` is not `\"all\"`.")
-# select.md §8b's merge of the purge checks over several versions, which _merge_purge_checks restates.
-PURGE_MERGE = ("Over two or more versions, merge the results in `target_versions` order: the first whose `verdict` is "
-               "not `\"ok\"` (else the first) gives `{purge_verdict}`, `{purge_reason}`, `{purge_detail}`, "
-               "`{purge_entries}` and the `{version}` the guard's message names, `{affected_directories}` and "
-               "`{forge_errors}` join every result's lists in order, and `{forge_left_in_place}` is the list of their "
-               "non-null values, or null when every one is null.")
+# select.md §8b's merge of the purge checks of an [O] Older versions drop, which _merge_purge_checks restates.
+PURGE_MERGE = ("When §6 took [O] Older versions, merge the results in `target_versions` order, even a single one: the "
+               "first whose `verdict` is not `\"ok\"` (else the first) gives `{purge_verdict}`, `{purge_reason}`, "
+               "`{purge_detail}`, `{purge_entries}` and the `{version}` the guard's message names, "
+               "`{affected_directories}` and `{forge_errors}` join every result's lists in order, and "
+               "`{forge_left_in_place}` is the list of their non-null values, or null when every one is null.")
 
 
 def _version_level_calls() -> dict:
@@ -2136,18 +2136,25 @@ def test_an_older_versions_purge_names_the_version_that_holds_foreign_entries(tm
     assert all((skills / "cognee" / v).is_dir() for v in target_versions)
 
 
-def test_an_older_versions_purge_lists_each_forge_folder_it_leaves(tmp_path):
-    """enhancement-3: two forge version folders SKF did not generate are both left in place, and the dry-run,
-    success and halt envelopes carry `forge_left_in_place` as a list the schema accepts."""
-    skills, forge = _cognee(tmp_path, {"0.7.0": "active", "0.6.0": "archived", "0.5.0": "archived"}, "0.7.0")
+@pytest.mark.parametrize("older", [("0.6.0", "0.5.0"), ("0.6.0",)], ids=["two-versions", "one-version"])
+def test_an_older_versions_purge_lists_each_forge_folder_it_leaves(tmp_path, older):
+    """enhancement-3: each forge version folder SKF did not generate is left in place, and the dry-run, success and
+    halt envelopes carry `forge_left_in_place` as a list the schema accepts, also when one older version is left
+    (lane review: the type follows `version=older`, not how many versions it finds)."""
+    statuses = {"0.7.0": "active", **{version: "archived" for version in older}}
+    skills, forge = _cognee(tmp_path, statuses, "0.7.0")
     (forge / "cognee").mkdir()
     (forge / "cognee" / "skill-brief.yaml").write_bytes(b"name: cognee\n")
-    for version in ("0.6.0", "0.5.0"):
+    for version in older:
         (forge / "cognee" / version).mkdir()
         (forge / "cognee" / version / "data.csv").write_bytes(b"a,b\n")
     target_versions = _roster_entry(skills, forge, "cognee")["older_versions"]
+    assert target_versions == list(older)
+    assert PURGE_MERGE in _section(_read(SELECT), "### 8b. Purge Guard", "### 9. ")
+    field = next(line for line in _read(CONTRACT).splitlines() if line.startswith("- `forge_left_in_place`:"))
+    assert "or, for a `version=older` purge, a list of those folders, even of one" in field
     merged = _merge_purge_checks([_purge_check(skills, forge, v) for v in target_versions])
-    left = [str(forge / "cognee" / "0.6.0"), str(forge / "cognee" / "0.5.0")]
+    left = [str(forge / "cognee" / version) for version in older]
     assert (merged["verdict"], merged["forge_left_in_place"]) == ("ok", left)
     assert merged["affected_directories"] == [str(skills / "cognee" / v) for v in target_versions]
     values = {"target_skill": "cognee", "drop_mode": "purge", "target_versions": target_versions,
@@ -2168,7 +2175,7 @@ def test_an_older_versions_purge_lists_each_forge_folder_it_leaves(tmp_path):
         assert proc.returncode == 0, proc.stderr
         envelope = _envelope(proc.stdout)
         assert (envelope["status"], envelope["forge_left_in_place"]) == (status, left)
-        assert envelope["versions_affected"] == ["0.6.0", "0.5.0"]
+        assert envelope["versions_affected"] == list(older)
     record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
     assert record["summary"]["forge_left_in_place"] == left
     halt = _emit_halt(tmp_path, {"phase": "execute:delete", "halt_reason": "delete-failed", "exit_code": 4,

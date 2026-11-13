@@ -94,7 +94,7 @@
       "minLength": 1,
       "items": { "type": "string", "minLength": 1 },
       "default": null,
-      "description": "The forge folder a purge leaves in place (or, in a dry run, would leave) because SKF did not generate it, or a list of those folders when the purge covers several versions (version=older). Null otherwise, and in deprecate mode."
+      "description": "The forge folder a purge leaves in place (or, in a dry run, would leave) because SKF did not generate it, or, for a version=older purge, a list of those folders, even of one. Null otherwise, and in deprecate mode."
     },
     "manifest_updated": {
       "type": "boolean",

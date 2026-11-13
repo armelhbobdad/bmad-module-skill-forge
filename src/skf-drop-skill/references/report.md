@@ -79,7 +79,7 @@ The shared emitter writes the result contract (`shared/references/output-contrac
 }
 ```
 
-- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`, or `["0.6.0", "0.5.0"]` after Older versions) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried (a JSON array of paths after a purge check over several versions), or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
+- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`, or `["0.6.0", "0.5.0"]` after Older versions) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried (a JSON array of paths after Older versions), or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
 - `{keep_version}` is the version select.md §7 made active before the drop, as a JSON string, or `null` when none.
 - `{record_status}` is `"partial"` when some (but not all) purge folders failed to delete (step 2's `purge_status`); then also put step 2's `delete_failures` in `summary.delete_failures`. Otherwise it is `"success"`. A full purge failure and a failed manifest write never reach this step: step 2 HALTs with `halt_reason: "delete-failed"` or `"manifest-write-failed"`.
 - The payload carries no `warnings`: the emitter adds the ones step 2 recorded, so a run whose envelope reads `success` still names what needs a manual fix.
