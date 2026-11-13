@@ -41,11 +41,11 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Check PRD Availability
 
-**Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided):**
+**Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided, or the one given was not found):**
 
 "**Pass 3: Requirements Coverage — Skipped**
 
-No PRD or vision document was provided. Requirements coverage analysis requires a document describing project capabilities and constraints.
+{IF `prdDoc` in the `{outputFile}` frontmatter names a path, not `none`:}The PRD at `{prdDoc}` was not found.{ELSE:}No PRD or vision document was provided.{END IF} Requirements coverage analysis requires a document describing project capabilities and constraints.
 
 To include this pass, re-run **[VS]** with a PRD or vision document path.
 

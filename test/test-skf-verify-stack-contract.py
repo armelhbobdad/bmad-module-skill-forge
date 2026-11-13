@@ -63,7 +63,11 @@ and pin the prose around them:
 - init.md §4 halts (`resolution-failure`) before the Load when the report
   template names no readable file, and runs the feasibility-report check on
   the report it creates from it, halting (`schema-violation`) on a copy that
-  breaks it, both at phase `init:report-template`, long before step 6 (#1110).
+  breaks it, both at phase `init:report-template`, long before step 6 (#1110);
+- step 1 checks the skills before its prompt, asks once more for a PRD or
+  previous-report path that was not found and records it when headless, from
+  a file the record command reads, and fills only the per-run frontmatter
+  keys; SKILL.md points to references/invocation-contract.md (#1200).
 """
 
 from __future__ import annotations
@@ -338,13 +342,23 @@ def _decision() -> str:
 
 
 RECORD_WARNING = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+# Step 1 records a path a headless run gave and that was not found from a file, since a path can hold
+# quotes or `$( )` (#1200).
+INPUT_WARNING_RECORD = RECORD_WARNING + '"$(cat "{run_dir}/input-warning.txt")"'
+
+
+def _input_warning_block() -> str:
+    return _section(_read(REFERENCES / "init.md"), "**Record a path that was not found.**", "### 4. ")
 
 
 def _documented_warnings() -> list[str]:
     """The warnings the stages record in the run sink, in stage order."""
+    init = _input_warning_block()
+    assert f"```bash\n{INPUT_WARNING_RECORD}\n```" in init
+    found = re.findall(r"`([a-z_]+_not_found: <path>)`", init)
     coverage = _read(REFERENCES / "coverage.md")
     assert RECORD_WARNING + "'<the warning to record>'" in coverage
-    found = re.findall(r"Record `([a-z_]+: [^`]+)`", coverage)
+    found += re.findall(r"Record `([a-z_]+: [^`]+)`", coverage)
     for name in ("integrations.md", "report.md"):
         found += re.findall(re.escape(RECORD_WARNING) + r"'([a-z_]+: [^']+)'", _read(REFERENCES / name))
     return found
@@ -353,8 +367,9 @@ def _documented_warnings() -> list[str]:
 def test_each_documented_warning_is_a_fixed_code():
     warnings = _documented_warnings()
     assert [w.split(":", 1)[0] for w in warnings] == [
-        "no_technology_referenced", "no_live_technology", "zero_coverage",
-        "skill_summary_unreadable", "skill_modified_mid_run", "all_pairs_blocked", "result_file_write_failed"]
+        "prd_not_found", "previous_report_not_found", "no_technology_referenced", "no_live_technology",
+        "zero_coverage", "skill_summary_unreadable", "skill_modified_mid_run", "all_pairs_blocked",
+        "result_file_write_failed"]
     for warning in warnings:
         # Single-quoted on the command line: no quote, backtick or backslash inside.
         assert not set("'`\\\"") & set(warning), warning
@@ -525,8 +540,8 @@ def test_a_headless_run_hands_its_line_to_the_health_check():
     shown = ("then display `{result_envelope_line}` verbatim after it when it is bound and not empty, with no code "
              "fence and nothing after it")
     assert relay.index(handed) < relay.index(log) < relay.index(shown) < relay.index("exit cleanly")
-    skill = _read(SKILL / "SKILL.md")
-    result = _section(skill, "## Result Contract (Headless)", "## On Activation")
+    contract = _read(REFERENCES / "invocation-contract.md")
+    result = contract[contract.index("## Result Contract (Headless)"):]
     assert ("line on **stdout**, which the shared health check displays as the run's last line, and every HARD HALT "
             "one on **stderr**") in result
     envelope = _section(_read(EXIT_CODES), "## Result Envelope", "## Emitting a Halt")
@@ -616,7 +631,8 @@ def test_report_publishes_the_latest_copy_after_the_check():
 
 def test_skill_md_states_the_latest_timing_and_the_run_folder():
     skill = _read(SKILL / "SKILL.md")
-    outputs = next(line for line in skill.splitlines() if line.startswith("| **Outputs** |"))
+    contract = _read(REFERENCES / "invocation-contract.md")
+    outputs = next(line for line in contract.splitlines() if line.startswith("| **Outputs** |"))
     assert "written by step 6 once the finished report passes the feasibility-report check" in outputs
     assert "`run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-verify-stack-{timestamp}`" in skill
     assert "`{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`" in skill
@@ -1376,14 +1392,16 @@ def test_init_checks_the_forge_data_folder_before_probing_it():
 
 def test_activation_binds_the_inputs_in_every_mode():
     skill = _read(SKILL / "SKILL.md")
+    contract = _read(REFERENCES / "invocation-contract.md")
     bind = next(line for line in skill.splitlines() if "**Bind the inputs**" in line)
     assert "in every mode" in bind
+    flags = next(line for line in contract.splitlines() if line.startswith("| **Flags** |"))
     for variable, flag in (("{architecture_doc_path}", "--architecture-doc"), ("{prd_path}", "--prd"),
                            ("{previous_report_path}", "--previous-report")):
         assert f"`{variable}` ← " in bind and f"`{flag}`" in bind, variable
-        flags = next(line for line in skill.splitlines() if line.startswith("| **Flags** |"))
         assert f"`{flag} <path>`" in flags, flag
-    inputs = next(line for line in skill.splitlines() if line.startswith("| **Inputs** |"))
+    assert "`--previous-report none` runs without one" in flags
+    inputs = next(line for line in contract.splitlines() if line.startswith("| **Inputs** |"))
     for name in ("architecture_doc_path", "prd_path", "previous_report_path"):
         assert name in inputs, name
 
@@ -1400,15 +1418,159 @@ def test_step_1_asks_only_for_what_no_flag_answered():
     assert gate.startswith("When the prompt shows, wait for user input")
     # The old gate read the flags in headless only.
     assert "if `{headless_mode}` and `--architecture-doc` was provided" not in init
-    previous = _section(init, "**Resolve the previous report.**", "```bash")
-    assert "`--provided` set to `{previous_report_path}` when it is set" in previous
-    bookkeeping = next(line for line in init.splitlines() if line.startswith("- `architectureDoc` ← "))
-    assert "`{architecture_doc_path}`" in bookkeeping and "`prdDoc` ← `{prd_path}`" in bookkeeping
+    # The helper looks for an earlier report only when no path was given, and a given one runs it with --provided.
+    found = _section(init, "**Find the previous report first.**", "```bash")
+    assert "When `{previous_report_path}` is null, run the previous-report helper without `--provided`" in found
+    given = _section(init, "**Resolve a given previous report**", "- `collision`")
+    assert "(when `{previous_report_path}` is set)" in given and "with `--provided` set to it" in given
+    fill = next(line for line in init.splitlines() if line.startswith("**Fill the per-run frontmatter keys**"))
+    assert "`architectureDoc` ← `{architecture_doc_path}`" in fill and "`prdDoc` ← `{prd_path}` (or `none`)" in fill
     # The summary table reads the variables activation and step 1 bind.
     summary = _section(init, "### 5. Display Initialization Summary", "**Skill Inventory:**")
     assert "| **Architecture Doc** | {architecture_doc_path} |" in summary
-    assert "| **PRD Document** | {prd_path or 'Not provided: requirements pass will be skipped'} |" in summary
+    assert ("| **PRD Document** | {prd_path, with ' (not found: requirements pass will be skipped)' after it when "
+            "prdAvailable is false, or 'Not provided: requirements pass will be skipped'} |") in summary
     assert "{prd_doc" not in init and "{architecture_doc}" not in init
+
+
+# --- Step 1 asks only what the run needs (#1200) ------------------------------------------
+
+
+def test_step_1_checks_the_skills_before_any_prompt():
+    """A forge with too few skills halts before the user types a path: the skills folder checks, the enumerate
+    call and the skill-count halt need no input, so they run in the pre-flight, after the slug is bound."""
+    init = _read(REFERENCES / "init.md")
+    first_prompt = init.index("### 1. Accept Input Documents")
+    bind = init.index("**Bind `{project_slug}`.**")
+    checks = ['(exit code 3, `halt_reason: "skills-folder-missing"`) at phase `init:skills-folder`',
+              'uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} --reliability > "{inventoryFile}"',
+              '(exit code 3, `halt_reason: "resolution-failure"`) at phase `init:inventory`',
+              '(exit code 7, `halt_reason: "inventory-unreliable"`) at phase `init:inventory`',
+              '(exit code 5, `halt_reason: "insufficient-skills"`) at phase `init:skill-count`']
+    at = [init.index(check) for check in checks]
+    assert bind < min(at) and max(at) < first_prompt, at
+    assert init.count("at phase `init:skill-count`") == 1 and init.count("at phase `init:skills-folder`") == 2
+    # Nothing that waits for the user, nor the previous-report helper, runs before the skill count is checked.
+    for later in ("**Verify Stack: Feasibility Analysis**", "uv run {previousReportScript}", "wait for user input"):
+        assert init.index(later) > max(at), later
+    assert "(used by the skill-count check below, §4, §5," in init
+    # The section numbers every reference names stay put: no section 2 or 3 is left to point at.
+    headings = [line.split(".", 1)[0] for line in init.splitlines() if line.startswith("### ")]
+    assert headings == ["### 1", "### 4", "### 5", "### 6"], headings
+    rows = _exit_code_rows()
+    assert "step 1 pre-flight (`{skills_output_folder}` does not exist" in rows[3]
+    assert "step 1 pre-flight (fewer than 2 valid skills" in rows[5]
+    assert "step 1 pre-flight (enumerate-stack-skills warnings" in rows[7]
+    for path in _markdown():
+        for stale in ("step 1 §2", "step 1 §3", "init.md §2", "init.md §3"):
+            assert stale not in _read(path), f"{_rel(path)}: {stale}"
+
+
+def test_step_4_fills_only_the_per_run_keys():
+    init = _read(REFERENCES / "init.md")
+    create = _section(init, "### 4. Create Feasibility Report", "### 5. ")
+    [fill] = [line for line in create.splitlines() if line.startswith("**Fill the per-run frontmatter keys**")]
+    assert fill.startswith("**Fill the per-run frontmatter keys** and keep every other template value: ")
+    keys = ["projectName", "projectSlug", "generatedAt", "prdAvailable", "architectureDoc", "prdDoc",
+            "previousReport", "skillsAnalyzed", "stepsCompleted"]
+    at = [fill.index(f"`{key}`" if key != "stepsCompleted" else f"`{key}: ") for key in keys]
+    assert at == sorted(at), keys
+    assert "`stepsCompleted: ['init']`" in fill and "`skillsAnalyzed` ← `{skill_count}`" in fill
+    for gone in ("**Populate frontmatter", "provisional until step 5", "This skill produces the feasibility report "
+                 "schema", "**Populate producer-local bookkeeping keys"):
+        assert gone not in init, gone
+    # The constants step 1 no longer lists are the template's own values.
+    template = _frontmatter(_read(SKILL / "assets" / "feasibility-report-template.md"))
+    for constant in ('schemaVersion: "1.0"', "reportType: feasibility", "generatedBy: skf-verify-stack",
+                     'overallVerdict: "CONDITIONALLY_FEASIBLE"', "coveragePercentage: 0", "pairsVerified: 0",
+                     "pairsPlausible: 0", "pairsRisky: 0", "pairsBlocked: 0", "recommendationCount: 0"):
+        assert f"\n{constant}\n" in template, constant
+    # The fill line comes after the template is loaded and before the report is written.
+    assert create.index("**Load** `{reportTemplatePath}`") < create.index(fill) < create.index("**Atomic write:**")
+
+
+def test_a_path_that_was_not_found_is_asked_once_and_recorded_when_headless():
+    init = _read(REFERENCES / "init.md")
+    prd = _section(init, "**Validate the PRD (when `{prd_path}` is set):**", "**Resolve a given previous report**")
+    assert ('If missing or unreadable, an interactive run asks once: "PRD not found at `{prd_path}`: give another '
+            'path, or press Enter to continue without it." It checks a path given there the same way, with no further '
+            'ask.') in prd
+    assert ('"PRD document not found at `{prd_path}`. Proceeding without PRD: the requirements pass will be '
+            'skipped."') in prd
+    # The report names the PRD that was given, so it never reads as if none was.
+    assert ("Keep `{prd_path}`, the last path given, so the report's `prdDoc` names it, with "
+            "`prdAvailable: false`") in prd
+    assert "in headless, record `prd_not_found: <path>` now" in prd
+    assert "Set `{prd_path}` to null" not in init
+    given = _section(init, "**Resolve a given previous report**", "**Record a path that was not found.**")
+    missing = given[given.index("- `not-found`"):given.index("- `provided`")]
+    assert ('an interactive run asks once: "Previous report not found at `{provided}`: give another path, press '
+            'Enter to compare against the most recent one, or type `none` to skip the comparison."') in missing
+    assert "a second `not-found` asks nothing" in missing
+    assert "Set `previousReport` to empty; in headless, record `previous_report_not_found: <path>` now" in missing
+    # Enter at a re-ask takes the report the helper returns: line 3, which offered it before the prompt, is past.
+    assert ("an empty answer runs it without `--provided` and sets `previousReport` to the `previousReport` it "
+            "returns") in given
+    # Only a headless run records the warning: an interactive user saw the message.
+    record = _input_warning_block()
+    assert record.startswith("**Record a path that was not found.** In headless, record each warning")
+    # One warning per call: two lines in one --warning would reach the envelope as one string.
+    assert "as its branch above finds it, one at a time: write it alone to `{run_dir}/input-warning.txt`" in record
+    assert "with a file write, never `echo` (a path can hold quotes or `$( )`)" in record
+    # The requirements pass and the synthesis say the PRD was not found when a path was given.
+    requirements = _read(REFERENCES / "requirements.md")
+    assert ("{IF `prdDoc` in the `{outputFile}` frontmatter names a path, not `none`:}The PRD at `{prdDoc}` was not "
+            "found.{ELSE:}No PRD or vision document was provided.{END IF}") in requirements
+    assert "(no PRD/vision document was provided, or the one given was not found)" in requirements
+    synthesize = _read(REFERENCES / "synthesize.md")
+    assert ("requirements were not evaluated ({IF `prdDoc` names a path, not `none`:}the PRD at `<prdDoc>` was not "
+            "found{ELSE:}no PRD provided{END IF})") in synthesize
+    assert "a PRD path (not `none`) whose `prdAvailable` is false marked `(not found)`" in synthesize
+    # The report header, the summary and the caller contract name a path that was not found as not found.
+    fill = next(line for line in init.splitlines() if line.startswith("**Fill the per-run frontmatter keys**"))
+    assert ("The header lines under the title take the same values, with ` (not found)` after `{prdDoc}` when "
+            "`prdAvailable` is false and `prdDoc` is not `none`.") in fill
+    assert ("| **Previous Report** | {previousReport, or 'Not found: no delta comparison' when the path given was not "
+            "found, or 'Not provided: no delta comparison'} |") in init
+    assert ("never asked for again, unless an interactive run finds no file there (the validation below then asks "
+            "once)") in init
+    contract = _read(REFERENCES / "invocation-contract.md")
+    headless = next(line for line in contract.splitlines() if line.startswith("| **Headless** |"))
+    assert ("A `--prd` or `--previous-report` path that is not found does not halt: the run goes on without it and "
+            "lists `prd_not_found: <path>` or `previous_report_not_found: <path>` in the envelope's `warnings`.") in headless
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the record through bash")
+def test_the_input_warning_record_keeps_a_hostile_path_as_text(tmp_path):
+    """The path reaches the sink exactly as given: a quote, `$( )` or a backtick in it runs nothing."""
+    block = re.search(r"```bash\n(.*?)\n```", _input_warning_block(), re.S).group(1)
+    assert block == INPUT_WARNING_RECORD
+    run_dir = _run_dir(tmp_path)
+    warning = 'prd_not_found: docs/my "prd" $(touch pwned) `touch pwned2`.md'
+    (run_dir / "input-warning.txt").write_bytes((warning + "\n").encode("utf-8"))
+    filled = (block.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER.as_posix()}"')
+              .replace("{run_dir}", run_dir.as_posix()))
+    proc = subprocess.run(["bash", "-c", filled], capture_output=True, timeout=60, cwd=run_dir, check=False)
+    assert proc.returncode == 0, proc.stderr
+    lines = (run_dir / "warnings.jsonl").read_bytes().decode("utf-8").splitlines()
+    assert [json.loads(line) for line in lines] == [warning]
+    assert not (run_dir / "pwned").exists() and not (run_dir / "pwned2").exists()
+
+
+def test_skill_md_points_to_the_lifted_invocation_contract():
+    skill = _read(SKILL / "SKILL.md")
+    contract_section = _section(skill, "## Invocation Contract", "## On Activation")
+    assert contract_section.strip().splitlines()[1:] == [
+        "", "`references/invocation-contract.md` holds the inputs, flags, gates, outputs and headless rules, and the "
+        "`SKF_VERIFY_STACK_RESULT_JSON` result contract; `references/exit-codes.md` the exit codes."]
+    assert "| **Flags** |" not in skill and "## Result Contract (Headless)" not in skill
+    assert "the caller contract (`invocation-contract.md`)" in _section(skill, "## Conventions", "## Role")
+    contract = _read(REFERENCES / "invocation-contract.md")
+    rows = [line.split("|")[1].strip() for line in contract.splitlines() if line.startswith("| **")]
+    assert rows == ["**Inputs**", "**Flags**", "**Gates**", "**Outputs**", "**Headless**", "**Exit codes**"]
+    assert contract.count("## Result Contract (Headless)") == 1
+    # No halt lives here: every HALT names its stage's phase in the stage file.
+    assert "HALT (exit code" not in contract and not contract.startswith("---\n")
 
 
 def test_the_hook_runs_after_the_run_folder_is_deleted_and_never_ends_the_run():

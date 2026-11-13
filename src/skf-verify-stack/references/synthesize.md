@@ -56,7 +56,7 @@ uv run {verdictRollupScript} --report "{outputFile}" > "{run_dir}/rollup.json"
 - `blocked-integration` → a blocked integration is a fundamental architectural incompatibility; name each Blocked pair and note any co-occurring `missing-coverage`/`risky-integration` codes so the user sees the full set of problems.
 - `missing-coverage` / `risky-integration` / `requirements-not-addressed` / `requirements-partial` / `plausible-cap` → the stack can work but has gaps, risks, or unverified assumptions that must be addressed; name the specific items behind each code.
 - `zero-integration-pairs` (whatever the verdict) → append: "No integration pair between two covered technologies was found in the architecture document prose, so no integration was verified. Relationships drawn only in diagrams, or implied without an explicit co-mention, are not checked: describe them in prose to have them verified."
-- No codes (`FEASIBLE`) → the stack can support the architecture as described: every live technology has a skill, every integration pair is `Verified` (at least one of its two skills cites the other literally), and {IF requirements pass completed:} every requirement is fulfilled {IF requirements pass was skipped:} requirements were not evaluated (no PRD provided). {IF `pairsVerified` is 0:} The architecture names a single live technology, so it has no integration pair to verify.
+- No codes (`FEASIBLE`) → the stack can support the architecture as described: every live technology has a skill, every integration pair is `Verified` (at least one of its two skills cites the other literally), and {IF requirements pass completed:} every requirement is fulfilled {IF requirements pass was skipped:} requirements were not evaluated ({IF `prdDoc` names a path, not `none`:}the PRD at `<prdDoc>` was not found{ELSE:}no PRD provided{END IF}). {IF `pairsVerified` is 0:} The architecture names a single live technology, so it has no integration pair to verify.
 
 ### 2. Generate Prescriptive Recommendations
 
@@ -144,7 +144,7 @@ Assemble the following for the report:
 Write the synthesis to `{outputFile}` (per the fixed heading order in `{feasibilitySchemaRef}`), each part to its own file first:
 - `{run_dir}/executive-summary.md`: the overall verdict with its rationale, which replaces the template's placeholder text under `## Executive Summary`
 - `{run_dir}/recommendations.md`: the prioritized recommendation list; then, when `previousReport` is set, the section 3 delta section (or its "No delta" line) under a `#### Delta from Previous Run` heading; then the suggested next workflow, last
-- `{run_dir}/input-documents.md`: the architecture and PRD document paths, which go below the Evidence Sources table
+- `{run_dir}/input-documents.md`: the architecture and PRD document paths, a PRD path (not `none`) whose `prdAvailable` is false marked `(not found)`, which go below the Evidence Sources table
 
 The report keeps its `##` headings and the helper writes each `###` line, so no file holds a `#` or `##` heading, and the last two hold no `###` heading either.
 

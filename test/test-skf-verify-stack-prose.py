@@ -159,9 +159,14 @@ def test_stages_table_matches_the_gate_annotations():
     assert len(rows) == 7
     for file, auto_proceed in rows.items():
         gated = "**GATE [default:" in _read(SKILL / file)
-        assert auto_proceed == ("No (confirm)" if gated else "Yes"), f"{file}: {auto_proceed}"
-    gates = next(line for line in _read(SKILL / "SKILL.md").splitlines() if line.startswith("| **Gates** |"))
+        # Step 1 waits only for the inputs no flag gave, so it never reads "No (confirm)" (#1200).
+        expected = "Conditional (asks only for inputs no flag gave)" if gated else "Yes"
+        assert auto_proceed == expected, f"{file}: {auto_proceed}"
+    contract = _read(REFERENCES / "invocation-contract.md")
+    gates = next(line for line in contract.splitlines() if line.startswith("| **Gates** |"))
     assert "step 1 Input Gate" in gates and "step 6" not in gates
+    assert "whose previous-report line offers the newest earlier report as its Enter default" in gates
+    assert "| **Gates** |" not in _read(SKILL / "SKILL.md")
 
 
 # --- The slug comes from the shared helper ----------------------------------------
@@ -173,7 +178,7 @@ def test_the_slug_rule_lives_in_the_shared_helper():
     assert "never slugify `project_name` by hand" in skill
     init = _read(REFERENCES / "init.md")
     assert "validateFeasibilityReportProbeOrder:" in init.split("\n---\n", 1)[0]
-    bind = _section(init, "**Bind `{project_slug}`.**", "### 1. Accept Input Documents")
+    bind = _section(init, "**Bind `{project_slug}`.**", "**Pre-flight: skills folder existence.**")
     call = next(line for line in bind.splitlines() if line.startswith("uv run {validateFeasibilityReportHelper}"))
     assert call == 'uv run {validateFeasibilityReportHelper} --locate "{outputFolderPath}" --project-name "{project_name}"'
     assert "Bind `{project_slug}` ← `projectSlug`" in bind
