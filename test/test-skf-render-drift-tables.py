@@ -55,6 +55,7 @@ SCRIPT = AUDIT / "scripts" / "render-drift-tables.py"
 STRUCTURAL = AUDIT / "references" / "structural-diff.md"
 SEVERITY = AUDIT / "references" / "severity-classify.md"
 REPORT = AUDIT / "references" / "report.md"
+INIT = AUDIT / "references" / "init.md"
 SEMANTIC = AUDIT / "references" / "semantic-diff.md"
 DOC_DRIFT = AUDIT / "references" / "doc-drift.md"
 COMPOSE = AUDIT / "references" / "constituent-freshness.md"
@@ -1179,6 +1180,15 @@ def test_unquoted_refs_commits_and_dates_read_as_written(tmp_path):
     proc = _run("provenance", str(path), "--stage-data", "d")
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert "write a value that holds `: ` or a quote as a double-quoted string" in json.loads(proc.stdout)["error"]
+    # init §6, the writer, says so first, and the line it shows reads back as written.
+    record = _flow(_slice(_read(INIT), "- Record the run context in the frontmatter", "\n- Set `stepsCompleted"))
+    assert ("Write a value that holds `: `, such as the `skipped: ...` and `failed:...` values of `upstream_fetch`, "
+            "as a double-quoted string with each `\\` and `\"` in it escaped") in record
+    example = re.search(r"\(`(upstream_fetch: \"[^`]+\")`\)", record).group(1)
+    path.write_text(f"---\nskill_name: demo\n{example}\n---\n", encoding="utf-8")
+    proc = _run("provenance", str(path), "--stage-data", "d")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _provenance_rows(proc.stdout)["Upstream Latest"] == "`(not fetched)` (fetch: skipped: docs-only skill)"
 
 
 def test_the_tools_follow_the_tier_table():
