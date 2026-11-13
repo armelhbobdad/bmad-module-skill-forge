@@ -49,7 +49,7 @@ Map the last completed step to the next step file:
 | map-and-detect | recommend |
 | recommend | generate-briefs |
 
-A report whose last completed step is identify-units and that has no {unitsFile} beside it (an older SKF wrote it) goes back to identify-units, whose §7 then replaces what its Identified Units section holds.
+A report whose last completed step is identify-units, map-and-detect or recommend and that has no {unitsFile} beside it (an older SKF wrote it, without the scope patterns recommend and generate-briefs read) goes back to identify-units, whose §7 then replaces what its Identified Units section holds, as map-and-detect §7 and recommend §6 then replace what theirs hold.
 
 ### 5. Update and Route
 

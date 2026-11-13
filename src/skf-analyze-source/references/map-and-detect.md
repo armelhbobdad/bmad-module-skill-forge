@@ -172,11 +172,11 @@ If the command fails, go on: only that entry is lost.
 
 ### 7. Append to Report and Continue
 
-Replace `[Appended by map-and-detect]` under Export Map in {outputFile} with:
+Replace `[Appended by map-and-detect]` under Export Map in {outputFile} (or, when continue.md sent back a report without {unitsFile}, what that section holds) with:
 - Per-unit export summary table
 - Export pattern analysis
 
-Replace `[Appended by map-and-detect]` under Integration Points with:
+Replace `[Appended by map-and-detect]` under Integration Points (or what that section holds, as above) with:
 - Cross-reference matrix
 - Integration point details
 - Composite merge proposals and decisions: name, constituents with their paths, heuristic, evidence

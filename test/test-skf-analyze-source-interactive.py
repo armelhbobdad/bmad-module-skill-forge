@@ -861,13 +861,23 @@ def test_step_a_shows_no_record_and_map_and_detect_section_2_is_one_sentence():
 
 
 def test_a_report_without_a_units_file_goes_back_to_identify_units():
-    """#1126: no fallback reads the Identified Units table; identify-units section 7 rewrites it."""
+    """#1126: no fallback reads the Identified Units table; identify-units section 7 rewrites it. An
+    older report past map-and-detect or recommend goes back too, since recommend and generate-briefs
+    read the scope patterns an older SKF never wrote, and the steps after it replace their sections
+    (#1125 and #1126 lane review)."""
     text = _read(REFS / "continue.md")
     assert "unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'" in _frontmatter(text)
     route = _section(text, "### 4. Determine Next Step", "### 5.")
-    assert ("A report whose last completed step is identify-units and that has no {unitsFile} beside it (an older "
-            "SKF wrote it) goes back to identify-units, whose §7 then replaces what its Identified Units section "
-            "holds.") in route
+    assert ("A report whose last completed step is identify-units, map-and-detect or recommend and that has no "
+            "{unitsFile} beside it (an older SKF wrote it, without the scope patterns recommend and generate-briefs "
+            "read) goes back to identify-units, whose §7 then replaces what its Identified Units section holds, as "
+            "map-and-detect §7 and recommend §6 then replace what theirs hold.") in route
+    mapped = _section(_read(MAP), "### 7. Append to Report and Continue", None)
+    assert ("under Export Map in {outputFile} (or, when continue.md sent back a report without {unitsFile}, what that "
+            "section holds) with:") in mapped
+    assert "under Integration Points (or what that section holds, as above) with:" in mapped
+    assert "or in a session that resumed this report) replaces what the earlier one wrote" in _read(
+        REFS / "recommend.md")
     write = _section(_read(IDENTIFY), "### 7. Append to Report and Continue", None)
     assert "when continue.md sent back a report without {unitsFile}, what its Identified Units section holds" in write
     assert "The three tables §3's call printed last, as printed" in write

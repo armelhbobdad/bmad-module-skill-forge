@@ -126,7 +126,7 @@ confirmed_units: [{list of confirmed unit names}]
 stack_skill_candidates: [{updated list with user decisions}]
 ```
 
-A later pass through this section (after [A], [P] or [D], or in a session that resumed this step) replaces what the earlier one wrote. The step is marked complete only when [C] leaves it, so a run cancelled at the §7 menu resumes at these recommendations.
+A later pass through this section (after [A], [P] or [D], or in a session that resumed this report) replaces what the earlier one wrote. The step is marked complete only when [C] leaves it, so a run cancelled at the §7 menu resumes at these recommendations.
 
 ### 7. Present MENU OPTIONS
 
