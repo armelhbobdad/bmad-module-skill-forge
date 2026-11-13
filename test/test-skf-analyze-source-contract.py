@@ -47,6 +47,14 @@ fixtures:
   'auto' is archived like one an [auto] invocation finds, and continue.md
   never routes a resume back into auto-scope; the fallback report, marked
   interactive, still resumes.
+- #1124: every report names its run folder in `run_dir`, and continue.md
+  takes that folder over (this session's sink files appended, its own
+  folder deleted), so the resumed run's envelope carries the decisions and
+  warnings of both sessions; a report whose `run_dir` is missing, empty or
+  names no folder of this workflow directly inside `.skf-run` deletes
+  nothing and records `resumed-without-run-folder`. A clone into the folder
+  taken over first deletes the copy a session cut short left there.
+  continue.md reads two keys and announces its next step in one line.
 """
 
 from __future__ import annotations
@@ -97,6 +105,7 @@ MAP = REFS / "map-and-detect.md"
 GENERATE = REFS / "generate-briefs.md"
 DISCOVER = REFS / "discover-additional-source.md"
 BRIEF_SCHEMA_DOC = AN / "assets" / "skill-brief-schema.md"
+TEMPLATE = AN / "templates" / "analysis-report-template.md"
 STEP_FILES = sorted(p for p in REFS.glob("*.md") if p.name != "headless-contract.md")
 
 # A HALT site: "HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `x`)".
@@ -970,12 +979,179 @@ def test_the_archive_command_renames_and_never_overwrites(tmp_path):
 def test_continue_resumes_only_unfinished_reports():
     text = _read(CONTINUE)
     for gone in ("already complete", "appears to be complete", "| generate-briefs | health-check |",
-                 "Would you like to start a new analysis?"):
+                 "Would you like to start a new analysis?", "Welcome back", "## Rules", "`existing_skills`",
+                 "`confirmed_units`", "Present Progress Summary"):
         assert gone not in text, gone
     assert "only an unfinished report" in text
     assert "health-check.md" not in text.split("\n---\n", 1)[0], "nothing routes a resume to the health check"
     assert "step-auto-scope.md" not in text, "init archives an auto report: no resume re-enters auto-scope"
     assert "it archives a finished report and one whose `mode` is `'auto'`" in text, "the fallback report resumes"
+
+
+def test_every_report_names_the_run_folder_it_was_made_in():
+    """#1124: a resumed session finds the earlier session's run folder through the report's `run_dir`."""
+    text = _read(INIT)
+    for start, end in (("### 2b. Auto Mode Check", "### 3. Opening Question"),
+                       ("### 6. Create Analysis Report", "### 7.")):
+        [block] = _fenced(_section(text, start, end), "yaml")
+        lines = [line.strip() for line in block.splitlines()]
+        assert lines[lines.index("lastContinued: ''") + 1] == "run_dir: '{run_dir}'", start
+    frontmatter = _read(TEMPLATE).split("\n---\n", 1)[0].splitlines()
+    assert frontmatter[frontmatter.index("lastContinued: ''") + 1] == "run_dir: ''"
+
+
+def test_a_resume_reads_two_keys_and_announces_its_next_step_in_one_line():
+    """#1124 leanness-6: no greeting, progress template or Rules block; section 5 writes the folder the
+    session kept, so a later resume finds it."""
+    text = _read(CONTINUE)
+    assert "### 1." not in text and "### 3." not in text
+    assert "### 4. Determine Next Step" in text
+    read = _section(text, "### 2. Read Progress State", "### 4. Determine Next Step")
+    assert "Read {outputFile}'s frontmatter `stepsCompleted` and `run_dir`:" in read
+    body = text.split("\n---\n", 1)[1]
+    for key in ("project_paths", "project_name", "forge_tier"):
+        assert key not in body, key
+    route = _section(text, "### 5. Update and Route", None)
+    [block] = _fenced(route, "yaml")
+    assert block.strip().split("\n") == ["lastContinued: '{current_date}'", "run_dir: '{run_dir}'"]
+    assert '"**Resuming from {next_step_name}** (last completed: {the last entry of `stepsCompleted`})."' in route
+    assert route.index("Resuming from {next_step_name}") < route.index("{nextStepOptions}")
+
+
+TAKE_OVER_NOTE = "A `run_dir` that holds a double quote, a backtick or a `$` names no run folder"
+
+
+def _continue_shell() -> tuple[str, str, str]:
+    """continue.md section 2, its run-folder check and its take-over line."""
+    read = _section(_read(CONTINUE), "### 2. Read Progress State", "### 4. Determine Next Step")
+    check, take_over = (block.strip() for block in _fenced(read, "bash"))
+    assert TAKE_OVER_NOTE in read
+    return read, check, take_over
+
+
+def _bash(command: str, values: dict) -> subprocess.CompletedProcess:
+    """Fill a documented shell line's `{placeholders}` and run it under bash."""
+    filled = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], command)
+    return subprocess.run(["bash", "-c", filled], capture_output=True, timeout=60)
+
+
+def _zero_unit_payload() -> dict:
+    """Step 6 section 9's result context for a run that confirmed no unit."""
+    [template] = _fenced(_section(_read(GENERATE), "### 9. End the Run", "### 9b."), "json")
+    filled = template.replace('["{the brief_path of each brief §5 wrote}"]', "[]")
+    filled = filled.replace(', {"type": "brief", "path": "{each brief_path}"}', "")
+    return _fill(filled, VALUES)
+
+
+SCAN_DECISION = 'uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"'
+WARNING_RECORD = "uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'"
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+def test_a_resumed_session_takes_the_earlier_run_folder_over(tmp_path):
+    """#1124: the decision and warning the earlier session recorded reach the resumed run's envelope with
+    this session's warning, and this session's folder is gone, so step 6 section 10 deletes the one folder."""
+    _, check, take_over = _continue_shell()
+    earlier = _run_dir(tmp_path)
+    fresh = earlier.parent / "skf-analyze-source-Fr3sh9Kq"
+    fresh.mkdir()
+    emitter = {"emitEnvelopeHelper": str(EMITTER)}
+    assert SCAN_DECISION in _read(REFS / "scan-project.md")
+    decision = {"gate": "scan-project.scan", "default_action": "C", "taken_action": "C",
+                "reason": "headless: auto-continue past scan results",
+                "evidence": {"project_paths": 1, "boundaries": 2}}
+    (earlier / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
+    proc = _run(SCAN_DECISION, {**emitter, "run_dir": str(earlier)})
+    assert proc.returncode == 0, proc.stderr
+    resolver = "customization_resolver_unavailable: no JSON"
+    for folder, warning in ((earlier, "hono: missing key api_surface"), (fresh, resolver)):
+        proc = _run(WARNING_RECORD.replace("<the warning>", warning), {**emitter, "run_dir": str(folder)})
+        assert proc.returncode == 0, proc.stderr
+    (fresh / "resolver-warning.txt").write_bytes(resolver.encode("utf-8"))
+    values = {"project-root": str(tmp_path), "earlier_run_dir": str(earlier), "run_dir": str(fresh)}
+    assert _bash(check, values).returncode == 0, "the earlier session's folder is taken over"
+    proc = _bash(take_over, values)
+    assert proc.returncode == 0, proc.stderr
+    assert not fresh.exists(), "this session's own folder is deleted"
+    assert (earlier / "resolver-warning.txt").read_bytes() == resolver.encode("utf-8")
+    # {run_dir} is now the earlier folder: step 6 section 9 ends the run in it.
+    forge = tmp_path / "forge-data"
+    forge.mkdir()
+    (earlier / "result-context.json").write_bytes(json.dumps(_zero_unit_payload()).encode("utf-8"))
+    proc = _run(EMIT_COMMAND, {**emitter, "run_dir": str(earlier), "forge_data_folder": str(forge)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stdout)
+    assert [d["gate"] for d in envelope["headless_decisions"]] == ["scan-project.scan"]
+    assert envelope["warnings"] == ["hono: missing key api_surface", resolver]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+@pytest.mark.parametrize("named", ["missing", "empty", "outside-skf-run", "subfolder", "parent", "other-workflow"])
+def test_a_report_with_no_run_folder_to_take_keeps_the_fresh_one(tmp_path, named):
+    """#1124: a gone, empty or unsafe `run_dir` deletes nothing, and the documented record line puts a
+    `resumed-without-run-folder` warning in the envelope, so the reader knows the earlier entries are lost."""
+    read, check, _ = _continue_shell()
+    earlier = _run_dir(tmp_path)
+    (earlier / "source-1").mkdir()
+    elsewhere = tmp_path / "elsewhere" / "skf-analyze-source-Ab3dE5gH"
+    elsewhere.mkdir(parents=True)
+    other = earlier.parent / "skf-update-skill-Ab3dE5gH"
+    other.mkdir()
+    fresh = earlier.parent / "skf-analyze-source-Fr3sh9Kq"
+    fresh.mkdir()
+    value = {"missing": str(earlier.parent / "skf-analyze-source-G0neG0ne"), "empty": "",
+             "outside-skf-run": str(elsewhere), "subfolder": str(earlier / "source-1"),
+             "parent": f"{earlier}/..", "other-workflow": str(other)}[named]
+    values = {"project-root": str(tmp_path), "earlier_run_dir": value, "run_dir": str(fresh)}
+    assert _bash(check, values).returncode != 0, value
+    for folder in (earlier, earlier / "source-1", elsewhere, other, fresh):
+        assert folder.is_dir(), folder
+    [record] = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]*)`", read)
+    [placeholder] = re.findall(r"<[^<>]+>", record)
+    named_dir = value or "none"
+    proc = _run(record.replace(placeholder, named_dir), {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(fresh)})
+    assert proc.returncode == 0, proc.stderr
+    (fresh / "halt.json").write_bytes(json.dumps(
+        {"phase": "scan-project:2", "reason": "x", "halt_reason": "resolution-failure"}).encode("utf-8"))
+    envelope = _envelope(_run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(fresh)}).stderr)
+    assert envelope["warnings"] == [f"resumed-without-run-folder: {named_dir}: the decisions and warnings "
+                                    "recorded before this session are not in this result"]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None or shutil.which("git") is None,
+                    reason="needs a POSIX shell and git")
+def test_a_clone_into_a_taken_over_run_folder_replaces_the_copy_left_there(tmp_path):
+    """#1124 review 1: a session cut short after scan-project section 2 (or [D] section 2) made `source-1` and
+    before the step was recorded leaves the copy in its run folder, which the resume takes over. git clone
+    refuses a folder that is not empty, so the resumed clone would halt on every try; it deletes the copy first."""
+    _, check, take_over = _continue_shell()
+    earlier = _run_dir(tmp_path)
+    (earlier / "source-1").mkdir()
+    (earlier / "source-1" / "stale.txt").write_bytes(b"left by the session before\n")
+    fresh = earlier.parent / "skf-analyze-source-Fr3sh9Kq"
+    fresh.mkdir()
+    values = {"project-root": str(tmp_path), "earlier_run_dir": str(earlier), "run_dir": str(fresh)}
+    assert _bash(check, values).returncode == 0, "the earlier session's folder is taken over"
+    proc = _bash(take_over, values)
+    assert proc.returncode == 0, proc.stderr
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    (upstream / "core.py").write_bytes(b"x = 1\n")
+    _git("init", "-q", cwd=upstream)
+    _git("add", "-A", cwd=upstream)
+    _git("-c", "user.email=a@b.c", "-c", "user.name=a", "-c", "commit.gpgsign=false", "commit", "-qm", "one",
+         cwd=upstream)
+    clones = [line.strip() for block in _fenced(_read(SCAN_ROOT), "bash") for line in block.split("\n")
+              if "git clone" in line]
+    [remote] = [line for line in clones if "{clone_url}" in line]
+    # {run_dir} is the earlier folder now: scan-project runs again and clones the path into it.
+    proc = _bash(remote, {"run_dir": str(earlier), "i": "1", "ref_flag": "", "clone_url": upstream.as_uri()})
+    assert proc.returncode == 0, proc.stderr
+    assert not (earlier / "source-1" / "stale.txt").exists(), "the copy left there is gone"
+    assert (earlier / "source-1" / "core.py").read_bytes() == b"x = 1\n"
+    assert len(clones) == 2, clones
+    for line in clones:
+        assert line.startswith('rm -rf "{run_dir}/source-{i}" && git clone '), line
 
 
 def test_the_fallback_to_the_interactive_chain_resets_the_mode():

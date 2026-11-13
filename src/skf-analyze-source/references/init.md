@@ -82,6 +82,7 @@ and use the path it prints as `<name>`. If the rename fails, HARD HALT (exit cod
    stepsCompleted: ['init']
    lastStep: 'init'
    lastContinued: ''
+   run_dir: '{run_dir}'
    date: '{current_date}'
    user_name: '{user_name}'
    project_name: '{project_name}'
@@ -155,6 +156,7 @@ Create {outputFile} from {templateFile}. If the write fails, HARD HALT (exit cod
 stepsCompleted: ['init']
 lastStep: 'init'
 lastContinued: ''
+run_dir: '{run_dir}'
 date: '{current_date}'
 user_name: '{user_name}'
 project_name: '{project_name}'

@@ -250,17 +250,48 @@ def test_the_scan_roots_are_recorded_once_and_read_by_every_step():
     assert 'uv run {scanManifestsHelper} scan "{scan_root}"' in scan
     assert "**Per-path ref resolution:**" not in scan, "one rule for every path"
     # One statement of the scan root, which every step that makes one loads.
-    for path in (SCAN, IDENTIFY, MAP, DISCOVER):
+    for path in (SCAN, IDENTIFY, MAP, DISCOVER, GENERATE):
         text = _read(path)
         assert "scanRootFile: 'references/scan-root.md'" in _frontmatter(text), path.name
         assert "by {scanRootFile}" in text or "Load {scanRootFile}" in text, path.name
         assert "git clone" not in text, path.name
-    # A resumed session in a new run folder makes a vanished copy again.
-    for path, phase in ((IDENTIFY, "identify-units:1"), (MAP, "map-and-detect:1")):
-        gone = _section(_read(path), "**A scan root that is gone.**", "Load {heuristicsFile}")
+    # A session that resumed without its earlier run folder makes a vanished copy again, the brief
+    # step too before it scans a path's manifests (#1124).
+    for path, phase, end in ((IDENTIFY, "identify-units:1", "Load {heuristicsFile}"),
+                             (MAP, "map-and-detect:1", "Load {heuristicsFile}"),
+                             (GENERATE, "generate-briefs:2", "The brief writer renders")):
+        gone = _section(_read(path), "**A scan root that is gone.**", end)
+        assert gone.startswith("**A scan root that is gone.** A session that resumed this report without its "
+                               "earlier run folder works in a new one, without the copies that folder held."), path.name
         assert "no longer exists" in gone and "update `scan_roots`" in gone, path.name
+        assert "by {scanRootFile} into this run's `{run_dir}/source-{i}`" in gone, path.name
         assert f"phase `{phase}`, path `{{path}}`" in gone, path.name
-    assert "step 3 §1 and step 4 §1" in _read(HEADLESS)
+    generate = _read(GENERATE)
+    gone = _section(generate, "**A scan root that is gone.**", "The brief writer renders")
+    assert "its `{run_dir}/manifests-{i}.json` is missing" in gone, "a manifest scan already there fetches nothing"
+    assert generate.index("**A scan root that is gone.**") < generate.index("| version |")
+    assert "`scan_roots`" in _section(generate, "### 1. Load Context", "### 2.")
+    assert "identify-units, map-and-detect and generate-briefs make one again" in _read(SCAN_ROOT)
+    assert "steps 3, 4 and 6 make one again" in _read(SKILL)
+    assert "step 3 §1, step 4 §1 and step 6 §2" in _read(HEADLESS)
+    # A session that took the earlier run folder over finds its manifest scans: only one without it lacks them.
+    without = "as in a session that resumed the report without its earlier run folder"
+    assert without in _section(_read(MAP), "### 3. Map Import Graph", "### 4.")
+    row = next(line for line in generate.splitlines() if line.startswith("| version |"))
+    assert f"When that file is missing, {without}, run" in row, row
+    contract = _read(HEADLESS)
+    decisions = next(line for line in contract.splitlines() if line.startswith("- `headless_decisions`"))
+    assert decisions.endswith("A run that resumed an unfinished report also carries the decisions the sessions "
+                              "before it recorded."), decisions
+    warnings = next(line for line in contract.splitlines() if line.startswith("- `warnings`"))
+    assert warnings == ("- `warnings`: present when the run recorded at least one. A run that resumed an unfinished "
+                        "report also carries the warnings the sessions before it recorded, or a "
+                        "`resumed-without-run-folder` warning when their run folder is not there."), warnings
+    assert ("A halt writes no result file and keeps `{run_dir}`: a session that resumes the step-by-step report "
+            "whose `run_dir` names it takes it over, and without it the resumed run's result carries "
+            "`resumed-without-run-folder` in place of the decisions and warnings recorded before. Any other kept "
+            "folder, such as that of a halt before init wrote the report or of a report init archives, stays in "
+            "`_bmad-output/.skf-run/`.") in _section(contract, "## Halt Envelope", "## Exit Codes")
 
 
 @pytest.mark.parametrize("target", ["acme/mono", "github.com/acme/mono"], ids=["shorthand", "host-path"])
@@ -310,6 +341,9 @@ def test_a_local_path_with_a_ref_is_read_at_the_ref(tmp_path, folder):
     _git(mono, "commit", "-qm", "v2")
     local = _section(_read(SCAN_ROOT), "- **A local path with a ref:**", "- **A remote path**")
     show, clone = _bash_lines(local)
+    # The clone first deletes a copy a session cut short left behind (#1124); this run folder holds none.
+    clear, _, clone = clone.partition(" && ")
+    assert clear == 'rm -rf "{run_dir}/source-{i}"', clear
     run_dir = _run_dir(tmp_path)
     path = (mono / folder).as_posix()
     printed = subprocess.run(shlex.split(show.replace("{path}", path)), capture_output=True, timeout=60)

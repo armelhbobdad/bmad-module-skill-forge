@@ -3,6 +3,7 @@ workflowType: 'analyze-source'
 stepsCompleted: []
 lastStep: ''
 lastContinued: ''
+run_dir: ''
 date: ''
 user_name: ''
 project_name: ''

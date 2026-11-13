@@ -48,7 +48,7 @@ These rules apply to every step in this workflow:
 
 **Auto mode path:** With `[auto]` present, init routes directly to step 1a, which loads a branch file only when its branch fires: `references/step-auto-scope-coexistence.md` (a skill already matches), `references/step-auto-scope-split.md` (a monorepo splits into N briefs) and `references/step-auto-scope-corpora.md` (a whole-language reference), and routes docs-only targets to `references/auto-docs-only.md`.
 
-**[D] Discover Additional Source** (steps 4 and 5) loads `references/discover-additional-source.md`. Step 2 and [D] make each project path's scan root by `references/scan-root.md` (steps 3 and 4 make one again when a resumed session no longer finds it), and step 4 and [D] map each unit's exports by `references/map-unit-exports.md`.
+**[D] Discover Additional Source** (steps 4 and 5) loads `references/discover-additional-source.md`. Step 2 and [D] make each project path's scan root by `references/scan-root.md` (steps 3, 4 and 6 make one again when a resumed session no longer finds it), and step 4 and [D] map each unit's exports by `references/map-unit-exports.md`.
 
 **Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
 

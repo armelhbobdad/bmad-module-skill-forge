@@ -58,7 +58,7 @@ Read {outputFile} to obtain:
 - Qualifying units from the Identified Units section: names, project paths, paths, scope types, languages, file counts, statuses and each unit's own manifest (path, name and ecosystem). A unit whose status is `deferred` (outside the goal the user stated) stays in the report and is not analyzed here
 - `forge_tier`, `scan_roots` (each project path's scan root) and `refs` from frontmatter
 
-**A scan root that is gone.** A session that resumed this report runs in a new run folder, and the folder of the session that made a copy may be gone. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
+**A scan root that is gone.** A session that resumed this report without its earlier run folder works in a new one, without the copies that folder held. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
 
 Load {heuristicsFile} for stack skill candidate detection rules.
 
@@ -90,7 +90,7 @@ Which unit imports which, how many files import each unit, which units are impor
 
 **Units JSON.** One entry per qualifying unit, from its Identified Units row: `{"name": "<unit name>", "path": "<its path, relative to the source root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}`, with `manifest_name` and `ecosystem` left out for a unit without a manifest. The import helper works out the names other code imports each unit by from what the unit declares. Add `"modules"` only for a folder without a manifest that code imports by name: a Python package folder (`["acme"]`) or a Go package inside a module (`["example.com/svc/internal/auth"]`).
 
-Run this once per project path, the `{i}`-th entry of `project_paths[]`, with `{source_root}` its scan root, over the units under it. `{run_dir}/manifests-{i}.json` is the manifest scan scan-project wrote; when it is missing, as in a session that resumed the report, run `uv run {scanManifestsHelper} scan "{source_root}" > "{run_dir}/manifests-{i}.json"` first.
+Run this once per project path, the `{i}`-th entry of `project_paths[]`, with `{source_root}` its scan root, over the units under it. `{run_dir}/manifests-{i}.json` is the manifest scan scan-project wrote; when it is missing, as in a session that resumed the report without its earlier run folder, run `uv run {scanManifestsHelper} scan "{source_root}" > "{run_dir}/manifests-{i}.json"` first.
 
 ```bash
 cat > "{run_dir}/units-{i}.json" <<'SKF_UNITS'

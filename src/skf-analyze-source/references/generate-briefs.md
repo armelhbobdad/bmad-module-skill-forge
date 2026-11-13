@@ -1,6 +1,7 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: 'assets/skill-brief-schema.md'
+scanRootFile: 'references/scan-root.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
@@ -44,7 +45,7 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 Read {outputFile} completely to obtain:
 - `confirmed_units` from frontmatter (names of units approved in step 05)
 - `confirmed_composites` from frontmatter (composites approved in step 04, each with its constituents' names and paths)
-- `project_paths`, `refs`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
+- `project_paths`, `scan_roots` (each project path's scan root), `refs`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
 - Recommendation cards from "## Recommendations" section (proposed brief fields and the project path of each unit)
 - Export map and integration data from prior sections
 
@@ -58,6 +59,8 @@ The run still ends through the same sequence as one that wrote briefs: skip §2 
 
 **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}` and **`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `generate-briefs:2`): "`{the missing script}` is missing. Re-install SKF."
 
+**A scan root that is gone.** A session that resumed this report without its earlier run folder works in a new one, without the copies that folder held. When the version row below needs a project path's scan (its `{run_dir}/manifests-{i}.json` is missing) and the path's recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter, then run the scan on it. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `generate-briefs:2`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
+
 The brief writer renders, checks and writes each brief, and applies the version precedence (`target_version`, then `detected_version`, then `1.0.0`): this step supplies the values. For each unit in `confirmed_units`, take them from:
 
 **Field mapping:**
@@ -65,7 +68,7 @@ The brief writer renders, checks and writes each brief, and applies the version 
 | Field | Source |
 |-------|--------|
 | name | Confirmed name from step 05 recommendation card: the name identify-units Step C derived, unless step 5 renamed the unit |
-| version | Not set here: `detected_version` comes by {schemaFile}'s **Version Detection**, for the unit's own manifest in its project path's manifest scan, `{run_dir}/manifests-{i}.json` (scan-project and discover-additional-source write it). When that file is missing, as in a session that resumed the report, run `uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"` first, `{scanManifestsHelper}` the first existing path of `{scanManifestsProbeOrder}` |
+| version | Not set here: `detected_version` comes by {schemaFile}'s **Version Detection**, for the unit's own manifest in its project path's manifest scan, `{run_dir}/manifests-{i}.json` (scan-project and discover-additional-source write it). When that file is missing, as in a session that resumed the report without its earlier run folder, run `uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"` first, `{scanManifestsHelper}` the first existing path of `{scanManifestsProbeOrder}` |
 | source_repo | The unit's project path, the `project_paths[]` entry it was found under (a composite's constituents share one) |
 | target_ref | The unit's ref: its project path's entry in `refs`, else null. Never a version: `target_version` stays null |
 | language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |
