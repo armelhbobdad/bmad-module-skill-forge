@@ -54,7 +54,7 @@ Every write to `_campaign-state.yaml` goes through `scripts/campaign-state.py`. 
 | `set-campaign` | steps 07 to 09 | `architecture_doc_path`, and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification); null for a stage skipped on purpose (`--no-<field>`), a sub-skill that printed no line (`--no-result <field>`, a `not_recorded` row with halt reason `no-result`) or a line it cannot read (one that does not parse, or has no `status` or `exit_code`: a `not_recorded` row with halt reason `result-unreadable`, exit 0); and `stage_outcomes`, each stage `completed`, `skipped` or `failed` with its halt reason and exit code |
 | `set-stage` | steps 05, 10, 11 | `current_stage` alone |
 | `recover` | step-resume | `.bak` over the primary, when `.bak` validates (exit 9 otherwise) |
-| `archive` | SKILL.md (overwrite) | nothing: it moves the state, its `.bak` and the brief into a new folder under `archive/` and returns it |
+| `archive` | step-01 §0 (overwrite) | nothing: it moves the state, its `.bak` and the brief into a new folder under `archive/` and returns it |
 | `resume` | step-resume | nothing: it returns the stage and step file to resume |
 | `halt-payload` | any HARD HALT | nothing: it prints the error envelope's payload (Result Contract above) |
 

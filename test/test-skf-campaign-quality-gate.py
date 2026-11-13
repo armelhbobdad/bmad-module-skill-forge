@@ -106,7 +106,7 @@ def _run(argv, capsys, stdin=None, monkeypatch=None):
 
 class TestCheck:
     def test_default_gate_passes(self):
-        assert mod.check("zero-critical-high", "90", "80") == GATE
+        assert mod.check("zero-critical-high", "90", "80") == {**GATE, "from_brief": []}
 
     def test_whole_float_prints_as_int(self):
         assert mod.check("zero-critical-high", "90.0", "80")["soft_target"] == 90
@@ -137,16 +137,25 @@ class TestCheck:
     def test_cli_prints_the_gate(self, capsys):
         rc, out, _ = _run(["check", "--hard", "zero-critical-high", "--soft-target", "95", "--soft-fallback", "85"], capsys)
         assert rc == 0
-        assert out == {"hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 85}
+        assert out == {"hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 85, "from_brief": []}
 
     def test_brief_wins_field_by_field(self):
+        # A null value sets nothing, so `from_brief` (#1142) leaves it out.
         brief = {"quality_gate": {"soft_target": 95, "soft_fallback": None}}
         assert mod.check("zero-critical-high", "90", "80", brief) == {
-            "hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 80,
+            "hard": "zero-critical-high", "soft_target": 95, "soft_fallback": 80, "from_brief": ["soft_target"],
+        }
+
+    def test_from_brief_lists_every_key_the_brief_set_in_gate_order(self):
+        brief = {"quality_gate": {"soft_fallback": 85, "soft_target": 92, "hard": "zero-critical-high"}}
+        assert mod.check("zero-critical-high", "90", "80", brief) == {
+            "hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85,
+            "from_brief": ["hard", "soft_target", "soft_fallback"],
         }
 
     def test_brief_without_a_gate_keeps_the_base(self):
-        assert mod.check("zero-critical-high", "90", "80", {"targets": []}) == GATE
+        assert mod.check("zero-critical-high", "90", "80", {"targets": []}) == {**GATE, "from_brief": []}
+        assert mod.check("zero-critical-high", "90", "80", {"quality_gate": {}})["from_brief"] == []
 
     def test_brief_value_that_breaks_the_gate_names_the_brief(self):
         with pytest.raises(mod.GateError) as exc:
@@ -164,7 +173,8 @@ class TestCheck:
         rc, out, _ = _run(["check", "--hard", "zero-critical-high", "--soft-target", "90", "--soft-fallback", "80",
                            "--brief-file", str(brief)], capsys)
         assert rc == 0
-        assert out == {"hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85}
+        assert out == {"hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85,
+                       "from_brief": ["hard", "soft_target", "soft_fallback"]}
 
     @pytest.mark.parametrize("content, code", [(None, "BRIEF_NOT_FOUND"), (b"- a\n", "BRIEF_UNREADABLE"),
                                                (b"quality_gate: 90\n", "INVALID_GATE")],
@@ -671,9 +681,11 @@ def test_steps_bind_the_gate_script(name):
 def test_setup_settles_the_gate_with_the_script(tmp_path, capsys):
     # Setup's init (campaign-state.py) runs this script's check before it writes the state.
     text = _text("step-01-setup.md")
-    assert ("init --state-file {stateFile} --targets-file - --name \"<campaign_name>\" --hard \"{qualityGateHard}\" "
+    # #1142: the hard gate is no setting, so step-01 passes no --hard and init takes the only one.
+    assert ("init --state-file {stateFile} --targets-file - --name \"<campaign_name>\" "
             "--soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>]"
             ) in text
+    assert "--hard" not in text and "{qualityGateHard}" not in text
     assert "field by field" not in text
     spec = importlib.util.spec_from_file_location("campaign_state_gate_test", SCRIPT.parent / "campaign-state.py")
     helper = importlib.util.module_from_spec(spec)
@@ -799,8 +811,11 @@ def test_exit_13_is_a_contract_code():
 
 def test_customize_states_the_precedence_and_the_only_hard_gate():
     text = (CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8")
-    block = text.split("# --- Quality gate ---", 1)[1].split("quality_gate_hard =", 1)[0]
+    block = text.split("# --- Quality gate ---", 1)[1].split("quality_gate_soft_target =", 1)[0]
     comment = " ".join(line.lstrip("#").strip() for line in block.splitlines() if line.strip())
     assert "the directive's `## Quality Overrides` (while the campaign runs), then the `quality_gate` of the campaign-brief.yaml Setup reads" in comment
-    assert "`zero-critical-high` is the only accepted value" in comment
+    # #1142: a key with one legal value is no setting; the comment says the hard gate is fixed.
+    assert ("The hard gate is not a setting: a skill passes it only when its test-skill run finds no Critical or "
+            "High gap (a campaign brief may name only `zero-critical-high`).") in comment
+    assert "quality_gate_hard" not in text
     assert mod.HARD_GATES == ("zero-critical-high",)

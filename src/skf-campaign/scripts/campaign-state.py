@@ -33,19 +33,24 @@ Operations:
                     (campaign-parse-manifest.py's JSON output, a file or `-`
                     for stdin) and settles the quality gate through
                     campaign-quality-gate.py's check (a brief's
-                    quality_gate wins when --brief-file names one). Refuses
-                    a state file or backup that already exists. With
-                    --brief-out it also writes campaign-brief.yaml from
+                    quality_gate wins when --brief-file names one; --hard
+                    defaults to zero-critical-high, the only hard gate).
+                    Refuses a state file or backup that already exists.
+                    With --brief-out it also writes campaign-brief.yaml from
                     --brief-template (the template's mapping, its keys in
                     their order, after its leading comment block): the
                     campaign name, created_at (the state's started_at), the
                     same targets[] with every field each one carries
                     (repo_url, which the state has no place for, and any
-                    hint), the settled quality_gate, architecture_doc_path
-                    and notes (--notes, else the --brief-file's notes, else
-                    empty). The template is read before anything is written;
-                    the brief is written right after the state, and a resume
-                    that finds the state without it halts (missing-brief).
+                    hint), the quality_gate values the --brief-file set and
+                    only those (the state keeps the whole gate, so a
+                    campaign seeded again from this brief takes the
+                    customize.toml values of that run),
+                    architecture_doc_path and notes (--notes, else the
+                    --brief-file's notes, else empty). The template is read
+                    before anything is written; the brief is written right
+                    after the state, and a resume that finds the state
+                    without it halts (missing-brief).
   set-stage         Write current_stage alone: a stage's final write when it
                     records nothing else.
   set-skill         Set the status, quality_score, skill_path or brief_path
@@ -107,7 +112,7 @@ Operations:
   recover           Copy a .bak that validates over the primary (step-resume).
   archive           Move the state, its .bak and the brief, each one that
                     exists, into archive/<campaign name>-<UTC stamp>/ beside
-                    the state (SKILL.md's overwrite), so step-01's init can
+                    the state (step-01 §0, on an overwrite), so §2's init can
                     start a new campaign. The name comes from the state, else
                     the .bak, else "campaign"; an existing folder is refused.
   log               Append one typed entry to the decision log: decision (an
@@ -139,7 +144,7 @@ active skill after it in the execution order (complete when there is none).
 
 CLI:
   uv run campaign-state.py init --state-file <p> --targets-file <p|-> --name <name> \\
-      --hard <value> --soft-target <N> --soft-fallback <N> [--brief-file <p>] \\
+      [--hard <value>] --soft-target <N> --soft-fallback <N> [--brief-file <p>] \\
       [--directive-path <p>] [--architecture-doc-path <p>] \\
       [--brief-out <p> [--brief-template <p>] [--notes <text>]]
   uv run campaign-state.py set-stage --state-file <p> --stage <N>
@@ -168,8 +173,10 @@ The backup is always <state-file>.bak.
 Output (one JSON object on stdout):
   writes:   {"op", "state_file", "backup_file", "backup_rotated",
              "last_updated", "current_stage", "changed": [...]} plus the
-             operation's own keys (init: "quality_gate", "brief_file", null
-             without --brief-out; apply-batch: "activated", "skipped",
+             operation's own keys (init: "quality_gate", the whole gate
+             in state, "gate_from_brief", the gate values the --brief-file
+             set ({} without one), and "brief_file", null without
+             --brief-out; apply-batch: "activated", "skipped",
              "completed", "failed"; append-workarounds: "added";
              set-campaign: "recorded", and
              "not_recorded", one {"field", "status", "halt_reason",
@@ -536,7 +543,8 @@ def op_init(args: argparse.Namespace) -> dict:
     gate_module = _module(GATE_SCRIPT)
     try:
         brief = gate_module._load_brief(args.brief_file) if args.brief_file else None
-        gate = gate_module.check(args.hard, args.soft_target, args.soft_fallback, brief)
+        hard = args.hard if args.hard is not None else gate_module.HARD_GATES[0]
+        gate = gate_module.check(hard, args.soft_target, args.soft_fallback, brief)
     except gate_module.GateError as exc:
         raise StateError(EXIT_INPUT, exc.code, str(exc), list(exc.extra.get("errors", []))) from exc
 
@@ -553,6 +561,9 @@ def op_init(args: argparse.Namespace) -> dict:
     if args.architecture_doc_path:
         campaign["architecture_doc_path"] = args.architecture_doc_path
     campaign["quality_gate"] = {key: gate[key] for key in ("hard", "soft_target", "soft_fallback")}
+    # Only the values the seeding brief set go into the new brief: one copied from customize.toml would win
+    # over a later override when this brief seeds a campaign again.
+    gate_from_brief = {key: gate[key] for key in gate["from_brief"]}
 
     skills = []
     for target in targets:
@@ -588,7 +599,7 @@ def op_init(args: argparse.Namespace) -> dict:
             "campaign_name": args.name,
             "created_at": stamp,
             "targets": copy.deepcopy(targets),
-            "quality_gate": dict(campaign["quality_gate"]),
+            "quality_gate": dict(gate_from_brief),
             "architecture_doc_path": args.architecture_doc_path or "",
             "notes": notes if isinstance(notes, str) else "",
         })
@@ -607,6 +618,7 @@ def op_init(args: argparse.Namespace) -> dict:
         "current_stage": 0,
         "changed": changed,
         "quality_gate": campaign["quality_gate"],
+        "gate_from_brief": gate_from_brief,
         "brief_file": brief_file.as_posix() if brief_file else None,
     }
 
@@ -1138,10 +1150,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("init", "create the state from parsed targets (step-01)", stage=None)
     p.add_argument("--targets-file", required=True, help="campaign-parse-manifest.py output, or - for stdin")
     p.add_argument("--name", required=True, help="campaign name")
-    p.add_argument("--hard", required=True, help="quality_gate_hard")
+    p.add_argument("--hard", help="the hard gate (default: zero-critical-high, the only one there is)")
     p.add_argument("--soft-target", required=True, help="quality_gate_soft_target")
     p.add_argument("--soft-fallback", required=True, help="quality_gate_soft_fallback")
-    p.add_argument("--brief-file", help="campaign brief whose quality_gate wins over the values above")
+    p.add_argument("--brief-file", help="campaign brief whose quality_gate wins over the values above; "
+                   "the new brief keeps only the values it set")
     p.add_argument("--directive-path", help="campaign directive file")
     p.add_argument("--architecture-doc-path", help="architecture document for verify and refine")
     p.add_argument("--brief-out", help="also write campaign-brief.yaml here, from the same targets")

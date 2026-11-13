@@ -21,10 +21,12 @@ Subcommands:
   check     Settle and validate the gate step-01 writes to state: each of
             `hard`, `soft_target` and `soft_fallback` from the brief's
             `quality_gate` (--brief-file) when it gives one, else from the
-            customize.toml values passed in. `hard` must be
-            `zero-critical-high` (test-skill's own hard gate, the only one
-            there is); `soft_target` and `soft_fallback` are numbers from 0
-            to 100, the fallback not above the target.
+            values passed in (`hard` from --hard, the soft values from
+            customize.toml). `hard` must be `zero-critical-high`
+            (test-skill's own hard gate, the only one there is);
+            `soft_target` and `soft_fallback` are numbers from 0 to 100,
+            the fallback not above the target. `from_brief` lists the keys
+            the brief gave, so Setup writes only those into the new brief.
   resolve   One Tier A skill's run at step-05: whether the directive's Skip
             List names it, the threshold its test run gets (`threshold`, the
             effective `soft_target`) and, with --brief-file, the inputs
@@ -77,7 +79,9 @@ CLI:
   uv run campaign-quality-gate.py classify --state-file <p> [--directive-file <p>]
 
 Output (one JSON object on stdout):
-  check:    {"hard", "soft_target", "soft_fallback"}
+  check:    {"hard", "soft_target", "soft_fallback", "from_brief": [...]},
+             `from_brief` the keys, in that order, the brief's quality_gate
+             gave with a non-null value ([] without a brief)
   resolve:  {"skill", "skip", "skip_reason", "hard", "soft_target",
              "soft_fallback", "threshold", "overrides": [...],
              "unparsed": [...], "warnings": [...], "directive_notice":
@@ -358,6 +362,7 @@ def check(hard: str, soft_target: str, soft_fallback: str, brief: dict[str, Any]
         except ValueError:
             gate[key] = raw
     applied = []
+    from_brief = []
     brief_gate = (brief or {}).get("quality_gate")
     if brief_gate is not None and not isinstance(brief_gate, dict):
         raise GateError("The brief's quality_gate is not a mapping", "INVALID_GATE",
@@ -366,7 +371,8 @@ def check(hard: str, soft_target: str, soft_fallback: str, brief: dict[str, Any]
         if (brief_gate or {}).get(key) is not None:
             gate[key] = brief_gate[key]
             applied.append(f"campaign brief: {key} {brief_gate[key]}")
-    return _checked(gate, applied)
+            from_brief.append(key)
+    return {**_checked(gate, applied), "from_brief": from_brief}
 
 
 def _hint(target: dict[str, Any], fields: tuple[str, ...]) -> str | None:

@@ -893,8 +893,9 @@ def test_campaign_path_settings_name_their_defaults_and_the_start_check():
             "`{project-root}/<folder>` or an absolute path, since a bare path resolves from the installed skill's "
             "folder.") in workspace
     [templates] = [line for line in lines if line.startswith("- **Template overrides**")]
-    for key in ("report_template_path", "kickoff_template_path", "brief_template_path"):
+    for key in ("report_template_path", "kickoff_template_path"):
         assert f"`{key}`" in templates and workflow[key].startswith("templates/"), key
+    assert "brief_template_path" not in templates and "brief_template_path" not in workflow
     for token in ("Each ships its bundled file under `templates/`, in the installed skill's folder, which every "
                   "update overwrites: keep your copy outside it and name it as `{project-root}/<path to the copy>`.",
                   "When one names no readable file, the campaign stops as it starts, before Setup or a resume, with "
@@ -1261,7 +1262,7 @@ def test_campaign_doc_follows_the_export_gate():
         assert stale not in doc, stale
     assert doc.count("brief (BS), compile (CS) and test (TS)") == 2
     assert "analyze, brief, compile and test" not in _read(EXAMPLES)
-    gates = _paragraph(doc, "You can change all three through")
+    gates = _paragraph(doc, "You can change the soft target and the soft fallback through")
     for token in ("completes only on a Test Skill PASS, with `--threshold` set to its effective soft target",
                   "at or above the soft target is `pass`", "at or above the soft fallback is `fallback`",
                   "anything else is not exported",

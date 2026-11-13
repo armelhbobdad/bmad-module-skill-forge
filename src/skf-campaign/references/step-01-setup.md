@@ -3,7 +3,6 @@ nextStepFile: 'step-02-strategy.md'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
-templateFile: '{briefTemplatePath}'
 stateScript: 'scripts/campaign-state.py'
 manifestScript: 'scripts/campaign-parse-manifest.py'
 ---
@@ -22,6 +21,10 @@ Collect campaign inputs from the operator, create the initial `_campaign-state.y
 - If `{headless_mode}` is true, draw inputs from `--brief`/`--manifest` (On Activation step 4) and auto-proceed through confirmation gates with the default action, logging each auto-decision with `uv run {stateScript} log --log-file {decisionLogFile} --type auto --text '<entry>'`; emit this stage's progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`.
 
 ## TASKS
+
+### §0: Archive the Previous Campaign
+
+SKILL.md Mode Routing 3 sends an overwrite here with the old campaign still on disk. Run this section only when `{stateFile}` or `{stateFile}.bak` exists; otherwise start at §1. Run `uv run {stateScript} archive --state-file {stateFile} --brief-file {briefFile}`, which moves the state, its `.bak` and the brief into a new folder under `{campaignWorkspacePath}/archive/` (§2's `init` refuses a state or backup that exists), and log the `archive_dir` it returns (type `decision`): `uv run {stateScript} log --log-file {decisionLogFile} --type decision --text 'overwrite: previous campaign archived to <archive_dir>'`. On exit 2, HALT (exit code 2, `invalid-input`) with its `error`. A brief path that names `{briefFile}`, from `--brief` or from §1's answer, is read from `archive_dir` instead.
 
 ### §1: Collect Inputs
 
@@ -61,10 +64,10 @@ If no targets can be collected (an empty answer, or an empty `--brief` or `--man
 Settle the campaign name (the brief's `campaign_name`, else the operator's, else `{project_name}`), then create the state in one call. Pipe in the parse of the settled targets: the last §1 parse run again (the manifest file, `--brief <brief-file>`, or the corrected manifest lines on stdin):
 
 ```
-uv run {manifestScript} <the settled source> | uv run {stateScript} init --state-file {stateFile} --targets-file - --name "<campaign_name>" --hard "{qualityGateHard}" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>] [--directive-path <directive_path>] [--architecture-doc-path <architecture_doc_path>] --brief-out {briefFile} --brief-template {templateFile} [--notes '<operator notes>']
+uv run {manifestScript} <the settled source> | uv run {stateScript} init --state-file {stateFile} --targets-file - --name "<campaign_name>" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>] [--directive-path <directive_path>] [--architecture-doc-path <architecture_doc_path>] --brief-out {briefFile} [--notes '<operator notes>']
 ```
 
-Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. Pass `--notes` only with notes the operator gave, single-quoted as a decision-log entry is (`references/campaign-contracts.md`); without it a brief's own `notes` carry over.
+Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one, and the new brief keeps only those values, so a campaign seeded from it again takes the others from customize.toml. After `init` exits 0, log one entry per key of its `gate_from_brief`: `uv run {stateScript} log --log-file {decisionLogFile} --type event --text 'quality_gate.<key> <value> comes from the campaign brief, not customize.toml'`. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. Pass `--notes` only with notes the operator gave, single-quoted as a decision-log entry is (`references/campaign-contracts.md`); without it a brief's own `notes` carry over.
 
 On exit 2, HALT (exit code 2, `invalid-input`) with its `error` and `errors[]`; nothing is written: a gate the gate script rejects (a hard gate other than `zero-critical-high`, a soft value outside 0 to 100, a fallback above the target, or a brief it cannot read), targets that hold errors, a brief template that is no YAML mapping, or a state file or backup that already exists. On exit 3, HALT (exit code 3, `invalid-state`) with its `errors[]`.
 

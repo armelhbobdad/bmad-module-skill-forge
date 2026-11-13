@@ -12,7 +12,7 @@ findings of Epic 4 both lived in this layer:
 This linter encodes those lessons as deterministic assertions so the class of
 bug is caught by `npm test`, not only by adversarial review.
 
-#1110: On Activation step 3 checks the three template paths it binds, before
+#1110: On Activation step 3 checks the template paths it binds, before
 Mode Routing and unless the invocation is `campaign status`, and halts with
 exit code 2 (`invalid-input`) on one that names no readable file, so a bad
 report template no longer surfaces only at stage 10.
@@ -27,6 +27,14 @@ parses.
 right after CS, before TS, so nothing after the test reads CS's context; the
 strategy view comes from campaign-deps.py --render, and the export, resume
 and strategy steps state what to show in one sentence, not a fixed layout.
+
+#1142: customize.toml no longer ships quality_gate_hard (one legal value) or
+brief_template_path (no later stage reads the brief template), and neither
+name is left in SKILL.md or a reference. Setup's init writes into the brief
+only the gate values the seeding brief set and passes no --hard. An overwrite
+archives the old campaign in step-01 §0, so Setup's numbering may start at 0,
+and `campaign status` names its real exits: 2 for no state, 3 for a state that
+fails validation, else 0.
 """
 
 from __future__ import annotations
@@ -146,8 +154,10 @@ class TestStepFileStructure:
         numeric = [int(m.group(1)) for line in lines if (m := SECTION_NUMERIC_RE.match(line))]
         nums = para or numeric
         assert nums, f"{path.name} has no recognizable ### section headings"
-        assert nums == list(range(1, len(nums) + 1)), (
-            f"{path.name} section numbering is not contiguous from 1: {nums}"
+        # A §0 runs before §1 only on some runs (step-01's overwrite archive, #1142).
+        start = nums[0] if nums[0] in (0, 1) else 1
+        assert nums == list(range(start, start + len(nums))), (
+            f"{path.name} section numbering is not contiguous from 0 or 1: {nums}"
         )
 
 
@@ -235,8 +245,20 @@ def test_brief_keeps_every_field_of_a_target() -> None:
     # init writes the brief from the parsed targets, so Setup types no YAML.
     setup = _step("step-01-setup.md")
     state = _section(setup, 2)
-    assert "--brief-out {briefFile} --brief-template {templateFile}" in state
-    assert "Populate `{templateFile}`" not in setup
+    # #1142: init writes the brief from the bundled template; no setting swaps it.
+    assert "--brief-out {briefFile} [--notes '<operator notes>']" in state
+    assert "--brief-template" not in setup and "{templateFile}" not in setup
+    assert "templateFile" not in _frontmatter(setup)
+
+
+def test_setup_logs_each_gate_value_the_brief_set() -> None:
+    # #1142: the new brief keeps only the gate values the seeding brief set, and Setup logs each one from
+    # init's `gate_from_brief`, so the decision log says which values customize.toml did not decide.
+    state = " ".join(_section(_step("step-01-setup.md"), 2).split())
+    assert "the new brief keeps only those values" in state
+    call = ("uv run {stateScript} log --log-file {decisionLogFile} --type event --text "
+            "'quality_gate.<key> <value> comes from the campaign brief, not customize.toml'")
+    assert f"After `init` exits 0, log one entry per key of its `gate_from_brief`: `{call}`." in state
 
 
 class TestHealthCheckChain:
@@ -510,11 +532,13 @@ EXIT_ROW_RE = re.compile(r"^\| (\d+)\s+\| ([a-z-]+)\s+\| (.*) \|$", re.M)
 # Where each code is raised, as (meaning, step file, section). The Exit Codes table the model reads on every
 # HALT keeps only the code, its meaning and a note that changes a move (#1140), so the per-step index lives here,
 # where test_exit_codes_cite_sections_that_exist keeps it true. Codes 3 (any step's §1 and any refused state
-# write) and 12 (any interactive gate) have no one section to cite. Two sites fall outside this (meaning, step
+# write) and 12 (any interactive gate) have no one section to cite. Three sites fall outside this (meaning, step
 # file, section) shape: SKILL.md On Activation step 3 (exit 2, pinned by
-# test_activation_checks_the_templates_before_mode_routing) and step-11's terminal success (exit 0).
+# test_activation_checks_the_templates_before_mode_routing), SKILL.md Mode Routing 4, `campaign status` (exits 2
+# and 3, pinned by test_campaign_status_names_its_real_exits) and step-11's terminal success (exit 0).
 RAISED_BY: list[tuple[str, str, int]] = [
     ("success", "step-resume.md", 3),
+    ("invalid-input", "step-01-setup.md", 0),
     ("invalid-input", "step-01-setup.md", 1),
     ("invalid-input", "step-01-setup.md", 2),
     ("invalid-input", "step-02-strategy.md", 3),
@@ -730,22 +754,67 @@ def test_batch_reads_the_batch_file_when_no_summary_was_written() -> None:
 
 
 def test_overwrite_archives_through_the_helper() -> None:
+    # #1142: only Setup uses the archive, so its call, log and brief-path rule live in step-01 §0, not SKILL.md.
+    setup = _step("step-01-setup.md")
+    assert re.search(r"^### §0: Archive the Previous Campaign$", setup, re.M)
+    assert setup.index("### §0:") < setup.index("### §1:")
+    archive = " ".join(_section(setup, 0).split())
+    assert "Run this section only when `{stateFile}` or `{stateFile}.bak` exists; otherwise start at §1." in archive
+    call = "uv run {stateScript} archive --state-file {stateFile} --brief-file {briefFile}"
+    assert f"`{call}`" in archive
+    parsed = _state_parser().parse_args(call.split()[3:])
+    assert (parsed.op, parsed.state_file, parsed.brief_file) == ("archive", "{stateFile}", "{briefFile}")
+    assert "log the `archive_dir` it returns (type `decision`)" in archive
+    assert "`uv run {stateScript} log --log-file {decisionLogFile} --type decision --text '" in archive
+    # A `write-failed` exit can come after the state moved, so the HALT claims nothing about what moved.
+    assert "On exit 2, HALT (exit code 2, `invalid-input`) with its `error`." in archive
+    assert "nothing was moved" not in archive
+    assert ("A brief path that names `{briefFile}`, from `--brief` or from §1's answer, is read from `archive_dir` "
+            "instead.") in archive
     skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
-    call = ("uv run scripts/campaign-state.py archive --state-file {campaignWorkspacePath}/_campaign-state.yaml "
-            "--brief-file {campaignWorkspacePath}/campaign-brief.yaml")
-    assert call in skill
-    assert "log the `archive_dir` it returns (type `decision`)" in skill
-    assert "{name}-{timestamp}" not in skill
-    archive = _state_parser().parse_args(call.split()[3:])
-    assert archive.op == "archive"
+    assert "campaign-state.py archive" not in skill and "{name}-{timestamp}" not in skill
+    route = next(line for line in skill.splitlines() if line.startswith("3. **`campaign`** (state exists)"))
+    assert "prompt **resume** (via `references/step-resume.md`) or **overwrite**" in route
+    assert "`references/step-01-setup.md`, whose §0 archives the old campaign first" in route
+    assert ("**GATE [default: resume]**: in headless mode, default to **resume** (never silently clobber); "
+            "archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.") in route
+    contracts = _step("campaign-contracts.md")
+    assert re.search(r"^\| `archive` \| step-01 §0 \(overwrite\) \|", contracts, re.M)
+
+
+def test_campaign_status_names_its_real_exits() -> None:
+    """#1142: Mode Routing 4 halts with exit 2 when no state exists and exit 3 when it fails validation (the
+    load rule's code), pointing to `campaign resume` when a backup exists, and never names exit 9."""
+    skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
+    route = next(line for line in skill.splitlines() if line.startswith("4. **`campaign status`** (read-only)"))
+    assert ("A missing state says no campaign has started and HALTs (exit code 2, `invalid-input`); a failed "
+            "validation HALTs (exit code 3, `invalid-state`) and, when `_campaign-state.yaml.bak` exists, points to "
+            "`campaign resume`, which can recover it; each HALT is at phase `status`. Otherwise exit 0.") in route
+    assert not re.search(r"\b9\b", route)
+    table = _exit_table()
+    assert (table["invalid-input"][0], table["invalid-state"][0]) == (2, 3)
+    assert "HALT (exit code 3, `invalid-state`) on non-zero" in skill
+
+
+def test_the_removed_customize_keys_are_named_nowhere() -> None:
+    """#1142: `quality_gate_hard` had one legal value and `brief_template_path` swapped a template no later stage
+    reads, so neither ships, no binding or step reads either one, and the user docs offer neither."""
+    texts = {"customize.toml": (CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8"),
+             "SKILL.md": (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")}
+    texts.update({f"references/{p.name}": p.read_text(encoding="utf-8") for p in sorted(REFERENCES_DIR.glob("*.md"))})
+    texts["docs/campaign.md"] = (REPO_ROOT / "docs" / "campaign.md").read_text(encoding="utf-8")
+    for name, text in texts.items():
+        for gone in ("quality_gate_hard", "brief_template_path", "{qualityGateHard}", "{briefTemplatePath}"):
+            assert gone not in text, f"{name}: {gone}"
+    workflow = tomllib.loads(texts["customize.toml"])["workflow"]
+    assert "quality_gate_hard" not in workflow and "brief_template_path" not in workflow
 
 
 # ---------------------------------------------------------------------------
 # #1110: the template overrides are checked as the campaign starts
 # ---------------------------------------------------------------------------
 
-TEMPLATE_KEYS = {"reportTemplatePath": "report_template_path", "kickoffTemplatePath": "kickoff_template_path",
-                 "briefTemplatePath": "brief_template_path"}
+TEMPLATE_KEYS = {"reportTemplatePath": "report_template_path", "kickoffTemplatePath": "kickoff_template_path"}
 
 
 def test_activation_checks_the_templates_before_mode_routing() -> None:

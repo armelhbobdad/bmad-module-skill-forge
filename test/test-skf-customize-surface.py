@@ -91,12 +91,10 @@ ALLOWED = {
     },
     "skf-campaign": {
         "campaign_workspace_path": ("campaignWorkspacePath", "folder"),
-        "quality_gate_hard": ("qualityGateHard", "script"),
         "quality_gate_soft_target": ("qualityGateSoftTarget", "script"),
         "quality_gate_soft_fallback": ("qualityGateSoftFallback", "script"),
         "report_template_path": ("reportTemplatePath", "file"),
         "kickoff_template_path": ("kickoffTemplatePath", "file"),
-        "brief_template_path": ("briefTemplatePath", "file"),
         "on_complete": ("onComplete", "hook"),
     },
     "skf-create-skill": {
@@ -334,7 +332,7 @@ def _step_01_init_args(**values: str) -> list[str]:
     for name, value in values.items():
         gate = gate.replace(f"{{{name}}}", value)
     tokens = re.findall(r'--(hard|soft-target|soft-fallback) "?([^"\s]+)"?', gate)
-    assert [t[0] for t in tokens] == ["hard", "soft-target", "soft-fallback"], gate
+    assert [t[0] for t in tokens] == ["soft-target", "soft-fallback"], gate
     return [part for flag, value in tokens for part in (f"--{flag}", value)]
 
 
@@ -342,8 +340,7 @@ def _campaign_init(tmp_path: Path, table: dict) -> dict:
     targets = tmp_path / "targets.json"
     targets.write_bytes(json.dumps({"targets": [{"name": "zod", "tier": "A"}], "errors": []}).encode("utf-8"))
     state = tmp_path / "_campaign-state.yaml"
-    args = _step_01_init_args(qualityGateHard=str(table["quality_gate_hard"]),
-                              qualityGateSoftTarget=str(table["quality_gate_soft_target"]),
+    args = _step_01_init_args(qualityGateSoftTarget=str(table["quality_gate_soft_target"]),
                               qualityGateSoftFallback=str(table["quality_gate_soft_fallback"]))
     script = SRC / "skf-campaign" / "scripts" / "campaign-state.py"
     proc = subprocess.run([sys.executable, str(script), "init", "--state-file", str(state), "--targets-file",
@@ -360,7 +357,7 @@ def test_campaign_quality_gate_overrides_change_the_state(tmp_path):
     first = tmp_path / "bundled"
     first.mkdir()
     assert _campaign_init(first, bundled) == {
-        "hard": bundled["quality_gate_hard"],
+        "hard": "zero-critical-high",
         "soft_target": bundled["quality_gate_soft_target"],
         "soft_fallback": bundled["quality_gate_soft_fallback"],
     }
@@ -524,7 +521,7 @@ def test_campaign_ships_its_real_path_defaults():
             "{project-root}/<folder> or an absolute path.") in workspace
     assert workflow["report_template_path"] == "templates/campaign-report-template.md"
     assert workflow["kickoff_template_path"] == "templates/kickoff-template.md"
-    assert workflow["brief_template_path"] == "templates/campaign-brief-template.yaml"
+    assert "brief_template_path" not in workflow
     text = _customize("skf-campaign")
     assert "# --- Optional template overrides. An empty string means the default named below. ---\n" in text
     comment = _flat_comment("skf-campaign", "report_template_path")

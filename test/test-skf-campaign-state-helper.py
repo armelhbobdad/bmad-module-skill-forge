@@ -259,6 +259,18 @@ class TestInit:
         assert rc == 0
         assert out["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
 
+    def test_the_hard_gate_defaults_to_the_only_one(self, tmp_path, capsys):
+        # #1142: customize.toml no longer ships quality_gate_hard, so step-01 passes no --hard.
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        path = tmp_path / "_campaign-state.yaml"
+        rc, out = _run(capsys, "init", "--state-file", str(path), "--targets-file", str(targets), "--name", "demo",
+                       "--soft-target", "90", "--soft-fallback", "80")
+        assert rc == 0
+        assert _read(path)["campaign"]["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90,
+                                                           "soft_fallback": 80}
+        assert out["gate_from_brief"] == {}
+
     def test_a_gate_the_gate_script_rejects_writes_nothing(self, tmp_path, capsys):
         targets = tmp_path / "targets.json"
         targets.write_text(json.dumps(TARGETS), encoding="utf-8")
@@ -356,9 +368,9 @@ class TestInitBrief:
         targets = tmp_path / "targets.json"
         targets.write_text(json.dumps(TARGETS), encoding="utf-8")
         brief = tmp_path / "campaign-brief.yaml"
-        rc, _ = _init(capsys, tmp_path / "_campaign-state.yaml", targets, "--brief-out", str(brief),
-                      "--brief-template", str(BRIEF_TEMPLATE), "--architecture-doc-path", "docs/arch.md",
-                      "--notes", "ship it, don't wait")
+        rc, out = _init(capsys, tmp_path / "_campaign-state.yaml", targets, "--brief-out", str(brief),
+                        "--brief-template", str(BRIEF_TEMPLATE), "--architecture-doc-path", "docs/arch.md",
+                        "--notes", "ship it, don't wait")
         assert rc == 0
         written = brief.read_text(encoding="utf-8")
         template = BRIEF_TEMPLATE.read_text(encoding="utf-8")
@@ -370,7 +382,10 @@ class TestInitBrief:
         assert data["created_at"] == STAMP == _read(tmp_path / "_campaign-state.yaml")["campaign"]["started_at"]
         # Every field a target's source gave it is kept, hints and repo_url included.
         assert data["targets"] == TARGETS["targets"]
-        assert data["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}
+        # #1142: no seeding brief set a gate value, so the brief holds none; the state keeps the whole gate.
+        assert data["quality_gate"] == {}
+        assert out["gate_from_brief"] == {}
+        assert out["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}
         assert (data["architecture_doc_path"], data["notes"]) == ("docs/arch.md", "ship it, don't wait")
 
     def test_brief_takes_the_settled_gate_and_the_seed_briefs_notes(self, tmp_path, capsys):
@@ -379,12 +394,61 @@ class TestInitBrief:
         seed = tmp_path / "seed-brief.yaml"
         seed.write_text("quality_gate:\n  soft_target: 85\nnotes: from the seed\n", encoding="utf-8")
         brief = tmp_path / "ws" / "campaign-brief.yaml"
-        rc, _ = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
-                      "--brief-out", str(brief))
+        rc, out = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                        "--brief-out", str(brief))
         assert rc == 0
         data = yaml.safe_load(brief.read_text(encoding="utf-8"))
-        assert data["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
+        # #1142: the brief keeps the one value the seed set; the state holds the whole settled gate.
+        assert data["quality_gate"] == {"soft_target": 85}
+        assert out["gate_from_brief"] == {"soft_target": 85}
+        assert _read(tmp_path / "ws" / "_campaign-state.yaml")["campaign"]["quality_gate"] == {
+            "hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
         assert (data["notes"], data["architecture_doc_path"]) == ("from the seed", "")
+
+    def test_a_brief_seeded_again_takes_the_new_customize_values(self, tmp_path, capsys):
+        # #1142: a brief init wrote from the customize.toml values (90/80) used to freeze them, so a later
+        # quality_gate_soft_target override did nothing when that brief seeded a campaign again.
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        first = tmp_path / "one" / "campaign-brief.yaml"
+        assert _init(capsys, tmp_path / "one" / "_campaign-state.yaml", targets, "--brief-out", str(first))[0] == 0
+        state = tmp_path / "two" / "_campaign-state.yaml"
+        second = tmp_path / "two" / "campaign-brief.yaml"
+        rc, out = _run(capsys, "init", "--state-file", str(state), "--targets-file", str(targets), "--name", "demo",
+                       "--soft-target", "95", "--soft-fallback", "80", "--brief-file", str(first),
+                       "--brief-out", str(second))
+        assert rc == 0
+        assert _read(state)["campaign"]["quality_gate"]["soft_target"] == 95
+        assert yaml.safe_load(second.read_text(encoding="utf-8"))["quality_gate"] == {}
+        assert out["gate_from_brief"] == {}
+
+    def test_a_brief_that_sets_every_gate_value_keeps_them_all(self, tmp_path, capsys):
+        # A brief an earlier version wrote holds all three values: each still comes from the brief.
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        seed = tmp_path / "seed-brief.yaml"
+        seed.write_text("quality_gate:\n  hard: zero-critical-high\n  soft_target: 92\n  soft_fallback: 85\n",
+                        encoding="utf-8")
+        brief = tmp_path / "ws" / "campaign-brief.yaml"
+        rc, out = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                        "--brief-out", str(brief))
+        assert rc == 0
+        gate = {"hard": "zero-critical-high", "soft_target": 92, "soft_fallback": 85}
+        assert yaml.safe_load(brief.read_text(encoding="utf-8"))["quality_gate"] == gate
+        assert out["gate_from_brief"] == gate
+        assert list(out["gate_from_brief"]) == ["hard", "soft_target", "soft_fallback"]
+        assert out["quality_gate"] == gate
+
+    def test_a_brief_hard_gate_other_than_the_only_one_writes_nothing(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        seed = tmp_path / "seed-brief.yaml"
+        seed.write_text("quality_gate:\n  hard: lenient\n", encoding="utf-8")
+        ws = tmp_path / "ws"
+        rc, err = _init(capsys, ws / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                        "--brief-out", str(ws / "campaign-brief.yaml"))
+        assert (rc, err["code"]) == (2, "INVALID_GATE")
+        assert not ws.exists()
 
     def test_without_brief_out_no_brief_is_written(self, tmp_path, capsys):
         targets = tmp_path / "targets.json"

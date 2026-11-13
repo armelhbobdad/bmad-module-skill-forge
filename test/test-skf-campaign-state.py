@@ -564,18 +564,20 @@ class TestRefinementField:
 
 
 # ---------------------------------------------------------------------------
-# customize.toml: what quality_gate_hard = "zero-critical-high" counts
+# customize.toml: what the hard gate (always zero-critical-high) counts
 # ---------------------------------------------------------------------------
 
 
 class TestQualityGateHardComment:
     def test_missing_exports_no_longer_count(self) -> None:
+        # #1142: the hard gate is no setting, so its sentences sit in the section's lead and the soft target's comment.
         text = (CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8")
-        block = text.split('quality_gate_hard = "zero-critical-high"', 1)[0].rsplit("# --- Quality gate ---", 1)[1]
+        block = text.split("# --- Quality gate ---", 1)[1].split("quality_gate_soft_target =", 1)[0]
         comment = " ".join(line.lstrip("#").strip() for line in block.splitlines() if line.strip())
-        assert "passes a skill only when its test-skill run finds no Critical or High gap" in comment
-        assert "A missing export is a Medium gap" in comment
-        assert "no longer counts against this gate" in comment
+        assert ("The hard gate is not a setting: a skill passes it only when its test-skill run finds no Critical or "
+                "High gap") in comment
+        assert ("A missing export is a Medium gap: it lowers the coverage score and no longer counts against the hard "
+                "gate.") in comment
 
 
 # ---------------------------------------------------------------------------
