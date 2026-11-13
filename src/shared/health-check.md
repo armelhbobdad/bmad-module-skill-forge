@@ -36,7 +36,7 @@ Zero findings is the expected outcome of a good run. Report only a bug, friction
 
 ### 0. Announce Arrival
 
-**Result envelope line.** Any other workflow may bind `{result_envelope_line}` before it loads this step, in headless mode only (Brief Skill also in an `[auto]` run), to the result envelope line its run printed through the shared emitter (its `SKF_<NAME>_RESULT_JSON: ...` line; skf-test-skill's report step binds its `SKF_TEST_RESULT_JSON` line). When it is bound and not empty, wherever this step stops (the clean-run stop in §2, or the end of §5c) it displays that line verbatim as its very last line, after everything else it displays, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, which prints only the final message, that line is then the final message a pipeline reads. A workflow that binds nothing gets nothing extra.
+**Result envelope line.** A workflow may bind `{result_envelope_line}` before it loads this step, in headless mode only (Brief Skill also in an `[auto]` run), to the result envelope line its run printed through the shared emitter (its `SKF_<NAME>_RESULT_JSON: ...` line; skf-test-skill's report step binds its `SKF_TEST_RESULT_JSON` line). When it is bound and not empty, wherever this step stops (the clean-run stop in §2, or the end of §5c) it displays that line verbatim as its very last line, after everything else it displays, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, which prints only the final message, that line is then the final message a pipeline reads. A workflow that binds nothing gets nothing extra.
 
 **Display in `{communication_language}`:**
 

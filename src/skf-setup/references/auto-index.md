@@ -16,7 +16,7 @@ emitEnvelopeProbeOrder:
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
-<!-- Config: communicate in {communication_language}. The orphan-removal prompt and the `--orphan-action` auto-decision message (interactive runs only) render in the user's language. -->
+<!-- Config: communicate in {communication_language}. The orphan-removal prompt and the auto-decision message of `--orphan-action` or `headless_mode: true` (shown unless `{quiet_mode}` is true) render in the user's language. -->
 
 # Step 3: QMD + CCC Registry Hygiene
 
