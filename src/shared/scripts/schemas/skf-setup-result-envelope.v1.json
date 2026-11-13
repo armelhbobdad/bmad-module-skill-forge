@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json",
   "title": "SKF_SETUP_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document skf-setup displays when {headless_mode} or {quiet_mode} is true, prefixed with the literal 'SKF_SETUP_RESULT_JSON: '. Step 4 builds it at the end of a run (status success or tier_failure); a halt that names a phase builds a blocked one with the helper's emit-blocked subcommand. Pipelines grep one line out of the workflow log without parsing ASCII-art and without racing the forge-tier.yaml writer.",
+  "description": "Single-line JSON document skf-setup displays when {quiet_mode} is true (--headless, -H, --quiet or a forger pipeline), prefixed with the literal 'SKF_SETUP_RESULT_JSON: '. Step 4 builds it at the end of a run (status success or tier_failure); a halt that names a phase builds a blocked one with the helper's emit-blocked subcommand. Pipelines grep one line out of the workflow log without parsing ASCII-art and without racing the forge-tier.yaml writer.",
   "$defs": {
     "skf-envelope": {
       "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",

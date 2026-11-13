@@ -60,11 +60,11 @@ Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← 
 **Non-interactive resolution.** Resolve the gate without prompting in the first case that applies:
 
 - `{orphan_action}` is non-null (activation lets through only `keep` or `remove`) → act on that value, with `source: "orphan-action-flag"`
-- `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)
+- `{headless_mode}` or `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)
 
-Record nothing yourself: step 4 passes the flags that decided it, and the emitter records the decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count and, after a removal, the collections removed and not removed, so the envelope's `warnings` audit a decision nobody confirmed. On keep, unless `{quiet_mode}` is true, display `"Auto-decision (--orphan-action=keep): kept {count} orphaned forge collection(s)"`, where `{count}` is the number of names in `{orphaned_collections}`, then go to section 4. On remove, run the removal below, still with no prompt.
+Record nothing yourself: step 4 passes the flags that decided it, and the emitter records the decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count and, after a removal, the collections removed and not removed, so the envelope's `warnings` audit a decision nobody confirmed. On keep, unless `{quiet_mode}` is true, display `"Auto-decision (<cause>): kept {count} orphaned forge collection(s)"`, where `<cause>` is `--orphan-action=keep` for the flag and `headless_mode: true` for the default, and `{count}` is the number of names in `{orphaned_collections}`, then go to section 4. On remove, run the removal below, still with no prompt.
 
-**GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null and `{quiet_mode}` is false. Display to the user:
+**GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null and `{headless_mode}` and `{quiet_mode}` are false. Display to the user:
 
 "**QMD Hygiene: Found {count} orphaned collection(s) in this project that its forge registry does not list:**
 

@@ -43,7 +43,7 @@ You are a system executor: run each step in sequence, write the configuration fi
 | 2 | Write Config | references/write-config.md |
 | 3 | QMD + CCC Registry Hygiene | references/auto-index.md |
 | 4 | Report | references/report.md |
-| 5 | Workflow Health Check | references/health-check.md |
+| 5 | Workflow Health Check (only when `{quiet_mode}` is false) | references/health-check.md |
 
 ## Invocation Contract
 
@@ -51,7 +51,7 @@ You are a system executor: run each step in sequence, write the configuration fi
 
 ## On Activation
 
-> **Halt contract.** Every halt in this workflow that names a phase, below and in the step files, follows this contract; the step 4 tier-miss halt names none and displays its `tier_failure` envelope instead. When `{quiet_mode}` is true, run `<runner> <helper> emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"` (`<path>` written with `/`; no `--path` for a halt without one): `<helper>` is `{emitEnvelopeHelper}` once item 4 bound it, and for the halts of items 1 to 4 `skf-emit-result-envelope.py` at its installed path, else its dev path (Conventions); `<runner>` is `uv run` in the step files. The halts in this list can fire before `uv` is proven present, so they run the loop below as written, dropping `--path` or the `--stderr-from -` heredoc as the halt needs: it stops at the first runner that exits 0 and prints a line starting `SKF_SETUP_RESULT_JSON:`, and prints that line (the helper is stdlib-only). Display that line verbatim, nothing else. If neither path exists, or no runner exits 0 and prints that line, display the reason alone as that one line. Interactive runs display the reason as their diagnostic and emit no envelope. Text from the user or a helper never goes into the single-quoted `--reason`: write `<message>` there and pass the text on stdin with `--stderr-from -` and a quoted `<<'SKF_TEXT'` heredoc, one per runner tried, for the emitter to fold to one line and escape. Once item 6 binds `{customization_resolver_unavailable}` to a reason, every later halt also passes `--customization-resolver-unavailable-from "{run_dir}/resolver.err"`, which the emitter folds to one line and escapes. `--headless` and `--quiet` are known at every halt, `headless_mode` from `preferences.yaml` only after item 5.
+> **Halt contract.** Every halt in this workflow that names a phase, below and in the step files, follows this contract; the step 4 tier-miss halt names none and displays its `tier_failure` envelope instead. When `{quiet_mode}` is true, run `<runner> <helper> emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"` (`<path>` written with `/`; no `--path` for a halt without one): `<helper>` is `{emitEnvelopeHelper}` once item 4 bound it, and for the halts of items 1 to 4 `skf-emit-result-envelope.py` at its installed path, else its dev path (Conventions); `<runner>` is `uv run` in the step files. The halts in this list can fire before `uv` is proven present, so they run the loop below as written, dropping `--path` or the `--stderr-from -` heredoc as the halt needs: it stops at the first runner that exits 0 and prints a line starting `SKF_SETUP_RESULT_JSON:`, and prints that line (the helper is stdlib-only). Display that line verbatim, nothing else. If neither path exists, or no runner exits 0 and prints that line, display the reason alone as that one line. Interactive runs display the reason as their diagnostic and emit no envelope. Text from the user or a helper never goes into the single-quoted `--reason`: write `<message>` there and pass the text on stdin with `--stderr-from -` and a quoted `<<'SKF_TEXT'` heredoc, one per runner tried, for the emitter to fold to one line and escape. Once item 6 binds `{customization_resolver_unavailable}` to a reason, every later halt also passes `--customization-resolver-unavailable-from "{run_dir}/resolver.err"`, which the emitter folds to one line and escapes.
 
 ```bash
 for r in "uv run" python3 python "py -3"; do
@@ -62,11 +62,22 @@ SKF_TEXT
 done
 ```
 
-1. **Parse invocation flags first**, so every halt below knows whether to emit: `{headless_mode}` (true on `--headless` / `-H`, and when `{pipeline_mode}` is true), `{quiet_mode}` (true on `--quiet`, the alias of `--headless`, and whenever `{headless_mode}` is true), `{require_tier}` and `{orphan_action}` (each flag's raw value exactly as given, after `=` or a space; an empty string when nothing, or another flag, follows it; null only when the flag is absent), `{ccc_skip_index}` (true on `--ccc-skip-index`, false otherwise). `{pipeline_mode}` is not a flag: it is true only when the forger invokes setup as one step of a pipeline and passes it, and false otherwise, including every direct `/skf-setup` run. Step 1's detector rejects a `{require_tier}` that names no tier. When `{orphan_action}` is non-null and neither `keep` nor `remove`, halt with phase `on-activation:orphan-action-invalid`, no `path`, and reason `Setup cannot proceed: --orphan-action takes keep or remove, not <message>. Re-run with --orphan-action=keep or --orphan-action=remove.`, where `<message>` is the value as given, or `an empty value` when there is none, passed as the halt contract says.
+1. **Parse invocation flags first**, so every halt below knows whether to emit. `<parser>` is `skf-setup-args.py` at its installed path, else its dev path (Conventions); run it on the invocation's arguments exactly as given (keep the heredoc, empty, when there are none):
+
+   ```bash
+   for r in "uv run" python3 python "py -3"; do
+     out=$($r "<parser>" <<'SKF_ARGS'
+   <the arguments>
+   SKF_ARGS
+   ) && case "$out" in "{"*) printf '%s\n' "$out"; break ;; esac
+   done
+   ```
+
+   Bind `{headless_mode}`, `{quiet_mode}`, `{require_tier}`, `{orphan_action}` and `{ccc_skip_index}` from the object it prints (`headless`, `quiet`, `require_tier`, `orphan_action`, `ccc_skip_index`), and set both modes true when `{pipeline_mode}` is true. `{pipeline_mode}` is not a flag: it is true only when the forger invokes setup as one step of a pipeline and passes it, and false otherwise, including every direct `/skf-setup` run. Step 1's detector rejects a `{require_tier}` that names no tier. When the object has a `phase`, halt with phase `on-activation:orphan-action-invalid`, no `path`, and reason `<message>`, its `reason` passed as the halt contract says. When no runner prints an object, `{quiet_mode}` is true when the arguments hold `--headless`, `-H` or `--quiet`, or `{pipeline_mode}` is true.
 
 2. **Check for the config.** If `{project-root}/_bmad/skf/config.yaml` does not exist, halt with phase `on-activation:config-missing`, `path` `{project-root}/_bmad/skf/config.yaml`, and reason `Setup cannot proceed: the SKF config file was not found. SKF is not installed in this project: from the project root, run npx bmad-module-skill-forge install (or npx bmad-method install and add SKF), then re-run /skf-setup.`
 
-3. **Probe `uv` runtime.** Run `uv --version`. If `uv` is missing, halt with phase `on-activation:uv-missing`, no `path`, and reason `Setup cannot proceed: uv is not installed. Install it from https://docs.astral.sh/uv/getting-started/installation/ and re-run /skf-setup.`
+3. **Probe `uv` runtime.** Run `uv --version`. If `uv` is missing, halt with phase `on-activation:uv-missing`, no `path`, and reason `Setup cannot proceed: uv is not installed. Install it from https://docs.astral.sh/uv/getting-started/installation/ and re-run /skf-setup.` Once `uv` is present, if item 1's parser printed no object, halt with phase `on-activation:helper-missing`, `path` its installed path, reason `Setup cannot proceed: skf-setup-args.py could not read the flags. Reinstall SKF, then re-run /skf-setup.`
 
 4. **Load config and preferences.** `<preflight>` is `skf-preflight.py`, at its installed path, else its dev path (neither: halt with phase `on-activation:helper-missing`, `path` the installed one, reason `Setup cannot proceed: skf-preflight.py was not found. Reinstall SKF, then re-run /skf-setup.`). Run `uv run "<preflight>" "{project-root}" --allow-missing-sidecar --helpers "{skill-root}"`, which parses config.yaml and `preferences.yaml` into one JSON object and resolves the `*ProbeOrder` arrays of every step file into its `helpers` map:
 
@@ -74,7 +85,7 @@ done
    - `code` starting `HELPERS_` (a helper of some step is missing, or a step's probe order cannot be read): halt with phase `on-activation:helper-missing`, `path` `{project-root}/_bmad/skf/shared/scripts`, and reason `Setup cannot proceed: <message>`: its `error` without the leading `Cannot initialize. `, which names every missing helper or the file whose probe order cannot be read, passed as the halt contract says. No step file loads.
    - `code` `CONFIG_MISSING`: the item 2 halt. Any other `hard-halt`, or no JSON `status`: halt with phase `on-activation:config-malformed`, `path` `{project-root}/_bmad/skf/config.yaml`, and reason `Setup cannot proceed: <message>`: its `error` without the leading `Cannot initialize. ` (else the first line the call printed), passed as the halt contract says, never preflight's whole JSON.
 
-5. **Reconcile `{headless_mode}`**: OR it with `derived.headless_mode` (`headless_mode: true` in `preferences.yaml`). Then, if `{headless_mode}` is true, set `{quiet_mode}` to true.
+5. **Reconcile `{headless_mode}`**: OR it with `derived.headless_mode` (`headless_mode: true` in `preferences.yaml`), which resolves the gates only: `{quiet_mode}` stays as item 1 set it.
 
 5b. **Create the run folder.** Run:
 

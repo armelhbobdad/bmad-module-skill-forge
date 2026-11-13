@@ -3,12 +3,14 @@
 No test executes the step files, so these check the wording the agent follows:
 every display instruction in a setup step carries the `{quiet_mode}` guard,
 every step forbids the agent's own notes between tool calls, every halt shows
-only the blocked envelope, the success envelope is held until it can be a
-standalone run's final message (`claude -p` prints only that message) while a
-forger pipeline gets control back after it, the orphan gate resolves under
-quiet to a listed default, and the shared health check has a silent path plus
-a listed headless default for its review gate. The docs promise no more than
-that final message. The activation halts name a runner chain the stdlib-only
+only the blocked envelope, and the success envelope waits in the run folder
+until the run's last tool call prints it as a standalone run's final message
+(`claude -p` prints only that message), while a forger pipeline gets control
+back after it. A quiet run runs no health check, and the `headless_mode`
+preference only resolves the gates: the orphan gate resolves under it or
+quiet to a listed default, and the shared health check keeps a listed
+headless default for its review gate. The docs promise no more than that
+final message. The activation halts name a runner chain the stdlib-only
 envelope helper runs under, and every status list agrees with the schema.
 """
 
@@ -203,24 +205,36 @@ def test_conventions_say_where_each_path_resolves():
     assert "# Personal overrides: {project-root}/_bmad/custom/skf-setup.user.toml" in toml
 
 
-def test_skill_md_folds_headless_into_quiet():
+def test_the_preference_sets_headless_mode_alone():
+    """#1183: `headless_mode: true` in preferences.yaml resolves the gates and keeps the output, as
+    docs/getting-started.md says; only the flags and a pipeline make setup envelope-only."""
     text = _read(SKILL_MD)
     reconcile = next(line for line in text.splitlines() if "**Reconcile `{headless_mode}`**" in line)
-    assert "set `{quiet_mode}` to true" in reconcile
+    assert ("OR it with `derived.headless_mode` (`headless_mode: true` in `preferences.yaml`), which resolves the "
+            "gates only: `{quiet_mode}` stays as item 1 set it.") in reconcile
+    assert "set `{quiet_mode}` to true" not in reconcile
+    # Only item 1 sets {quiet_mode}: no later activation item turns it on.
+    activation = _on_activation(text)
+    later = activation[activation.index("2. **Check for the config.**"):]
+    setters = [line.strip()[:60] for line in later.splitlines()
+               if re.search(r"set `\{quiet_mode\}`|`\{quiet_mode\}` (?:is|to) true when", line)]
+    assert setters == [], setters
 
 
 def test_activation_checks_uv_before_a_helper_parses_the_config():
     """config.yaml and preferences.yaml are parsed by skf-preflight.py (#592),
     which needs uv: the config check runs no script, so it still comes first,
-    and headless_mode from preferences.yaml is folded in only once it is read."""
+    and headless_mode from preferences.yaml is folded in only once it is read
+    (it sets no quiet mode, #1183)."""
     items = re.findall(r"^(\d+)\. \*\*(.+?)\*\*", _on_activation(_read(SKILL_MD)), re.MULTILINE)
     order = [title for _, title in items]
     expected = ["Parse invocation flags first", "Check for the config.", "Probe `uv` runtime.",
                 "Load config and preferences.", "Reconcile `{headless_mode}`", "Resolve workflow customization."]
     assert [t for t in order if t in expected] == expected
     assert [int(n) for n, _ in items] == list(range(1, len(items) + 1))
+    # The preference no longer changes {quiet_mode}, so the halts need no clause on when it is known.
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
-    assert "`headless_mode` from `preferences.yaml` only after item 5" in halt_contract
+    assert "preferences.yaml" not in halt_contract and "known at every halt" not in halt_contract
 
 
 def test_halts_display_only_the_blocked_envelope():
@@ -879,20 +893,31 @@ def test_auto_index_missing_helper_is_not_a_hygiene_error():
     assert "a missing helper is not a hygiene error" in tolerance
 
 
+# The quiet run's last tool call (#1183): it prints the line section 4 saved, then removes it and the folder.
+LAST_CALL = 'cat "{run_dir}/envelope.line" && rm -f "{run_dir}/envelope.line" && rmdir "{run_dir}"'
+ENVELOPE_FILE = '> "{run_dir}/envelope.line"'
+
+
 def test_report_holds_the_envelope_for_the_final_message():
-    """`claude -p` prints only the final message, and the health check runs tool
-    calls after step 4, so §4 binds the line and a later display shows it."""
+    """`claude -p` prints only the final message, so section 4 saves the line in the run folder,
+    displays nothing, and section 5 ends a quiet run with the call that prints it (#1183)."""
     report = _read(REFS / "report.md")
     emit = _section(report, "### 4.")
-    assert "Bind `{setup_envelope_line}` ← that stdout line, and do not display it here" in emit
+    assert "It writes the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` to `{run_dir}/envelope.line`" in emit
+    assert "this section displays nothing" in emit
     assert "run's final message" in emit and "verbatim" in emit
-    assert "Display that stdout line" not in emit
+    assert "Display that stdout line" not in emit and "Bind `{setup_envelope_line}`" not in emit
+    failure = next(b for _, _, b in _prose_blocks(emit) if "exits non-zero" in b)
+    assert "`{run_dir}/envelope.line` is empty" in failure
     chain = _section(report, "### 5.")
     tier_miss = next(u for _, _, u in _prose_blocks(chain, items=True) if "`{require_tier_satisfied}` is `false`" in u)
-    assert "display `{setup_envelope_line}` verbatim as the run's final message" in tier_miss
-    assert QUIET in tier_miss
-    relay_rules = _section(_read(REFS / "health-check.md"), "## Rules")
-    assert "`{setup_envelope_line}` verbatim last, as the final message of a standalone run" in relay_rules
+    assert (f"When `{{quiet_mode}}` is true, end with one tool call, `{LAST_CALL}`, and display its output verbatim "
+            "as the run's final message in a standalone run (nothing when it printed nothing)") in tier_miss
+    # No file under src/ holds the line in the model's memory any more.
+    holders = sorted(p.relative_to(SRC).as_posix() for p in SRC.rglob("*")
+                     if p.is_file() and p.suffix in (".md", ".py", ".json", ".yaml", ".toml")
+                     and "{setup_envelope_line}" in p.read_text(encoding="utf-8", errors="replace"))
+    assert holders == []
 
 
 def test_tier_miss_halt_emits_no_blocked_envelope():
@@ -934,60 +959,31 @@ def test_orphan_resolution_sources_named_in_envelope_helper_and_schema():
     assert {"orphan-action-flag", "headless-default", "quiet-default"} <= sources
     doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
     assert all(s in doc for s in sources), sources
-    assert "{headless_mode} or {quiet_mode}" in _read(SCHEMA)
-
-
-def test_quiet_scope_restated_in_relay_step():
-    rules = _section(_read(REFS / "health-check.md"), "## Rules")
-    line = next(line for line in rules.splitlines() if QUIET in line)
-    assert "only workflow that sets it" in line
+    description = json.loads(_read(SCHEMA))["description"]
+    assert "displays when {quiet_mode} is true (--headless, -H, --quiet or a forger pipeline)" in description
+    assert "{headless_mode}" not in description
 
 
 # ---------------------------------------------------------------- shared health check
 
 
-@pytest.mark.parametrize("prefix", ["### 0.", "### 2.", "### 3.", "### 5c."])
-def test_shared_health_check_has_quiet_path(prefix):
-    assert QUIET in _section(_read(SHARED_HEALTH_CHECK), prefix)
-
-
-def test_shared_health_check_arrival_gate_is_silent_under_quiet():
-    """The headless log line must not print ahead of (or after) the setup envelope."""
-    section = _section(_read(SHARED_HEALTH_CHECK), "### 0.")
-    gate = next(b for _, _, b in _prose_blocks(section) if b.startswith("**GATE"))
-    assert "If `{quiet_mode}` is true: skip the display and log nothing." in gate
-    assert gate.index(QUIET) < gate.index("{headless_mode}")
-
-
-def test_shared_health_check_ends_quiet_runs_with_the_setup_envelope():
-    text = _read(SHARED_HEALTH_CHECK)
-    scope = next(b for _, _, b in _prose_blocks(_section(text, "### 0.")) if "Envelope-only runs" in b)
-    assert "`{setup_envelope_line}` verbatim after every tool call" in scope
-    assert "In a standalone setup run that line is the final message" in scope
-    for prefix in ("### 2.", "### 5c."):
-        quiet = [b for _, _, b in _prose_blocks(_section(text, prefix)) if QUIET in b]
-        assert quiet and all("display only `{setup_envelope_line}`" in b for b in quiet), prefix
-
-
-def test_shared_health_check_quiet_scope_is_setup_only():
-    section = _section(_read(SHARED_HEALTH_CHECK), "### 0.")
-    scope = next(b for _, _, b in _prose_blocks(section) if "Envelope-only runs" in b)
-    assert "skf-setup" in scope
-    assert "treat it as false" in scope
-
-
-def test_only_setup_and_the_shared_health_check_read_quiet_mode():
-    """The shared health check's quiet branches stay dormant for every other workflow."""
+def test_only_setup_reads_quiet_mode():
+    """#1183: a quiet run runs no health check, so the shared health check has no quiet branch,
+    and no file outside skf-setup names `{quiet_mode}`."""
     readers = sorted(
         p.relative_to(SRC).as_posix() for p in SRC.rglob("*.md")
         if QUIET in _read(p) and SETUP_DIR not in p.parents
     )
-    assert readers == ["shared/health-check.md"]
-
-
-def test_shared_health_check_quiet_findings_go_to_local_queue_only():
-    quiet_lines = [l for l in _section(_read(SHARED_HEALTH_CHECK), "### 3.").splitlines() if QUIET in l]
-    assert quiet_lines and all("§5c" in l for l in quiet_lines)
+    assert readers == []
+    shared = _read(SHARED_HEALTH_CHECK)
+    assert "Envelope-only runs" not in shared and "{setup_envelope_line}" not in shared
+    assert "**Zero overhead for clean runs.** If nothing went wrong, say so and exit immediately." in shared
+    gate = next(b for _, _, b in _prose_blocks(_section(shared, "### 0.")) if b.startswith("**GATE"))
+    assert gate == ('**GATE [default: skip]**: if `{headless_mode}`, skip the display entirely, log: '
+                    '"headless: skipped health-check arrival announcement".')
+    clean = _section(shared, "### 2.")
+    assert "\nDisplay:\n" in clean
+    assert "After writing all files, display the block below." in _section(shared, "### 5c.")
 
 
 def test_shared_health_check_gate_has_listed_headless_default_q():
@@ -998,11 +994,11 @@ def test_shared_health_check_gate_has_listed_headless_default_q():
     assert "- **[Q]** Queue locally — save every finding to {localFallbackFolder}/, submit nothing" in section
     assert '"headless: queued {N} finding(s) locally"' in section
     gate = next(b for _, _, b in _prose_blocks(section) if "**GATE [default: Q]**" in b)
-    assert "{headless_mode}" in gate and QUIET in gate
-    quiet_part, headless_part = gate.split("Otherwise", 1)
-    assert QUIET in quiet_part and "choose **[Q]**" in quiet_part
-    assert "{headless_mode}" in headless_part and "choose **[Q]**" in headless_part
-    assert re.findall(r"\bchoose \*\*\[(\w)\]\*\*", gate) == ["Q", "Q"]
+    assert gate.startswith("**GATE [default: Q]**: if `{headless_mode}` is true, choose **[Q]**")
+    assert QUIET not in gate and "Otherwise" not in gate
+    assert ("skip the question below and go to Menu Handling: live submission always needs an interactive "
+            "**[Y]**") in gate
+    assert re.findall(r"\bchoose \*\*\[(\w)\]\*\*", gate) == ["Q"]
     handling = next(line for line in section.splitlines() if line.startswith("- **IF Q:**"))
     assert "§5a sub-step 1" in handling and "§5c" in handling
     local_queue = _section(_read(SHARED_HEALTH_CHECK), "### 5c.")
@@ -1056,12 +1052,6 @@ def test_skill_md_forbids_notes_between_tool_calls():
     assert "narration of your own" not in rules
 
 
-def test_shared_health_check_quiet_path_writes_no_notes():
-    section = _section(_read(SHARED_HEALTH_CHECK), "### 0.")
-    scope = next(b for _, _, b in _prose_blocks(section) if "Envelope-only runs" in b)
-    assert "writes no text between tool calls" in scope
-
-
 # ---------------------------------------------------------------- setup inside a forger pipeline
 
 
@@ -1108,8 +1098,7 @@ def test_pipeline_mode_reads_the_setup_envelope_status():
 
 
 def test_setup_binds_pipeline_mode_only_from_the_forger():
-    parse = next(line for line in _on_activation(_read(SKILL_MD)).splitlines()
-                 if "**Parse invocation flags first**" in line)
+    parse = _parse_flags_item()
     assert "`{pipeline_mode}` is not a flag" in parse
     assert "false otherwise, including every direct `/skf-setup` run" in parse
 
@@ -1126,13 +1115,12 @@ def test_pipeline_run_returns_control_to_the_forger():
     rules = _section(_read(SKILL_MD), "## Workflow Rules")
     rule = next(line for line in rules.splitlines() if PIPELINE in line)
     assert "return control to the forger, which keeps chaining" in rule
-    section = _section(_read(SHARED_HEALTH_CHECK), "### 0.")
-    scope = next(b for _, _, b in _prose_blocks(section) if "Envelope-only runs" in b)
-    assert "When `{pipeline_mode}` is true" in scope
-    assert "control then returns to the forger, which keeps chaining" in scope
     chain = _section(_read(REFS / "report.md"), "### 5.")
     tier_miss = next(u for _, _, u in _prose_blocks(chain, items=True) if "`{require_tier_satisfied}` is `false`" in u)
     assert "control then returns to the forger" in tier_miss
+    # #1183: a quiet success ends in section 5 too, so it hands control back there.
+    success = next(u for _, _, u in _prose_blocks(chain, items=True) if "carry out that instruction now" in u)
+    assert "when `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining" in success
 
 
 # ---------------------------------------------------------------- orphan removal consent
@@ -1176,17 +1164,36 @@ DETECT_HELPER = SRC / "shared" / "scripts" / "skf-detect-tools.py"
 
 
 def _parse_flags_item() -> str:
-    return next(line for line in _on_activation(_read(SKILL_MD)).splitlines()
-                if "**Parse invocation flags first**" in line)
+    """On Activation item 1, its runner loop and binding paragraph included (to item 2)."""
+    activation = _on_activation(_read(SKILL_MD))
+    start = activation.index("1. **Parse invocation flags first**")
+    return activation[start:activation.index("\n2. **Check for the config.**", start)]
+
+
+ARGS_HELPER = SRC / "shared" / "scripts" / "skf-setup-args.py"
+
+
+def _parsed_flags(arguments: str) -> dict:
+    """The object skf-setup-args.py prints for `arguments`, as item 1 binds from it (#1183)."""
+    done = subprocess.run([sys.executable, str(ARGS_HELPER)], input=arguments.encode("utf-8"),
+                          capture_output=True, timeout=10)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    return json.loads(done.stdout)
 
 
 def test_require_tier_is_bound_raw_and_checked_by_the_detector():
-    """A wrong-case tier used to become null, so the tier gate never ran."""
+    """A wrong-case tier used to become null, so the tier gate never ran. The helper keeps
+    each value exactly as given (#1183)."""
     parse = _parse_flags_item()
-    assert ("`{require_tier}` and `{orphan_action}` (each flag's raw value exactly as given, "
-            "after `=` or a space; an empty string when nothing, or another flag, follows it; null only "
-            "when the flag is absent)") in parse
-    assert "unparseable" not in parse
+    assert ("Bind `{headless_mode}`, `{quiet_mode}`, `{require_tier}`, `{orphan_action}` and `{ccc_skip_index}` "
+            "from the object it prints (`headless`, `quiet`, `require_tier`, `orphan_action`, "
+            "`ccc_skip_index`)") in parse
+    assert "unparseable" not in parse and "raw value exactly as given" not in parse
+    assert _parsed_flags("--require-tier=deep")["require_tier"] == "deep"
+    assert _parsed_flags("--require-tier deep")["require_tier"] == "deep"
+    # Another flag after it is no value: the run stays quiet, and the detector rejects "".
+    assert _parsed_flags("--require-tier --headless") == {
+        "headless": True, "quiet": True, "require_tier": "", "orphan_action": None, "ccc_skip_index": False}
     assert "Step 1's detector rejects a `{require_tier}` that names no tier." in parse
     detect = _section(_read(REFS / "detect-and-tier.md"), "### 1.")
     # The = form: a raw value that starts with a dash is still the flag's
@@ -1215,18 +1222,19 @@ def test_a_wrong_case_require_tier_ends_blocked_naming_the_valid_tiers(tmp_path)
 
 
 def test_orphan_action_other_than_keep_or_remove_halts_at_activation():
-    """The flag is the consent to delete collections: a value setup cannot read halts."""
+    """The flag is the consent to delete collections: a value setup cannot read halts. The helper
+    checks it and writes the reason, which goes on stdin, quotes and all (#1183)."""
     parse = _parse_flags_item()
     m = re.search(r"halt with phase `on-activation:orphan-action-invalid`, no `path`, and reason `([^`]+)`", parse)
     assert m, "orphan-action halt not found"
-    reason = m.group(1)
-    assert reason.startswith("Setup cannot proceed: --orphan-action takes keep or remove, not <message>.")
-    assert not set(reason) & set("'\"\\")
-    # The value is the user's text, so it goes on stdin, quotes and all (halt contract).
-    assert "where `<message>` is the value as given, or `an empty value` when there is none, passed as the " \
-        "halt contract says" in parse
-    error = _blocked_error(_stdin_blocked("on-activation:orphan-action-invalid", reason, "'Remove'"))
-    assert "not 'Remove'. Re-run with" in error["reason"]
+    assert m.group(1) == "<message>"
+    assert "its `reason` passed as the halt contract says" in parse
+    parsed = _parsed_flags("--quiet --orphan-action 'Remove'")
+    assert parsed["phase"] == "on-activation:orphan-action-invalid"
+    error = _blocked_error(_stdin_blocked(parsed["phase"], m.group(1), parsed["reason"]))
+    assert error["reason"] == ("Setup cannot proceed: --orphan-action takes keep or remove, not 'Remove'. "
+                               "Re-run with --orphan-action=keep or --orphan-action=remove.")
+    assert "phase" not in _parsed_flags("--orphan-action=remove")
     gate = _section(_read(REFS / "auto-index.md"), "### 3.")
     assert "`{orphan_action}` is non-null (activation lets through only `keep` or `remove`)" in gate
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
@@ -1236,17 +1244,25 @@ def test_orphan_action_other_than_keep_or_remove_halts_at_activation():
 
 def test_quiet_is_an_alias_of_headless_and_a_pipeline_implies_it():
     parse = _parse_flags_item()
-    assert "`{headless_mode}` (true on `--headless` / `-H`, and when `{pipeline_mode}` is true)" in parse
-    assert ("`{quiet_mode}` (true on `--quiet`, the alias of `--headless`, and whenever `{headless_mode}` "
-            "is true)") in parse
+    assert "set both modes true when `{pipeline_mode}` is true" in parse
+    assert ("When no runner prints an object, `{quiet_mode}` is true when the arguments hold `--headless`, `-H` "
+            "or `--quiet`, or `{pipeline_mode}` is true.") in parse
+    for arguments in ("--headless", "-H", "--quiet"):
+        assert _parsed_flags(arguments)["quiet"] is True, arguments
+    assert _parsed_flags("--quiet")["headless"] is False
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
     flags = next(line for line in contract.splitlines() if line.startswith("| **Flags**"))
     assert "`--quiet` (an alias of `--headless`" in flags
     # One non-interactive case, and a --quiet run keeps labelling its orphan default quiet-default.
     gate = _section(_read(REFS / "auto-index.md"), "### 3.")
-    assert ('- `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when '
-            '`{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)') in gate
+    # #1183: the preference sets {headless_mode} alone, so the case names both modes.
+    assert ('- `{headless_mode}` or `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` '
+            'when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)') in gate
     assert "- `{headless_mode}` is true →" not in gate
+    assert ('display `"Auto-decision (<cause>): kept {count} orphaned forge collection(s)"`, where `<cause>` is '
+            '`--orphan-action=keep` for the flag and `headless_mode: true` for the default') in gate
+    assert ("**GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null "
+            "and `{headless_mode}` and `{quiet_mode}` are false.") in gate
 
 
 SETUP_FILES = [SKILL_MD, *sorted(REFS.glob("*.md"))]
@@ -1255,20 +1271,29 @@ SETUP_FILES = [SKILL_MD, *sorted(REFS.glob("*.md"))]
 @pytest.mark.parametrize("path", SETUP_FILES, ids=lambda p: p.name)
 def test_every_setup_guard_reads_quiet_mode_alone(path):
     """--quiet is an alias of --headless, so setup has one envelope-only mode
-    and one switch for it: a guard that tests both variables could drift
-    into testing one of them and leak text into the envelope-only output."""
+    and one switch for it: a display guard that tests both variables could
+    drift into testing one of them and leak text into the envelope-only
+    output. `headless_mode: true` in preferences.yaml sets `{headless_mode}`
+    alone (#1183), so only the gate that it resolves reads both."""
     text = _read(path)
+    # {headless_mode} is only bound (item 1), folded with preferences.yaml (item 5), resolves the step 3
+    # orphan gate (its case and its GATE line), and step 4 passes --headless so the emitter names that
+    # default (#1119).
+    allowed = {"SKILL.md": ("Bind `{headless_mode}`, `{quiet_mode}`", "5. **Reconcile `{headless_mode}`**"),
+               "auto-index.md": ("- `{headless_mode}` or `{quiet_mode}` is true → the default **Keep**",
+                                 "**GATE [default: K]**: reached only when"),
+               "report.md": ("- `--orphan-action {orphan_action}` when",)}.get(path.name, ())
+    readers = [line.strip() for line in text.splitlines() if "{headless_mode}" in line]
+    assert [line[:60] for line in readers if not line.startswith(allowed)] == []
+    gate_lines = [line for line in readers if line.startswith(allowed[:2] if path.name == "auto-index.md" else ())]
     for doubled in ("`{headless_mode}` or `{quiet_mode}`", "`{headless_mode}` and `{quiet_mode}`",
                     "`{quiet_mode}` or `{headless_mode}`"):
-        assert doubled not in text, doubled
-    # {headless_mode} is only parsed, folded with preferences.yaml, and named
-    # as the source of the step 3 orphan default.
-    allowed = {"SKILL.md": ("1. **Parse invocation flags first**", "5. **Reconcile `{headless_mode}`**"),
-               "auto-index.md": ("- `{quiet_mode}` is true → the default **Keep**",),
-               # Step 4 passes --headless so the emitter names that orphan default (#1119).
-               "report.md": ("- `--orphan-action {orphan_action}` when",)}.get(path.name, ())
-    readers = [line.strip()[:60] for line in text.splitlines() if "{headless_mode}" in line]
-    assert [line for line in readers if not line.startswith(allowed)] == []
+        assert sum(line.count(doubled) for line in gate_lines) == text.count(doubled), doubled
+    # Every display guard reads {quiet_mode}, never {headless_mode}, except the gate's own question.
+    body = _split_frontmatter(text)[1] if text.startswith("---\n") else text
+    for _, heading, block in _prose_blocks(body, items=True):
+        if DISPLAY_RE.search(block) and QUIET in block + heading and not block.startswith("**GATE"):
+            assert "{headless_mode}" not in block, block[:100]
 
 
 # ---------------------------------------------------------------- step order, staged payloads, banner
@@ -1315,8 +1340,9 @@ def test_notices_promise_no_abort_window():
 # Every file a setup step writes into the run folder, by redirect (a helper's
 # stdout, or its stderr for a halt to quote) or --result-to.
 RUN_DIR_WRITE_RE = re.compile(r'(?:>|--result-to) "\{run_dir\}/([a-z-]+\.(?:json|err))"')
-# Section 5's delete: the saved files by name, then the folder only if it is empty.
-RUN_DIR_DELETE_RE = re.compile(r'^rm -f ((?:"\{run_dir\}/[a-z-]+\.(?:json|err)" )+)&& rmdir "\{run_dir\}"$',
+# Section 5's delete: the saved files by name, then the folder only if it is empty, a bracket a quiet
+# run drops, since its envelope.line stays for the last call (#1183).
+RUN_DIR_DELETE_RE = re.compile(r'^rm -f ((?:"\{run_dir\}/[a-z-]+\.(?:json|err)" )+)\[&& rmdir "\{run_dir\}"\]$',
                                re.M)
 
 
@@ -1349,10 +1375,77 @@ def test_run_folder_is_made_at_activation_and_removed_in_step_4():
     assert "rm -r" not in report
     # Deleted before the tier-miss line shows, so that line stays the final message.
     assert delete.start() < chain.index("`{require_tier_satisfied}` is `false`")
+    assert "envelope.line" not in delete.group(0)
+    assert ("Keep the bracket only when `{quiet_mode}` is false: a quiet run still holds "
+            "`{run_dir}/envelope.line`") in chain
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
     outputs = next(line for line in contract.splitlines() if line.startswith("| **Outputs**"))
     assert "`{project-root}/_bmad-output/.skf-run/`" in outputs
     assert "a halt that names a phase leaves it in place" in outputs
+
+
+def _section_5_bullets() -> tuple[str, str]:
+    """Section 5's tier-miss bullet and its success bullet."""
+    units = [u for _, _, u in _prose_blocks(_section(_read(REFS / "report.md"), "### 5."), items=True)]
+    tier_miss = next(u for u in units if "`{require_tier_satisfied}` is `false`" in u)
+    success = next(u for u in units if "carry out that instruction now" in u)
+    return tier_miss, success
+
+
+def test_a_quiet_run_ends_in_section_5_without_the_health_check():
+    """#1183: a quiet success runs its hook, then the call that prints the saved line, and
+    stops there: the shared health check, which had to hide everything and retype the line,
+    never loads. An interactive success still chains to it."""
+    report = _read(REFS / "report.md")
+    assert "### 5. Delete the Run Folder and Finish\n" in report and "Chain to Health Check" not in report
+    tier_miss, success = _section_5_bullets()
+    for bullet in (tier_miss, success):
+        assert bullet.count(f"end with one tool call, `{LAST_CALL}`") == 1, bullet[:80]
+        assert "display its output verbatim as the run's final message in a standalone run" in bullet
+    hook = success.index("{onCompleteCommand}")
+    last = success.index(LAST_CALL)
+    stop = success.index("A quiet run stops there, without loading `{nextStepFile}`: it runs no health check.")
+    chain = success.index("When `{quiet_mode}` is false, load `{nextStepFile}`, read it fully, and execute it.")
+    assert hook < last < stop < chain
+    assert success[:last].rindex("When `{quiet_mode}` is true") > hook
+    assert "{nextStepFile}" not in tier_miss.replace("without chaining to step 5", "")
+    closing = next(b for _, _, b in _prose_blocks(_section(report, "### 5.")) if "true terminal step" in b)
+    assert closing.startswith("On a success where `{quiet_mode}` is false, the health-check step is the true "
+                              "terminal step:")
+    assert "\u2014" not in closing
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("quiet,line", [
+    (True, ENVELOPE_PREFIX + '{"skf_setup":{"status":"success","tier":"Forge"}}'),
+    (True, ""),
+    (False, None),
+], ids=["quiet", "quiet-emit-failed", "interactive"])
+def test_section_5_keeps_the_line_until_the_last_call_prints_it(tmp_path, quiet, line):
+    """#1183: section 5's delete, run by bash, leaves `envelope.line` and the folder of a quiet run,
+    and the last call then prints the line (nothing when the emit failed) and leaves no folder.
+    An interactive run, which saves no line, deletes the folder at once."""
+    run_dir = tmp_path / "a project" / "_bmad-output" / ".skf-run" / "skf-setup-abcd1234"
+    run_dir.mkdir(parents=True)
+    delete = RUN_DIR_DELETE_RE.search(_section(_read(REFS / "report.md"), "### 5.")).group(0)
+    for name in re.findall(r'"\{run_dir\}/([a-z-]+\.(?:json|err))"', delete):
+        (run_dir / name).write_bytes(b"{}\n")
+    if line is not None:
+        (run_dir / "envelope.line").write_bytes((line + "\n").encode("utf-8") if line else b"")
+    command = delete.replace(' [&& rmdir "{run_dir}"]', "" if quiet else ' && rmdir "{run_dir}"')
+    command = command.replace("{run_dir}", run_dir.as_posix())
+    done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=20)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    if not quiet:
+        assert not run_dir.exists()
+        return
+    assert [p.name for p in run_dir.iterdir()] == ["envelope.line"]
+    last = subprocess.run(["bash", "-c", LAST_CALL.replace("{run_dir}", run_dir.as_posix())],
+                          capture_output=True, timeout=20)
+    assert last.returncode == 0, last.stderr.decode("utf-8", "replace")
+    assert last.stdout.decode("utf-8").splitlines() == ([line] if line else [])
+    assert last.stderr == b""
+    assert not run_dir.exists() and run_dir.parent.exists()
 
 
 STAGED_RE = re.compile(r'(?:> "\{run_dir\}/([a-z-]+\.json)"(?: 2> "\{run_dir\}/[a-z-]+\.err")? '
@@ -1370,6 +1463,8 @@ def test_every_staged_helper_output_is_one_the_emitter_reads():
 # empty stdin after them, so a call never reads or waits on one the host left open (round 1).
 REPORT_GROUP = f"[--orphan-action {{orphan_action}}] [--headless] [--quiet] {RESOLVER_GROUP}"
 NO_STDIN = " < /dev/null"
+# Section 4 saves the envelope line in the run folder for section 5's last call (#1183).
+EMIT_SUFFIX = NO_STDIN + " " + ENVELOPE_FILE
 
 
 def test_report_passes_options_and_no_payload_to_the_banner_and_the_envelope():
@@ -1381,7 +1476,8 @@ def test_report_passes_options_and_no_payload_to_the_banner_and_the_envelope():
         assert stale not in report, stale
     assert (f"No step types a payload: both calls end with the same option group, `{REPORT_GROUP}`, each "
             "bracket kept only when its value holds, and then with `< /dev/null`, which the emitter reads as "
-            "the empty payload `{}`, so neither call reads or waits on a stdin the host left open:") in staged
+            "the empty payload `{}`, so neither call reads or waits on a stdin the host left open (section 4 "
+            "then saves its stdout in `{run_dir}/envelope.line`):") in staged
     assert ("`--orphan-action {orphan_action}` when `{orphan_action}` is non-null, `--headless` when "
             "`{headless_mode}` is true, and `--quiet` when `{quiet_mode}` is true") in staged
     doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
@@ -1396,7 +1492,7 @@ def test_report_passes_options_and_no_payload_to_the_banner_and_the_envelope():
     # The script owns the banner's lines: no template of them is left to drift from it.
     assert "kept for reference only" not in report and "{if " not in report
     emit = _joined(_section(report, "### 4."))
-    assert f'emit --run-dir "{{run_dir}}" {paths} {REPORT_GROUP}{NO_STDIN}\n' in emit
+    assert f'emit --run-dir "{{run_dir}}" {paths} {REPORT_GROUP}{EMIT_SUFFIX}\n' in emit
     assert "echo '" not in report and "tierRulesData" not in report
     rules = _section(report, "## Rules")
     assert "negative framing" not in rules
@@ -1443,25 +1539,29 @@ def test_report_types_no_path_and_repairs_no_payload():
 def _report_option_group(call: str, orphan_action: str | None, headless: bool, quiet: bool,
                          resolver: bool) -> str:
     """A report call's option group as section 1 keeps it: each bracket only when its value holds,
-    then the empty stdin."""
-    assert call.endswith(f" {REPORT_GROUP}{NO_STDIN}"), call
+    then the empty stdin, and for the emit the file section 5 reads the line from (#1183)."""
+    suffix = EMIT_SUFFIX if call.endswith(EMIT_SUFFIX) else NO_STDIN
+    assert call.endswith(f" {REPORT_GROUP}{suffix}"), call
     kept = [f"--orphan-action {orphan_action}"] if orphan_action else []
     kept += ["--headless"] * headless + ["--quiet"] * quiet + [RESOLVER_FILE] * resolver
-    return " ".join([call[:-len(REPORT_GROUP + NO_STDIN) - 1], *kept]) + NO_STDIN
+    return " ".join([call[:-len(REPORT_GROUP + suffix) - 1], *kept]) + suffix
 
 
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
 @pytest.mark.parametrize("orphan_action,headless,quiet,decision", [
     (None, True, True, "keep 2 orphaned collection(s) (non-interactive, headless-default)"),
     (None, False, True, "keep 2 orphaned collection(s) (non-interactive, quiet-default)"),
+    # #1183: `headless_mode: true` in preferences.yaml alone: the banner renders, the default is headless's.
+    (None, True, False, "keep 2 orphaned collection(s) (non-interactive, headless-default)"),
     ("remove", False, False, "remove 2 orphaned collection(s) (non-interactive, orphan-action-flag)"),
     (None, False, False, None),
-], ids=["headless", "quiet", "orphan-action-remove", "interactive"])
+], ids=["headless", "quiet", "preference", "orphan-action-remove", "interactive"])
 def test_both_report_calls_run_as_documented_with_no_payload(tmp_path, orphan_action, headless, quiet, decision):
     """#1119: the documented calls, run by bash on a stdin the host left open, which they
     never wait on (round 1): the paths come from the folders activation bound, the orphan
     decision from the flags and the staged classification, and the resolver reason from
-    item 6's file, shell characters and all."""
+    item 6's file, shell characters and all. The emit writes its line to the run folder,
+    and prints nothing (#1183)."""
     project = tmp_path / "project"
     (project / "_bmad" / "skf").mkdir(parents=True)
     (project / "_bmad" / "skf" / "config.yaml").write_bytes(
@@ -1506,7 +1606,9 @@ def test_both_report_calls_run_as_documented_with_no_payload(tmp_path, orphan_ac
             os.close(held_open)
         assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
         outputs[word] = done.stdout.decode("utf-8")
-    envelope = json.loads(outputs["emit"].strip()[len(ENVELOPE_PREFIX):])["skf_setup"]
+    assert outputs["emit"] == ""
+    [line] = (run_dir / "envelope.line").read_bytes().decode("utf-8").splitlines()
+    envelope = json.loads(line[len(ENVELOPE_PREFIX):])["skf_setup"]
     assert envelope["config_path"] == f"{root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
     assert envelope["warnings"][0] == f"customization_resolver_unavailable: {RESOLVER_REASON}"
     trail = [w for w in envelope["warnings"] if w.startswith("orphan_")]
@@ -1517,6 +1619,7 @@ def test_both_report_calls_run_as_documented_with_no_payload(tmp_path, orphan_ac
         assert trail == [f"orphan_auto_resolution: {decision}", *removed]
     assert not (tmp_path / "pwned").exists()
     banner = outputs["render-report"].splitlines()
+    assert banner and not banner[0].startswith(ENVELOPE_PREFIX)
     assert f"  - forge-tier.yaml: {root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" in banner
     assert f"  - {root}/forge-data/ (directory ensured)" in banner
 
@@ -1548,16 +1651,26 @@ def test_contract_promises_only_the_final_message():
     assert "all `claude -p` prints" in _read(HEADLESS_CONVENTION)
 
 
+PREFERENCE_ONLY_GATES = ("`headless_mode: true` in `{sidecar_path}/preferences.yaml` only resolves the gates: "
+                         "that run keeps its FORGE STATUS banner, notices and health check.")
+
+
 def test_convention_names_every_switch_that_makes_setup_envelope_only():
     """The convention's skf-setup exception names each switch the contract's
-    Headless row names: the preference as well as the flag and its alias."""
+    Headless row names, the flag and its alias, and both say the preference
+    only resolves the gates (#1183)."""
     exception = next(paragraph for paragraph in _read(HEADLESS_CONVENTION).split("\n\n")
                      if paragraph.startswith("Exception: skf-setup"))
     headless = next(line for line in _section(_read(INVOCATION_CONTRACT), "## Invocation Contract").splitlines()
                     if line.startswith("| **Headless**"))
-    for switch in ("`--headless`", "`--quiet`", "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
-        assert switch in exception, switch
-        assert switch in headless, switch
+    for text in (exception, headless):
+        for switch in ("`--headless`", "`--quiet`", PREFERENCE_ONLY_GATES, "runs no health check"):
+            assert switch in text, switch
+        for gone in ("the health check still runs", "displayed once the health check has finished",
+                     "known once activation", "adds nothing of its own"):
+            assert gone not in text, gone
+    assert "Under `--headless` or `--quiet`, a standalone run's final message" in headless
+    assert "final message of a standalone `--headless` or `--quiet` run" in exception
 
 
 def test_workflows_doc_promises_only_the_final_message():
@@ -1571,12 +1684,20 @@ def test_workflows_doc_promises_only_the_final_message():
 
 
 def test_workflows_doc_places_the_health_check_by_outcome():
-    """The health check runs only on success; a tier miss or a halt ends before it."""
-    exception = next(line for line in _read(WORKFLOWS_DOC).splitlines()
-                     if line.startswith("**Exception: `/skf-setup` headless"))
+    """#1183: a `--headless`, `-H` or `--quiet` run runs no health check, whatever its outcome, and
+    the preference alone keeps the banner and the health check."""
+    doc = _read(WORKFLOWS_DOC)
+    exception = next(line for line in doc.splitlines() if line.startswith("**Exception: `/skf-setup` headless"))
     assert "after the health check has run, so" not in exception
-    assert "On success the health check runs first and the envelope follows it" in exception
-    assert "On a tier miss or a halt the health check does not run" in exception
+    assert "On success the health check runs first" not in exception
+    assert "`/skf-setup` with `--headless`, `-H` or `--quiet` skips its status banner" in exception
+    assert ('Such a run runs no health check: the `status: "success"` or `status: "tier_failure"` envelope, or a '
+            '`status: "blocked"` envelope') in exception
+    preference = next(line for line in doc.splitlines() if line.startswith("You can also set `headless_mode: true`"))
+    assert ("For `/skf-setup` the preference only answers the orphan question: setup keeps its banner and health "
+            "check, so a script that reads its envelope line passes `--headless` or `--quiet`.") in preference
+    health = next(line for line in doc.splitlines() if line.startswith("In headless mode the review gate takes"))
+    assert "A `/skf-setup --headless` or `--quiet` run runs no health check" in health
 
 
 def test_docs_state_when_no_envelope_arrives():

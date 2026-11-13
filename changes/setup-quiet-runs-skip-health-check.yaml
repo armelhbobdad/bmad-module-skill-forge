@@ -1,0 +1,5 @@
+type: changed
+scope: skf-setup
+summary: |
+  A `/skf-setup` run under `--headless`, `-H`, `--quiet` or a Ferris pipeline no longer runs the workflow health check, whose findings it only queued where nothing read them. Setup now saves the `SKF_SETUP_RESULT_JSON` line in its run folder when it builds it, and its last command prints that saved line and removes the folder, so the line a pipeline reads is the one the emitter wrote. Run `/skf-setup` without these flags to get the health check.
+issues: [1183]

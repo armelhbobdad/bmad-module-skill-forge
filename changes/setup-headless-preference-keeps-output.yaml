@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-setup
+summary: |
+  `headless_mode: true` in `preferences.yaml` no longer turns `/skf-setup` into an envelope-only run. As the docs say, the preference now only skips the question: Setup keeps orphaned QMD collections without asking, with a notice that names `headless_mode: true`, and still shows its FORGE STATUS banner and notices and runs the health check. `--headless`, `-H`, `--quiet` and a Ferris pipeline still print the `SKF_SETUP_RESULT_JSON` line alone.
+migration: |
+  A script that runs `/skf-setup` with only `headless_mode: true` set and reads its `SKF_SETUP_RESULT_JSON` line passes `--headless` or `--quiet`.
+issues: [1183]
