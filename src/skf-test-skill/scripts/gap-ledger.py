@@ -63,7 +63,7 @@ Subcommands:
          [--surface <file>] [--signatures <file>] [--numerator <file>]
          [--stale <file>] [--provenance <file>] [--inventory <file>]
          [--skill-dir <dir>] [--metadata <path>] [--served <family>]...
-         [--not-applicable <index>:<rule-id>]...
+         [--not-applicable <index>:<rule-id>]... [--skill-check-not-run <file>]
       Build the records from the result file a script wrote (see Adapters
       below) instead of reading them, then append them as above, with the
       same output. A gap a script finds is recorded with a fixed title,
@@ -377,7 +377,10 @@ cites (never read; default `metadata.json`):
             `tesslValidationFindings`, `tesslDescriptionSuggestions` and
             `tesslContentSuggestions` (a JSON-input result) is INVALID_INPUT,
             as is a mark of another form or whose index that list does not
-            have. In this order: each
+            have. --skill-check-not-run names the file in which §2 of
+            external-validators.md kept why skill-check did not run; a file
+            with no non-blank line, or one that cannot be read, is
+            INVALID_INPUT. In this order: each
             `skillCheckDiagnostics[]` entry is a Low `external-validator` gap
             `skill-check: {ruleId}` at `{file}:{line}` (a line above 0), else
             `{file}`, else `SKILL.md`, its message the issue and its
@@ -388,7 +391,10 @@ cites (never read; default `metadata.json`):
             `SKILL.md frontmatter description`, fixed there (and in the brief,
             when the skill has one); and each content suggestion no mark
             names an Info `external-validator` gap titled with it at
-            `SKILL.md`.
+            `SKILL.md`; then, with --skill-check-not-run, one Info
+            `external-validator` gap `skill-check not run: {the file's first
+            non-blank line}` at `SKILL.md`, whose remediation says how to
+            make skill-check run again.
 
   render --ledger <path> [--heading]
       Print the Gap Report body in Markdown on stdout: the totals, the
@@ -516,7 +522,10 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "observation": ("Structural", "a style suggestion, a documented extra or another non-blocking observation"),
     "discovery": ("Discovery", "a discovery test that misrouted prompts or did not run"),
     "description": ("Discovery", "a description whose triggers need optimizing"),
-    "external-validator": ("External", "a skill-check diagnostic or a Tessl Review suggestion"),
+    "external-validator": (
+        "External",
+        "a skill-check diagnostic, a Tessl Review suggestion or a skill-check that did not run",
+    ),
 }
 
 REQUIRED_FIELDS = ("severity", "category", "title", "source", "remediation")
@@ -569,7 +578,7 @@ ACTIONS = {
                  "test as its remediation says",
     "description": "edit the SKILL.md frontmatter description as each gap suggests",
     "external-validator": "apply each skill-check diagnostic or Tessl Review suggestion to SKILL.md as its "
-                          "remediation says",
+                          "remediation says, or make skill-check run again when it did not run",
 }
 
 _ID_RE = re.compile(r"^GAP-(\d{3,})$")
@@ -975,7 +984,7 @@ ADAPTER_OPTIONS: dict[str, frozenset[str]] = {
     "provenance-line": frozenset({"stale"}),
     "coherence": frozenset(),
     "structure": frozenset({"served"}),
-    "external": frozenset({"not_applicable"}),
+    "external": frozenset({"not_applicable", "skill_check_not_run"}),
 }
 ALL_ADAPTER_OPTIONS = frozenset().union(*ADAPTER_OPTIONS.values())
 _DEFAULT_METADATA = "metadata.json"
@@ -2323,9 +2332,30 @@ def _suggestions(result: dict, key: str) -> list[str]:
     return items
 
 
-def from_external(result: object, marks: list[str] | None = None) -> list[dict]:
-    """combine-external-scores.py's file-mode result: the external validators' findings."""
+# What restores a skill-check that did not run (external-validators.md §2 kept the reason).
+SKILL_CHECK_NOT_RUN_FIX = (
+    "Make skill-check available: run `npx skill-check -h` once, so npx can run it without a download, or install "
+    "it. Check that `npx skill-check check` on the skill finishes within 120 seconds and prints JSON, then re-run "
+    "Test Skill.")
+
+
+def _skill_check_not_run(path: str) -> str:
+    """The first non-blank line of the file external-validators.md §2 kept the reason in. Raises AdapterError."""
+    try:
+        text = Path(path).read_bytes().decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AdapterError(f"cannot read --skill-check-not-run {path}: {exc}") from exc
+    reason = next((line.strip() for line in text.splitlines() if line.strip()), None)
+    if reason is None:
+        raise AdapterError(f"--skill-check-not-run {path} holds no reason: it is blank")
+    return reason
+
+
+def from_external(result: object, marks: list[str] | None = None, not_run: str | None = None) -> list[dict]:
+    """combine-external-scores.py's file-mode result: the external validators' findings, and, with `not_run`, the
+    reason skill-check did not run."""
     result = _object(result, "--input (combine-external-scores.py --skill-check)", *_EXTERNAL_LISTS)
+    reason = _skill_check_not_run(not_run) if not_run is not None else None
     content = _suggestions(result, "tesslContentSuggestions")
     skipped: set[int] = set()
     for mark in marks or []:
@@ -2371,6 +2401,9 @@ def from_external(result: object, marks: list[str] | None = None) -> list[dict]:
             records.append(_gap(
                 "Info", "external-validator", suggestion, "SKILL.md",
                 "Apply this Tessl Review suggestion to SKILL.md only if you agree: it is advisory."))
+    if reason is not None:
+        records.append(_gap("Info", "external-validator", f"skill-check not run: {reason}", "SKILL.md",
+                            SKILL_CHECK_NOT_RUN_FIX))
     return records
 
 
@@ -2498,7 +2531,7 @@ def build_records(args: argparse.Namespace) -> list[dict]:
         stale = read_result(args.stale, "--stale") if args.stale is not None else None
         return from_provenance_line(data, stale)
     if kind == "external":
-        return from_external(data, args.not_applicable)
+        return from_external(data, args.not_applicable, args.skill_check_not_run)
     return from_coherence(data)
 
 
@@ -2734,6 +2767,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--not-applicable", action="append", metavar="INDEX:RULE",
                    help="external: a Tessl Review content suggestion marked not applicable, by its index in "
                         "tesslContentSuggestions (from 0) and the tessl-review.md rule id; repeatable")
+    p.add_argument("--skill-check-not-run", metavar="FILE",
+                   help="external: the file external-validators.md §2 wrote why skill-check did not run to")
     p.set_defaults(func=_cmd_append)
 
     p = sub.add_parser("render", help="print the Gap Report in Markdown")

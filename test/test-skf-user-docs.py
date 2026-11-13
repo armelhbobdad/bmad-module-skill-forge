@@ -1198,8 +1198,11 @@ def test_verifying_scoring_lines_follow_test_skill():
         assert {"signatureAccuracy", "typeCoverage"} <= set(out["skippedCategories"]), state
     caps = _paragraph(doc, "Test Skill does not run without its tools")
     for token in ("a missing `uv` or `python3` halts the run", "(`runtime-missing`)",
-                  "whenever the report's `toolingStatus` is not `ok`", "A capped run stays FAIL at any threshold"):
+                  "whenever the report's `toolingStatus` is not `ok`", "A capped run stays FAIL at any threshold",
+                  # #1185: the cap is on record, and the run says which tooling to restore
+                  "the result file's `summary.capReason`", "recommends restoring the tooling it names"):
         assert token in caps, token
+    assert '"capReason"' in _read(TEST_SKILL / "scripts" / "build-result-context.py")
     assert "| `runtime-missing` |" in _read(TEST_SKILL / "references" / "invocation-contract.md")
     for stale in ("the run is marked `degraded`", "still accepts a capped run"):
         assert stale not in doc, stale

@@ -447,3 +447,53 @@ def test_the_resolver_warning_has_a_producer():
     assert ("write `customization_resolver_unavailable: {customization_resolver_unavailable}` to "
             "`{run_dir}/resolver-warning.txt` with a file write, never `echo`") in text
     assert "<warning>" not in text
+
+
+@pytest.mark.parametrize("case", ["capped", "capped-fail", "uncapped", "fallback", "blocked", "blank"])
+def test_the_cap_reaches_the_summary_only_when_one_fired(tmp_path, case):
+    """#1185: a capped FAIL names its cap in `summary.capReason`, so a caller restores the tooling instead of
+    editing the skill; the exit code and next_workflow stay the FAIL's, and the envelope gains no field."""
+    forge_version = tmp_path / "forge" / "demo" / "1.0.0"
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / f"skf-test-skill-{RUN_ID}"
+    forge_version.mkdir(parents=True)
+    run_dir.mkdir(parents=True)
+    front = {"testResult": "'fail'", "score": "'84%'", "threshold": "'80%'"}
+    scored = {
+        "capped": CAPPED,
+        # a cap fired on a run that failed its threshold anyway: the cap is still named
+        "capped-fail": {**CAPPED, "result": "FAIL", "totalScore": 71},
+        "uncapped": {"result": "FAIL", "totalScore": 71},
+        "fallback": FALLBACK,
+        "blocked": None,
+        "blank": {**CAPPED, "capReason": "  "},
+    }[case]
+    if case in ("capped-fail", "uncapped"):
+        front["score"] = "'71%'"
+    if case == "fallback":
+        front = {"testResult": "'pass'", "score": "'85%'", **FALLBACK_FRONT}
+    if case == "blocked":
+        front = {"hardGate": "'blocked'", "testResult": "'fail'"}
+    report = _report(forge_version, **front)
+    score = str(_score(run_dir, **scored)) if scored else None
+    payload = mod.build(str(report), str(_ledger(forge_version)), score)
+    summary = payload["result_contract"]["summary"]
+    if case in ("capped", "capped-fail"):
+        assert summary["capReason"] == CAPPED["capReason"]
+    else:
+        assert "capReason" not in summary
+    assert "capReason" not in payload and "capReason" not in payload["result_contract"]
+    if case != "fallback":
+        assert (payload["exit_code"], payload["next_workflow"]) == (2, "update-skill")
+    (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    target = "stderr" if case == "blocked" else "stdout"
+    emitted = subprocess.run(
+        [sys.executable, str(EMITTER), "emit", "--workflow", "skf-test-skill", "--run-dir", str(run_dir),
+         "--result-dir", str(forge_version), "--target", target],
+        input=(run_dir / "result-context.json").read_text(encoding="utf-8"),
+        capture_output=True, text=True, encoding="utf-8")
+    assert emitted.returncode == 0, emitted.stderr
+    line = (emitted.stderr if case == "blocked" else emitted.stdout).strip()
+    envelope = json.loads(line.split(": ", 1)[1])
+    assert not list(Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).iter_errors(envelope))
+    latest = json.loads((forge_version / "skf-test-skill-result-latest.json").read_text(encoding="utf-8"))
+    assert latest["summary"].get("capReason") == summary.get("capReason")

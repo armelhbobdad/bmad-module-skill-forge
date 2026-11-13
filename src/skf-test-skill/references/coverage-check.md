@@ -56,7 +56,7 @@ A skill is docs-only when every citation it writes is `[EXT:...]`, none local (`
 uv run {coverageInputsScript} census --skill-dir "{resolved_skill_package}" --output "{run_dir}/census.json"
 ```
 
-Bind `{docs_only_mode}` ← `docsOnly`. Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:census`). §0b sets `{docs_only_mode}` too when source access reaches State 5.
+Bind `{docs_only_mode}` ← `docsOnly` and write it to the `{outputFile}` frontmatter as `docsOnly: true` or `false`, bare. Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:census`). §0b sets `{docs_only_mode}` too when source access reaches State 5.
 
 **A docs-only run**: load `{coverageBranchesFile}` and follow its **Docs-Only Run** section.
 
@@ -274,8 +274,8 @@ Exit 0: write its output unchanged where the section below places it. Exit 2 is 
 ```markdown
 ## Coverage Analysis
 
-**Tier:** {forge_tier}
-**Source Access:** {analysis_confidence} (full | provenance-map | metadata-only | remote-only | docs-only)
+**Tier:** {detected_tier}
+**Source Access:** {analysis_confidence}
 **Source Path:** {source_path}
 **Workspace Layout:** {source_workspace_kind | single package | unknown (no local source, or the §0b helper failed)}
 **Denominator:** {the §4 annotation}
@@ -317,6 +317,6 @@ Rely on the JSON of each command:
 
 ### 6. Report Coverage Results
 
-Report to the user from §5's render: the {forge_tier} tier, the **Files Analyzed** count, the three category scores and the issue count; the Coverage Analysis section has the details.
+Report to the user from §5's render: the {detected_tier} tier, the **Files Analyzed** count, the three category scores and the issue count.
 
 Append `'coverage-check'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.

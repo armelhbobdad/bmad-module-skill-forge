@@ -46,37 +46,34 @@ Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
 ### 2. Run skill-check
 
-Run skill-check fresh on every test: a score cached in an evidence report can predate the SKILL.md under test, so no earlier result is reused.
-
-**Check availability (short probe — 15s timeout):**
+Run skill-check fresh on every test: a score cached in an evidence report can predate the SKILL.md under test, so no earlier result is reused. Probe for it first, with `--no-install` so the probe never starts a slow download, then, when the probe exits 0, run it (each command writes skill-check's output to the run folder, never into this context):
 
 ```bash
-timeout 15s npx --no-install skill-check -h 2>/dev/null
+timeout 15s npx --no-install skill-check -h > /dev/null 2>&1; echo "skill-check probe exited $?"
 ```
-
-Use `--no-install` so the probe never triggers a slow cold-cache download (npx
-would otherwise fetch the package before printing help). Wrap in `timeout 15s`
-so a hung probe cannot stall the workflow — consistent with the 120s cap used
-on the actual validator run below. If the probe exits non-zero OR the 15s
-timeout trips (exit code `124`), skill-check is not available: skip to
-section 3. No `{run_dir}/skill-check.json` is written, so section 4 reads no
-skill-check score.
-
-**Run validation (120s timeout):**
 
 ```bash
 timeout 120s npx skill-check check "{skillDir}" --format json --no-security-scan > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"
 ```
 
-If the `skill-check exited` line names exit code `124` (GNU timeout's signal for the 120s wall-clock expiring), log the warning `skill-check: timeout-120s` and go to section 3. On any other exit code, section 4 reads whatever JSON the file holds, per the note below. The call writes stdout and stderr to the run folder, never into this context: section 4's script reads the score, the issue counts and the diagnostics from `{run_dir}/skill-check.json`.
+Act on the two calls together, by the first outcome below that applies:
 
-**Note:** `skill-check` may return a non-zero exit code even when `summary.errorCount` is 0. Always rely on the parsed JSON output, not the shell exit code.
+- The probe exits non-zero, `124` (its 15-second timeout) included: skill-check is not available. Keep the reason `not-available (probe exited {code})` and skip the run, so no `{run_dir}/skill-check.json` is written.
+- The `skill-check exited` line names `124`, GNU timeout's code for the 120-second wall clock: keep the reason `timeout-120s`.
+- No `skill-check exited` line came back, or `{run_dir}/skill-check.json` does not start with a JSON object: keep the reason `no-json: {the last line of {run_dir}/skill-check.stderr, or no output}`.
+- Otherwise the file holds skill-check's result, whatever the exit code (skill-check can exit non-zero with no error): section 4's script reads the score, the issue counts and the diagnostics from it.
 
-**If skill-check fails entirely** (no `skill-check exited` line came back, or the file does not start with a JSON object), log a warning naming the last line of `{run_dir}/skill-check.stderr` and continue: section 4 reads no score from a file without JSON.
+A kept reason means skill-check did not run. Write the reason to `{run_dir}/skill-check-not-run.txt` with a file write, never `echo` (a stderr line can hold quotes or `$( )`): section 5b records it as a gap. Then, from `{project-root}`, record it as a warning:
+
+```bash
+uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "skill-check-unavailable: $(cat "{run_dir}/skill-check-not-run.txt")"
+```
 
 ### 3. Run Tessl Review (optional)
 
 Tessl Review (`tessl review run`, which the helper below runs on a copy of `{skillDir}`) scores the skill on Tessl's servers with validation checks and two AI judges, one for the description and one for the content. It runs only when the user opted in by setting `tessl_review_workspace` in `{preferencesFile}` to a Tessl workspace name, because it needs a Tessl account, uploads the skill's files to that workspace's review history and spends Tessl credits. The helper applies that setting and every other condition, so run it whenever this section is reached and let it decide; `{tesslReviewRules}` explains what is uploaded and what each result means. It never halts the workflow.
+
+**Warnings.** Each line this section logs as a warning is recorded in the run sink as it is logged: write `tessl-review: {the line}` to `{run_dir}/warning.txt` with a file write, then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
 Resolve `{tesslReviewHelper}` ← first existing path in `{tesslReviewProbeOrder}`. If neither path exists, set `{tessl_summary}` to `not run — skf-tessl-review.py is missing` and `{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, log that line as a warning, set `{tessl_review_score}` to null and go to section 4. Otherwise submit the review:
 
@@ -156,16 +153,16 @@ When `{tessl_status}` is not `reviewed`, the Tessl Review block holds only its R
 
 ### 5b. Record the External Validation Gaps
 
-Record the validators' findings in the gap ledger `{ledgerFile}`, so the Gap Report lists them beside the coverage and coherence gaps. The script builds the records from `{run_dir}/external.json`, which section 4 wrote, each in the Ledger Record Format of `{outputFormatsFile}` with the severity and category the Gap Severity table (`{scoringRulesFile}`) gives it: each skill-check diagnostic and each `{tessl_validation}` finding a Low `external-validator` gap, each of `{tessl_description_suggestions}` a Low `description` gap and each of `{tessl_content_suggestions}` not marked `(not applicable: <rule-id>)` an Info `external-validator` gap. Pass one `--not-applicable <index>:<rule-id>` for each content suggestion section 3 marked, its index its place in `{tessl_content_suggestions}` counting from 0, and none when section 3 marked none. Run the command even when neither validator ran: the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
+Record the validators' findings in the gap ledger `{ledgerFile}`, so the Gap Report lists them beside the coverage and coherence gaps. The script builds the records from `{run_dir}/external.json`, which section 4 wrote, each in the Ledger Record Format of `{outputFormatsFile}` with the severity and category the Gap Severity table (`{scoringRulesFile}`) gives it: each skill-check diagnostic and each `{tessl_validation}` finding a Low `external-validator` gap, each of `{tessl_description_suggestions}` a Low `description` gap and each of `{tessl_content_suggestions}` not marked `(not applicable: <rule-id>)` an Info `external-validator` gap. Pass one `--not-applicable <index>:<rule-id>` for each content suggestion section 3 marked, its index its place in `{tessl_content_suggestions}` counting from 0, and none when section 3 marked none. When section 2 wrote `{run_dir}/skill-check-not-run.txt`, pass `--skill-check-not-run` with it: the script records an Info `external-validator` gap titled `skill-check not run: {the reason}`, whose remediation says how to make skill-check run again. Run the command even when neither validator ran: the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
 
 ```bash
-uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage external-validators --from external --input "{run_dir}/external.json" [--not-applicable <index>:<rule-id>]...
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage external-validators --from external --input "{run_dir}/external.json" [--not-applicable <index>:<rule-id>]... [--skill-check-not-run "{run_dir}/skill-check-not-run.txt"]
 ```
 
 Rely on its JSON:
 
 - Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
-- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct the `--not-applicable` marks its `error` names and run the command again.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct the `--not-applicable` marks its `error` names and run the command again. When the `error` names the `--skill-check-not-run` file (blank or unreadable), write the reason section 2 kept to it again.
 - Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `external-validators:ledger`).
 
 ### 6. Report Results

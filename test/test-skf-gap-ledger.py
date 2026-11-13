@@ -901,6 +901,7 @@ REPO = Path(__file__).resolve().parent.parent
 REFS = REPO / "src" / "skf-test-skill" / "references"
 COVERAGE_STEP = REFS / "coverage-check.md"
 COHERENCE_STEP = REFS / "coherence-check.md"
+EXTERNAL_STEP = REFS / "external-validators.md"
 SCANNER = REPO / "src" / "shared" / "scripts" / "skf-scan-skill-md-structure.py"
 # A bracketed `[--flag ...]` synopsis group of a prose call, repeatable or not.
 OPTIONAL_GROUP = re.compile(r" \[(--[a-z-]+[^\]]*)\](?:\.\.\.)?")
@@ -3592,6 +3593,65 @@ class TestExternalAdapter:
                    "--not-applicable", "0:keep-provenance")
         assert bare.returncode == 2 and json.loads(bare.stdout)["error"] == "--not-applicable work only with --from"
         assert not ledger.exists()
+
+    def test_a_skill_check_that_did_not_run_is_one_info_gap(self, ledger: Path, tmp_path: Path):
+        """#1185: the reason external-validators §2 kept is an Info gap after the Tessl Review ones, with the steps
+        that make skill-check run again; a rerun records it once."""
+        result = write_json(tmp_path / "external.json", external(tesslContentSuggestions=["Add a worked example."]))
+        reason = tmp_path / "skill-check-not-run.txt"
+        reason.write_bytes(b"\n  \ntimeout-120s\r\nignored second line\n")
+        proc = from_file(ledger, "external-validators", "external", result, skill_check_not_run=reason)
+        assert proc.returncode == 0, proc.stdout
+        records = ledger_records(ledger)
+        assert brief(records) == [("Info", "external-validator", "Add a worked example.", "SKILL.md", None),
+                                  ("Info", "external-validator", "skill-check not run: timeout-120s", "SKILL.md", None)]
+        gap = records[-1]
+        assert (gap["group"], gap["remediation"]) == ("External", mod.SKILL_CHECK_NOT_RUN_FIX)
+        for step in ("`npx skill-check -h` once", "within 120 seconds and prints JSON", "re-run Test Skill"):
+            assert step in gap["remediation"], step
+        again = json.loads(from_file(ledger, "external-validators", "external", result,
+                                     skill_check_not_run=reason).stdout)
+        assert (again["appended"], len(again["duplicates"])) == ([], 2)
+        assert "a skill-check that did not run" in mod.CATEGORIES["external-validator"][1]
+        assert "make skill-check run again when it did not run" in mod.ACTIONS["external-validator"]
+
+    @pytest.mark.parametrize("content", [b"", b"  \n\t\n", None], ids=["empty", "blank", "missing"])
+    def test_a_blank_or_unreadable_reason_file_is_refused(self, ledger: Path, tmp_path: Path, content):
+        result = write_json(tmp_path / "external.json", external())
+        reason = tmp_path / "skill-check-not-run.txt"
+        if content is not None:
+            reason.write_bytes(content)
+        proc = from_file(ledger, "external-validators", "external", result, skill_check_not_run=reason)
+        assert proc.returncode == 2, proc.stdout
+        out = json.loads(proc.stdout)
+        assert out["code"] == "INVALID_INPUT" and "--skill-check-not-run" in out["error"], out["error"]
+        assert not ledger.exists()
+
+    def test_the_reason_file_is_an_external_option_only(self, ledger: Path, tmp_path: Path):
+        reason = tmp_path / "skill-check-not-run.txt"
+        reason.write_bytes(b"not-available (probe exited 1)\n")
+        other = from_file(ledger, "coherence-check", "coherence", write_json(tmp_path / "c.json", {
+            "invalidReferences": []}), skill_check_not_run=reason)
+        assert other.returncode == 2
+        assert json.loads(other.stdout)["error"] == "--from coherence does not read --skill-check-not-run"
+        records = write_json(tmp_path / "records.json", [record()])
+        bare = run("append", "--ledger", str(ledger), "--stage", "external-validators", "--input", str(records),
+                   "--skill-check-not-run", str(reason))
+        assert bare.returncode == 2
+        assert json.loads(bare.stdout)["error"] == "--skill-check-not-run work only with --from"
+        assert not ledger.exists()
+
+    def test_the_prose_call_records_why_skill_check_did_not_run(self, ledger: Path, tmp_path: Path):
+        """external-validators §5b's call, its reason file kept, over the files §2 and §4 wrote."""
+        run_dir = tmp_path / "run"
+        write_json(run_dir / "external.json", external())
+        (run_dir / "skill-check-not-run.txt").write_bytes(b"not-available (probe exited 124)\n")
+        [call] = prose_calls(EXTERNAL_STEP, "### 5b. Record the External Validation Gaps", "### 6.")
+        assert ' --skill-check-not-run "{run_dir}/skill-check-not-run.txt"' in call
+        call = call.replace(" --not-applicable <index>:<rule-id>", "")
+        proc = run_prose(call, {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix()})
+        assert proc.returncode == 0, proc.stdout
+        assert [r["title"] for r in ledger_records(ledger)] == ["skill-check not run: not-available (probe exited 124)"]
 
 
 def prose_calls(path: Path, start: str, end: str) -> list[str]:

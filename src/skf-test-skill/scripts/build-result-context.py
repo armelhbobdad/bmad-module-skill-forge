@@ -20,8 +20,9 @@ than the model retyping them from memory:
     §7 writes it, or step-hard-gate.md §3 on a blocked run);
   - the gap ledger: the gap counts by severity (gap-ledger.py's summary);
   - the scoring script's output, which score.md saves: the verdict, score
-    and threshold it settled, activeCategories and inconclusiveReasons. A
-    run the hard gate blocked was never scored and has none.
+    and threshold it settled, activeCategories, inconclusiveReasons and the
+    capReason of a cap that fired. A run the hard gate blocked was never
+    scored and has none.
 
 A scored run's verdict fields are checked against the scoring output
 (`scored_fields`): testResult must be the verdict the output settled,
@@ -58,6 +59,7 @@ Payload (written to --output, UTF-8 JSON):
      "outputs": [{"type": "report", "path": <report>}],
      "summary": {"score", "threshold", "result", "testMode",
                  "activeCategories", "inconclusiveReasons" (INCONCLUSIVE),
+                 "capReason" (a cap fired: a non-empty string),
                  "threshold_fallback", "original_threshold",
                  "evidence_report_path" (fallback only), "gapCounts",
                  "hardGate"},
@@ -262,7 +264,7 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
     blocked = front.get("hardGate") == "blocked"
     if blocked:
         envelope = dict(_sibling("hard-gate.py", "skf_hard_gate").blocked_envelope(skill, report_path))
-        result, active, inconclusive = "FAIL", [], None
+        result, active, inconclusive, cap = "FAIL", [], None, None
     else:
         test_result = front.get("testResult", "")
         if test_result not in VERDICTS:
@@ -299,6 +301,8 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
                                + "; ".join(wrong))
         active = scored.get("activeCategories", [])
         inconclusive = scored.get("inconclusiveReasons") if verdict == "INCONCLUSIVE" else None
+        # The cap that fired, which no skill edit lifts: a caller restores the tooling it names, then tests again.
+        cap = scored.get("capReason") if isinstance(scored.get("capReason"), str) else None
 
     fallback = front.get("thresholdFallback", "").lower() == "true" and not blocked
     if fallback:
@@ -314,6 +318,8 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
     }
     if inconclusive is not None:
         summary["inconclusiveReasons"] = inconclusive
+    if cap and cap.strip():
+        summary["capReason"] = cap
     if fallback:
         summary["threshold_fallback"] = True
         summary["original_threshold"] = envelope["original_threshold"]

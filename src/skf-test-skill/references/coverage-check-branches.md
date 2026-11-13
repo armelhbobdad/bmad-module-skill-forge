@@ -78,6 +78,8 @@ A non-zero exit leaves the script's error, or nothing, in that file: delete it, 
 
 "**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than source code coverage."
 
+Write `analysisConfidence: 'docs-only'` to the frontmatter of `{report_file}` at once: a docs-only run skips §0b, where the source access protocol writes it on every other run.
+
 §2c's `docsOnly` branch: Export Coverage is the documentation completeness ratio, complete over documented items, and `incomplete[]` lists each incomplete item with the fields it lacks:
 
 ```bash

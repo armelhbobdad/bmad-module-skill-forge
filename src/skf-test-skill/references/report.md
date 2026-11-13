@@ -276,6 +276,9 @@ The report is final once §4c published it and wrote the result files: no later 
 {If the hard gate blocked the run, in place of the line above:}
 **Result:** **FAIL**, not scored: the hard gate blocked the run on {blocking_gaps} Critical or High gap(s).
 
+{If `{run_dir}/score.json` holds a non-null `capReason`:}
+**Cap:** {capReason}
+
 {If `thresholdFallback` is present in output frontmatter:}
 **Threshold fallback:** scored {score}% against {originalThreshold} target — accepted at 80% floor. Evidence report: {evidenceReportPath}
 
@@ -299,6 +302,9 @@ The report is final once §4c published it and wrote the result files: no later 
 
 {IF PASS_WITH_DRIFT:}
 **update-skill** — The skill scored above threshold, but `--allow-workspace-drift` was in effect: the test ran against workspace HEAD, not `metadata.source_commit`. A conditional PASS is not trustworthy enough to export. Re-sync the source tree to the pinned commit (or re-extract against current HEAD) and re-run test-skill without the drift override before exporting.
+
+{IF FAIL after scoring, from a cap (`{run_dir}/score.json` holds a non-null `capReason`), in place of the next branch unless its `result` is `FAIL`:}
+**Restore the tooling, then test again**: {capReason}. No skill edit lifts a cap, so update-skill alone cannot turn this FAIL into a PASS, though the result file still names `update-skill`. Cap 1 (`tooling degraded`): make the tool `toolingStatus` names work again; for `frontmatter-validator-timeout`, the frontmatter validator must finish within 30 seconds. Cap 2 (`docs-only without external validators`): make skill-check run and score the skill (the Gap Report's `skill-check not run` gap says how, when it did not run), or opt in to Tessl Review. Then re-run test-skill. When its `result` is `FAIL` too, the skill also scored below its threshold: show the next branch after this one.
 
 {IF FAIL after scoring:}
 **update-skill `--from-test-report`**: This skill needs remediation. Review the Gap Report above, then run `@Ferris US {skill_name} --from-test-report`: Update Skill repairs the gaps it routes, at the skill's pinned commit, and lists each other gap as not repaired, with the reason. A `stale-documentation` or `metadata-drift` gap needs what its remediation names: a person, Create Skill or the skill brief. Test it again afterwards.

@@ -50,4 +50,4 @@ This table is the single source of truth for classifying a gap. Every stage reco
 | Info     | `migration-section`         | Historical migration content in Section 4b with no T2-future annotation (Case 2 of `migration-section-rules.md`) |
 | Info     | `multi-denominator`         | Multi-denominator reporting: barrel and documented-surface clusters diverge by design (>10% cross-cluster) |
 | Info     | `discovery`                 | Discovery testing not performed (`--no-discovery`, a catalog of fewer than 2 skills, or no subagent without file or shell tools to route the prompts): realistic prompt testing recommended before export (report §4b) |
-| Info     | `external-validator`        | A Tessl Review content suggestion (advisory; one marked `(not applicable: …)` is not recorded) |
+| Info     | `external-validator`        | A Tessl Review content suggestion (advisory; one marked `(not applicable: …)` is not recorded), or skill-check not run: the reason external-validators §2 kept (`not-available`, `timeout-120s` or `no-json`), with how to make it run again (external-validators §5b) |

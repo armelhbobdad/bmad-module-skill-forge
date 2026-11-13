@@ -145,7 +145,7 @@
     "warnings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: customization_resolver_unavailable when the customization resolver could not run, and result_file_write_failed when a result file could not be written. Present only when there is at least one."
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: customization_resolver_unavailable when the customization resolver could not run, run-lock-replaced (init.md took over a stale run lock), flat-skill-migrated (init.md moved a flat skill into a version folder), metadata-missing (the skill has no metadata.json), workspace-drift-not-checked (the drift helper could not read a source tree), test-mode-defaulted-naive (metadata.json's skill_type is neither single nor stack, so the run tested in naive mode), skill-check-unavailable (skill-check did not run, with the reason), tessl-review (a warning Tessl Review raised), and result_file_write_failed when a result file could not be written. Present only when there is at least one."
     },
     "error": {
       "type": "object",

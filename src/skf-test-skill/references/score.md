@@ -40,7 +40,7 @@ The category scores are never read back out of the report: each is the output fi
 - `signatures.json`: Signature Accuracy and Type Coverage (coverage-check §2b; there is none at Quick tier, for a docs-only skill, at States 2 to 5, or for a stack or a reference app)
 - `coherence.json`: the combined coherence (coherence-check §5c; contextual mode only)
 - `external.json`: the external validation score (external-validators §4; its `externalScore` is null when neither validator scored)
-- `surface.json`: at State 2, the provenance-map and metadata counts behind the State 2 undercount deduction (coverage-check §2)
+- `surface.json`: the source surface coverage-check §2 wrote, on every run but a docs-only one; at State 2 it holds the provenance-map and metadata counts behind the State 2 undercount deduction
 
 ### 3. Apply Weight Distribution
 
@@ -48,18 +48,18 @@ The category scores are never read back out of the report: each is the output fi
 
 #### 3a. Construct Scoring Input JSON
 
-Build the flags the script reads from workflow context, and `toolingStatus` from the `{outputFile}` frontmatter (init.md §6c wrote it), never from memory:
+Build the flags the script reads from what the earlier steps wrote: `mode` from the frontmatter's `testMode` (detect-mode §2), `tier` from its `forgeTier` (init.md §6c), `docsOnly` and `analysisConfidence` from its keys of those names (coverage-check wrote them), `stackSkill` and `referenceApp` from metadata.json, and `toolingStatus` from the `{outputFile}` frontmatter (init.md §6c wrote it), never from memory:
 
 ```json
 {
   "mode": "{testMode: contextual or naive}",
-  "tier": "{forge_tier: Quick, Forge, Forge+, or Deep}",
-  "docsOnly": "{true if docs_only_mode is set (coverage-check §0), else false}",
-  "state2": "{true if analysis_confidence is provenance-map, else false}",
+  "tier": "{forgeTier from the {outputFile} frontmatter: Quick, Forge, Forge+, or Deep}",
+  "docsOnly": "{true if the {outputFile} frontmatter's docsOnly is true, else false}",
+  "state2": "{true if the {outputFile} frontmatter's analysisConfidence is provenance-map, else false}",
   "stackSkill": "{true if metadata.json.skill_type == 'stack', else false}",
   "referenceApp": "{true if metadata.json.scope_type == 'reference-app', else false}",
   "threshold": "{effective_threshold from §1}",
-  "analysisConfidence": "{analysis_confidence: full, provenance-map, metadata-only, remote-only or docs-only}",
+  "analysisConfidence": "{analysisConfidence from the {outputFile} frontmatter: full, provenance-map, metadata-only, remote-only or docs-only}",
   "toolingStatus": "{toolingStatus from the {outputFile} frontmatter: ok, or frontmatter-validator-timeout}"
 }
 ```
@@ -68,7 +68,7 @@ Build the flags the script reads from workflow context, and `toolingStatus` from
 
 #### 3b. Run the Scoring Script
 
-Pass the §3a JSON and the score files that exist: `--signatures` when coverage-check scored the signatures, `--coherence` in contextual mode, and `--surface` at State 2:
+Pass the §3a JSON and the score files that exist: `--signatures` when coverage-check scored the signatures, `--coherence` in contextual mode, and `--surface` whenever `{run_dir}/surface.json` exists (every run but a docs-only one). The script refuses a `docsOnly` that `coverage.json` contradicts and a `state2` that `surface.json` contradicts, so a flag a long run lost cannot skip Cap 2 or the State 2 deduction:
 
 ```bash
 uv run {scoringScript} --json-input '<the §3a JSON>' --coverage "{run_dir}/coverage.json" [--signatures "{run_dir}/signatures.json"] [--coherence "{run_dir}/coherence.json"] --external "{run_dir}/external.json" [--surface "{run_dir}/surface.json"] > "{run_dir}/score.json"
@@ -101,11 +101,13 @@ Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output fo
 
 A `{"error": ..., "code": "INVALID_INPUT"}` envelope in `{run_dir}/score.json` (exit 2, or exit 1 for a payload that is not JSON) means the script ran and refused what it was given: a flag is missing, mistyped or out of range, or a score file is missing its score or holds a refused result. **Correct the §3a input, or re-run the step that writes the refused file, and run it again.** Never compute a total by hand from the numbers the script refused.
 
+A refusal that names `docsOnly` and `--coverage`, or `state2` and `--surface`, means the §3a JSON contradicts what coverage-check found: build it again from the `{outputFile}` frontmatter and run it again. When the frontmatter holds the refused value too, the file decides: write `docsOnly: true` to the frontmatter for a `coverage.json` whose `denominatorSource` is `docsOnly` (else `false`), or `analysisConfidence: 'provenance-map'` for a `surface.json` whose `state2` holds counts, then build the JSON and run the script again.
+
 No envelope at all (the script file is missing, or it cannot start): HALT with its stderr (`halt_reason: "helper-failed"`, phase `score:compute`). A quality gate does not score by hand, so the run stops without a score rather than with an unchecked one.
 
 ### 3d. Read Post-Score Caps (applied by the script)
 
-The script settles the verdict in the one order its docstring states, with two post-score caps: **Cap 1** (any `toolingStatus` other than `ok`) and **Cap 2** (docs-only with no external validation score). It returns the settled outcome as `capReason` + `effectiveResult` (§3b). Read those fields; never recompute a cap. If `capReason` is non-null, record `scoring_notes: {capReason}` in the report. A fired cap forces the script's `PASS` into `FAIL`, never touches an INCONCLUSIVE verdict, and is never re-flipped by the threshold fallback (§4b): a capped run stays FAIL whatever the threshold. (Both caps exist because a degraded-tooling or docs-only-without-validators run has too thin an evidence base to trust a PASS; §3a passes the field Cap 1 reads.)
+The script settles the verdict in the one order its docstring states, with two post-score caps: **Cap 1** (any `toolingStatus` other than `ok`) and **Cap 2** (docs-only with no external validation score). It returns the settled outcome as `capReason` + `effectiveResult` (§3b). Read those fields; never recompute a cap. If `capReason` is non-null, §6 shows it on its **Cap:** line, and §5 and §8 recommend restoring the tooling it names. A fired cap forces the script's `PASS` into `FAIL`, never touches an INCONCLUSIVE verdict, and is never re-flipped by the threshold fallback (§4b): a capped run stays FAIL whatever the threshold. (Both caps exist because a degraded-tooling or docs-only-without-validators run has too thin an evidence base to trust a PASS; §3a passes the field Cap 1 reads.)
 
 ### 4. Determine Result (PASS / FAIL / INCONCLUSIVE)
 
@@ -213,6 +215,9 @@ Based on the **settled verdict** (§4 — `effectiveResult` when the override gr
 **IF FAIL:**
 - `nextWorkflow: 'update-skill'` — skill needs remediation before export
 
+**IF FAIL with a cap** (`capReason` is non-null: a cap fired, and no run passes until the tooling it names is restored):
+- `nextWorkflow` stays `'update-skill'`, but no skill edit lifts a cap, so the step to recommend is to restore the tooling the cap names and test again. Cap 1 (`tooling degraded`): make the tool `toolingStatus` names work again; for `frontmatter-validator-timeout`, the frontmatter validator must finish within 30 seconds. Cap 2 (`docs-only without external validators`): make skill-check run and score the skill (the Gap Report's `skill-check not run` gap says how, when it did not run), or opt in to Tessl Review. When the script's `result` is `FAIL` too, the skill also scored below its threshold: recommend the **IF FAIL:** branch's update-skill as well, after restoring the tooling.
+
 **IF INCONCLUSIVE:**
 - `nextWorkflow: 'manual-review'` — evidence base is insufficient to grade the skill automatically. The test report records `inconclusiveReasons` from the scoring script. Surface to the user — do not auto-recommend export or update.
 
@@ -239,6 +244,8 @@ Write the **Completeness Score** section in place of the template's `## Complete
 **Score:** {total}%
 **Threshold:** {threshold}%
 **Result:** **{PASS|FAIL|INCONCLUSIVE}**
+{If capReason is non-null:}
+**Cap:** {capReason}
 {If INCONCLUSIVE:}
 **Inconclusive Reasons:**
 {bulleted list from script `inconclusiveReasons`}
@@ -251,16 +258,16 @@ Write the **Completeness Score** section in place of the template's `## Complete
 **External Validators:** {skill-check and Tessl Review | skill-check only | Tessl Review only | none — weight redistributed} (from `{external_tools_used}`; `tessl` is Tessl Review)
 **Analysis Confidence:** {full | provenance-map | metadata-only | remote-only | docs-only}
 **Tooling Status:** {ok | frontmatter-validator-timeout}
-{If the script returned `scoringNotes` or a `capReason`:}
-**Scoring Notes:** {each entry of `scoringNotes`, and `capReason`}
+{If the script returned `scoringNotes`:}
+**Scoring Notes:** {each entry of `scoringNotes`}
 ```
 
-If `analysis_confidence` is not `full`, add a degradation notice at the end of the Completeness Score section. **The notice must be confidence-aware** (see the degradation notice rules in `{sourceAccessProtocol}`):
+If the `analysisConfidence` §3a read is not `full`, add a degradation notice at the end of the Completeness Score section. **The notice must be confidence-aware** (see the degradation notice rules in `{sourceAccessProtocol}`):
 
 ```markdown
 ### Access Degradation Notice
 
-**Resolved via:** {analysis_confidence} {confidence breakdown if provenance-map, e.g., "(T1 AST-verified at compilation time)" or "(12 T1, 3 T1-low)"}
+**Resolved via:** {analysisConfidence} {confidence breakdown if provenance-map, e.g., "(T1 AST-verified at compilation time)" or "(12 T1, 3 T1-low)"}
 **Impact:** {describe limitation — e.g., "Signature checks limited to name-matching. Source file:line citations from provenance-map, not live AST." — or "Provenance data is at highest confidence; no limitation." for all-T1 provenance-map}
 **Recommendation:** {confidence-dependent — see {sourceAccessProtocol} degradation notice rules. Do not recommend local clone when provenance-map entries are already T1.}
 ```
@@ -278,7 +285,7 @@ Update `{outputFile}` frontmatter:
 
 ### 8. Report Score
 
-Report the completeness score to the user: the total percentage and PASS/FAIL verdict, the per-category weighted breakdown (already appended to the report in §6), the threshold, and the recommended next workflow (export-skill on pass, update-skill on fail). When `threshold_fallback` is true, include the fallback notice:
+Report the completeness score to the user: the total percentage and PASS/FAIL verdict, the per-category weighted breakdown (already appended to the report in §6), the threshold, and the recommended next workflow (export-skill on pass, update-skill on fail). On a capped FAIL (§5's **IF FAIL with a cap** branch), show `capReason` and recommend restoring the tooling it names and testing again, not update-skill alone: `nextWorkflow` stays `update-skill`, but no skill edit lifts a cap, and update-skill is needed as well only when the script's `result` is `FAIL` too. When `threshold_fallback` is true, include the fallback notice:
 
 **Threshold fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
 

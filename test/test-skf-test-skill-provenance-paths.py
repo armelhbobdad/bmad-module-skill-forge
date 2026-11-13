@@ -4233,3 +4233,249 @@ def test_the_shared_health_check_states_its_findings_rule_once():
     assert folded.count("zero findings") == 1 and "zero issues" not in folded
     assert folded.count("your own confusion") == 1
     assert "system failure" not in folded and "fabricat" not in folded
+
+
+# --------------------------------------------------------------------------
+# #1185: the scoring flags and every degradation of a run are on record
+# --------------------------------------------------------------------------
+
+
+TEMPLATE = TEST_SKILL / "templates" / "test-report-template.md"
+EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
+ENVELOPE_SCHEMA = SCRIPTS / "schemas" / "skf-test-result-envelope.v1.json"
+# A warning text that breaks any command it is typed into: quotes, a backtick, `$( )`, `$VAR` and a backslash.
+HOSTILE = "it's \"quoted\" `touch pwned-tick` $(touch pwned-sub) $HOME \\ end"
+WARNING_RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"'
+SKILL_CHECK_RECORD = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                      '"skill-check-unavailable: $(cat "{run_dir}/skill-check-not-run.txt")"')
+WARNING_CODES = ("run-lock-replaced", "flat-skill-migrated", "metadata-missing", "workspace-drift-not-checked",
+                 "test-mode-defaulted-naive", "skill-check-unavailable", "tessl-review")
+SKILL_CHECK_PROBE = 'timeout 15s npx --no-install skill-check -h > /dev/null 2>&1; echo "skill-check probe exited $?"'
+SKILL_CHECK_RUN = ('timeout 120s npx skill-check check "{skillDir}" --format json --no-security-scan > '
+                   '"{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"')
+NO_POSIX_BASH = sys.platform == "win32" or shutil.which("bash") is None
+
+
+def test_the_scoring_flags_are_read_from_the_report():
+    """#1185 architecture-2, enhancement-3: docsOnly and analysisConfidence reach the report frontmatter where they
+    are resolved, and score.md §3a reads tier, docsOnly, analysisConfidence and state2 back from it."""
+    for block in (_fence(_read(INIT), "workflowType: 'test-skill'"), _read(TEMPLATE).split("\n---\n", 1)[0]):
+        assert "analysisConfidence: ''\ndocsOnly: ''\n" in block
+    census = _flow(_slice(_read(COVERAGE), "### 0. Check for Docs-Only Mode", "### 0b."))
+    assert ("Bind `{docs_only_mode}` ← `docsOnly` and write it to the `{outputFile}` frontmatter as `docsOnly: true` "
+            "or `false`, bare.") in census
+    state5 = _flow(_slice(_read(SOURCE_ACCESS), "If none of the above succeed", "**Confidence tier mapping:**"))
+    assert ("Set `analysis_confidence: docs-only`, and write `docsOnly: true` to the frontmatter of `{report_file}` "
+            "beside the `analysisConfidence` write below") in state5
+    docs_only = _flow(_slice(_read(COVERAGE_BRANCHES), "## Docs-Only Run", "## Split-Body Sources"))
+    assert "Write `analysisConfidence: 'docs-only'` to the frontmatter of `{report_file}` at once" in docs_only
+    assert ("The steps read the verdict inputs (`threshold`, `toolingStatus`, `workspaceDrift`, `docsOnly`, "
+            "`analysisConfidence`, `testResult`) from its frontmatter, never from memory") in _read(SKILL_MD)
+    init = _flow(_read(INIT))
+    assert "`analysisConfidence` stays empty until score.md §7" not in init
+    assert ("Coverage-check writes `analysisConfidence` once source-access-protocol.md resolves the source access "
+            "(its Docs-Only Run writes `docs-only`), and score.md §7, or step-hard-gate.md §3 on a run the hard gate "
+            "blocks, writes it again") in init
+    assert "`docsOnly` stays empty until coverage-check §0 writes it, and score.md §3a reads both back." in init
+    scoring_input = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
+    for read in ("`tier` from its `forgeTier`", "`docsOnly` and `analysisConfidence` from its keys of those names",
+                 '"tier": "{forgeTier from the {outputFile} frontmatter',
+                 '"docsOnly": "{true if the {outputFile} frontmatter\'s docsOnly is true, else false}"',
+                 '"state2": "{true if the {outputFile} frontmatter\'s analysisConfidence is provenance-map, else false}"',
+                 '"analysisConfidence": "{analysisConfidence from the {outputFile} frontmatter'):
+        assert read in scoring_input, read
+    for gone in ("docs_only_mode", "analysis_confidence", "workflow context"):
+        assert gone not in scoring_input, gone
+    for path in sorted(TEST_SKILL.rglob("*.md")):
+        assert "{forge_tier}" not in _read(path), path.name
+    assert "**Tier:** {detected_tier}\n" in _read(COVERAGE)
+    run = _flow(_slice(_read(SCORE), "#### 3b. Run the Scoring Script", "#### 3c."))
+    assert "`--surface` whenever `{run_dir}/surface.json` exists (every run but a docs-only one)" in run
+    refused = _flow(_slice(_read(SCORE), "#### 3c.", "### 3d."))
+    assert ("A refusal that names `docsOnly` and `--coverage`, or `state2` and `--surface`, means the §3a JSON "
+            "contradicts what coverage-check found: build it again from the `{outputFile}` frontmatter") in refused
+
+
+def test_a_docs_only_flag_the_run_lost_is_refused_and_cap_2_still_fires(tmp_path):
+    """#1185 acceptance: a contextual docs-only run whose context lost docsOnly. score.md §3a reads `docsOnly: true`
+    from the report coverage-check §0 wrote, and a hand-typed false is refused against the coverage.json the Docs-Only
+    Run's command wrote, so Cap 2 still fires."""
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory.json").write_bytes(json.dumps({"exports": [
+        {"name": "connect", "kind": "function", "params": "url: string", "return_type": "Client",
+         "description": "Opens a client."}]}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix()}
+    coverage = _exec(_command(COVERAGE_BRANCHES, "--denominator-source docsOnly"), values, tmp_path)
+    assert (coverage["denominatorSource"], coverage["exportCoverage"]) == ("docsOnly", 100.0)
+    (run / "coherence.json").write_bytes(json.dumps({"combinedCoherence": 90.0}).encode("utf-8"))
+    (run / "external.json").write_bytes(json.dumps({"externalScore": None}).encode("utf-8"))
+    report = _read(TEMPLATE).replace("testMode: ''", "testMode: 'contextual'").replace(
+        "forgeTier: ''", "forgeTier: 'Deep'").replace("docsOnly: ''", "docsOnly: true").replace(
+        "analysisConfidence: ''", "analysisConfidence: 'docs-only'").replace("toolingStatus: ''", "toolingStatus: 'ok'")
+    front = yaml.safe_load(report.split("\n---\n", 1)[0].removeprefix("---\n"))
+    flags = {"mode": front["testMode"], "tier": front["forgeTier"], "docsOnly": front["docsOnly"],
+             "state2": front["analysisConfidence"] == "provenance-map", "stackSkill": False, "referenceApp": False,
+             "threshold": 80, "analysisConfidence": front["analysisConfidence"], "toolingStatus": front["toolingStatus"]}
+    command = _choose(_command(SCORE, "uv run {scoringScript}"), keep=("--coherence",))
+    score = _exec(command.replace("'<the §3a JSON>'", shlex.quote(json.dumps(flags))), values, tmp_path)
+    assert (score["result"], score["effectiveResult"]) == ("PASS", "FAIL")
+    assert score["capReason"].startswith("docs-only without external validators")
+    lost = command.replace("'<the §3a JSON>'", shlex.quote(json.dumps({**flags, "docsOnly": False})))
+    words = shlex.split(lost.removeprefix("uv run {scoringScript} ").replace("{run_dir}", run.as_posix()))
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{scoringScript}"]), *words[:words.index(">")]],
+                          capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT" and "docsOnly false contradicts --coverage" in out["error"]
+
+
+def test_skill_check_s_probe_and_run_are_handled_in_one_passage():
+    """#1185 leanness-11: one probe, one run and one list of outcomes, each kept reason written to a file."""
+    section = _slice(_read(EXTERNAL), "### 2. Run skill-check", "### 3. Run Tessl Review")
+    assert re.findall(r"^```bash\n(.*?)\n```$", section, re.M | re.S) == [SKILL_CHECK_PROBE, SKILL_CHECK_RUN,
+                                                                         SKILL_CHECK_RECORD]
+    for gone in ("**Note:**", "fails entirely", "**Check availability", "**Run validation", "Skip to section"):
+        assert gone not in section, gone
+    flow = _flow(section)
+    assert "with `--no-install` so the probe never starts a slow download" in flow
+    # A 120-second timeout also leaves the file empty: the first outcome keeps `timeout-120s` alone.
+    assert "Act on the two calls together, by the first outcome below that applies:" in flow
+    for outcome in ("The probe exits non-zero, `124` (its 15-second timeout) included: skill-check is not available. "
+                    "Keep the reason `not-available (probe exited {code})` and skip the run",
+                    "The `skill-check exited` line names `124`, GNU timeout's code for the 120-second wall clock: keep "
+                    "the reason `timeout-120s`",
+                    "No `skill-check exited` line came back, or `{run_dir}/skill-check.json` does not start with a "
+                    "JSON object: keep the reason `no-json: {the last line of {run_dir}/skill-check.stderr, or no "
+                    "output}`",
+                    "Otherwise the file holds skill-check's result, whatever the exit code"):
+        assert outcome in flow, outcome
+    assert ("Write the reason to `{run_dir}/skill-check-not-run.txt` with a file write, never `echo`") in flow
+    record = _flow(_slice(_read(EXTERNAL), "### 5b. Record the External Validation Gaps", "### 6."))
+    assert "When section 2 wrote `{run_dir}/skill-check-not-run.txt`, pass `--skill-check-not-run` with it" in record
+    assert ' [--skill-check-not-run "{run_dir}/skill-check-not-run.txt"]' in _command(EXTERNAL, "--from external")
+    row = [line for line in _read(SCORING).splitlines() if line.startswith("| Info     | `external-validator`")]
+    assert len(row) == 1 and "skill-check not run" in row[0] and "external-validators §5b" in row[0]
+
+
+def test_a_capped_fail_names_the_tooling_to_restore():
+    """#1185 enhancement-1: the cap shows on a **Cap:** line, and the score step and the final report recommend
+    restoring the tooling it names, while nextWorkflow stays update-skill."""
+    score = _read(SCORE)
+    nxt = _slice(score, "### 5. Determine Next Workflow Recommendation", "### 6.")
+    assert nxt.index("**IF FAIL:**") < nxt.index("**IF FAIL with a cap**") < nxt.index("**IF INCONCLUSIVE:**")
+    capped = _flow(_slice(nxt, "**IF FAIL with a cap**", "**IF INCONCLUSIVE:**"))
+    # Cap 2's skill-check may have run without scoring the skill, which records no `skill-check not run` gap.
+    tooling = ("Cap 1 (`tooling degraded`): make the tool `toolingStatus` names work again; for "
+               "`frontmatter-validator-timeout`, the frontmatter validator must finish within 30 seconds. Cap 2 "
+               "(`docs-only without external validators`): make skill-check run and score the skill (the Gap "
+               "Report's `skill-check not run` gap says how, when it did not run), or opt in to Tessl Review.")
+    # Every capped FAIL names the tooling, a pre-cap FAIL included: the cap would fail its next run too.
+    for needle in ("(`capReason` is non-null: a cap fired, and no run passes until the tooling it names is "
+                   "restored)", "`nextWorkflow` stays `'update-skill'`, but no skill edit lifts a cap, so the step to "
+                   "recommend is to restore the tooling the cap names and test again.", tooling,
+                   "When the script's `result` is `FAIL` too, the skill also scored below its threshold: recommend "
+                   "the **IF FAIL:** branch's update-skill as well, after restoring the tooling."):
+        assert needle in capped, needle
+    assert "`result` is `PASS`" not in capped and "applies alone" not in capped
+    section6 = _slice(score, "### 6. Write the Completeness Score Section", "### 7.")
+    assert "**Result:** **{PASS|FAIL|INCONCLUSIVE}**\n{If capReason is non-null:}\n**Cap:** {capReason}\n" in section6
+    assert "**Scoring Notes:** {each entry of `scoringNotes`}\n" in section6 and "and `capReason`}" not in section6
+    caps = _flow(_slice(score, "### 3d. Read Post-Score Caps", "### 4."))
+    assert "§6 shows it on its **Cap:** line" in caps and "scoring_notes: {capReason}" not in caps
+    report_score = _flow(_slice(score, "### 8. Report Score", "Then proceed to the gap report."))
+    assert ("On a capped FAIL (§5's **IF FAIL with a cap** branch), show `capReason` and recommend restoring the "
+            "tooling it names and testing again, not update-skill alone") in report_score
+    assert "update-skill is needed as well only when the script's `result` is `FAIL` too" in report_score
+    present = _slice(_read(REPORT), "### 6. Present Final Report", "### 6b.")
+    assert "{If `{run_dir}/score.json` holds a non-null `capReason`:}\n**Cap:** {capReason}\n" in present
+    branch = ("{IF FAIL after scoring, from a cap (`{run_dir}/score.json` holds a non-null `capReason`), in place of "
+              "the next branch unless its `result` is `FAIL`:}")
+    assert present.index(branch) < present.index("{IF FAIL after scoring:}")
+    follow = _flow(present[present.index(branch):].split("\n\n", 1)[0])
+    for needle in ("**Restore the tooling, then test again**: {capReason}.", "No skill edit lifts a cap", tooling,
+                   "When its `result` is `FAIL` too, the skill also scored below its threshold: show the next branch "
+                   "after this one."):
+        assert needle in follow, needle
+    assert "--from-test-report" not in follow
+
+
+def test_the_warning_codes_are_named_in_the_contract_and_the_schema():
+    """#1185 enhancement-2: every code a stage records is one a caller can look up."""
+    description = json.loads(_read(ENVELOPE_SCHEMA))["properties"]["warnings"]["description"]
+    contract = _flow(_read(CONTRACT))
+    for code in WARNING_CODES:
+        assert f" {code} (" in description, code
+        assert f"`{code}` (" in contract, code
+    assert "`capReason` when a cap fired" in contract
+    rules = _flow(_read(SKILL_MD))
+    assert "a `record` that exits non-zero is shown and the run goes on" in rules
+    assert "the emitter adds each warning to the envelope and to both result files" in rules
+
+
+# (site, file, section start, section end, the text the site keeps, the record command, the file it reads, prefix)
+RECORD_SITES = [
+    ("init", INIT, "**6b. Act on the result:**", "**6c.",
+     ("keep `run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}` (`an unnamed owner` for a "
+      "null `held_by`) as a warning",
+      "record the warnings this step kept, in the order raised (§2's `flat-skill-migrated` and `metadata-missing`, "
+      "§5b's `workspace-drift-not-checked`, then `run-lock-replaced`)"),
+     WARNING_RECORD, "warning.txt", ""),
+    ("detect-mode", DETECT, "### 1. Determine Test Mode", "### 2.",
+     ("record it as a warning: write `test-mode-defaulted-naive: metadata.json skill_type is {its value, or unset}` "
+      "to `{run_dir}/warning.txt` with a file write",),
+     WARNING_RECORD, "warning.txt", ""),
+    ("skill-check", EXTERNAL, "### 2. Run skill-check", "### 3.",
+     ("Write the reason to `{run_dir}/skill-check-not-run.txt` with a file write",),
+     SKILL_CHECK_RECORD, "skill-check-not-run.txt", "skill-check-unavailable: "),
+    ("tessl-review", EXTERNAL, "### 3. Run Tessl Review (optional)", "### 4.",
+     ("Each line this section logs as a warning is recorded in the run sink as it is logged: write "
+      "`tessl-review: {the line}` to `{run_dir}/warning.txt` with a file write",),
+     WARNING_RECORD, "warning.txt", ""),
+]
+
+
+@pytest.mark.parametrize("site, path, start, end, kept, command, source, prefix", RECORD_SITES,
+                         ids=[site[0] for site in RECORD_SITES])
+def test_each_degradation_is_recorded_where_it_is_met(tmp_path, site, path, start, end, kept, command, source,
+                                                      prefix):
+    """#1185 enhancement-2: each site keeps its coded warning and runs the emitter's `record` on the file it wrote.
+    Run through bash against the real emitter, a hostile text reaches the sink and the envelope as text."""
+    section = _slice(_read(path), start, end)
+    for needle in kept:
+        assert needle in _flow(section), needle
+    assert command in section, command
+    if site == "tessl-review":
+        # §3's only fenced commands are the review's own: the record is written inline
+        assert f"`{command}`" in section
+    if site == "init":
+        init = _flow(_read(INIT))
+        for raised in ("keeping `flat-skill-migrated: {its message}` as a warning §6b records",
+                       "Keep `metadata-missing: no metadata.json in {resolved_skill_package}` as a warning §6b records",
+                       "keep `workspace-drift-not-checked: {tree}: {its first stderr line, or no output}` as a warning "
+                       "§6b records"):
+            assert raised in init, raised
+        # recorded once the run folder exists, before any later stage runs
+        assert section.index('mkdir -p "{project-root}/_bmad-output/.skf-run/') < section.index(command)
+    if NO_POSIX_BASH:
+        pytest.skip("runs the documented command through POSIX bash")
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-test-skill-20260101T000000Z-abcdef12"
+    run_dir.mkdir(parents=True)
+    (run_dir / source).write_bytes(HOSTILE.encode("utf-8"))  # the file write the site names
+    filled = command.replace("uv run {emitEnvelopeHelper}",
+                             f"{shlex.quote(sys.executable)} {shlex.quote(EMITTER.as_posix())}")
+    filled = filled.replace("{run_dir}", run_dir.as_posix())
+    assert not re.search(r"\{\w+\}", filled), filled
+    proc = subprocess.run(["bash", "-c", filled], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    sink = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in sink] == [prefix + HOSTILE]
+    assert not list(tmp_path.rglob("pwned*")), "the text ran as a command"
+    halt = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-test-skill", "--run-dir",
+                           str(run_dir), "--target", "stderr"],
+                          input=json.dumps({"phase": "test:record", "reason": "r", "halt_reason": "helper-failed",
+                                            "skill_name": "demo"}),
+                          capture_output=True, text=True, encoding="utf-8")
+    assert halt.returncode == 0, halt.stderr
+    envelope = json.loads(halt.stderr.strip().split(": ", 1)[1])
+    assert envelope["warnings"] == [prefix + HOSTILE]

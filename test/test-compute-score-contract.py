@@ -596,3 +596,116 @@ def test_cli_refuses_a_score_file_without_its_score(tmp_path, payload, needle):
 def test_cli_refuses_a_missing_score_file(tmp_path):
     proc = _run_files(tmp_path, ["--coverage", str(tmp_path / "absent.json")])
     assert proc.returncode == 2 and "cannot read --coverage" in json.loads(proc.stdout)["error"]
+
+
+# --------------------------------------------------------------------------
+# #1185: the flags must agree with the files coverage-check wrote, so a flag a
+# long run lost cannot skip Cap 2 or the State 2 deduction
+# --------------------------------------------------------------------------
+
+
+def _docs_only_files(tmp_path, source="docsOnly", external=None):
+    return [
+        "--coverage", _write_json(tmp_path / "coverage.json", {"denominatorSource": source, "exportCoverage": 95.0}),
+        "--coherence", _write_json(tmp_path / "coherence.json", {"combinedCoherence": 90.0}),
+        "--external", _write_json(tmp_path / "external.json", {"externalScore": external}),
+    ]
+
+
+def test_cli_docs_only_that_agrees_with_the_coverage_file_is_capped(tmp_path):
+    """Docs-only agrees: the flag the report holds matches the docsOnly branch, so Cap 2 fires with no score."""
+    base = {"mode": "contextual", "tier": "Deep", "docsOnly": True, "toolingStatus": "ok"}
+    proc = _run_files(tmp_path, _docs_only_files(tmp_path), base)
+    assert proc.returncode == 0, proc.stdout
+    out = json.loads(proc.stdout)
+    assert (out["result"], out["effectiveResult"]) == ("PASS", "FAIL")
+    assert out["capReason"].startswith("docs-only without external validators")
+
+
+@pytest.mark.parametrize("flag", [False, None, "absent"], ids=["false", "null", "absent"])
+def test_cli_refuses_a_docs_only_flag_the_run_lost(tmp_path, flag):
+    """Docs-only lost: a context that dropped the flag would have skipped Cap 2 and passed."""
+    base = {"mode": "contextual", "tier": "Deep", "toolingStatus": "ok"}
+    if flag != "absent":
+        base["docsOnly"] = flag
+    proc = _run_files(tmp_path, _docs_only_files(tmp_path), base)
+    assert proc.returncode == 2, proc.stdout
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT"
+    assert "docsOnly false contradicts --coverage" in out["error"] and "'docsOnly'" in out["error"], out["error"]
+
+
+def test_cli_refuses_a_docs_only_flag_the_coverage_file_does_not_hold(tmp_path):
+    """Docs-only invented: a barrel run told it is docs-only would lose Signature Accuracy and Type Coverage."""
+    base = {"mode": "contextual", "tier": "Deep", "docsOnly": True, "toolingStatus": "ok"}
+    proc = _run_files(tmp_path, _docs_only_files(tmp_path, "barrel", 80.0), base)
+    assert proc.returncode == 2, proc.stdout
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT"
+    assert "docsOnly true contradicts --coverage" in out["error"] and "'barrel'" in out["error"], out["error"]
+    base["docsOnly"] = False
+    proc = _run_files(tmp_path, _docs_only_files(tmp_path, "barrel", 80.0) + _signatures(tmp_path), base)
+    assert proc.returncode == 0, proc.stdout
+
+
+def test_cli_leaves_a_coverage_file_with_no_branch_and_a_mistyped_flag_to_their_own_checks(tmp_path):
+    """A coverage file built by hand names no denominatorSource and is not checked; a quoted flag keeps its
+    type error, which names the quoting mistake."""
+    flags = ["--coverage", _write_json(tmp_path / "coverage.json", {"exportCoverage": 90.0}),
+             "--coherence", _write_json(tmp_path / "coherence.json", {"combinedCoherence": 90.0}),
+             "--external", _write_json(tmp_path / "external.json", {"externalScore": None})]
+    base = {"mode": "contextual", "tier": "Deep", "docsOnly": True, "toolingStatus": "ok"}
+    assert _run_files(tmp_path, flags, base).returncode == 0
+    base["docsOnly"] = "true"
+    proc = _run_files(tmp_path, _docs_only_files(tmp_path, "barrel", 80.0), base)
+    assert proc.returncode == 2
+    assert "Field `docsOnly` must be a bare boolean" in json.loads(proc.stdout)["error"]
+
+
+def _signatures(tmp_path):
+    return ["--signatures", _write_json(tmp_path / "signatures.json",
+                                        {"valid": True, "signatureAccuracy": 90.0, "typeCoverage": 90.0})]
+
+
+STATE2_SURFACE = {"state2": {"provenanceCount": 40, "metadataCount": 45, "unionCount": 48}}
+
+
+def _state2_files(tmp_path, surface):
+    return [
+        "--coverage", _write_json(tmp_path / "coverage.json", {"denominatorSource": "barrel", "exportCoverage": 90}),
+        "--coherence", _write_json(tmp_path / "coherence.json", {"combinedCoherence": 85}),
+        "--external", _write_json(tmp_path / "external.json", {"externalScore": None}),
+        "--surface", _write_json(tmp_path / "surface.json", surface),
+    ]
+
+
+@pytest.mark.parametrize("flag", [False, None, "absent"], ids=["false", "null", "absent"])
+def test_cli_refuses_a_state_2_flag_the_run_lost(tmp_path, flag):
+    """State 2 lost: a surface that holds the State 2 counts is State 2 by construction, so the deduction stays."""
+    base = {"mode": "contextual", "tier": "Deep", "toolingStatus": "ok"}
+    if flag != "absent":
+        base["state2"] = flag
+    proc = _run_files(tmp_path, _state2_files(tmp_path, STATE2_SURFACE), base)
+    assert proc.returncode == 2, proc.stdout
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT"
+    assert "state2 false contradicts --surface" in out["error"], out["error"]
+    base["state2"] = "yes"
+    proc = _run_files(tmp_path, _state2_files(tmp_path, STATE2_SURFACE), base)
+    assert proc.returncode == 2 and "Field `state2` must be a bare boolean" in json.loads(proc.stdout)["error"]
+
+
+def test_cli_scores_a_state_2_run_whose_surface_holds_no_counts(tmp_path):
+    """State 2 without counts: an empty exports list or the provenance-fold rebuild writes no `state2`, so
+    `state2: true` beside it scores, with no deduction; a surface read from the source holds none either."""
+    base = {"mode": "contextual", "tier": "Deep", "state2": True, "toolingStatus": "ok"}
+    proc = _run_files(tmp_path, _state2_files(tmp_path, {"state2": None}), base)
+    assert proc.returncode == 0, proc.stdout
+    out = json.loads(proc.stdout)
+    assert "state2Deduction" not in out and out["input"]["state2"] is True
+    base["state2"] = False
+    proc = _run_files(tmp_path, _state2_files(tmp_path, {"state2": None}) + _signatures(tmp_path), base)
+    assert proc.returncode == 0, proc.stdout
+    base["state2"] = True
+    assert json.loads(_run_files(tmp_path, _state2_files(tmp_path, STATE2_SURFACE), base).stdout)[
+        "state2Deduction"]["applied"] is True
