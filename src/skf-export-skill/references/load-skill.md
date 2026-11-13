@@ -2,7 +2,9 @@
 nextStepFile: 'generate-snippet.md'
 # SKILL.md's On Activation resolved {manifestOpsHelper},
 # {skillInventoryHelper}, {rebuildManagedSectionsHelper} and
-# {validateOutputHelper}. §2 runs the inventory's `resolve` action to choose
+# {validateOutputHelper}. §1 runs the inventory's `exportable` action to list
+# the skills that `--all` and the menu offer (deprecated ones left out). §2
+# runs the inventory's `resolve` action to choose
 # the version to export and bind its paths (the Manifest-lag guard included),
 # and runs it with `--skill` before a flat skill moves: only a flat skill
 # whose metadata.json carries an SKF marker (`flat_skf`) is migrated.
@@ -41,23 +43,29 @@ Determine the skill(s) to export and any flags.
 python3 {manifestOpsHelper} {skills_output_folder} read
 ```
 
-Use `result.manifest.exports`. On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run."
+On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run."
 
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
-- If `--all` was passed, build the list from every skill in `result.manifest.exports` whose `versions.{active_version}.status` is not `"deprecated"` (deprecated skills are excluded from all exports; a skill a v1 manifest marks deprecated reads as such through the helper). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set: enumerate skills on disk instead, with the same inventory scan as the no-argument branch below (steps 2-3), which keeps only skills SKF generated. Every disk-discovered skill is non-deprecated by definition, since deprecation status lives only in the manifest.
-- If no explicit skill and no `--all`, then:
-  - **Headless guard:** if `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`, phase `load-skill §1`): a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`.
-  - **Interactive:** discover available skills using the export manifest:
-    1. List the skill names of `result.manifest.exports`
-    2. Run `uv run {skillInventoryHelper} {skills_output_folder}` once. Add every `skills[]` entry whose `skf_skill` is true and whose `flat_skf` is true or `active_version` is not null (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link). Leave out every other folder. Bind `{not_skf_output}` ← `not_skf_output`; when it is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
+- **Headless guard:** if no explicit skill and no `--all` were passed and `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`, phase `load-skill §1`): a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`.
+- Otherwise (no explicit skill), list the skills SKF can export through the inventory helper, passing `--all` only when the run's `--all` flag was passed:
+
+  ```bash
+  uv run {skillInventoryHelper} exportable "{skills_output_folder}" [--all]
+  ```
+
+  The helper leaves out every skill whose active version the export manifest marks deprecated (deprecated skills are excluded from all exports, and a v1 manifest's `deprecated: true` reads the same) and every folder SKF did not generate that the manifest does not list, so this step filters nothing by hand.
+  - **`--all`:** `skill_batch` ← every `skills[].name`: the manifest's skills once it lists any, else, on a first export (no manifest, or an empty `exports`), every SKF skill on disk.
+  - **Interactive (no `--all`):** offer every `skills[]` entry by name: the manifest's skills, and each SKF skill on disk it does not list yet (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link).
+  - Bind `{not_skf_output}` ← `not_skf_output` and `{deprecated}` ← `deprecated`. Display each line below once, and only when its list is not empty: "Skipped (not SKF output): {not_skf_output}" and "Skipped (deprecated in the export manifest): {deprecated}".
+  - A non-zero exit (an export manifest the helper cannot read, or a `{skills_output_folder}` that is not a folder) is a HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`) with the helper's `error`.
 - If multiple skills are found, present the list and accept either a single selection or a comma-/space-separated multi-selection (e.g. `1, 2, 3` or `all`)
-- If no skills found, HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "No skills found in {skills_output_folder}/. Run create-skill first."
+- If no skills found (`skills` is empty), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "No skills found in {skills_output_folder}/. Run create-skill first."
 
 Store the resolved selection as `skill_batch` — a list of one or more skill names. `len(skill_batch) > 1` activates multi-skill mode (see §1c below).
 
 **Flag Parsing:**
-- `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is the full non-deprecated manifest set — or, when no manifest exists yet, the full on-disk discovery set (see the first-export fallback above).
+- `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is every `skills[].name` of the `exportable --all` call above.
 - `--context-file` flag: Check if explicitly provided (CLAUDE.md, .cursorrules, or AGENTS.md); `references/invocation-contract.md` lists it.
 - `--dry-run` flag: Check if provided. Default: `false`
 
@@ -81,7 +89,7 @@ A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper
 
 ### 1b. Snippet Root
 
-**Skip this if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo override already decides every `root:` path (see the override rules in `assets/managed-section-format.md`).
+**Skip this if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo override already decides every `root:` path (see the override rules in `assets/managed-section-format.md`). Skip it too when `{passive_context}` is false: this run writes no snippet and no managed-section row, so no `root:` path is chosen.
 
 **Otherwise:** load `references/preflight-snippet-root-probe.md` and follow it. It asks the layout question when no earlier export chose a snippet root, takes the mismatch gate when an earlier export's root differs from the IDE mapping, and states each one's headless default. It returns here on its fast path, after the layout question's [I], or after the mismatch gate's (b) or (d), where (d) binds `{snippet_skill_root_override}` for this run; continue at §1c.
 
@@ -146,9 +154,8 @@ Bind from the verdict's `package` object, which the gate read from `metadata.jso
 
 ### 4. Check Forge Configuration
 
-Load `{sidecar_path}/preferences.yaml` (if exists):
-- Check `passive_context` setting
-- If `passive_context: false`, note that steps 2 and 3 skip the snippet and the context files; step 3 still records the export in the manifest
+Read `{passive_context}`, which SKILL.md's On Activation bound from the preferences file (true when the file or its `passive_context` key is absent), so this step loads no file:
+- If `passive_context: false` (`{passive_context}` is false), note that steps 2 and 3 skip the snippet and the context files; step 3 still records the export in the manifest
 
 ### 4b. Check Test Report (Quality Gate)
 

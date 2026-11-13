@@ -532,6 +532,72 @@ class TestRootProbe:
         assert out["observed_prefixes"] == []
         assert out["mismatch"] is False
 
+    @staticmethod
+    def _exported(skills, name, version, root):
+        snippet = skills / name / version / name / "context-snippet.md"
+        snippet.parent.mkdir(parents=True)
+        snippet.write_bytes(f"[{name} v{version}]|root: {root}{name}/\n".encode("utf-8"))
+        return snippet
+
+    def test_skills_folder_builds_the_snippet_paths_from_the_manifest(self, tmp_path):
+        """#1163: the helper lists the snippets, so the prompt types no path."""
+        skills = tmp_path / "skills"
+        self._exported(skills, "bar", "2.1", "my-skills/")
+        self._exported(skills, "foo", "1.0", ".claude/skills/")
+        self._exported(skills, "unrecorded", "3.0", "other/")  # active_version has no versions record
+        exports = {
+            "foo": {"active_version": "1.0", "versions": {"1.0": {"status": "active"}}},
+            "bar": {"active_version": "2.1", "versions": {"2.1": {"status": "deprecated"}}},
+            "unrecorded": {"active_version": "3.0", "versions": {"2.0": {"status": "archived"}}},
+        }
+
+        def probe(*files):
+            manifest = {"schema_version": "2", "exports": exports}
+            (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+            proc = _run("root-probe", *files, "--skills-folder", str(skills), "--reference-root", ".claude/skills/")
+            assert proc.returncode == 0, proc.stderr
+            return json.loads(proc.stdout)
+
+        def built(*pairs):
+            return [skills / name / version / name / "context-snippet.md" for name, version in pairs]
+
+        # The deprecated entry is probed; a version with no `versions` record is not.
+        out = probe()
+        assert [Path(p) for p in out["snippet_files"]] == built(("bar", "2.1"), ("foo", "1.0"))
+        assert (out["observed_prefixes"], out["mismatched_skills"]) == ([".claude/skills/", "my-skills/"], ["bar"])
+        # A recorded version whose snippet is missing is built and skipped.
+        exports["gone"] = {"active_version": "1.0", "versions": {"1.0": {"status": "active"}}}
+        out = probe()
+        assert [Path(p) for p in out["snippet_files"]] == built(("bar", "2.1"), ("foo", "1.0"), ("gone", "1.0"))
+        assert out["observed_prefixes"] == [".claude/skills/", "my-skills/"]
+        # A positional file adds to the probe, not to `snippet_files`.
+        extra = self._write(tmp_path, "extra.md", "[baz v1.0]|root: third/baz/\n")
+        out = probe(extra)
+        assert out["observed_prefixes"] == [".claude/skills/", "my-skills/", "third/"]
+        assert [Path(p) for p in out["snippet_files"]] == built(("bar", "2.1"), ("foo", "1.0"), ("gone", "1.0"))
+
+    def test_skills_folder_with_no_manifest_probes_nothing(self, tmp_path):
+        out = json.loads(_run("root-probe", "--skills-folder", str(tmp_path), "--reference-root",
+                              ".claude/skills/").stdout)
+        assert (out["status"], out["snippet_files"], out["observed_prefixes"]) == ("ok", [], [])
+
+    @pytest.mark.parametrize("content", [b"{not json", b"[]", b'{"schema_version": "2", "exports": []}'],
+                             ids=["not-json", "list", "exports-list"])
+    def test_skills_folder_with_an_unreadable_manifest_exits_1(self, tmp_path, content):
+        (tmp_path / ".export-manifest.json").write_bytes(content)
+        proc = _run("root-probe", "--skills-folder", str(tmp_path), "--reference-root", ".claude/skills/")
+        out = json.loads(proc.stdout)
+        assert (proc.returncode, out["status"]) == (1, "error") and out["error"], out
+
+    def test_root_probe_needs_a_snippet_or_a_skills_folder(self, tmp_path):
+        proc = _run("root-probe", "--reference-root", ".claude/skills/")
+        assert proc.returncode == 2 and "needs a snippet file or --skills-folder" in proc.stderr
+        proc = _run("root-probe", "--skills-folder", "", "--reference-root", ".claude/skills/")
+        assert proc.returncode == 2 and "--skills-folder needs a folder" in proc.stderr
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: my-skills/foo/\n")
+        out = json.loads(_run("root-probe", a, "--reference-root", ".claude/skills/").stdout)
+        assert "snippet_files" not in out, "without --skills-folder the output keeps its keys"
+
 
 # ---------------------------------------------------------------------------
 # replace/insert take the body only: they write both markers themselves

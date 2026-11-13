@@ -1,6 +1,6 @@
 ---
 # Loaded by load-skill.md §1b, once per run, only when config.yaml sets no
-# `snippet_skill_root_override`.
+# `snippet_skill_root_override` and `passive_context` is not false.
 ---
 
 <!-- Config: communicate in {communication_language}. Render the question, the warning and the gate prompt in {document_output_language}. -->
@@ -15,11 +15,13 @@ Decide where the managed section points each skill before step 2 writes a `root:
 
 ## Probe
 
-List the snippet of each version the export manifest records: for each skill in step 1 §1's `result.manifest.exports` whose `active_version` has an entry under `versions`, `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`. A skill the manifest does not list was never exported, so its snippet holds the draft root only. With no snippet to list, go to the Layout Question. Otherwise run:
+Probe the snippet of each version the export manifest records. The helper reads the manifest itself and, for each skill whose `active_version` has an entry under `versions`, probes `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`, the paths it lists in `snippet_files`. A skill the manifest does not list was never exported, so its snippet holds the draft root only. Run:
 
 ```bash
-python3 {rebuildManagedSectionsHelper} root-probe {snippet-1} {snippet-2} … --reference-root "{reference_root}" --project-root "{project-root}"
+python3 {rebuildManagedSectionsHelper} root-probe --skills-folder "{skills_output_folder}" --reference-root "{reference_root}" --project-root "{project-root}"
 ```
+
+On a non-zero exit (an export manifest the helper cannot read), HALT as load-skill.md §1 states for a corrupt export manifest, with the helper's `error`.
 
 The helper reads each snippet's `root:` prefix and leaves out a snippet that is missing, has no root, or holds the draft root (it lists those skills in `draft_roots`). It returns `observed_prefixes`, `mismatch` (true when one of them is not `{reference_root}`), `mismatched_skills`, and `disk_root`: `{reference_root}` when that folder holds every mismatched skill, else the one observed prefix when that folder holds them all, else null. Then:
 

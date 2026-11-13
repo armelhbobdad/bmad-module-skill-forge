@@ -330,13 +330,19 @@ def test_update_gate_runs_before_the_lock_and_emits_blocked():
 
 
 def test_export_discovery_keeps_only_skf_skills():
+    """#1163: the inventory's `exportable` action filters, so the prose keeps no filter of its own
+    (the action's own tests, in test-skf-skill-inventory.py, keep a flat SKF skill with no version)."""
     text = _read("src/skf-export-skill/references/load-skill.md")
     discovery = _section(text, "**Skill Path Discovery", "**Flag Parsing:**")
-    assert "`skf_skill` is true" in discovery
-    assert "`flat_skf` is true or `active_version` is not null" in discovery, (
-        "a flat SKF skill can have no active_version; filtering on it alone drops the skill silently")
-    assert "Skipped (not SKF output)" in discovery
-    assert "`{not_skf_output}` ← `not_skf_output`" in discovery
+    assert 'uv run {skillInventoryHelper} exportable "{skills_output_folder}" [--all]' in discovery
+    assert "passing `--all` only when the run's `--all` flag was passed" in discovery
+    assert discovery.count('"Skipped (not SKF output): {not_skf_output}"') == 1
+    assert discovery.count('"Skipped (deprecated in the export manifest): {deprecated}"') == 1
+    assert "`{not_skf_output}` ← `not_skf_output` and `{deprecated}` ← `deprecated`" in discovery
+    for stale in ("`skf_skill` is true", "`flat_skf` is true", "`active_version` is not null",
+                  "uv run {skillInventoryHelper} {skills_output_folder}", "result.manifest.exports",
+                  "versions.{active_version}.status", "First-export fallback"):
+        assert stale not in discovery, stale
     # On Activation halts when the helper is missing, so discovery has no scan without it.
     assert "no helper candidate" not in discovery and "skip the flat path" not in discovery
     # A batch halts whole when one skill is not SKF output (load-skill.md §1c).

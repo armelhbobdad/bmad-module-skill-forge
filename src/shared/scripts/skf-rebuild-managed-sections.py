@@ -62,7 +62,7 @@ Action-first actions (the action name comes first):
                 as `orphan_managed_rows`. A file with malformed markers is
                 skipped and listed in `malformed_files`; an unreadable one is
                 an error.
-  root-probe <snippet-file>... --reference-root .claude/skills/
+  root-probe [<snippet-file>...] [--skills-folder DIR] --reference-root .claude/skills/
              [--project-root DIR]
                 Read each snippet's first line, parse its `root:` prefix
                 (trailing `{skill-name}/` stripped), collect the unique
@@ -73,7 +73,12 @@ Action-first actions (the action name comes first):
                 as no evidence: its skill is listed in `draft_roots`. With
                 --project-root, `disk_root` names the root under DIR that
                 holds every mismatched skill's SKILL.md (the reference first,
-                then the one observed prefix), or is null.
+                then the one observed prefix), or is null. With
+                --skills-folder, also probe DIR/{name}/{active_version}/{name}/
+                context-snippet.md for each export manifest entry whose
+                active_version has a `versions` record (deprecated ones too),
+                listed in name order in `snippet_files`; a manifest it cannot
+                read is an error. It needs a snippet file or --skills-folder.
   assemble <context-file> --skills-folder DIR --skill-root PREFIX
            [--skill-root-override PREFIX] [--include NAME@VERSION]...
            [--snippet NAME=FILE]... [--snippet-dir DIR] [--renamed OLD:NEW]
@@ -611,7 +616,7 @@ def _holds_skill(project_root, prefix, name):
     return (base / "SKILL.md").is_file() or (base / "active" / name / "SKILL.md").is_file()
 
 
-def cmd_root_probe(snippet_files, reference_root, project_root=None):
+def cmd_root_probe(snippet_files, reference_root, project_root=None, skills_folder=None):
     """Observe snippet root prefixes and flag mismatch against a reference.
 
     Reads the first line of each snippet that exists, parses its `root:` value,
@@ -626,11 +631,25 @@ def cmd_root_probe(snippet_files, reference_root, project_root=None):
     mismatched skills: `reference_root` when it holds every one, else the one
     observed prefix when only one was observed and it holds every one, else
     None (also when nothing mismatched).
+
+    With `skills_folder`, the snippet of each version its export manifest
+    records is probed too, `{name}/{active_version}/{name}/context-snippet.md`
+    for each entry `_active_version` accepts, and `snippet_files` lists those
+    paths in name order. A manifest `_read_manifest` cannot read is an error.
     """
+    built = []
+    if skills_folder is not None:
+        exports, err = _read_manifest(skills_folder)
+        if err:
+            return {"status": "error", "error": err}
+        for name in sorted(exports):
+            active, reason = _active_version(name, exports[name])
+            if reason is None:
+                built.append(str(Path(skills_folder) / name / active / name / "context-snippet.md"))
     observed = set()
     drafts = set()
     mismatched = []  # (skill name or None, prefix)
-    for sf in snippet_files:
+    for sf in [*built, *snippet_files]:
         content, err = read_context_file(sf)
         if err:
             continue  # a missing or unreadable snippet: skip
@@ -659,6 +678,8 @@ def cmd_root_probe(snippet_files, reference_root, project_root=None):
         "mismatched_skills": sorted({name for name, _ in mismatched if name}),
         "draft_roots": sorted(drafts),
     }
+    if skills_folder is not None:
+        result["snippet_files"] = built
     if project_root is not None:
         def held_by(prefix):
             return all(name and _holds_skill(project_root, prefix, name) for name, _ in mismatched)
@@ -1140,7 +1161,11 @@ def _action_parser(action):
         parser = argparse.ArgumentParser(
             prog=prog, description="Observe snippet root prefixes and flag mismatch against a reference."
         )
-        parser.add_argument("snippet_files", nargs="+", help="Snippet file paths to probe")
+        parser.add_argument("snippet_files", nargs="*", help="Snippet file paths to probe")
+        parser.add_argument(
+            "--skills-folder",
+            help="skills_output_folder: also probe the snippet of each version its export manifest records",
+        )
         parser.add_argument(
             "--reference-root",
             required=True,
@@ -1241,7 +1266,11 @@ def _run_action_first(argv):
     if action == "orphan-detect":
         result = cmd_orphan_detect(args.context_files, args.exported_skills)
     elif action == "root-probe":
-        result = cmd_root_probe(args.snippet_files, args.reference_root, args.project_root)
+        if args.skills_folder == "":
+            parser.error("--skills-folder needs a folder")
+        if not args.snippet_files and args.skills_folder is None:
+            parser.error("root-probe needs a snippet file or --skills-folder")
+        result = cmd_root_probe(args.snippet_files, args.reference_root, args.project_root, args.skills_folder)
     elif action == "assemble":
         includes = [item for group in args.include for item in group]
         names = [name for name, _ in includes]

@@ -25,11 +25,16 @@ commands it documents:
 - The export-gate halt names the Section 7b heading the gate matched.
 - #1111: the `activation_steps_append` entries run in step 6, after the
   exit-4 checks of steps 4 and 5, not in step 3.
+- #1163: step 1 lists the skills `--all` and the menu offer through the
+  inventory's `exportable` action, the snippet-root probe builds its paths
+  from the manifest, and a run with `passive_context: false`, which On
+  Activation binds once, takes no snippet-root question.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -43,6 +48,7 @@ REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
 EXPORT = SRC / "skf-export-skill"
 REBUILD_PY = SRC / "shared" / "scripts" / "skf-rebuild-managed-sections.py"
+INVENTORY_PY = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
 
 SKILL_MD = "SKILL.md"
 CONTRACT = "references/invocation-contract.md"
@@ -147,8 +153,8 @@ def test_every_contract_flag_is_parsed_and_every_parsed_flag_is_listed():
 
 def test_the_contract_gates_name_each_headless_default():
     gates = _row(_read(CONTRACT), "Gates")
-    for gate in ("step 1 §1b", "the layout question", "(headless: [I]", "the mismatch gate", "checks the disk",
-                 "step 1 §6", "step 3 §3b", "§4c.1", "step 3 §8"):
+    for gate in ("step 1 §1b", "and `passive_context` is not false", "the layout question", "(headless: [I]",
+                 "the mismatch gate", "checks the disk", "step 1 §6", "step 3 §3b", "§4c.1", "step 3 §8"):
         assert gate in gates, gate
 
 
@@ -444,7 +450,11 @@ def test_update_context_asks_once_naming_every_target_with_its_case():
 def test_the_probe_takes_only_exported_roots_as_evidence():
     probe = _read(PROBE)
     listing = _section(probe, "## Probe", "## Layout Question")
-    assert "for each skill in step 1 §1's `result.manifest.exports`" in listing
+    assert "The helper reads the manifest itself and, for each skill whose `active_version` has an entry under " \
+           "`versions`, probes" in listing
+    assert "`snippet_files`" in listing and "{snippet-1}" not in probe and "result.manifest" not in probe
+    assert "HALT as load-skill.md §1 states for a corrupt export manifest, with the helper's `error`" in listing
+    assert "With no snippet to list" not in listing, "an empty `observed_prefixes` already asks the question"
     assert "current skill" not in probe, "a skill the manifest does not list holds the draft root only"
     assert "`draft_roots`" in listing and "`disk_root`" in listing
     for branch in ("`observed_prefixes` is empty", "`mismatch` is false", "`mismatch` is true"):
@@ -481,13 +491,35 @@ def test_option_d_binds_the_root_steps_2_and_3_read():
     assert "continue at §1c" in back
 
 
-def _probe_call(snippets: list[Path], project: Path) -> list[str]:
+def test_a_run_with_passive_context_off_takes_no_snippet_root_question():
+    """architecture-2: §4 read passive_context only after §1b had asked where a run with no snippet points it."""
+    headless = _section(_read(SKILL_MD), "2. **Resolve `{headless_mode}`**", "3. **Resolve workflow customization.**")
+    assert "`headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false." in headless
+    assert ("From the same file, bind `{passive_context}` ← its `passive_context`, true when the file or the key "
+            "is absent.") in headless
+    assert "A false value means this run writes no snippet and no managed-section row" in headless
+    skip = _section(_read(LOAD), "### 1b. Snippet Root", "**Otherwise:**")
+    assert ("Skip it too when `{passive_context}` is false: this run writes no snippet and no managed-section row, "
+            "so no `root:` path is chosen.") in skip
+    forge = _section(_read(LOAD), "### 4. Check Forge Configuration", "### 4b. ")
+    assert "Read `{passive_context}`, which SKILL.md's On Activation bound" in forge
+    assert "- If `passive_context: false`" in forge, "the wording the later stages name"
+    # On Activation is the one place that reads the preferences file.
+    for path in sorted((EXPORT / "references").glob("*.md")):
+        assert "{sidecar_path}/preferences.yaml" not in path.read_text(encoding="utf-8"), path.name
+    gates = _row(_read(CONTRACT), "Gates")
+    assert ("step 1 §1b, only when config.yaml sets no `snippet_skill_root_override` and `passive_context` is not "
+            "false:") in gates
+    assert "`snippet_skill_root_override` and `passive_context` is not false." in _frontmatter(_read(PROBE))
+
+
+def _probe_call(project: Path) -> list[str]:
     """The documented root-probe call, filled in as an agent would, without a shell."""
     [call] = [line for line in _fenced_lines(_read(PROBE)) if " root-probe " in line]
     words = shlex.split(call)
     assert words[:2] == ["python3", "{rebuildManagedSectionsHelper}"], call
-    values = {"{rebuildManagedSectionsHelper}": [str(REBUILD_PY)], "{snippet-1}": [str(p) for p in snippets],
-              "{snippet-2}": [], "…": [], "{reference_root}": [".claude/skills/"],
+    values = {"{rebuildManagedSectionsHelper}": [str(REBUILD_PY)],
+              "{skills_output_folder}": [str(project / "skills")], "{reference_root}": [".claude/skills/"],
               "{project-root}": [str(project)]}
     argv = [sys.executable]
     for word in words[1:]:
@@ -496,9 +528,15 @@ def _probe_call(snippets: list[Path], project: Path) -> list[str]:
 
 
 def _exported(project: Path, name: str, root: str) -> Path:
+    """A snippet at the version the export manifest records for the skill."""
     snippet = project / "skills" / name / "1.0.0" / name / "context-snippet.md"
     snippet.parent.mkdir(parents=True)
     snippet.write_bytes(f"[{name} v1.0.0]|root: {root}{name}/\n|IMPORTANT: {name} v1.0.0\n".encode("utf-8"))
+    manifest_path = project / "skills" / ".export-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes()) if manifest_path.is_file() else {
+        "schema_version": "2", "exports": {}}
+    manifest["exports"][name] = {"active_version": "1.0.0", "versions": {"1.0.0": {"status": "active"}}}
+    manifest_path.write_bytes(json.dumps(manifest).encode("utf-8"))
     return snippet
 
 
@@ -517,10 +555,11 @@ def test_the_documented_probe_picks_the_branch_and_the_disk_root(tmp_path, roots
             skill = project / prefix / name / "SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_bytes(b"# skill\n")
-    proc = subprocess.run(_probe_call(snippets, project), capture_output=True, text=True, encoding="utf-8",
+    proc = subprocess.run(_probe_call(project), capture_output=True, text=True, encoding="utf-8",
                           timeout=60)
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
+    assert [Path(p) for p in out["snippet_files"]] == snippets, "the helper builds each path from the manifest"
     taken = "layout" if not out["observed_prefixes"] else "mismatch" if out["mismatch"] else "fast"
     assert taken == branch
     assert out["disk_root"] == disk_root
@@ -528,6 +567,71 @@ def test_the_documented_probe_picks_the_branch_and_the_disk_root(tmp_path, roots
         # The prose's headless rule: (d) only when the earlier root alone holds the skills.
         headless = "d" if out["disk_root"] == out["observed_prefixes"][0] else "b"
         assert headless == ("d" if disk_root == "vendor/skills/" else "b")
+
+
+def _link_active(group: Path, version: str) -> None:
+    """Point `active` at a version: a symlink, or a junction on Windows without the privilege."""
+    active = group / "active"
+    try:
+        active.symlink_to(version, target_is_directory=True)
+    except OSError as e:
+        if os.name != "nt" or getattr(e, "winerror", None) not in (1314, 5):
+            raise
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(active), str((group / version).resolve())],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise OSError(f"junction fallback failed: {result.stderr.strip() or result.stdout.strip()}") from e
+
+
+def _exportable_call(skills: Path, all_skills: bool) -> dict:
+    """§1's documented `exportable` call, filled in as an agent would, without a shell."""
+    discovery = _section(_read(LOAD), "**Skill Path Discovery", "**Flag Parsing:**")
+    [call] = [line for line in _fenced_lines(discovery) if " exportable " in line]
+    words = shlex.split(call)
+    assert words[:3] == ["uv", "run", "{skillInventoryHelper}"], call
+    values = {"{skills_output_folder}": [str(skills)], "[--all]": ["--all"] if all_skills else []}
+    argv = [sys.executable, str(INVENTORY_PY)]
+    for word in words[3:]:
+        argv.extend(values.get(word, [word]))
+    proc = subprocess.run(argv, capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout.decode("utf-8"))
+
+
+def test_the_documented_exportable_call_leaves_out_the_deprecated_skill(tmp_path):
+    """determinism-2: a deprecated skill on disk came back through the menu's hand-built scan."""
+    skills = tmp_path / "skills"
+    marker = {"generated_by": "create-skill", "tool_versions": {"skf": "3.0.0"}}
+    for name, version in (("zod", "1.0.0"), ("old", "2.0.0"), ("fresh", "0.1.0")):
+        package = skills / name / version / name
+        package.mkdir(parents=True)
+        (package / "SKILL.md").write_bytes(f"---\nname: {name}\n---\n".encode("utf-8"))
+        (package / "metadata.json").write_bytes(json.dumps({"name": name, **marker}).encode("utf-8"))
+        _link_active(skills / name, version)
+    (skills / "module").mkdir()
+    (skills / "module" / "SKILL.md").write_bytes(b"---\nname: module\n---\n")
+    exports = {name: {"active_version": version, "versions": {version: {"status": status}}}
+               for name, version, status in (("zod", "1.0.0", "active"), ("old", "2.0.0", "deprecated"))}
+    (skills / ".export-manifest.json").write_bytes(json.dumps({"schema_version": "2", "exports": exports}).encode())
+    menu = _exportable_call(skills, all_skills=False)
+    assert [(s["name"], s["source"]) for s in menu["skills"]] == [("fresh", "disk"), ("zod", "manifest")]
+    assert (menu["deprecated"], menu["not_skf_output"]) == (["old"], ["module"])
+    batch = _exportable_call(skills, all_skills=True)
+    assert [s["name"] for s in batch["skills"]] == ["zod"]
+    # The prose binds and shows what the call prints, and filters nothing itself.
+    discovery = _section(_read(LOAD), "**Skill Path Discovery", "**Flag Parsing:**")
+    assert "`skill_batch` ← every `skills[].name`" in discovery
+    for line in ('"Skipped (not SKF output): {not_skf_output}"',
+                 '"Skipped (deprecated in the export manifest): {deprecated}"'):
+        assert discovery.count(line) == 1, line
+    assert "result.manifest" not in _read(LOAD) and "`skf_skill` is true" not in discovery
+    # A manifest the helper cannot read halts; an empty list (every entry deprecated, or no folder) finds nothing.
+    assert ("A non-zero exit (an export manifest the helper cannot read, or a `{skills_output_folder}` that is not a "
+            'folder) is a HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`) with the '
+            "helper's `error`.") in discovery
+    assert ('If no skills found (`skills` is empty), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase '
+            '`load-skill §1`): "No skills found in {skills_output_folder}/.') in discovery
+    assert discovery.index("**Headless guard:**") < discovery.index(" exportable ")
 
 
 # --------------------------------------------------------------------------

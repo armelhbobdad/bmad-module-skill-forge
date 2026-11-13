@@ -13,7 +13,8 @@ version is written), analyze-source (coexistence matches and the name of
 every unit and brief), the flat-layout
 fallback of update-skill, export-skill, audit-skill and test-skill (the
 ownership gate before a flat skill is migrated, and the `migrate` action
-that moves it), and test-skill's report (the discovery catalog).
+that moves it), test-skill's report (the discovery catalog), and
+export-skill's step 1 (the `exportable` list behind its menu and `--all`).
 
 CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name>
@@ -35,6 +36,7 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
          --forge-data-folder <path> [--version <version>]
      uv run skf-skill-inventory.py migrate <skills-output-folder> --skill <name>
          --forge-data-folder <path>
+     uv run skf-skill-inventory.py exportable <skills-output-folder> [--all]
      uv run skf-skill-inventory.py version normalize <version>
      uv run skf-skill-inventory.py version order <a> <b>
      uv run skf-skill-inventory.py version next-patch <version>
@@ -134,6 +136,16 @@ skf-update-active-symlink.py, moves the flat forge artifacts into
 `{forge_version}`, checks the result and prints `{status, version,
 moved[], left_in_place[]}`. A failed move or flip puts everything back.
 It never writes the export manifest. The workflows then run `resolve`.
+
+Exportable. `exportable <skills-output-folder> [--all]` returns the skills
+export-skill offers (see `exportable_skills`): `skills[]`, each
+{name, active_version, snippet_path, source}, with `source` "manifest" for
+an export manifest entry whose active version is not deprecated and "disk"
+for an SKF skill the manifest does not list; `deprecated`, the manifest
+names it left out; and `not_skf_output`. Without `--all` (the menu) it lists
+both; with `--all`, the manifest entries once the manifest lists any skill,
+else the disk entries (the first export). A missing folder lists nothing,
+and a manifest it cannot read exits 1 with `MANIFEST_UNREADABLE`.
 
 Version. `version` turns version strings into one answer: `normalize`
 reduces a version or range to one folder name (`^18.2.0` gives `18.2.0`,
@@ -2639,6 +2651,90 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
     return result
 
 
+def _exportable_entry(skills_dir, name, version, source):
+    """One `skills[]` entry of `exportable_skills`. `snippet_path` is the
+    version's context-snippet.md (the skill folder's own for a flat skill,
+    whose version is None) when that file exists and the name and version
+    are each one folder name, else None."""
+    snippet = None
+    if _safe_segment(name) and (version is None or _safe_segment(version)):
+        group = skills_dir / name
+        path = group / "context-snippet.md" if version is None else group / version / name / "context-snippet.md"
+        snippet = str(path) if path.is_file() else None
+    return {"name": name, "active_version": version, "snippet_path": snippet, "source": source}
+
+
+def exportable_skills(skills_folder, all_skills=False):
+    """The skills export-skill offers: its menu, or with `all_skills` its `--all` batch.
+
+    Returns {status, skills_folder, skills, deprecated, not_skf_output}, each
+    list sorted by name. A manifest entry whose active version's status is
+    "deprecated" (a v1 entry with `deprecated: true` included, as
+    `_manifest_versions` reads it) is left out and named in `deprecated`;
+    every other entry is a `skills[]` entry with `source` "manifest" and the
+    manifest's `active_version`. A scanned skill the manifest does not list,
+    whose `skf_skill` is true and whose `flat_skf` is true or
+    `active_version` is set, is one with `source` "disk" (`active_version`
+    None for a flat skill), so a deprecated skill never comes back through
+    the scan. Without `all_skills`, `skills` holds both kinds. With it, the
+    manifest entries when the manifest's `exports` holds any entry (deprecated
+    ones counted), else the disk entries (the first export). `not_skf_output`
+    is the scan's list less any name in `skills`.
+
+    A missing skills folder is no skill: "ok" with empty lists. A path that is
+    not a folder is `DIR_NOT_FOUND`, and a manifest that does not parse, is not
+    a JSON object or whose `exports` is not an object is
+    `MANIFEST_UNREADABLE`, so a deprecated skill is never offered from a
+    manifest SKF cannot read.
+    """
+    skills_dir = Path(skills_folder)
+    result = {"status": "ok", "skills_folder": str(skills_dir), "skills": [], "deprecated": [],
+              "not_skf_output": []}
+    if not os.path.lexists(skills_dir):
+        return result
+    if not skills_dir.is_dir():
+        return {"status": "error", "error": f"Skills directory not found: {skills_dir}",
+                "code": "DIR_NOT_FOUND"}
+    manifest_path = skills_dir / ".export-manifest.json"
+    manifest, error = read_json_file(manifest_path)
+    if error and error.startswith("Not found"):
+        manifest, error = {}, None
+    if error is None and not isinstance(manifest, dict):
+        error = f"the export manifest is not a JSON object: {manifest_path}"
+    exports = manifest.get("exports", {}) if error is None else None
+    if error is None and not isinstance(exports, dict):
+        error = f"the export manifest's `exports` is not an object: {manifest_path}"
+    if error is not None:
+        return {"status": "error", "error": error, "code": "MANIFEST_UNREADABLE"}
+    listed, deprecated = [], []
+    for name in sorted(exports):
+        version, _, statuses = _manifest_versions(exports[name], manifest.get("updated_at"))
+        if version is not None and statuses.get(version) == "deprecated":
+            deprecated.append(name)
+        else:
+            listed.append(_exportable_entry(skills_dir, name, version, "manifest"))
+    scan = scan_inventory(skills_dir)
+    if scan["status"] != "ok":
+        return scan
+    on_disk = []
+    for entry in scan["skills"]:
+        if entry["name"] in exports or not entry["skf_skill"]:
+            continue
+        if not (entry["flat_skf"] or entry["active_version"]):
+            continue
+        version = entry["active_version"] if entry["active_version"] != "flat" else None
+        on_disk.append(_exportable_entry(skills_dir, entry["name"], version, "disk"))
+    if not all_skills:
+        chosen = listed + on_disk
+    else:
+        chosen = listed if exports else on_disk
+    chosen.sort(key=lambda item: item["name"])
+    names = {item["name"] for item in chosen}
+    result.update(skills=chosen, deprecated=deprecated,
+                  not_skf_output=sorted(name for name in scan["not_skf_output"] if name not in names))
+    return result
+
+
 USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[--skill <name>] [--manifest-only] [--match-target <url-or-name>] "
          "[--near <name>] [--forge-data-folder <path>]\n"
@@ -2658,6 +2754,7 @@ USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "--forge-data-folder <path> [--version <version>]\n"
          "       uv run skf-skill-inventory.py migrate <skills-output-folder> --skill <name> "
          "--forge-data-folder <path>\n"
+         "       uv run skf-skill-inventory.py exportable <skills-output-folder> [--all]\n"
          "       uv run skf-skill-inventory.py version normalize <version>\n"
          "       uv run skf-skill-inventory.py version order <a> <b>\n"
          "       uv run skf-skill-inventory.py version next-patch <version>\n"
@@ -2764,6 +2861,23 @@ def _main_migrate(argv):
         result = _migrate_error("SKILL_NOT_FOUND", f"Skill '{skill}' is not in {skills_dir}")
     else:
         result = migrate_skill(skills_dir, skill, forge_data_folder)
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "ok" else 1
+
+
+def _main_exportable(argv):
+    """`exportable <skills-output-folder> [--all]`; exit 0 only when `status` is "ok",
+    else 1 (`USAGE`, `DIR_NOT_FOUND` or `MANIFEST_UNREADABLE`)."""
+    try:
+        if not argv or argv[0].startswith("--"):
+            raise ValueError("exportable needs <skills-output-folder> first")
+        rest = argv[1:]
+        all_skills = rest[:1] == ["--all"]
+        if rest[int(all_skills):]:
+            raise ValueError(f"unexpected argument: {rest[int(all_skills)]!r}")
+    except ValueError as e:
+        return _usage_error(str(e))
+    result = exportable_skills(argv[0], all_skills=all_skills)
     print(json.dumps(result, indent=2))
     return 0 if result["status"] == "ok" else 1
 
@@ -2954,6 +3068,8 @@ def main(argv):
         return _main_resolve(argv[1:])
     if argv[0] == "migrate":
         return _main_migrate(argv[1:])
+    if argv[0] == "exportable":
+        return _main_exportable(argv[1:])
     if argv[0] == "version":
         return _main_version(argv[1:])
     if argv[0] == "guarded-delete":

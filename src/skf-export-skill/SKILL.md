@@ -56,7 +56,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
    - `snippet_skill_root_override` (optional): the `root:` prefix of every snippet and managed-section row in place of the IDE skill folder, for an authoring repo that keeps its skills in one folder such as `skills/`; step 1's snippet-root option (d) sets it for one run without changing `config.yaml`.
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false. From the same file, bind `{passive_context}` ← its `passive_context`, true when the file or the key is absent. A false value means this run writes no snippet and no managed-section row (step 1 asks no snippet-root question), while step 3 still records the export in the manifest.
 
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 

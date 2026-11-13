@@ -679,7 +679,7 @@ def test_export_line_names_the_test_warnings_and_the_snippet_timing():
     for token in ("its last test was inconclusive or passed only under `--allow-workspace-drift`",
                   "With passive context on (the default), it writes each skill's `context-snippet.md` last",
                   "a cancelled or halted export leaves the snippet as it was",
-                  "`passive_context: false`", "such a run writes no snippet"):
+                  "`passive_context: false`", "such a run writes no snippet and asks no snippet-root question"):
         assert token in good, token
 
 
