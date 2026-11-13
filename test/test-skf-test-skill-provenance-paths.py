@@ -2972,7 +2972,7 @@ def test_each_denominator_annotation_reads_a_candidates_field():
     count no script holds. #1186: the render writes them, so the protocol annotates nothing by hand."""
     protocol = _read(SOURCE_ACCESS)
     assert "Annotate" not in protocol and "annotate the report" not in protocol and "{candidates." not in protocol
-    clauses = _flow(_slice(protocol, "when the tier A globs count no name", "Internal module symbols are"))
+    clauses = _flow(_slice(protocol, "Never re-count a barrel by hand.", "Internal module symbols are"))
     assert ("coverage-check.md §5's render writes each clause's `Denominator:` line from these counts (`surface.json` "
             "`candidates`). Each clause, by its `denominator.clause`, with what stays yours:") in clauses
     assert ("The root-barrel count (`candidates.rootBarrel`) is the secondary candidate in the Denominator Candidates "
@@ -3199,10 +3199,8 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "`demoted-include` matches the file") in protocol
     # with no tier A glob matching a file there is no tier_a_include set, nor (#712) when the globs match only
     # files that define no name, nor (#725) only files scope.include leaves out: the script's ladder goes on
-    # (test-skf-load-coverage-inputs.py pins it)
-    assert ("A `scope.tier_a_include` glob counts a name only in a file a `scope.include` glob also matches, and one "
-            "that matches no file (`guards.staleScope.unmatchedTierAInclude`, a brief older than the source) counts "
-            "none: when the tier A globs count no name, `surface.json` has no `tier_a_include` set.") in protocol
+    # (test-skf-load-coverage-inputs.py pins it; #1188 cut the protocol's account of it, the model reads the set)
+    assert "A `scope.tier_a_include` glob counts a name only" not in protocol
     assert ("The denominator is the `tier_a_include` set when `surface.json` has it, else the canonicalized "
             "provenance map") in protocol
     # the deflation guard's rule (#712: a tier A glob that counts a name turns it off, a stored 0 below any
