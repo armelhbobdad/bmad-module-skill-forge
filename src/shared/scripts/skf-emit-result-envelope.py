@@ -541,8 +541,9 @@ def _resolver_warning(payload: dict) -> list[str]:
     """The customization_resolver_unavailable warning, when the payload reports one.
 
     Every workflow's On Activation runs skf-resolve-customization.py, which
-    runs BMAD core's resolve_customization.py. When either script is missing
-    or fails, or a core before 6.11.0 would read another folder's overrides,
+    runs BMAD core's resolve_customization.py. When SKF's script is missing,
+    core's is missing and an override file would be skipped, either script
+    fails, or a core before 6.11.0 would read another folder's overrides,
     the run falls back to the skill's own customize.toml, so the team and
     user overrides under `_bmad/custom/` silently do nothing; the payload
     key carries the reason, whatever its words, so the envelope says so.
