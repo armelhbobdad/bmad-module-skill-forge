@@ -50,6 +50,9 @@
   halts with staging-unreadable when the run folder is lost, and report §5
   binds a lost `{run_dir}` back, so a lost folder is an error, never zero
   decisions (#1144).
+- Under an interactive --batch, Gate 2 passes a clean extraction on its own
+  and records it as gate `review-gate`, and report §4 points at [EX] Export
+  Skill instead of printing the context snippet (#1149).
 """
 
 from __future__ import annotations
@@ -518,6 +521,77 @@ def test_every_headless_gate_is_recorded_and_declared():
     assert "Empty for an interactive run" not in json.dumps(_schema())
 
 
+def test_a_clean_batch_extraction_passes_gate_2_on_its_own(tmp_path):
+    """#1149 enhancement-4: under an interactive --batch, Gate 2 stops a brief only when §6 showed the zero-export
+    or the head-cap warning; a clean extraction goes on by itself and records gate `review-gate`. A single
+    interactive run still stops, [R] is still offered with a warning, a headless run keeps its own rationale, and
+    the contract's Gates row, batch-mode.md §2, SKILL.md's decisions rule and the schema name the decision. §6's
+    closing line, the Stages row of step 3 and step 3d's hand-back no longer say step 3 always waits."""
+    seven = _section(_read(REFS / "extract.md"), "### 7. Gate 2", None)
+    [batch] = [p for p in seven.split("\n\n") if p.startswith("Under `--batch`")]
+    assert batch.startswith("Under `--batch`, outside `{headless_mode}`, when §6 showed neither the zero-export nor "
+                            "the head-cap warning, there is nothing to review and no [R] to offer: auto-proceed, log "
+                            '"batch: clean extraction, auto-continue", stage `')
+    assert batch.endswith("(the Workflow Rules' record), then load `{nextStepFile}`, read it fully, then execute it.")
+    [staged] = re.findall(r'`(\{"step": "[^`]+\})`', batch)
+    decision = json.loads(staged)
+    assert decision == {"step": "extract", "gate": "review-gate", "decision": "continue",
+                        "rationale": "batch: clean extraction, no warning to review"}
+    [record] = re.findall(r"run `(uv run \{emitEnvelopeHelper\} record [^`]+)`", batch)
+    assert record == ('uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" '
+                      '--decision < "{run_dir}/decision.json"')
+    # docs-only first, unrecorded; then the clean batch; then the stop, its [R] and the headless default
+    stop = "Otherwise halt after the §6 summary and wait for the user to continue"
+    assert seven.index("Docs-only mode") < seven.index(batch) < seven.index(stop)
+    assert ("When §6 showed the zero-export or the head-cap warning, also offer **[R] Refine the brief**: stop here. "
+            "**GATE [default: continue]**: under `{headless_mode}`, auto-proceed, log \"headless: auto-approve "
+            'extraction summary", stage `{"step": "extract", "gate": "review-gate", "decision": "continue", '
+            '"rationale": "headless mode: no person to review the extraction summary"}`') in seven
+    [docs_only] = [p for p in seven.split("\n\n") if p.startswith("Docs-only mode")]
+    assert "record" not in docs_only and "decision" not in docs_only
+    # §6's summary asks for a confirmation only when §7 waits for one, and nothing else says step 3 always waits
+    six = _section(_read(REFS / "extract.md"), "### 6. Present Extraction Summary", "### 7. Gate 2")
+    assert six.rstrip().splitlines()[-1] == (
+        "{if §7 auto-proceeds a clean `--batch` extraction: No zero-export or head-cap warning. Auto-proceeding.}"
+        '{otherwise: Review the extraction summary above, then confirm to continue.}"')
+    stages = [line.split("|")[1:-1] for line in _read(SKILL).splitlines() if line.startswith("| 3 | Extract |")]
+    assert [[cell.strip() for cell in row] for row in stages] == [["3", "Extract", "references/extract.md",
+                                                                   "Conditional"]]
+    handback = _read(REFS / "component-extraction.md")
+    assert "Step-03 continues with its §6 summary and §7 Gate 2." in handback
+    assert "summary and confirmation" not in handback
+    # the documented command records the decision; the emitter checks it against the schema and stamps its time
+    run_dir = tmp_path / "skf-create-skill-abc12345"
+    run_dir.mkdir()
+    words = shlex.split(record.split(" < ", 1)[0].replace("{run_dir}", run_dir.as_posix()))
+    assert words[:3] == ["uv", "run", "{emitEnvelopeHelper}"]
+    rec = subprocess.run([sys.executable, str(EMITTER), *words[3:]], input=staged.encode("utf-8"),
+                         capture_output=True, timeout=30)
+    assert rec.returncode == 0, rec.stderr
+    [line] = (run_dir / "headless-decisions.jsonl").read_bytes().decode("utf-8").splitlines()
+    sunk = json.loads(line)
+    assert sunk.pop("timestamp") and sunk == decision
+    # where the run and its readers look
+    gates = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |"))
+    assert ("step 3: Review Gate [C]/[R] (with the zero-export warning when a source brief without `doc_urls` "
+            "extracted no export; [R] with it or the head-cap warning; headless: continue; an interactive `--batch` "
+            "run with neither warning: continue; both recorded as gate `review-gate`)") in gates
+    following = next(line for line in _read(REFS / "batch-mode.md").splitlines()
+                     if line.startswith('- **`"status": "next"`**'))
+    assert following.endswith("In an interactive batch, step 3's Gate 2 stops for this brief only when its "
+                              "extraction showed the zero-export or the head-cap warning: a clean extraction goes on "
+                              "by itself, recorded as gate `review-gate`.")
+    rule = next(line for line in _read(SKILL).splitlines()
+                if line.startswith("- Every decision the run takes without asking"))
+    assert ("(each gate a headless run resolves by its default, step 1's tier override and its pick of the only "
+            "brief, and Gate 2 when a `--batch` run passes a clean extraction)") in rule
+    schema = _schema()
+    for text in (schema["properties"]["headless_decisions"]["description"],
+                 schema["properties"]["summary"]["properties"]["auto_decision_count"]["description"]):
+        assert ("every gate a headless run resolved by its default, step 1's tier override in any mode, its pick of "
+                "the only brief, and Gate 2 when a `--batch` run passed a clean extraction") in text
+
+
 def test_compile_renders_the_auto_decisions_from_the_sink():
     seven = _section(_read(REFS / "compile.md"), "### 7. Build evidence-report.md Content", "### 8.")
     assert ("from `{run_dir}/headless-decisions.jsonl`, the run's one decision trail: one row per line of the sink, "
@@ -541,6 +615,19 @@ def test_report_has_no_line_that_ends_the_run_early():
         text = _read(path)
         for stale in ("End workflow", "do not modify any files", "do not stop here", "### Result Contract on HARD HALT"):
             assert stale not in text, (path.name, stale)
+
+
+def test_the_report_hands_the_skill_to_export_skill():
+    """#1149 enhancement-3: §4 prints no context snippet and no CLAUDE.md instruction, which bypassed Export Skill,
+    the one gate that publishes a skill (an export then listed it twice, and a drop or rename left the pasted line
+    behind); its quoted next steps end with the [EX] after [TS] line."""
+    report = _read(REFS / "report.md")
+    assert "{context_snippet_content}" not in report
+    four = _section(report, "### 4. Suggest Next Steps", "### 5.")
+    assert "CLAUDE.md" not in four and "```" not in four
+    lines = four.split('"**Recommended next steps:**\n', 1)[1].rstrip().splitlines()
+    assert [line.split(" ", 2)[1] for line in lines[:3]] == ["**[TS]", "**[EX]", "**[US]"]
+    assert lines[3:] == ["", 'To use it now, run [EX] Export Skill, after [TS] if you want the quality gate."']
 
 
 def test_report_orders_contract_then_batch_then_health_check():
@@ -1309,19 +1396,27 @@ def _hook_comment(key: str) -> str:
 
 
 def test_the_hook_comments_name_the_steps_that_run_them():
-    """#1111: prepend runs in step 3, with no uv probe to precede; the append entries run once, after step 4
-    resolves the emitter and before step 5 loads the first stage, and SKILL.md says so."""
+    """#1111, #1149: prepend runs in step 5, after the emitter (step 1), the runtime check (step 2), the config
+    (step 3) and the headless flag (step 4); the append entries run once, in step 5 after the prepend entries and
+    before step 6 loads the first stage, and SKILL.md says so."""
     prepend = _hook_comment("activation_steps_prepend")
     assert "uv probe" not in prepend
-    assert "SKILL.md On Activation step 3" in prepend
-    assert "after the config load (step 1) and the headless flag (step 2)" in prepend
-    step3 = " ".join(_section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ").split())
-    assert ("After step 4 and before step 5 loads load-brief.md or batch-mode.md, execute each entry in "
-            "`workflow.activation_steps_append` in order; a --batch run executes them once, not per brief.") in step3
-    assert "After activation completes" not in step3
+    assert "SKILL.md On Activation step 5" in prepend
+    assert ("after the emitter (step 1), the runtime check (step 2), the config load (step 3) and the headless flag "
+            "(step 4), and before any stage") in prepend
+    step5 = " ".join(_section(_read(SKILL), "5. **Resolve workflow customization.**", "\n6. ").split())
+    assert ("Then, before step 6 loads load-brief.md or batch-mode.md, execute each entry in "
+            "`workflow.activation_steps_append` in order; a --batch run executes them once, not per brief.") in step5
+    assert step5.index("`workflow.activation_steps_prepend` in order now") < step5.index(
+        "`workflow.activation_steps_append` in order")
+    assert "After activation completes" not in step5
     append = _hook_comment("activation_steps_append")
-    assert "after step 4 and before step 5 loads load-brief.md or batch-mode.md" in append
+    assert ("SKILL.md On Activation step 5 runs after the prepend entries and before step 6 loads load-brief.md or "
+            "batch-mode.md") in append
     assert "once, not per brief" in append
+    for path in (SKILL, *STEP_FILES):
+        for stale in ("On Activation step 3", "before step 5 loads"):
+            assert stale not in _read(path), (path.name, stale)
 
 
 # --------------------------------------------------------------------------

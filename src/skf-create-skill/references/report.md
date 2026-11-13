@@ -97,10 +97,7 @@ If no warnings, omit this section entirely.
 - **[EX] Export Skill** — publish to your skill library or agentskills.io
 - **[US] Update Skill** — edit specific sections or add manual content
 
-To use this skill immediately, add the context snippet to your CLAUDE.md:
-```
-{context_snippet_content}
-```"
+To use it now, run [EX] Export Skill, after [TS] if you want the quality gate."
 
 ### 5. Result Contract and Post-Completion Hook
 

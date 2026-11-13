@@ -225,6 +225,6 @@ Display: "**Component extraction complete.** Returning to main extraction flow."
 
 ## RETURN PROTOCOL
 
-After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its normal Gate 2 summary and confirmation.
+After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its §6 summary and §7 Gate 2.
 
 Resume step 3 at its §5. If §5 is no longer in context, load `{returnToStep}` and execute from its §5 (Build Extraction Inventory) onward; never re-run its §1 to §4c, whose §2a start clean deletes the `{extraction_json}` Phase 4 wrote.

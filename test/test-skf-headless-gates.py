@@ -74,9 +74,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -603,7 +605,7 @@ BATCH_CONTRACTS = {
                         ("and a target with no event did not run in this session",),
                         ("starts over from the first target",)),
     "skf-create-skill": ("`create-skill-batch-latest.json`", "`create-skill-batch-latest.json`",
-                         "(phase `batch-mode`)",
+                         "(phase `batch-mode`, or `on-activation:runtime`)",
                          ("a brief the plan listed as not compiled ended failed with its message",
                           "and any other target with no event did not run in this session"),
                          ("run `--batch` again with the same briefs: while the batch has no summary, it finds the "
@@ -804,7 +806,8 @@ def test_batch_contracts_say_a_batch_with_no_summary_has_no_result(skill):
     for token in (BATCH_NO_RESULT, "`quick-skill-batch-latest.json` or `create-skill-batch-latest.json`: each "
                   f"{BATCH_ANOTHER}", "(the event plus the batch run folder's `batch.jsonl` when `summary_path` is "
                   "null)", stream, after, "a halt line of its own (phase `batch-mode`, or `on-activation` for Quick "
-                  "Skill) says why it stopped, and with no halt line it was cut off or could not print its halt line",
+                  "Skill and `on-activation:runtime` for Create Skill) says why it stopped, and with no halt line it "
+                  "was cut off or could not print its halt line",
                   "a Quick Skill batch starts over from the first target, and a Create Skill batch run with the same "
                   "briefs goes on with the brief it was working on"):
         assert token in docs, f"docs/workflows.md: {token}"
@@ -837,3 +840,79 @@ def test_campaign_unattended_settles_only_the_dependency_gate():
         assert not any("campaign.unattended" in body for body in bodies), rel
     flags = _read(SRC / "skf-campaign" / "SKILL.md").split("## On Activation", 1)[1].split("\n## ", 1)[0]
     assert re.search(r"^\s*\| `--unattended` \|", flags, re.MULTILINE)
+
+
+# --------------------------------------------------------------------------
+# #1149: Create Skill checks python3 and uv before anything runs through uv
+# --------------------------------------------------------------------------
+
+EMITTER = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
+CS_RUNTIME_HALT = "**HARD HALT** (exit code 3, `helper-missing`, phase `on-activation:runtime`)"
+
+
+def test_create_skill_checks_the_runtime_before_its_first_uv_run():
+    """#1149 enhancement-5: On Activation binds the emitter (step 1), then checks `python3` and `uv` (step 2)
+    before the resolver's `uv run` (step 5). A missing tool is a HARD HALT, exit 3 `helper-missing` at phase
+    `on-activation:runtime`, that ends the run under `--batch` too: with only `uv` missing it emits through
+    `python3`, the emitter needing only the standard library, and with no `python3` or no emitter path it shows
+    the message alone. The fence's payload, given to the emitter, prints a line the schema accepts."""
+    activation = _read(SRC / "skf-create-skill" / "SKILL.md").split("## On Activation", 1)[1].split("\n## ", 1)[0]
+    parts = re.split(r"(?m)^(\d+)\. ", activation)
+    steps = {int(parts[i]): parts[i + 1] for i in range(1, len(parts), 2)}
+    assert sorted(steps) == [1, 2, 3, 4, 5, 6]
+    for n, opener in ((1, "Resolve `{emitEnvelopeHelper}` ←"), (2, "**Check the runtime.**"),
+                      (3, "Load config from"), (4, "**Resolve `{headless_mode}`**"),
+                      (5, "**Resolve workflow customization.**"), (6, "If `--batch` was given")):
+        assert steps[n].startswith(opener), (n, steps[n][:60])
+    flat = " ".join(activation.split())
+    assert (flat.index("Resolve `{emitEnvelopeHelper}` ←") < flat.index("`command -v python3`")
+            < flat.index("`command -v uv`") < flat.index("uv run {"))
+    # the runtime check's emit is the only command fenced before step 5's resolver call
+    early = activation.split("\n5. ", 1)[0]
+    fences = re.findall(r"```bash\n(.*?)```", early, re.S)
+    assert len(fences) == 1 and "uv run" not in fences[0]
+    runtime = " ".join(steps[2].split())
+    assert CS_RUNTIME_HALT in runtime
+    # python3 is checked for itself too: extract's by-hand recipes, validate and generate-artifacts call it directly
+    assert runtime.startswith("**Check the runtime.** Every helper, the customization resolver and every envelope "
+                              "run through `uv run`, and the Extract, Validate and Generate Artifacts stages also "
+                              "call `python3` directly, so confirm")
+    codes = json.loads(_read(SRC / "shared" / "scripts" / "schemas" / "skf-create-skill-result-envelope.v1.json"))
+    assert codes["$defs"]["skf-envelope"]["const"]["exit_codes"]["helper-missing"] == 3
+    # the schema's phase list names the new phase for a pipeline author
+    assert ("generate-artifacts, on-activation:runtime when On Activation's runtime check finds no uv, or batch-mode "
+            "for a --batch run") in codes["properties"]["phase"]["description"]
+    for token in ("confirm that `python3` and `uv` are both on `$PATH`",
+                  '"**Create Skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv` from '
+                  "<https://docs.astral.sh/uv/getting-started/installation/>, `python3` from "
+                  '<https://www.python.org/downloads/>), then re-run."',
+                  "Nothing is written, and the halt ends the run, under `--batch` too.",
+                  "when only `uv` is missing, emit in every mode with `python3` in place of `uv run` and display the "
+                  "line it prints",
+                  "with `python3` missing, or no `{emitEnvelopeHelper}` path, display the message alone"):
+        assert token in runtime, token
+    # the contract reads the new halt line and its exit code
+    contract = _read(SRC / "skf-create-skill" / "references" / "invocation-contract.md")
+    [exit_row] = [line for line in contract.splitlines() if line.startswith("| **Exit codes** |")]
+    assert ("3 (no `uv`, `python3`, forge config, source, helper or documentation; a run with no `python3` prints no "
+            "halt line)") in exit_row
+    # the fenced command and its heredoc payload, run as written with the interpreter in place of `python3`
+    block = textwrap.dedent(fences[0])
+    head, rest = block.split(" <<'SKF_JSON'\n", 1)
+    payload = rest.split("\nSKF_JSON", 1)[0]
+    words = shlex.split(head)
+    assert words[:2] == ["python3", "{emitEnvelopeHelper}"]
+    assert words[2:] == ["emit-halt", "--workflow", "skf-create-skill", "--target", "stderr"]
+    assert not re.search(r"\{[A-Za-z_ -]+\}|<[a-z][^>]*>", payload), "the payload is typed out whole"
+    fields = json.loads(payload)
+    assert fields["reason"].startswith("Create Skill needs uv, which is not on your PATH.")
+    proc = subprocess.run([sys.executable, str(EMITTER), *words[2:]], input=payload.encode("utf-8"),
+                          capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    [line] = [ln for ln in proc.stderr.decode("utf-8").splitlines()
+              if ln.startswith("SKF_CREATE_SKILL_RESULT_JSON: ")]
+    envelope = json.loads(line.split(": ", 1)[1])
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"], envelope["phase"]) == (
+        "failed", 3, "helper-missing", "on-activation:runtime")
+    assert envelope["summary"] == {"halt_reason": "helper-missing", "evidence_report": None}
+    assert envelope["headless_decisions"] == [] and envelope["result_path"] is None

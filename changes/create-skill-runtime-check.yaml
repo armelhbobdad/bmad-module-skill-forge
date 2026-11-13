@@ -1,0 +1,5 @@
+type: changed
+scope: skf-create-skill
+summary: |
+  Create Skill now checks that `python3` and `uv` are on your PATH as it starts, before it runs anything through `uv`, and stops with `helper-missing` (exit code `3`) when either is missing, naming the tool and where to install it. Before, a run without them printed only a warning, then failed when it checked the brief, with no result line and no typed exit code. When only `uv` is missing, the halt prints its `SKF_CREATE_SKILL_RESULT_JSON` line on stderr with phase `on-activation:runtime`, under `--batch` too; with no `python3` it shows the message alone. Nothing is written in either case.
+issues: [1149]

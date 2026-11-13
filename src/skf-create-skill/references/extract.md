@@ -300,11 +300,13 @@ Display the extraction findings for user confirmation, the numbers from the §5 
 
 {warnings: the inventory's `warnings`}
 
-Review the extraction summary above, then confirm to continue."
+{if §7 auto-proceeds a clean `--batch` extraction: No zero-export or head-cap warning. Auto-proceeding.}{otherwise: Review the extraction summary above, then confirm to continue.}"
 
 ### 7. Gate 2 — Confirm Extraction
 
 Docs-only mode (`extraction_mode: "docs-only"`) needs no confirmation: auto-proceed to `{nextStepFile}`.
+
+Under `--batch`, outside `{headless_mode}`, when §6 showed neither the zero-export nor the head-cap warning, there is nothing to review and no [R] to offer: auto-proceed, log "batch: clean extraction, auto-continue", stage `{"step": "extract", "gate": "review-gate", "decision": "continue", "rationale": "batch: clean extraction, no warning to review"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (the Workflow Rules' record), then load `{nextStepFile}`, read it fully, then execute it.
 
 Otherwise halt after the §6 summary and wait for the user to continue (they may ask about the results first). When §6 showed the zero-export or the head-cap warning, also offer **[R] Refine the brief**: stop here. **GATE [default: continue]**: under `{headless_mode}`, auto-proceed, log "headless: auto-approve extraction summary", stage `{"step": "extract", "gate": "review-gate", "decision": "continue", "rationale": "headless mode: no person to review the extraction summary"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (the Workflow Rules' record). On continue, load `{nextStepFile}`, read it fully, then execute it.
 
