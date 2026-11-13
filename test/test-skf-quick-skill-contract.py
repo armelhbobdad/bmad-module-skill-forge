@@ -1306,9 +1306,18 @@ def test_the_missing_tag_gate_offers_the_nearest_tags():
     [row1] = [line for line in _read(SKILL).splitlines() if line.startswith("| 1 | Resolve Target |")]
     assert row1.endswith("| Conditional (no target, an ambiguous one, or a missing tag) |")
     when = _paragraph(_section(_read(DOCS), "### Quick Skill (QS)", "**Agent:**"), "**When to Use:**")
+    # [D] keeps a /tree/ URL's ref (IF D), so the docs name that branch beside the default one.
     assert ("an interactive run lists the nearest tags and offers to build from one of them, to drop the version and "
-            "build from the default branch, or to cancel; a headless run stops with exit `3` "
-            "(`resolution-failure`)") in when
+            "build from the default branch (or from the branch a `/tree/` URL names), or to cancel; a headless run "
+            "stops with exit `3` (`resolution-failure`)") in when
+    # The other user-doc copies of the rule no longer say that every run stops.
+    how = _read(REPO / "docs" / "how-it-works.md")
+    assert ("When it doesn't, an interactive run lists the nearest tags and offers to build from one of them, to drop "
+            "the version or to cancel, and a headless run stops.") in how and "stops if it doesn't" not in how
+    concepts = _read(REPO / "docs" / "concepts.md")
+    assert ("If no tag matches, Quick Skill lists the tags it found and offers to build from one of them, to drop the "
+            "version or to cancel (a headless run stops)") in concepts
+    assert "Quick Skill stops and lists the tags" not in concepts
 
 
 def test_the_new_step_1_halts_name_their_codes():
