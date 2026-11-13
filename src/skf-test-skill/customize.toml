@@ -35,31 +35,35 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-test-skill.toml:
+# The default below loads every project-context.md under {project-root}
+# and is kept on purpose: this workflow reads the project context (Drop
+# Skill and Campaign, which do not need it, ship none). A `!` entry in an
+# override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-test-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# --- Optional asset overrides ---
-#
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
-#
+# --- Optional overrides. An empty string means the default named below. ---
+
 # The test report template init copies to the run's report. Default:
-# templates/test-report-template.md. A house-style copy may reword the prose,
-# and must keep:
+# templates/test-report-template.md, a path from the skill root. Keep a
+# house-style copy outside the skill folder, which every update overwrites,
+# and name it as {project-root}/<path to the copy>. The copy may reword the
+# prose, and must keep:
 #   - the title line `# Test Report: {{skillName}}`, which init fills with
 #     the skill name;
 #   - the six `## ...` section headings, each with the `<!-- Populated by`
 #     comment under it, since each stage replaces its own placeholder.
-# The report check halts the run (`report-anchor-missing`) on a report
-# without them.
+# Step 1 (init.md §6c) halts the run (`input-invalid`) on a copy that is
+# missing or lacks one of them, once it has found the skill and before it
+# creates the report, and the report check halts it (`report-anchor-missing`)
+# on a report a stage left without them.
 
-test_report_template_path = ""
+test_report_template_path = "templates/test-report-template.md"
 
 # The scoring rules and the output formats are not overridable: scripts own
 # the weights and the verdict rules, and the hard gate reads the Gap Severity
@@ -74,8 +78,12 @@ test_report_template_path = ""
 # run a cap forced to FAIL stays FAIL at any threshold.
 default_threshold = 80
 
-# Optional post-finalization hook. When non-empty, the workflow invokes:
-#   <on_complete> --result-path=<the per-run skf-test-skill-result-<YYYYMMDD-HHmmss>.json>
+# Optional post-finalization hook: a shell command, not an instruction. When
+# non-empty, the report step runs it from {project-root} as:
+#   <on_complete> --result-path="<the per-run skf-test-skill-result-<YYYYMMDD-HHmmss>.json>"
 # after the result JSON is finalized. A failure is shown to the user but
-# never fails the workflow. Empty = no-op.
+# never fails the workflow.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
+# Empty = no-op.
 on_complete = ""

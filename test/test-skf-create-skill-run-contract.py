@@ -252,9 +252,10 @@ def test_the_report_step_binds_the_emitter_and_the_hook_itself():
                            "when the resolver cannot run:\n")
     [activation_call] = [line.strip() for line in _section(_read(SKILL), "## On Activation", None).splitlines()
                          if "{resolveCustomizationHelper}" in line and line.strip().startswith("uv run ")]
-    assert activation_call.endswith(" --key workflow")
+    # The activation resolves persistent_facts too (#1106); the hook reads one key and takes no --facts.
+    assert activation_call.endswith(" --key workflow --facts")
     [hook_call] = re.findall(r"```bash\n(uv run \{resolveCustomizationHelper\}[^\n]*)\n```", hook)
-    assert hook_call == f"{activation_call}.on_complete"
+    assert hook_call == activation_call.removesuffix(" --facts") + ".on_complete"
     assert "on_complete" in tomllib.loads(_read(CS / "customize.toml"))["workflow"]
     assert ("When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` "
             "exited 0, the line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` "
@@ -443,7 +444,7 @@ def test_report_orders_contract_then_batch_then_health_check():
     assert "each brief of a `--batch` run included" in five
     assert ('uv run {emitEnvelopeHelper} emit --workflow skf-create-skill --run-dir "{run_dir}" '
             '--result-dir "{forge_version}" < "{run_dir}/result-context.json"') in five
-    assert "{onCompleteCommand} --result-path={forge_version}/create-skill-result-latest.json" in five
+    assert '{onCompleteCommand} --result-path="{forge_version}/create-skill-result-latest.json"' in five
     assert five.index("emit --workflow") < five.index("{onCompleteCommand} --result-path")
     assert 'rm -rf "{run_dir}"' in five
     # under --batch the batch helper reads the staged payload, then removes the folder itself
@@ -520,6 +521,10 @@ def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():
     # the batch's state is the batch helper's, in its run folder: no sidecar checkpoint is written
     assert "batch-state.yaml" not in load_rules
     assert "Write nothing but the brief's run folder (§0) and the decisions recorded in it" in load_rules
+    # #1109: a BMad-style instruction makes the shell exit 127, and the failure line then names the key's meaning.
+    assert ('display "on_complete failed for `{name}`: {its exit code and first stderr line}", and when it exited '
+            '127 (the shell found no such command) end that line with "; on_complete is a shell command in this '
+            'workflow, not an instruction", then go on.') in five
 
 
 def test_the_documented_result_payload_is_schema_valid(tmp_path):
@@ -1006,10 +1011,41 @@ def test_customize_names_its_override_files_and_how_to_drop_the_default():
     assert tomllib.loads(text)["workflow"]["persistent_facts"] == [default]
     assert f'#   persistent_facts = ["!{default}"]' in text
     activation = _section(_read(SKILL), "## On Activation", None)
-    assert f"except a `!` entry and the entry it names (`!{default}` drops the bundled project-context default)" \
-        in activation
+    assert ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+            "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, "
+            "which drops each earlier entry it names") in activation
+    assert "except a `!` entry and the entry it names" not in activation
     assert "`{project-root}/_bmad/custom/skf-create-skill.toml` (team overrides, committed)" in activation
     assert "`_bmad/custom/skf-create-skill.toml` under `{project-root}`" not in activation
+
+
+def _hook_comment(key: str) -> str:
+    """The comment block directly above `key = ...` in customize.toml, as one line."""
+    lines = _read(CS / "customize.toml").splitlines()
+    [at] = [i for i, line in enumerate(lines) if line.startswith(f"{key} = ")]
+    block = []
+    for line in reversed(lines[:at]):
+        if line.startswith("#"):
+            block.append(line.lstrip("# "))
+        elif block:
+            break
+    return " ".join(reversed(block))
+
+
+def test_the_hook_comments_name_the_steps_that_run_them():
+    """#1111: prepend runs in step 3, with no uv probe to precede; the append entries run once, after step 4
+    resolves the emitter and before step 5 loads the first stage, and SKILL.md says so."""
+    prepend = _hook_comment("activation_steps_prepend")
+    assert "uv probe" not in prepend
+    assert "SKILL.md On Activation step 3" in prepend
+    assert "after the config load (step 1) and the headless flag (step 2)" in prepend
+    step3 = " ".join(_section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ").split())
+    assert ("After step 4 and before step 5 loads load-brief.md or batch-mode.md, execute each entry in "
+            "`workflow.activation_steps_append` in order; a --batch run executes them once, not per brief.") in step3
+    assert "After activation completes" not in step3
+    append = _hook_comment("activation_steps_append")
+    assert "after step 4 and before step 5 loads load-brief.md or batch-mode.md" in append
+    assert "once, not per brief" in append
 
 
 # --------------------------------------------------------------------------

@@ -27,8 +27,8 @@ activation_steps_append = []
 
 # Persistent facts the workflow keeps in mind for the whole campaign
 # (house style, naming conventions, quality guardrails). These are injected
-# into every per-skill kickoff, so project-scoped house facts propagate to
-# the whole campaign. Overrides append.
+# into every per-skill kickoff, so a campaign-wide fact reaches every skill.
+# Overrides append.
 #
 # Each entry is one of:
 #   - a literal sentence, e.g. "All skills must cite their upstream source."
@@ -38,27 +38,28 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The kickoff script expands each `file:` entry when it renders a Tier A
-# kickoff (a `**` glob recursively, so the default below takes every
-# project-context.md under {project-root}) and inlines each matching file in
-# full into every kickoff. Overrides append, and the script drops a `!`
-# entry and each earlier entry it names, so to keep those files out of every
-# Tier A kickoff, set in {project-root}/_bmad/custom/skf-campaign.toml:
-#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
+# Ships empty: these facts are campaign-scoped. Brief, Create and Test
+# Skill each load their own persistent_facts, every project-context.md
+# under {project-root} by default, and the kickoff script inlines each file
+# listed here in full into every Tier A kickoff, so listing those files
+# here puts them in each skill's context twice. To add them anyway, set in
+# {project-root}/_bmad/custom/skf-campaign.toml:
+#   [workflow]
+#   persistent_facts = ["file:{project-root}/**/project-context.md"]
 
-persistent_facts = [
-  "file:{project-root}/**/project-context.md",
-]
+persistent_facts = []
 
 # --- Workspace path ---
 #
 # Where the campaign keeps its state, backup, brief, batch input, archive,
-# and decision log. Empty string = use the bundled default
-# `{forge_data_folder}/_campaign`. Override to relocate campaign artifacts
-# (e.g. a shared volume) without editing every step file. Resolved once in
-# On Activation as {campaignWorkspacePath}.
+# and decision log. Default: {forge_data_folder}/_campaign (an empty string
+# means the same). Override to relocate campaign artifacts (e.g. a shared
+# volume) without editing every step file. Resolved once in On Activation
+# as {campaignWorkspacePath}: a bare path resolves from the skill root,
+# which every update overwrites, so name the folder as
+# {project-root}/<folder> or an absolute path.
 
-campaign_workspace_path = ""
+campaign_workspace_path = "{forge_data_folder}/_campaign"
 
 # --- Quality gate ---
 #
@@ -86,21 +87,29 @@ quality_gate_hard = "zero-critical-high"
 quality_gate_soft_target = 90
 quality_gate_soft_fallback = 80
 
-# --- Optional template overrides ---
-#
+# --- Optional template overrides. An empty string means the default named below. ---
+
 # Lift the canonical template paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default under
-# `templates/`.
+# without forking the skill. Each defaults to its bundled file under
+# templates/, a path from the skill root. Keep a house-style copy outside the
+# skill folder, which every update overwrites, and name it as
+# {project-root}/<path to the copy>. On Activation step 3 halts the campaign
+# (exit 2, `invalid-input`) on one that names no readable file, before Setup
+# or a resume (`campaign status` skips it).
 
-report_template_path = ""
-kickoff_template_path = ""
-brief_template_path = ""
+report_template_path = "templates/campaign-report-template.md"
+kickoff_template_path = "templates/kickoff-template.md"
+brief_template_path = "templates/campaign-brief-template.yaml"
 
-# Optional post-completion hook. When non-empty, step-11 invokes it once
-# the campaign is finished: after the report and the final state write
-# (current_stage 10), before the headless result envelope:
-#   <on_complete> --report-path=<path-to-campaign-report.md>
+# Optional post-completion hook: a shell command, not an instruction. When
+# non-empty, step-11 runs it from {project-root} once the campaign is
+# finished: after the report and the final state write (current_stage 10),
+# before the headless result envelope:
+#   <on_complete> --report-path="<path-to-campaign-report.md>"
 # --report-path is passed only when the report was written; a report that
 # could not be generated leaves the hook called without it. Failures are
-# logged to the decision log but never fail the campaign. Empty = no-op.
+# logged to the decision log but never fail the campaign.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
+# Empty = no-op.
 on_complete = ""

@@ -610,7 +610,8 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     dropped `forbid_purge_in_headless` override is never silent: a failure
     prints one warning, and step 4 records the reason in the run sink once the
     run folder and the emitter exist, through a file, so every envelope from
-    there on carries it. #596: a `!` entry drops the project-context default."""
+    there on carries it. #1107: Drop ships no project-context default, and
+    its comment shows the two-line override that loads those files anyway."""
     activation = _section(_read(SKILL), "## On Activation", None)
     resolve = " ".join(_section(activation, "3. **Resolve workflow customization.**", "4. **Pre-flight").split())
     assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
@@ -626,10 +627,12 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                   "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
                   "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran)",
-                  "the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
-                  "`!` drops each earlier entry it names and loads nothing itself, so an override's "
-                  '`"!file:{project-root}/**/project-context.md"` turns that default off'):
+                  "keep `workflow.persistent_facts` as standing context (if the resolver ran, `--facts` has "
+                  "applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a "
+                  "`file:` entry names one file)"):
         assert token in resolve, token
+    # Drop ships no default, so the step names none.
+    assert "the bundled default loads" not in resolve
     # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
     assert re.search(r"(?<!\{project-root\}/)_bmad/", resolve) is None
     preflight = " ".join(_section(activation, "**Pre-flight: helpers", "5. Load").split())
@@ -648,13 +651,17 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     assert ("(step 3, a `--dry-run` at the confirmation gate, or an interactive HALT in step 1 or 2 deletes it; "
             "any other HALT keeps it)") in preflight
     toml = _read(CUSTOMIZE)
-    comment = _comment(toml, "# Persistent facts the workflow keeps", "persistent_facts = [\n")
-    assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-drop-skill.toml: '
-            '[workflow] persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comment
+    # #1107: no Drop Skill stage reads the project context, so the list ships empty and the comment shows the opt-in.
+    assert tomllib.loads(toml)["workflow"]["persistent_facts"] == []
+    comment = _comment(toml, "# Persistent facts the workflow keeps", "persistent_facts = []\n")
+    assert ("Ships empty: no Drop Skill stage reads the project context. To load every project-context.md under "
+            "{project-root} anyway, set in {project-root}/_bmad/custom/skf-drop-skill.toml: "
+            '[workflow] persistent_facts = ["file:{project-root}/**/project-context.md"]') in comment
+    assert "!file:" not in comment and "The default below" not in comment
     # The example is an override file as written: under the table, where the resolver's `--key workflow` reads it.
     example = _section(toml, "skf-drop-skill.toml:\n", "\n\n")
     override = tomllib.loads("\n".join(line.lstrip("#").strip() for line in example.splitlines()[1:]))
-    assert override == {"workflow": {"persistent_facts": ["!file:{project-root}/**/project-context.md"]}}
+    assert override == {"workflow": {"persistent_facts": ["file:{project-root}/**/project-context.md"]}}
     assert "Each entry is either:" not in comment
     assert ("Each entry is one of: - a literal sentence" in comment
             and "- an entry prefixed with `!`, which loads nothing and drops each earlier entry it names." in comment)
@@ -844,7 +851,7 @@ def test_hook_comments_match_when_the_hooks_run():
             < activation.index("then run `workflow.activation_steps_append` after")
             < activation.index("**Pre-flight: helpers"))
     on_complete = _comment(toml, "# Optional post-drop hook", 'on_complete = ""')
-    assert "`<command> --result-path=<path>`" in on_complete
+    assert '`<command> --result-path="<path>"`' in on_complete
     assert "a dry run, a HALT or a failed record write never calls it" in on_complete
     hook = _section(_read(REPORT), "### Post-drop hook", "### 3. ")
     assert "`{result_json_path}` is not null" in hook

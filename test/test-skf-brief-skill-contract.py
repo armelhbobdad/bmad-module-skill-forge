@@ -100,7 +100,7 @@ HALT_SITE_FILES = (GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_D
 # The [auto] success path: the envelope, the hook, the run folder's removal, the chain.
 AUTO_SUCCESS = "### 3. Envelope, Hook and Chain"
 HALT_LINE_RE = re.compile(r'halt_reason: "(?P<reason>[a-z-]+)".*\bHALT\b.*?exit code (?P<code>\d+)')
-HOOK_CALL = "{onCompleteCommand} --result-path={brief_path}"
+HOOK_CALL = '{onCompleteCommand} --result-path="{brief_path}"'
 SHARED_HEALTH_CHECK = REPO / "src" / "shared" / "health-check.md"
 # The two success sites, each with the section that builds the line.
 SUCCESS_SITES = ((WRITE_BRIEF, "### 4b. Result Envelope (Headless)"), (AUTO_VALIDATE, AUTO_SUCCESS))

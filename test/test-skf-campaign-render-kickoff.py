@@ -5,10 +5,12 @@ that step-05 used to leave to the model included: {{brief_summary}} from the
 skill's brief target entry, {{directive_content}} byte for byte from
 --directive-file (or "No directive configured"), and {{persistent_facts}} from
 --facts-json (or "None"), read from stdin as the customization resolver prints
-it, with {project-root} resolved by --project-root, and {{workarounds_list}}
-from the pre-apply log (--workarounds-file), each applied workaround formatted
-by the script. Also checks that step-05's call fits the script's CLI, passes
-no JSON through shell quoting, and routes each exit 2 the script can give.
+it, or from customize.toml (--facts-toml) when the resolver cannot run, with
+{project-root} resolved by --project-root and the `!` drop and the glob run by
+the customization helper's own code (#1106), and {{workarounds_list}} from the
+pre-apply log (--workarounds-file), each applied workaround formatted by the
+script. Also checks that step-05's call fits the script's CLI, passes no JSON
+through shell quoting, and routes each exit 2 the script can give.
 """
 
 from __future__ import annotations
@@ -16,10 +18,13 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import re
 import shlex
+import subprocess
 import sys
+import tomllib
 
 import pytest
 import yaml
@@ -276,8 +281,8 @@ class TestLoadFacts:
             mod.load_facts(["file:{skill-root}/facts.md"], str(tmp_path))
 
     def test_a_drop_entry_after_the_default_drops_it_and_adds_no_fact(self, tmp_path):
-        """`!file:...` in a team or personal override drops the bundled
-        project-context.md default from every Tier A kickoff."""
+        """`!file:...` in a personal override drops the project-context.md
+        entry a team override adds from every Tier A kickoff."""
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "project-context.md").write_bytes(b"rule\n")
         default = "file:{project-root}/**/project-context.md"
@@ -298,6 +303,23 @@ class TestLoadFacts:
         gone = f"file:{(tmp_path / 'team.md').as_posix()}"
         assert mod.load_facts([gone, f"!{gone}"]) == []
         assert mod.load_facts(["file:{skill-root}/facts.md", "!file:{skill-root}/facts.md"], str(tmp_path)) == []
+
+    def test_a_kept_clone_s_context_is_never_read(self, tmp_path):
+        """#1106: a halted Analyze Source run keeps its source clones under
+        _bmad-output/.skf-run/; the default glob, and an entry that names the
+        folder outright, read none of their project-context.md files."""
+        (tmp_path / "docs").mkdir()
+        ctx = tmp_path / "docs" / "project-context.md"
+        ctx.write_bytes(b"rule\n")
+        clone = tmp_path / "_bmad-output" / ".skf-run" / "x" / "source-1"
+        clone.mkdir(parents=True)
+        (clone / "project-context.md").write_bytes(b"the clone's rule\n")
+        assert mod.load_facts(["file:{project-root}/**/project-context.md"], str(tmp_path)) == [
+            f"From `{ctx.as_posix()}`:\n\nrule\n"
+        ]
+        assert mod.load_facts(["file:{project-root}/_bmad-output/.skf-run/**/project-context.md",
+                               "file:{project-root}/_bmad-output/.skf-run/x/source-1/project-context.md"],
+                              str(tmp_path)) == []
 
 
 class TestReadDirective:
@@ -408,7 +430,7 @@ class TestRun:
         sf, bf, tf = self._files(tmp_path)
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "project-context.md").write_bytes(b"Keep names stable.\n")
-        # The bundled default, then a team override that drops it.
+        # A team override that adds the project-context.md entry, then a personal override that drops it.
         resolved = {"workflow.persistent_facts": [
             "file:{project-root}/**/project-context.md", "!file:{project-root}/**/project-context.md",
         ]}
@@ -559,6 +581,89 @@ class TestRun:
         assert rc == 2
         assert self._code(capsys) == "BAD_WORKAROUNDS"
 
+    def test_facts_toml_reads_the_bundled_list(self, tmp_path, capsys):
+        """#1106: step-05's fallback when the resolver cannot run; `{project-root}` and the drop as for --facts-json."""
+        sf, bf, tf = self._files(tmp_path)
+        (tmp_path / "docs").mkdir()
+        ctx = tmp_path / "docs" / "project-context.md"
+        ctx.write_bytes(b"Keep names stable.\n")
+        toml = tmp_path / "customize.toml"
+        toml.write_text('[workflow]\npersistent_facts = [\n  "Cite sources.",\n'
+                        '  "file:{project-root}/**/project-context.md",\n  "file:{project-root}/style.md",\n'
+                        '  "!file:{project-root}/style.md",\n]\n', encoding="utf-8")
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, project_root=str(tmp_path), facts_toml=str(toml))
+        assert rc == 0
+        assert _section(capsys.readouterr().out, "Campaign Facts") == "\n".join([
+            "- Cite sources.",
+            f"- From `{ctx.as_posix()}`:",
+            "",
+            "  Keep names stable.",
+        ])
+
+    def test_facts_toml_reads_the_shipped_customize_toml(self, tmp_path, capsys):
+        sf, bf, tf = self._files(tmp_path)
+        shipped = REPO_ROOT / "src" / "skf-campaign" / "customize.toml"
+        bundled = tomllib.loads(shipped.read_text(encoding="utf-8"))["workflow"]["persistent_facts"]
+        assert mod.read_facts_toml(str(shipped)) == bundled
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, project_root=str(tmp_path), facts_toml=str(shipped))
+        assert rc == 0
+
+    @pytest.mark.parametrize("content", ["", '[workflow]\nname = "x"\n', "[other]\nx = 1\n"],
+                             ids=["empty", "no-key", "no-table"])
+    def test_facts_toml_without_a_list_is_none(self, tmp_path, capsys, content):
+        sf, bf, tf = self._files(tmp_path)
+        toml = tmp_path / "customize.toml"
+        toml.write_text(content, encoding="utf-8")
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, project_root=str(tmp_path), facts_toml=str(toml))
+        assert rc == 0
+        assert _section(capsys.readouterr().out, "Campaign Facts") == "None"
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            None,
+            b"[workflow\npersistent_facts = []\n",
+            b"\xff\xfe not utf-8",
+            b'workflow = "flat"\n',
+            b'[workflow]\npersistent_facts = "file:{project-root}/x.md"\n',
+            b"[workflow]\npersistent_facts = [1, 2]\n",
+            b'[workflow]\npersistent_facts = ["file:{skill-root}/facts.md"]\n',
+        ],
+        ids=["missing", "invalid-toml", "not-utf8", "workflow-not-a-table", "not-a-list", "non-string",
+             "unresolved-placeholder"],
+    )
+    def test_bad_facts_toml_exit_2(self, tmp_path, capsys, content):
+        sf, bf, tf = self._files(tmp_path)
+        toml = tmp_path / "customize.toml"
+        if content is not None:
+            toml.write_bytes(content)
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, project_root=str(tmp_path), facts_toml=str(toml))
+        assert rc == 2
+        err = json.loads(capsys.readouterr().err.strip())
+        assert err["code"] == "BAD_FACTS" and err["error"].startswith("--facts-toml: ")
+
+    def test_unreadable_facts_toml_exit_2(self, tmp_path, capsys, monkeypatch):
+        sf, bf, tf = self._files(tmp_path)
+        toml = tmp_path / "customize.toml"
+        toml.write_text("[workflow]\npersistent_facts = []\n", encoding="utf-8")
+        _deny_read_bytes(monkeypatch, toml.name)
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, facts_toml=str(toml))
+        assert rc == 2
+        assert self._code(capsys) == "BAD_FACTS"
+
+    def test_facts_toml_and_facts_json_are_exclusive(self, tmp_path, capsys):
+        sf, bf, tf = self._files(tmp_path)
+        toml = tmp_path / "customize.toml"
+        toml.write_text("[workflow]\npersistent_facts = []\n", encoding="utf-8")
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, facts_json="[]", facts_toml=str(toml))
+        assert rc == 2
+        assert self._code(capsys) == "BAD_FACTS"
+        with pytest.raises(SystemExit) as stop:
+            mod.main(["--state-file", str(sf), "--brief-file", str(bf), "--skill", "auth", "--template", str(tf),
+                      "--facts-json", "[]", "--facts-toml", str(toml)])
+        assert stop.value.code == 2
+        assert "not allowed with argument" in capsys.readouterr().err
+
     def test_main_takes_every_flag(self, tmp_path, capsysbinary):
         sf, bf, tf = self._files(tmp_path)
         directive = tmp_path / "_campaign-directive.md"
@@ -579,6 +684,54 @@ class TestRun:
         assert b"- Cite sources." in out and b"- wa-1" in out and b"  Ctx rule." in out
         # The only {{...}} left is the one the directive itself holds.
         assert out.count(b"{{") == 1 and b"keep {{pin}} as written" in out
+
+    def test_main_takes_the_fallback_s_facts_toml(self, tmp_path, capsysbinary):
+        """#1106: step-05's call when the resolver cannot run; main hands --facts-toml and --project-root on."""
+        sf, bf, tf = self._files(tmp_path)
+        (tmp_path / "ctx").mkdir()
+        ctx = tmp_path / "ctx" / "project-context.md"
+        ctx.write_bytes(b"Ctx rule.\n")
+        toml = tmp_path / "customize.toml"
+        toml.write_text('[workflow]\npersistent_facts = ["Cite sources.", "file:{project-root}/**/project-context.md"]\n',
+                        encoding="utf-8")
+        rc = mod.main([
+            "--state-file", str(sf), "--brief-file", str(bf), "--skill", "auth", "--template", str(tf),
+            "--facts-toml", str(toml), "--project-root", str(tmp_path),
+        ])
+        assert rc == 0
+        assert _section(capsysbinary.readouterr().out.decode("utf-8"), "Campaign Facts") == "\n".join([
+            "- Cite sources.",
+            f"- From `{ctx.as_posix()}`:",
+            "",
+            "  Ctx rule.",
+        ])
+
+    def test_a_kickoff_without_the_shared_helper(self, tmp_path):
+        """#1106 review: copied where no shared/ folder sits beside it, the script still renders a kickoff whose
+        facts need neither a `!` drop nor a file, as Campaign's empty default does, and names the missing helper
+        when an entry needs it, instead of calling the helper a missing facts file."""
+        script = tmp_path / "skf-campaign" / "scripts" / SCRIPT.name
+        script.parent.mkdir(parents=True)
+        script.write_bytes(SCRIPT.read_bytes())
+        sf, bf, tf = self._files(tmp_path)
+
+        def kickoff(facts: list) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                [sys.executable, str(script), "--state-file", str(sf), "--brief-file", str(bf), "--skill", "auth",
+                 "--template", str(tf), "--facts-json", json.dumps(facts)],
+                capture_output=True, encoding="utf-8", timeout=60,
+            )
+
+        for facts, listed in (([], "None"), (["Use tabs."], "- Use tabs.")):
+            proc = kickoff(facts)
+            assert proc.returncode == 0, proc.stderr
+            assert _section(proc.stdout, "Campaign Facts").strip() == listed
+        for entry in (f"file:{(tmp_path / 'ctx.md').as_posix()}", "!Use tabs."):
+            proc = kickoff(["Use tabs.", entry])
+            assert proc.returncode == 2
+            err = json.loads(proc.stderr)
+            assert err["code"] == "HELPER_MISSING", err
+            assert "skf-resolve-customization.py" in err["error"] and "re-install SKF" in err["error"]
 
 
 def _step05_pipeline() -> list[str]:
@@ -613,6 +766,7 @@ class TestStep05Call:
         assert args.facts_json == "-"
 
     def test_call_passes_every_flag(self):
+        """Every flag but --facts-toml, which the fallback passes in place of `--facts-json -` (#1106)."""
         called = {t.lstrip("[") for t in shlex.split(_kickoff_call()) if t.lstrip("[").startswith("--")}
         flags = {
             opt
@@ -620,7 +774,15 @@ class TestStep05Call:
             for opt in action.option_strings
             if opt.startswith("--") and opt != "--help"
         }
-        assert called == flags
+        assert called == flags - {"--facts-toml"}
+        # The fallback call: the same call with `--facts-toml <customize.toml>` in place of `--facts-json -`.
+        tokens = [t.lstrip("[").rstrip("]") for t in shlex.split(_kickoff_call())[3:]]
+        tokens = ["value" if t.startswith(("{", "<")) else t for t in tokens]
+        at = tokens.index("--facts-json")
+        assert tokens[at:at + 2] == ["--facts-json", "-"]
+        tokens[at:at + 2] = ["--facts-toml", "customize.toml"]
+        args = mod.build_parser().parse_args(tokens)
+        assert (args.facts_toml, args.facts_json) == ("customize.toml", None)
 
     def test_the_resolver_pipes_the_facts(self):
         resolver, kickoff = _step05_pipeline()
@@ -635,7 +797,8 @@ class TestStep05Call:
 
     def test_no_fact_is_built_by_hand(self):
         text = STEP_05.read_text(encoding="utf-8")
-        assert "`--facts-json -` takes `workflow.persistent_facts` from the resolver unchanged." in text
+        assert ("`--facts-json -` takes `workflow.persistent_facts` from the resolver unchanged, and the script drops "
+                "each `!` entry and expands each glob with the resolver's own code.") in text
         for gone in ("one `file:<path>` entry per file", "no fact is typed", "`brief_path` plays no part"):
             assert gone not in text
 
@@ -646,7 +809,12 @@ class TestStep05Call:
         assert "[--workarounds-file {preapplyLogFile}]" in call
         assert "\\u0027" not in text and "single-quoted JSON" not in text
         assert "--facts-json '" not in text
-        assert "replace the pipe with `< {factsFile}`" in text
+        # #1106: the fallback hands the script the bundled customize.toml; no list is retyped as JSON.
+        assert ("When the resolver is missing or fails, run the call without the pipe, with "
+                "`--facts-toml {skill-root}/customize.toml` in place of `--facts-json -`: the script reads the "
+                "bundled list itself, so no fact or workaround ever passes through shell quoting.") in text
+        for gone in ("{factsFile}", "_facts.json", "factsFile:", "as a JSON list with your file-writing tool"):
+            assert gone not in text, gone
         assert "leave `--workarounds-file` out of the kickoff call below" in text
         assert (
             "An exit 2 with no JSON on stderr is a usage error from a mangled call, not invalid input: "
@@ -674,3 +842,70 @@ class TestStep05Call:
         assert "judgment slot" not in text
         for slot in FORMER_JUDGMENT_SLOTS:
             assert slot not in text
+
+
+class TestCampaignShipsNoFacts:
+    """#1107: Campaign ships an empty persistent_facts, since Brief, Create and
+    Test Skill load the project context in their own runs. Through step-05's
+    pipe, a Tier A kickoff holds a project-context.md only when the team
+    override its comment shows adds it, and a personal override's `!` entry
+    drops it again. The --facts-toml fallback reads the shipped file alone, so
+    its kickoff holds none."""
+
+    SHIPPED = REPO_ROOT / "src" / "skf-campaign" / "customize.toml"
+    HELPER = REPO_ROOT / "src" / "shared" / "scripts" / "skf-resolve-customization.py"
+    # The helper's own test keeps a stand-in for BMAD core 6.12's resolver (CORE_6_12).
+    CORE = REPO_ROOT / "test" / "test-skf-resolve-customization.py"
+
+    def _project(self, tmp_path):
+        root = tmp_path / "project"
+        (root / "docs").mkdir(parents=True)
+        (root / "docs" / "project-context.md").write_bytes(b"Keep names stable.\n")
+        spec = importlib.util.spec_from_file_location("skf_resolve_customization_for_kickoff", self.CORE)
+        core = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(core)
+        (root / "_bmad" / "scripts").mkdir(parents=True)
+        (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(core.CORE_6_12.encode("utf-8"))
+        (root / "_bmad" / "custom").mkdir()
+        return root
+
+    def _kickoff_facts(self, tmp_path, root, monkeypatch, capsys, **facts) -> str:
+        sf, bf, tf = TestRun()._files(tmp_path)
+        if not facts:
+            # step-05's pipe: the resolver call it shows, its output on the script's stdin.
+            resolver = _step05_pipeline()[0]
+            words = [w.replace("{resolveCustomizationHelper}", str(self.HELPER))
+                     .replace("{skill-root}", str(self.SHIPPED.parent)).replace("{project-root}", str(root))
+                     for w in shlex.split(resolver)]
+            assert words[:2] == ["uv", "run"]
+            env = {k: v for k, v in os.environ.items() if not k.startswith("SKF_TEST_")}
+            done = subprocess.run([sys.executable, *words[2:]], capture_output=True, cwd=root, timeout=120, env=env)
+            assert done.returncode == 0, done.stderr
+            _stdin(monkeypatch, done.stdout)
+            facts = {"facts_json": "-"}
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, project_root=str(root), **facts)
+        assert rc == 0
+        return _section(capsys.readouterr().out, "Campaign Facts")
+
+    def test_no_override_puts_no_project_context_in_a_kickoff(self, tmp_path, monkeypatch, capsys):
+        root = self._project(tmp_path)
+        assert mod.read_facts_toml(str(self.SHIPPED)) == []
+        assert self._kickoff_facts(tmp_path, root, monkeypatch, capsys) == "None"
+        assert self._kickoff_facts(tmp_path, root, monkeypatch, capsys, facts_toml=str(self.SHIPPED)) == "None"
+
+    def test_the_documented_opt_in_adds_it_and_a_personal_drop_removes_it(self, tmp_path, monkeypatch, capsys):
+        root = self._project(tmp_path)
+        text = self.SHIPPED.read_text(encoding="utf-8")
+        comment = text[:text.index("\npersistent_facts = []\n")].rsplit("\n\n", 1)[-1]
+        example = comment.split("{project-root}/_bmad/custom/skf-campaign.toml:\n", 1)[1]
+        team = "\n".join(line.removeprefix("#").strip() for line in example.splitlines()) + "\n"
+        (root / "_bmad" / "custom" / "skf-campaign.toml").write_bytes(team.encode("utf-8"))
+        ctx = (root / "docs" / "project-context.md").as_posix()
+        assert self._kickoff_facts(tmp_path, root, monkeypatch, capsys) == "\n".join([
+            f"- From `{ctx}`:",
+            "",
+            "  Keep names stable.",
+        ])
+        (root / "_bmad" / "custom" / "skf-campaign.user.toml").write_bytes(
+            b'[workflow]\npersistent_facts = ["!file:{project-root}/**/project-context.md"]\n')
+        assert self._kickoff_facts(tmp_path, root, monkeypatch, capsys) == "None"

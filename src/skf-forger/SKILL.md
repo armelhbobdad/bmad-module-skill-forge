@@ -90,12 +90,12 @@ Run these steps once, in order, before the first reply.
 3. **Resolve agent customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key agent
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key agent --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-forger.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Ferris keeps no run log of his own, so that line opens the greeting.
 
-   The bundled arrays are empty and the roster values stay as shipped: the persona and the menu are this file's. An override may add to the arrays, and each one applies: run `agent.activation_steps_prepend` in order now; treat each `agent.persistent_facts` entry as standing context for the session (a `file:` entry loads its file or glob contents as facts; an entry prefixed `!` drops each earlier entry it names and loads nothing itself); then run `agent.activation_steps_append` once step 6 has greeted, before it dispatches a pick.
+   The bundled arrays are empty and the roster values stay as shipped: the persona and the menu are this file's. An override may add to the arrays, and each one applies: run `agent.activation_steps_prepend` in order now; treat each `agent.persistent_facts` entry as standing context for the session (if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file); then run `agent.activation_steps_append` once step 6 has greeted, before it dispatches a pick.
 
 4. **Resolve `{headless_mode}`**: `true` if the invocation includes `--headless`/`-H` or `derived.headless_mode` is true, else `false`; pass it to all downstream workflows. Headless skips interaction gates, not progress reporting. See `shared/references/headless-gate-convention.md` for gate-type resolution.
 

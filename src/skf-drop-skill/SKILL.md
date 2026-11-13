@@ -63,7 +63,7 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-drop-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): the run folder does not exist yet, so step 4 records it.
@@ -73,7 +73,7 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
    - `{forbidPurgeInHeadless}` ← on when `workflow.forbid_purge_in_headless` holds any value other than the empty string (a TOML `true`, `false` or `"false"` included), else off
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 3 then runs no hook)
 
-   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` after.
+   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file), then run `workflow.activation_steps_append` after.
 
 4. **Pre-flight: helpers, run folder, write probe and headless-purge guard.** All of it runs before the first prompt, so a broken install or a read-only folder stops the run before the user answers anything. Each HALT below names its exit code, `halt_reason` and phase: in headless mode it prints its envelope as the Halt Envelope section of `references/invocation-contract.md` says, and an interactive HALT displays its message only.
 

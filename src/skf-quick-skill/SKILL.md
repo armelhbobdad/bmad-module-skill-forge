@@ -103,7 +103,7 @@ These rules apply to every step in this workflow:
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `helpers.resolveCustomization` in `{run_dir}/helpers.json`, which step 1 wrote (step 1 halts when the script is missing), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-quick-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero or prints no JSON, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) and, when `{emitEnvelopeHelper}` has a path, record it in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`. Under `--batch`, `references/batch-mode.md` §2 records that file in each target's run folder.
@@ -114,7 +114,7 @@ These rules apply to every step in this workflow:
    - `{batchOutputPath}` ← `workflow.batch_output_path`, else `{skills_output_folder}/_batch/`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 §3 then runs no hook)
 
-   Run each `workflow.activation_steps_prepend` entry now, in order. Hold every `workflow.persistent_facts` entry as standing context for the whole run; a `file:` entry loads the contents of the paths or globs it names: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off. Once step 4 has parsed the flags, before step 5 or 6 starts the run, run each `workflow.activation_steps_append` entry in order.
+   Run each `workflow.activation_steps_prepend` entry now, in order. Hold every `workflow.persistent_facts` entry as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file). Once On Activation step 4 has parsed the flags, before On Activation step 5 or 6 starts the run, run each `workflow.activation_steps_append` entry in order.
 
 4. **Parse CLI overrides** into the workflow context as `{overrides}`:
 

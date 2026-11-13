@@ -2064,6 +2064,10 @@ def test_the_template_comment_names_what_a_copy_must_keep():
         assert f"`{anchor}`" in comment and f"SKILL.md{anchor}" in template, anchor
     assert "metadata.json is read from a copy only when skf-render-quick-metadata.py is missing or fails twice" \
         in comment
+    # #1108: a bare path resolves from the skill root, which every update overwrites.
+    assert ("Default: assets/skill-template.md, a path from the skill root. Keep a house-style copy outside the "
+            "skill folder, which every update overwrites, and name it as {project-root}/<path to the copy>."
+            ) in " ".join(comment.split())
     validator = _load(SCRIPTS / "skf-validate-output.py", "skf_validate_output_for_quick_contract")
     body = validator.validate_body_structure(f"---\nname: x\n---\n{template}")
     assert body == [], "the bundled template carries every section the validator requires"
@@ -2075,13 +2079,16 @@ def test_the_hook_comments_match_when_skill_md_runs_them():
     assert "uv probe" not in prepend
     step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
     assert "Run each `workflow.activation_steps_prepend` entry now, in order." in step3
-    assert "Once step 4 has parsed the flags, before step 5 or 6 starts the run, run each " \
-           "`workflow.activation_steps_append` entry in order." in step3
-    assert "step 4 has parsed the CLI flags" in _comment_before("activation_steps_append")
+    # #1111: every step number says whether it is an On Activation step or a stage.
+    assert "Once On Activation step 4 has parsed the flags, before On Activation step 5 or 6 starts the run, " \
+           "run each `workflow.activation_steps_append` entry in order." in step3
+    append = _comment_before("activation_steps_append")
+    assert "SKILL.md On Activation step 4 has parsed the CLI flags" in append
+    assert "before stage 1 (references/resolve-target.md)" in append
 
 
 def test_the_persistent_facts_default_says_how_to_drop_it():
-    """#596 decision: a `!` entry in an override drops the default, and SKILL.md honours it."""
+    """#596 decision: a `!` entry in an override drops the default, which the customization helper applies (#1106)."""
     assert _customize()["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
     comment = _comment_before("persistent_facts")
     for needle in ("loads every project-context.md under {project-root}",
@@ -2091,7 +2098,7 @@ def test_the_persistent_facts_default_says_how_to_drop_it():
     for stale in ("cannot remove it", "add a literal fact"):
         assert stale not in comment, stale
     step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
-    assert "an entry prefixed `!` drops each earlier entry it names and loads nothing itself" in step3
+    assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in step3
 
 
 def test_the_on_complete_comment_is_the_call_finalize_makes():
@@ -2099,20 +2106,24 @@ def test_the_on_complete_comment_is_the_call_finalize_makes():
     emitter wrote the result file, so it never reads a missing file or an earlier run's -latest copy."""
     comment = _comment_before("on_complete")
     assert "a shell command, not an instruction" in comment
-    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in comment
+    assert '<on_complete> --result-path="<skill package>/quick-skill-result-latest.json"' in comment
     assert "--skill-package" not in _read(CUSTOMIZE) and "--skill-package" not in _read(FINALIZE)
     for needle in ("is skipped when the emitter wrote no result file", "once per target that finishes",
                    "a HARD HALT never runs it", "never fails the workflow"):
         assert needle in comment, needle
     hook = _section(_read(FINALIZE), "**Post-completion hook (optional).**", "In a single-target run")
     assert _bash_block(hook, "{onCompleteCommand}") == (
-        "{onCompleteCommand} --result-path={skill_package}/quick-skill-result-latest.json\n")
+        '{onCompleteCommand} --result-path="{skill_package}/quick-skill-result-latest.json"\n')
     assert ("and the emitter wrote the result contract (the line it printed has a non-null `result_path` and no "
             "`result_file_write_failed` warning naming `quick-skill-result-latest.json`)") in hook
     assert ("When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `result_path` is null, or a "
             "`result_file_write_failed` warning names `quick-skill-result-latest.json` (the copy alone failed), "
             "skip the hook and say so") in hook
     assert "Under `--batch` it runs once per target that reaches this section." in hook
+    # #1109: the hook runs from the project root with a 60s timeout, and a timeout is a logged failure.
+    assert ("Run it from `{project-root}` with a 60s timeout. Log success or failure, a timeout counting as a "
+            "failure, but never fail the workflow on a hook error") in hook
+    assert "Step 6 runs it from {project-root}, with a 60s timeout, once the success envelope is printed" in comment
 
 
 def test_the_hook_finds_the_skill_package_from_its_result_path(tmp_path):

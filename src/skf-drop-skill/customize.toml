@@ -37,24 +37,24 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-drop-skill.toml:
+# Ships empty: no Drop Skill stage reads the project context. To load
+# every project-context.md under {project-root} anyway, set in
+# {project-root}/_bmad/custom/skf-drop-skill.toml:
 #   [workflow]
-#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
+#   persistent_facts = ["file:{project-root}/**/project-context.md"]
 
-persistent_facts = [
-  "file:{project-root}/**/project-context.md",
-]
+persistent_facts = []
 
 # Optional post-drop hook: a shell command, run as
-# `<command> --result-path=<path>` once step 3 (references/report.md) has
+# `<command> --result-path="<path>"` once step 3 (references/report.md) has
 # written the drop's result record. It runs only after a drop whose record
 # the emitter wrote (report.md skips it when `result_path` is null), so a
 # dry run, a HALT or a failed record write never calls it. A hook that
 # exits non-zero is shown as a line of its own and never fails the drop,
 # which may already be irreversible. Useful for an audit-log emit, a
 # notifier or a ticket-tracker update after a purge.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 
 on_complete = ""
 

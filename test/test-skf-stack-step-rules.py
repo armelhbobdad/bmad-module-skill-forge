@@ -2697,6 +2697,71 @@ def test_contract_settings_are_off_the_override_surface():
     assert "`assets/provenance-map-schema.md`" in _sections(_body(_read(GENERATE)))["7"]
 
 
+# --- #1108 (create-stack part): what a house copy of the template must keep ---------
+
+
+def _customize_comment(key: str) -> str:
+    """The comment block right above `key = ...` in customize.toml (the lines after the last blank line)."""
+    text = CUSTOMIZE.read_text(encoding="utf-8")
+    return text[: text.index(f"\n{key} =")].rsplit("\n\n", 1)[-1]
+
+
+def _template_top_headings() -> list[str]:
+    """The template's `## ` headings outside its code fences: the structures the steps find by name."""
+    found, fenced = [], False
+    for line in _read(TEMPLATE).splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## "):
+            found.append(line)
+    return found
+
+
+def test_the_template_comment_names_what_a_copy_must_keep():
+    """#1108: the comment names the steps that read the template, its real default, and each heading the
+    steps and skf-validate-output.py find by name; every heading it names is one the bundled template holds."""
+    import tomllib
+
+    assert tomllib.loads(CUSTOMIZE.read_text(encoding="utf-8"))["workflow"]["stack_skill_template_path"] == (
+        "assets/stack-skill-template.md")
+    comment = _customize_comment("stack_skill_template_path")
+    flat = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
+    assert ("The template steps 6 (references/compile-stack.md sections 1, 2, 4 and 6), 7 "
+            "(references/generate-output.md sections 3 to 5) and 8 (the body split of references/validate.md "
+            "section 3) build the stack from. Default: assets/stack-skill-template.md, a path from the skill "
+            "root.") in flat
+    lines = {line.strip() for line in _read(TEMPLATE).splitlines()}
+    named = re.findall(r"`(#{2,3} [^`]+)`", comment)
+    assert named, "the comment names no heading"
+    for heading in named:
+        assert heading in lines, f"the template comment names `{heading}`, which the bundled template lacks"
+    top = _template_top_headings()
+    assert len(top) == 6, top
+    for heading in top:
+        assert f"`{heading}`" in comment, f"the template comment leaves out `{heading}`"
+    validator = _load(VALIDATOR, "skf_validate_output_template_comment")
+    for name in (validator._INTEGRATION_PATTERNS, validator._REFERENCE_INDEX, validator._PER_LIBRARY,
+                 validator._CATALOG_POINTER, validator._CONVENTIONS, *validator._LIBRARY_FILE_HEADINGS,
+                 *validator._PAIR_FILE_HEADINGS):
+        assert f"`## {name}`" in comment, f"the template comment leaves out `## {name}`, which step 8 checks"
+    assert f"`### {validator._PAIR_INTEGRATIONS}`" in comment
+    assert "`### Cross-Cutting Patterns`" in comment, "Test Skill's coherence check counts it"
+
+
+def test_the_integration_patterns_comment_says_what_step_5_does_with_it():
+    import tomllib
+
+    assert tomllib.loads(CUSTOMIZE.read_text(encoding="utf-8"))["workflow"]["integration_patterns_path"] == (
+        "references/integration-patterns.md")
+    flat = " ".join(line.lstrip("#").strip() for line in _customize_comment("integration_patterns_path").splitlines())
+    for token in ("The integration types step 5 (references/detect-integrations.md section 3) classifies every pair "
+                  "against, in both modes.",
+                  "name a copy kept outside the skill folder as {project-root}/<path to the copy>.",
+                  "step 5 writes each type name verbatim to the pair's `type` in the stack bundle"):
+        assert token in flat, token
+    assert "Load `{integrationPatternsPath}` for classification rules." in _sections(_body(_read(DETECT)))["3"]
+
+
 # --- #600 (create-stack part): one home per rule -----------------------------------
 
 
@@ -2851,3 +2916,35 @@ def test_the_contract_pointers_are_current():
     assert "(the `init:emitter` halt, with no emitter, only displays its message)" in _read(STACK_SKILL)
     description = _schema()["description"]
     assert "lists each halt with its step; each halting step file shows the emit-halt command" in description
+
+
+# --- #1109 (create-stack part): the hook gets the -latest record, or is skipped ----
+
+
+def test_the_hook_gets_the_latest_record_and_is_skipped_without_one():
+    """#1109: §2c passes the `-latest` record §2b wrote, quoted and from the project root, and skips the hook
+    with one report line when the emitter wrote no line, no `-latest` record or no per-run record, so the hook
+    never reads a missing file or an earlier forge's record. A missing atomic writer or a failed group-root
+    copy leaves the version folder's `-latest` record in place, so neither skips it. The comment shows the
+    same call."""
+    two_c = _sections(_body(_read(REPORT)))["2c"]
+    assert "invoke it now from `{project-root}`, after §2b and before chaining to health-check" in two_c
+    assert ('```bash\n{onCompleteCommand} --result-path="{forge_version}/create-stack-skill-result-latest.json"\n'
+            '```') in two_c
+    skip = _from(two_c, "Skip it when").split("\n\n")[0]
+    for token in ("Skip it when the emitter printed no line, a `result_file_write_failed` warning names "
+                  "`create-stack-skill-result-latest.json` or `{forge_version}` itself, or the line's `result_path` "
+                  "is null",
+                  '"on_complete skipped: no result contract was written ({reason})"',
+                  "the hook never gets a missing file or an earlier forge's record"):
+        assert token in skip, token
+    assert "group-root" not in skip, skip
+    assert two_c.index("Skip it when") < two_c.index("Run it with a bounded timeout (default 60s)")
+    assert "The hook runs even when" not in _read(REPORT)
+    assert "**The hook must never fail the workflow**" in two_c
+    comment = " ".join(line.lstrip("#").strip() for line in _customize_comment("on_complete").splitlines())
+    for token in ("a shell command, not an instruction", "runs it from {project-root}",
+                  '<on_complete> --result-path="<{forge_version}/create-stack-skill-result-latest.json>"',
+                  "It is skipped, with a report line saying so, when the emitter wrote no result file or not that "
+                  "-latest copy"):
+        assert token in comment, token

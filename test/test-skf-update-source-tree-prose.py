@@ -5172,7 +5172,7 @@ def test_finished_runs_fire_on_complete_and_read_only_runs_do_not(tmp_path):
     latest = json.loads((forge_version / "update-skill-result-latest.json").read_bytes())
     assert latest["summary"]["update_status"] == "success" and latest["run_id"] == "a1B2c3D4"
     assert line["security_result"] == latest["summary"]["security_result"] == "warn"
-    assert "{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json" in five_b
+    assert '{onCompleteCommand} --result-path="{forge_version}/update-skill-result-latest.json"' in five_b
     assert "`--detect-only`, `--dry-run` and a halt never do (customize.toml says so)" in five_b
     # a hook failure is told to the user: the line and the result files are written before the hook runs, and
     # customize.toml no longer promises it in warnings[]
@@ -5211,7 +5211,7 @@ def test_the_hook_runs_only_when_this_run_wrote_the_latest_copy(tmp_path):
     # the warnings[] field rule lists the entry the hook reads
     [rule] = [line for line in five_b.splitlines() if line.startswith("- `warnings[]`:")]
     assert "`result_file_write_failed`" in rule
-    command = "{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json"
+    command = '{onCompleteCommand} --result-path="{forge_version}/update-skill-result-latest.json"'
     assert five_b.index("hold no entry that starts with") < five_b.index(command) < five_b.index("on_complete skipped")
     assert "nor when a run halts or did not write its -latest copy." in _read(CUSTOMIZE)
     emit = _emit_line(five_b)
@@ -6214,8 +6214,9 @@ def test_persistent_facts_default_can_be_dropped():
     assert '#   persistent_facts = ["!file:{project-root}/**/project-context.md"]' in toml_text
     assert "(uv probe, config load)" not in toml_text
     activation = _slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load")
-    assert ("an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's "
-            '`"!file:{project-root}/**/project-context.md"` turns that default off') in activation
+    assert ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+            "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, "
+            "which drops each earlier entry it names, and expanded each glob") in activation
 
 
 def test_activation_runs_the_resolver_through_uv_and_records_its_failure():

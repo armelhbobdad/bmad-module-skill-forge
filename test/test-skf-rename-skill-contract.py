@@ -312,7 +312,9 @@ def test_the_flag_answers_the_source_authority_gate_for_one_run():
     assert "proceed only when `{forceSourceAuthorityInHeadless}` is true" in gate
     halt = next(line for line in gate.splitlines() if '"source-authority-blocked"' in line)
     assert f"pass `{FLAG}` with the invocation" in halt, "the halt says how to proceed"
-    assert "in your team or personal customization of skf-rename-skill" in halt
+    assert ('or set `force_source_authority_in_headless = "true"` under `[workflow]` in '
+            '`{project-root}/_bmad/custom/skf-rename-skill.toml` (or `.user.toml`) to approve every headless rename '
+            "of an official skill.") in halt
     assert "customize.toml" not in halt, "never the DO-NOT-EDIT base file"
     assert halt.index("`{acknowledge_official}` is true") < halt.index('"source-authority-blocked"')
     row = next(line for line in _read(EXIT_CODES).splitlines() if line.startswith("| 5 "))
@@ -326,10 +328,42 @@ def test_the_setting_stays_a_standing_approval():
     """#596 decision: force_source_authority_in_headless is kept beside the flag."""
     toml = CUSTOMIZE.read_text(encoding="utf-8")
     assert tomllib.loads(toml)["workflow"]["force_source_authority_in_headless"] == ""
-    comment = _section(toml, "# --- Optional safety scalar ---", "force_source_authority_in_headless =")
+    comment = _section(toml, "# --- Optional safety scalar ---", '\nforce_source_authority_in_headless = ""')
     assert FLAG in comment and "standing approval" in comment and "TOML boolean" in comment
     binding = next(line for line in _read(SKILL).splitlines() if "`{forceSourceAuthorityInHeadless}` ←" in line)
     assert 'is `"true"` or the TOML boolean `true`' in binding, "a TOML bool true must not halt"
+
+
+def test_the_setting_is_written_under_the_workflow_table():
+    """#1108: the resolver reads `--key workflow`, so a key written above the `[workflow]` line lands at the
+    file's root, never reaches the gate and warns nothing. The comment, the halt, the Headless row and the docs
+    give the `[workflow]` form, and TOML bears the comment's two lines out."""
+    toml = CUSTOMIZE.read_text(encoding="utf-8")
+    comment = " ".join(line.lstrip("#").strip() for line in _section(
+        toml, "# --- Optional safety scalar ---", '\nforce_source_authority_in_headless = ""').splitlines())
+    for token in ("records the decision in its headless_decisions. In {project-root}/_bmad/custom/"
+                  "skf-rename-skill.toml (or .user.toml) write it under the table, as two lines: `[workflow]` then "
+                  '`force_source_authority_in_headless = "true"`.',
+                  "A key above the `[workflow]` line is ignored without a warning, and headless renames of an "
+                  "official skill keep halting."):
+        assert token in comment, token
+    # The comment's two lines, written as an override file, set the key the gate reads.
+    lines = re.search(r"as two lines: `(\[workflow\])` then `([^`]+)`", comment).groups()
+    assert tomllib.loads("\n".join(lines))["workflow"] == {"force_source_authority_in_headless": "true"}
+    # The same key without the table line parses, but `workflow` holds no setting: the gate keeps halting.
+    bare = tomllib.loads(lines[1])
+    assert bare == {"force_source_authority_in_headless": "true"}
+    assert "force_source_authority_in_headless" not in bare.get("workflow", {})
+    halt = next(line for line in _source_authority().splitlines() if '"source-authority-blocked"' in line)
+    assert ('set `force_source_authority_in_headless = "true"` under `[workflow]` in '
+            "`{project-root}/_bmad/custom/skf-rename-skill.toml` (or `.user.toml`)") in halt
+    headless = _row(_read(CONTRACT), "Headless")
+    assert ('The `force_source_authority_in_headless = "true"` setting, written under `[workflow]` in '
+            "`{project-root}/_bmad/custom/skf-rename-skill.toml` (or `.user.toml`), is a standing approval for "
+            "every headless run.") in headless
+    assert "(SKILL.md On Activation step 3 names the files)" not in headless
+    docs = next(line for line in _read("docs/workflows.md").splitlines() if line.startswith("- Rename Skill: pass"))
+    assert docs.endswith('Write it as two lines, `[workflow]` then `force_source_authority_in_headless = "true"`.')
 
 
 def _decision_reasons() -> list[str]:
@@ -375,9 +409,14 @@ def test_hook_comments_match_activation_and_the_report():
     assert "after config load and headless" in prepend and "uv probe" not in toml
     append = _section(toml, "# Steps to run at the end of On Activation", "activation_steps_append =")
     assert "just before select.md loads" in append
+    # #1111: SKILL.md names the step the entries precede, as the comment does.
+    step3 = " ".join(_section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ").split())
+    assert step3.endswith("then, before step 4 loads select.md, execute each entry in "
+                          "`workflow.activation_steps_append` in order."), step3[-160:]
+    assert "after activation completes" not in step3
     hook = _section(toml, "# Optional post-completion hook", "on_complete =")
     for needle in ("a shell command, run from {project-root}", "report step 3",
-                   "--result-path=<the per-run result file the shared", "skipped when the emitter wrote no result",
+                   '--result-path="<the per-run result file the shared', "skipped when the emitter wrote no result",
                    "a --dry-run never", "never fails the rename"):
         assert needle in hook, needle
     report = _section(_read(REPORT), "### 3. Post-Completion Hook (optional)", "### 4. ")
@@ -393,8 +432,9 @@ def test_the_project_context_default_stays_and_says_how_to_drop_it():
     comment = _section(toml, "# Persistent facts the workflow keeps in mind", "\npersistent_facts =")
     assert "{project-root}/_bmad/custom/skf-rename-skill.toml" in comment and drop in comment
     activation = _section(_read(SKILL), "3. **Resolve workflow customization.**", "4. Load, read the full file")
-    assert "an entry prefixed `!` drops each earlier entry it names and loads nothing itself" in activation
-    assert f"`{drop}` turns that default off" in activation
+    # The customization helper applies the drop (#1106), and the step says so.
+    assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in activation
+    assert "the bundled default loads every `project-context.md` under `{project-root}`" in activation
 
 
 def test_the_manifest_backup_is_a_file_in_the_run_folder():

@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-drop-skill, skf-campaign
+summary: |
+  Drop Skill and Campaign no longer load every `project-context.md` in your project by default: their bundled `persistent_facts` is now empty. No Drop Skill stage reads the project context, and Campaign inlined those files into every Tier A kickoff although Brief, Create and Test Skill already load them in their own runs, so each of those runs read them twice. The twelve other workflows that read the project context keep the default.
+migration: |
+  To keep loading those files in Drop Skill or Campaign, add the entry `"file:{project-root}/**/project-context.md"` to the `persistent_facts` list under the `[workflow]` line of `_bmad/custom/skf-drop-skill.toml` or `_bmad/custom/skf-campaign.toml`, or the line `persistent_facts = ["file:{project-root}/**/project-context.md"]` when that file has no such list: a second `persistent_facts` line in one table is a TOML error, and the run then ignores the whole file. An old `!file:{project-root}/**/project-context.md` entry that only dropped the default now drops nothing and can be removed.
+issues: [1107]
+prs: [1207]

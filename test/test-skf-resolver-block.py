@@ -5,17 +5,21 @@
 Every activation runs BMad core's resolver once, through SKF's
 skf-resolve-customization.py (#770): the fifteen workflow SKILL.md files
 with `--key workflow`, and Ferris (skf-forger) with `--key agent`, since his
-customize.toml holds only an [agent] table. Three parts are word for word
-the same in all sixteen, compared from the one copy
-test-skf-activation-customization.py keeps (COMMAND, WARNING, FALLBACK):
+customize.toml holds only an [agent] table, each with `--facts` (#1106), so
+the helper applies the `!` drop and expands each glob of persistent_facts.
+Four parts are word for word the same in all sixteen, compared from the one
+copy test-skf-activation-customization.py keeps (COMMAND, WARNING, FALLBACK,
+FACTS_POINTER):
 
 - the `uv run {resolveCustomizationHelper} ... --project-root
-  {project-root}` command, alone in its fence, after the line that binds
-  the helper (BINDING);
+  {project-root} ... --facts` command, alone in its fence, after the line
+  that binds the helper (BINDING); Setup's alone adds a stderr redirect
+  after `--facts` (STDERR_FILES), which the tests that run the fence cut off;
 - the merge sentence that names the override layers from the project root,
   the one-line `[activation/warn] customization_resolver_unavailable:
   <reason>` warning and how the reason is worded;
-- the fallback to the bundled defaults.
+- the fallback to the bundled defaults;
+- the pointer that says what the resolved persistent_facts list holds.
 
 Where the warning goes next is each activation's own sentence and is not
 compared; ROUTE_EXCEPTIONS names the routes that differ most from a plain
@@ -30,7 +34,11 @@ call sites. A report step that runs an `on_complete` hook binds a lost
 `{onCompleteCommand}` from the helper right before the hook (#1116), and
 that call returns a team's hook. Ferris states the module-level and
 sibling-skill path rules the workflows state, and pipeline-mode.md says how
-its paths resolve.
+its paths resolve. An override copied from a customize.toml comment (#1108),
+`#` markers dropped, changes what the step's own command resolves: the
+`!` example drops the project-context default, Rename Skill's two-line
+force setting reaches `workflow`, and an empty path override wins over its
+bundled default, which SKILL.md then falls back to.
 """
 
 from __future__ import annotations
@@ -123,9 +131,19 @@ def _step(skill: str) -> str:
     return text[begin:text.index(end, begin + len(start))]
 
 
+def _fence(skill: str) -> str:
+    """The step's resolver command as argv text: the shell redirect STDERR_FILES names (#1119) cut off."""
+    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    return command.removesuffix(STDERR_FILES.get(skill, ""))
+
+
+# The command up to its key, which the two stage calls share; they take no --facts.
+RESOLVE_KEY = AC.COMMAND.removesuffix("workflow --facts")
+
+
 def _command(skill: str) -> str:
-    assert AC.COMMAND.endswith(" --key workflow")
-    return AC.COMMAND.removesuffix("workflow") + KEY[skill] + STDERR_FILES.get(skill, "")
+    assert AC.COMMAND.endswith(" --key workflow --facts")
+    return f"{RESOLVE_KEY}{KEY[skill]} --facts" + STDERR_FILES.get(skill, "")
 
 
 def _shared(skill: str) -> str:
@@ -185,7 +203,8 @@ def test_the_stage_calls_run_the_helper_with_their_key(rel):
     assert yaml.safe_load(text.split("---", 2)[1])["resolveCustomizationProbeOrder"] == PROBE_ORDER
     [rule] = [line for line in text.splitlines() if "`{resolveCustomizationProbeOrder}` when it is not bound" in line]
     assert "`{resolveCustomizationHelper}`" in rule
-    assert text.count(AC.COMMAND.removesuffix("workflow") + STAGE_CALLS[rel]) == 1
+    assert text.count(RESOLVE_KEY + STAGE_CALLS[rel]) == 1
+    assert f"{RESOLVE_KEY}{STAGE_CALLS[rel]} --facts" not in text, rel
 
 
 # #1116: the sentence each report step binds a lost `{onCompleteCommand}` with, create-skill's word for word, and
@@ -206,7 +225,7 @@ def test_a_report_step_binds_a_lost_on_complete_before_its_hook(rel):
     right after the sentence and before the hook runs; a bound value, an empty one included, calls nothing, and
     an empty one still skips the hook. No pointer to the activation's binding is left."""
     text = _read(REPO / rel)
-    call = f"\n```bash\n{AC.COMMAND}.on_complete\n```\n"
+    call = f"\n```bash\n{RESOLVE_KEY}workflow.on_complete\n```\n"
     assert text.count(HOOK_BINDING) == 1 and text.count(call) == 1, rel
     sentence, fence, hook = text.index(HOOK_BINDING), text.index(call), text.index("{onCompleteCommand} --result-path")
     assert sentence < fence < hook, rel
@@ -282,6 +301,188 @@ def test_a_missing_helper_and_a_missing_core_give_different_reasons():
         assert gone not in REASON, gone
 
 
+# What the old prose asked the model to do by hand, before the helper resolved the list (#1106).
+HAND_RESOLVED = ("loads nothing itself", "file/glob contents", "globs expanded", "paths or globs whose contents",
+                 "file or glob contents")
+
+
+@pytest.mark.parametrize("skill", ACTIVATIONS)
+def test_each_activation_reads_the_list_the_helper_resolved(skill):
+    """#1106: the step points at what `--facts` did, once, and no longer tells the model to drop or expand."""
+    step = AC._flat(_step(skill))
+    assert step.count(AC.FACTS_POINTER) == 1, skill
+    assert f"`{KEY[skill]}.persistent_facts`" in step, skill
+    for gone in HAND_RESOLVED:
+        assert gone not in step, (skill, gone)
+    # A skill whose bundled list is empty (Setup, Drop Skill, Campaign and Ferris since #1107) carries the pointer
+    # alone; every other step names the default its customize.toml ships.
+    if not tomllib.loads(_read(SRC / skill / "customize.toml"))[KEY[skill]]["persistent_facts"]:
+        assert f"({AC.FACTS_POINTER})" in step and "the bundled default loads" not in step, skill
+    else:
+        assert step.count(AC.FACTS_NOTE) == 1, skill
+
+
+@pytest.mark.parametrize("skill", ACTIVATIONS)
+def test_the_fence_hands_the_activation_one_file_per_project_context(tmp_path, skill):
+    """#1106: the step's own command, the bundled customize.toml and no override: the list names each
+    project-context.md once, as a file, and none of the clones a halted run keeps under _bmad-output/.skf-run/."""
+    root = tmp_path / "project"
+    (root / "_bmad" / "scripts").mkdir(parents=True)
+    (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(RC.CORE_6_12.encode("utf-8"))
+    for folder in ("docs", "_bmad-output/.skf-run/x/source-1"):
+        (root / folder).mkdir(parents=True)
+        (root / folder / "project-context.md").write_bytes(b"rule\n")
+    command = _fence(skill)
+    words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
+             .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(command)]
+    assert words[:2] == ["uv", "run"]
+    done = subprocess.run([sys.executable, *words[2:]], capture_output=True, cwd=root, timeout=120,
+                          env={k: v for k, v in os.environ.items() if not k.startswith("SKF_TEST_")})
+    assert done.returncode == 0 and done.stderr == b"", done.stderr
+    bundled = tomllib.loads(_read(SRC / skill / "customize.toml"))[KEY[skill]]["persistent_facts"]
+    assert bundled in ([], [AC.DEFAULT_FACT]), (skill, bundled)
+    docs = "file:" + (root / "docs" / "project-context.md").as_posix()
+    assert json.loads(done.stdout)[KEY[skill]]["persistent_facts"] == ([docs] if bundled else []), skill
+
+
+@pytest.mark.parametrize("skill", ("skf-campaign", "skf-drop-skill"))
+def test_the_opt_in_the_comment_shows_loads_each_project_context(tmp_path, skill):
+    """#1107: Drop Skill and Campaign ship no default. The team override their persistent_facts comment shows,
+    `#` markers dropped, makes the step's own command load each project-context.md once, and a personal
+    override's `!` entry drops it again."""
+    text = _read(SRC / skill / "customize.toml")
+    comment = text[:text.index("\npersistent_facts = []\n")].rsplit("\n\n", 1)[-1]
+    example = comment.split(f"{{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1]
+    team = "\n".join(line.removeprefix("#").strip() for line in example.splitlines()) + "\n"
+    assert tomllib.loads(team) == {"workflow": {"persistent_facts": [AC.DEFAULT_FACT]}}
+    root = tmp_path / "project"
+    (root / "_bmad" / "scripts").mkdir(parents=True)
+    (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(RC.CORE_6_12.encode("utf-8"))
+    (root / "_bmad" / "custom").mkdir()
+    (root / "_bmad" / "custom" / f"{skill}.toml").write_bytes(team.encode("utf-8"))
+    (root / "docs").mkdir()
+    (root / "docs" / "project-context.md").write_bytes(b"rule\n")
+    command = _fence(skill)
+    words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
+             .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(command)]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SKF_TEST_")}
+
+    def facts() -> list:
+        done = subprocess.run([sys.executable, *words[2:]], capture_output=True, cwd=root, timeout=120, env=env)
+        assert done.returncode == 0 and done.stderr == b"", done.stderr
+        return json.loads(done.stdout)["workflow"]["persistent_facts"]
+
+    assert facts() == ["file:" + (root / "docs" / "project-context.md").as_posix()], skill
+    (root / "_bmad" / "custom" / f"{skill}.user.toml").write_bytes(
+        f'[workflow]\npersistent_facts = ["!{AC.DEFAULT_FACT}"]\n'.encode("utf-8"))
+    assert facts() == [], skill
+
+
+def _resolve(root: Path, skill: str, team: str | None = None) -> dict:
+    """The `workflow` table the step's own command resolves under `root`, with `team` as the team override."""
+    (root / "_bmad" / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(RC.CORE_6_12.encode("utf-8"))
+    override = root / "_bmad" / "custom" / f"{skill}.toml"
+    override.unlink(missing_ok=True)
+    if team is not None:
+        override.parent.mkdir(parents=True, exist_ok=True)
+        override.write_bytes(team.encode("utf-8"))
+    command = _fence(skill)
+    words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
+             .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(command)]
+    done = subprocess.run([sys.executable, *words[2:]], capture_output=True, cwd=root, timeout=120,
+                          env={k: v for k, v in os.environ.items() if not k.startswith("SKF_TEST_")})
+    assert done.returncode == 0 and done.stderr == b"", (skill, done.stderr)
+    return json.loads(done.stdout)["workflow"]
+
+
+def _copied(comment: str) -> str:
+    """A comment's lines with their `#` markers dropped: what a team pastes into its override file."""
+    return "\n".join(line.removeprefix("#").strip() for line in comment.splitlines()) + "\n"
+
+
+DEFAULT_SKILLS = [skill for skill in ACTIVATIONS if KEY[skill] == "workflow"
+                  and tomllib.loads(_read(SRC / skill / "customize.toml"))["workflow"]["persistent_facts"]]
+
+
+def test_twelve_workflows_ship_the_project_context_default():
+    assert len(DEFAULT_SKILLS) == 12, DEFAULT_SKILLS
+
+
+@pytest.mark.parametrize("skill", DEFAULT_SKILLS)
+def test_the_copied_drop_example_stops_loading_the_project_context(tmp_path, skill):
+    """#1108: the `!` override the persistent_facts comment shows, `#` markers dropped and written as the team
+    override file the comment names, drops the bundled default from the list the step's own command resolves.
+    Written without its `[workflow]` line, the key lands at the file's root and the default stays loaded."""
+    text = _read(SRC / skill / "customize.toml")
+    comment = text[:text.index("\npersistent_facts = [")].rsplit("\n\n", 1)[-1]
+    team = _copied(comment.split(f"{{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1])
+    root = tmp_path / "project"
+    (root / "docs").mkdir(parents=True)
+    (root / "docs" / "project-context.md").write_bytes(b"rule\n")
+    docs = "file:" + (root / "docs" / "project-context.md").as_posix()
+    assert _resolve(root, skill)["persistent_facts"] == [docs], skill
+    assert _resolve(root, skill, team)["persistent_facts"] == [], (
+        f"{skill}: the copied example leaves the project-context default loaded")
+    assert team.startswith("[workflow]\n"), skill
+    assert _resolve(root, skill, team.split("\n", 1)[1])["persistent_facts"] == [docs], (
+        f"{skill}: the example without its `[workflow]` line still reached the workflow table")
+
+
+def test_the_copied_hook_example_sets_on_complete(tmp_path):
+    """#1108: Export Skill's on_complete example, `#` markers dropped and written as the team override file it
+    names, sets the hook; the key line alone lands at the file's root and leaves the hook off."""
+    skill = "skf-export-skill"
+    text = _read(SRC / skill / "customize.toml")
+    comment = text[:text.index('\non_complete = ""')].rsplit("\n\n", 1)[-1]
+    example = comment.split(f"Example, in {{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1]
+    team = _copied("\n".join(line for line in example.splitlines() if line.startswith("#   ")))
+    root = tmp_path / "project"
+    assert _resolve(root, skill, team)["on_complete"] == "{project-root}/scripts/publish-skill.sh"
+    assert _resolve(root, skill, team.split("\n", 1)[1])["on_complete"] == ""
+
+
+def test_the_copied_force_setting_reaches_the_gate(tmp_path):
+    """#1108: Rename Skill's comment gives its standing approval as two lines; written as the team override, the
+    step's own command resolves `"true"`, which SKILL.md binds to a true `{forceSourceAuthorityInHeadless}`.
+    The same key without the `[workflow]` line resolves the bundled empty value."""
+    skill = "skf-rename-skill"
+    text = _read(SRC / skill / "customize.toml")
+    comment = " ".join(line.lstrip("#").strip() for line in
+                       text[:text.index('\nforce_source_authority_in_headless = ""')].rsplit("\n\n", 1)[-1]
+                       .splitlines())
+    lines = re.search(r"as two lines: `(\[workflow\])` then `([^`]+)`", comment).groups()
+    root = tmp_path / "project"
+    assert _resolve(root, skill, "\n".join(lines) + "\n")["force_source_authority_in_headless"] == "true"
+    assert _resolve(root, skill, lines[1] + "\n")["force_source_authority_in_headless"] == ""
+    binding = next(line for line in _skill_md(skill).splitlines() if "`{forceSourceAuthorityInHeadless}` ←" in line)
+    assert 'true when `workflow.force_source_authority_in_headless` is `"true"`' in binding
+
+
+FILLED_DEFAULTS = (
+    ("skf-test-skill", "test_report_template_path", "testReportTemplatePath"),
+    # #1110: Campaign's three template scalars ship their bundled files too.
+    ("skf-campaign", "report_template_path", "reportTemplatePath"),
+    ("skf-campaign", "kickoff_template_path", "kickoffTemplatePath"),
+    ("skf-campaign", "brief_template_path", "briefTemplatePath"),
+    ("skf-create-stack-skill", "stack_skill_template_path", "stackSkillTemplatePath"),
+    ("skf-create-stack-skill", "integration_patterns_path", "integrationPatternsPath"),
+)
+
+
+@pytest.mark.parametrize("skill,key,variable", FILLED_DEFAULTS, ids=[f"{s}:{k}" for s, k, _ in FILLED_DEFAULTS])
+def test_an_empty_path_override_falls_back_to_the_bundled_file(tmp_path, skill, key, variable):
+    """#1108: these scalars now ship their bundled default. A team override of `""` still wins in the merge, and
+    the SKILL.md binding then falls back to that same bundled file, so the empty string keeps its meaning."""
+    default = tomllib.loads(_read(SRC / skill / "customize.toml"))["workflow"][key]
+    assert default and (SRC / skill / default).is_file(), (skill, key, default)
+    root = tmp_path / "project"
+    assert _resolve(root, skill)[key] == default
+    assert _resolve(root, skill, f'[workflow]\n{key} = ""\n')[key] == ""
+    binding = next(line for line in _skill_md(skill).splitlines() if f"`{{{variable}}}` ←" in line)
+    assert f"`workflow.{key}` if non-empty, else `{default}`" in binding, (skill, binding)
+
+
 @pytest.mark.parametrize("skill", ACTIVATIONS)
 def test_each_activation_says_where_the_reason_goes(skill):
     """The sentence after the fallback differs per skill; the exceptions keep the words they route with."""
@@ -306,7 +507,7 @@ def test_ferris_resolves_the_agent_table_his_customize_toml_holds():
 def test_ferris_applies_the_array_surfaces_an_override_adds():
     step = AC._flat(_step("skf-forger"))
     for token in ("run `agent.activation_steps_prepend` in order now", "`agent.persistent_facts`",
-                  "an entry prefixed `!` drops each earlier entry it names and loads nothing itself",
+                  AC.FACTS_POINTER,
                   "run `agent.activation_steps_append` once step 6 has greeted, before it dispatches a pick"):
         assert token in step, token
     assert "`workflow." not in step
@@ -400,10 +601,10 @@ def test_the_command_reads_a_team_override_under_a_python3_without_tomllib(tmp_p
         skill_root = root / "_bmad" / "skf" / skill
         skill_root.mkdir(parents=True)
         shutil.copyfile(SRC / skill / "customize.toml", skill_root / "customize.toml")
-    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    command = _fence(skill)
     words = [w.replace("{resolveCustomizationHelper}", HELPER.as_posix()).replace("{project-root}", root.as_posix())
              .replace("{skill-root}", skill_root.as_posix()) for w in shlex.split(command)]
-    assert words[:3] == ["uv", "run", HELPER.as_posix()] and words[-2:] == ["--key", key]
+    assert words[:3] == ["uv", "run", HELPER.as_posix()] and words[-3:] == ["--key", key, "--facts"]
     bare = subprocess.run(["python3", *words[2:]], capture_output=True, text=True, encoding="utf-8", env=env,
                           cwd=root, timeout=60)
     assert bare.returncode == 3 and "tomllib" in bare.stderr

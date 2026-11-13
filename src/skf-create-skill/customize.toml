@@ -10,15 +10,17 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any skill compilation work.
+# Steps SKILL.md On Activation step 3 runs once this file resolves: after
+# the config load (step 1) and the headless flag (step 2), before step 4
+# resolves the emitter, and before any stage. Overrides append. Use for
+# org-wide pre-flight checks (auth, network, compliance) that must precede
+# any skill compilation work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps SKILL.md On Activation runs after step 4 and before step 5 loads
+# load-brief.md or batch-mode.md; a --batch run executes them once, not per
+# brief. Overrides append. Use for context loads or banner customization.
 
 activation_steps_append = []
 
@@ -26,19 +28,20 @@ activation_steps_append = []
 # (extraction style, compilation guardrails).
 # Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Skills must declare PEP 723 inline metadata."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/create-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
 #
 # The bundled entry below loads every project-context.md under
-# {project-root} (the BMad project context) as facts for each brief.
-# Overrides append, so no override can delete it. To drop it, add the same
-# entry with a leading `!` in {project-root}/_bmad/custom/skf-create-skill.toml:
+# {project-root} (the BMad project context) as facts for each brief. A `!`
+# entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-create-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
-# The workflow then skips both (SKILL.md On Activation step 3); a `!` entry
-# drops any entry it names this way.
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
@@ -48,12 +51,14 @@ persistent_facts = [
 # contract is written, after its compilation report. The value is a shell
 # command, run from {project-root}, not an agent instruction: a shell cannot
 # run a skill such as test-skill or export-skill. It is called as:
-#   <on_complete> --result-path=<{forge_version}/create-skill-result-latest.json>
+#   <on_complete> --result-path="<{forge_version}/create-skill-result-latest.json>"
 # Under --batch it runs once per brief, each time with that brief's result
 # file; a brief that halts, or whose result file or its -latest copy was
 # not written, gets no call. Useful for a Slack or email notifier,
 # dashboard ingest, a CI script or a git-add wrapper. A failure is reported
 # on its own line and never fails the brief.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 #
 # Empty string = no-op (default).
 

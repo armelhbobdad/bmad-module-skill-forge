@@ -36,9 +36,12 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-audit-skill.toml:
+# The default below loads every project-context.md under {project-root}
+# and is kept on purpose: this workflow reads the project context (Drop
+# Skill and Campaign, which do not need it, ship none). A `!` entry in an
+# override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-audit-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -57,6 +60,8 @@ persistent_facts = [
 #     builds the Provenance table from them;
 #   - the `## Audit Summary` section with its severity count table, which
 #     step 6 fills in. The stages write every drift section themselves.
+# On Activation step 4 halts the run (`template-missing`, exit 3) before the
+# first question when the path names no readable file.
 
 drift_report_template_path = "assets/drift-report-template.md"
 
@@ -64,9 +69,11 @@ drift_report_template_path = "assets/drift-report-template.md"
 # agent instruction. Step 6 (references/report.md) runs it on a finished
 # audit, after the emitter wrote the per-run record (`result_path` not null),
 # as:
-#   <on_complete> --result-path=<{forge_version}/audit-skill-result-<YYYYMMDD-HHmmss>.json>
+#   <on_complete> --result-path="<{forge_version}/audit-skill-result-<YYYYMMDD-HHmmss>.json>"
 # It never runs on a halt, nor when the per-run record could not be written.
 # A failure is shown to the user and never fails the audit.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 #
 # Empty string = no-op (default).
 

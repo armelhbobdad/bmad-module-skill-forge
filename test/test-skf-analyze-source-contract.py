@@ -401,7 +401,7 @@ def test_the_hook_reads_the_latest_record_only_when_one_was_written():
     result_path, since a failed -latest copy leaves it set."""
     for path, start, end in HOOK_SECTIONS:
         text = _read(path)
-        assert "--result-path={forge_data_folder}/analyze-source-result-latest.json" in text, path.name
+        assert '--result-path="{forge_data_folder}/analyze-source-result-latest.json"' in text, path.name
         assert "`result_path` is not null" in text, path.name
         assert 'rm -rf "{run_dir}"' in text, path.name
         hook = _section(text, start, end)
@@ -432,7 +432,7 @@ def test_the_hook_reads_the_latest_record_only_when_one_was_written():
             "set, and a `result_file_write_failed` warning names the copy.") in rule
     assert ("Then `{onCompleteCommand}` runs, when it is set, `result_path` is not null and no "
             "`result_file_write_failed` warning names `analyze-source-result-latest.json`, with "
-            "`--result-path={forge_data_folder}/analyze-source-result-latest.json`, and a hook failure is displayed "
+            '`--result-path="{forge_data_folder}/analyze-source-result-latest.json"`, and a hook failure is displayed '
             "and never fails the run; otherwise a set hook is skipped with \"on_complete skipped: "
             '`analyze-source-result-latest.json` was not written."') in contract
     comments = _read(AN / "customize.toml")

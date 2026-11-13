@@ -21,6 +21,7 @@
           "provenance-invalid": 3,
           "source-unreadable": 3,
           "helper-missing": 3,
+          "template-missing": 3,
           "write-failed": 4,
           "user-cancelled": 6
         },
@@ -95,7 +96,7 @@
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 6],
-      "description": "Process exit code matching the Exit Codes table of the skill's references/headless-contract.md, derived from halt_reason: null gives 0, input-missing 2, skill-not-found, not-skf-output, forge-tier-missing, no-baseline, source-dir-missing, provenance-invalid, source-unreadable and helper-missing 3, write-failed 4, user-cancelled 6."
+      "description": "Process exit code matching the Exit Codes table of the skill's references/headless-contract.md, derived from halt_reason: null gives 0, input-missing 2, skill-not-found, not-skf-output, forge-tier-missing, no-baseline, source-dir-missing, provenance-invalid, source-unreadable, helper-missing and template-missing 3, write-failed 4, user-cancelled 6."
     },
     "halt_reason": {
       "type": ["string", "null"],
@@ -110,6 +111,7 @@
         "provenance-invalid",
         "source-unreadable",
         "helper-missing",
+        "template-missing",
         "write-failed",
         "user-cancelled"
       ],

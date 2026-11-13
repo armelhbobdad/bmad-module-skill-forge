@@ -37,9 +37,12 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-brief-skill.toml:
+# The default below loads every project-context.md under {project-root}
+# and is kept on purpose: this workflow reads the project context (Drop
+# Skill and Campaign, which do not need it, ship none). A `!` entry in an
+# override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-brief-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -74,12 +77,14 @@ scope_templates_path = "assets/scope-templates.md"
 # health-check step. Every successful run calls it once: write-brief.md §6b
 # on the interactive, headless and ratify paths, and step-auto-validate.md §3
 # on the [auto] path, right after its envelope. The command is called as:
-#   <on_complete> --result-path=<absolute_path_to_skill-brief.yaml>
+#   <on_complete> --result-path="<absolute_path_to_skill-brief.yaml>"
 # Useful for chaining into create-skill, Slack notifications, dashboard ingest,
 # or CI hooks. Override wins. A failure never fails the workflow: the run
 # displays one line, "on_complete hook failed (exit <code>): <stderr>", which
 # the result envelope, built before the hook runs and displayed last by the
 # health check, does not carry.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 #
 # Empty string = no hook (default).
 

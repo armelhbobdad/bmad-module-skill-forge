@@ -47,7 +47,16 @@ and pin the prose around them:
   reads the step 3 summaries, never a SKILL.md;
 - the integration rules, the coverage patterns and the report folder are no
   customize.toml settings, the report template's comment names what the
-  schema fixes, and a path a flag gave is never asked for again.
+  schema fixes, and a path a flag gave is never asked for again;
+- report.md §5 deletes the run folder, then carries out the on_complete
+  instruction, shows its failure on one line and goes on, then chains to
+  the health check even when the instruction started another workflow,
+  and SKILL.md and customize.toml say it runs at the end of step 6, before
+  the health check (#1109);
+- init.md §4 halts (`resolution-failure`) before the Load when the report
+  template names no readable file, and runs the feasibility-report check on
+  the report it creates from it, halting (`schema-violation`) on a copy that
+  breaks it, both at phase `init:report-template`, long before step 6 (#1110).
 """
 
 from __future__ import annotations
@@ -56,6 +65,7 @@ import importlib.util
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -1011,6 +1021,97 @@ def test_the_report_template_comment_names_what_the_schema_fixes():
     assert "(`schema-violation`)" in comment
 
 
+def test_init_checks_the_template_and_the_report_it_creates():
+    """#1110: a template override that names no file halts before the Load,
+    and a copy that breaks the schema halts once step 1 wrote the report,
+    each naming the setting and the path, not at step 6."""
+    section = _section(_read(REFERENCES / "init.md"), "### 4. Create Feasibility Report",
+                       "### 5. Display Initialization Summary")
+    missing = 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:report-template`'
+    broken = 'HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `init:report-template`'
+    assert section.count(missing) == 1 and section.count(broken) == 1
+    order = [
+        'test -f "{reportTemplatePath}" && test -r "{reportTemplatePath}"',
+        missing,
+        "**Load** `{reportTemplatePath}`",
+        "python3 {atomicWriteHelper} write --target {outputFile}",
+        'uv run {validateFeasibilityReportHelper} "{outputFile}" -o "{run_dir}/template-check.json"',
+        broken,
+    ]
+    positions = [section.index(needle) for needle in order]
+    assert positions == sorted(positions), order
+    flat = " ".join(section.split())
+    check = flat[flat.index("**Check the template.**"):flat.index("**Load**")]
+    assert '`"path": "{reportTemplatePath}"`' in check
+    assert "`report_template_path` names `{reportTemplatePath}`, which is not a readable file." in check
+    assert ("Point it at your copy in `{project-root}/_bmad/custom/skf-verify-stack.toml` or `.user.toml`, or "
+            "re-install SKF when it is the bundled `assets/feasibility-report-template.md`.") in check
+    after = flat[flat.index("**Check the new report.**"):]
+    assert '`"report_path": "{outputFile}"`' in after
+    for field in ("missingHeadings", "orderViolations", "verdictTableFound", "duplicateVerdictTableLine",
+                  "unknownTokens", "schemaVersionFound"):
+        assert f"`{field}`" in after, field
+    assert "leave `{outputFileLatest}` as it is" in after
+    assert "`report_template_path` names `{reportTemplatePath}`, whose report fails the feasibility-report check:" in (
+        after)
+    rows = _exit_code_rows()
+    assert "step 1 §4 (the report template names no readable file, phase `init:report-template`)" in rows[3]
+    assert ("step 1 §4 (the report created from the template fails the feasibility-report check, phase "
+            "`init:report-template`) → `schema-violation`") in rows[5]
+    comment = _section(_read(SKILL / "customize.toml"), "# The template step 1", "report_template_path =")
+    flat_comment = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
+    for said in ("Step 1 halts (`resolution-failure`) when the path names no readable file",
+                 "one verdict table, no unknown verdict token", "step 6 checks the finished report again",
+                 "Nothing checks the Evidence Sources table"):
+        assert said in flat_comment, said
+    skill = " ".join(_read(SKILL / "SKILL.md").split())
+    assert ("`{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else "
+            "`assets/feasibility-report-template.md`, bound as the file it names (`{project-root}` replaced, a bare "
+            "path taken from `{skill-root}`).") in skill
+    assert ("An empty or absent value falls through to that default; init.md §4 checks that it is a readable file "
+            "before it loads it, and checks the report it creates from it.") in skill
+
+
+@pytest.mark.parametrize("case", ["bundled", "lost-heading"])
+def test_the_check_of_the_new_report_passes_the_default_and_fails_a_broken_copy(tmp_path, case):
+    """The bundled template passes the init.md §4 check, so the halt never
+    fires on the default; a copy without `## Recommendations` fails it, and
+    the JSON names the heading the halt reports."""
+    template = _read(SKILL / "assets" / "feasibility-report-template.md")
+    if case == "lost-heading":
+        assert template.count("## Recommendations\n") == 1
+        template = template.replace("## Recommendations\n", "")
+    report = tmp_path / "feasibility-report-app-20261001-101500.md"
+    report.write_bytes(template.encode("utf-8"))
+    run_dir = _run_dir(tmp_path)
+    # The check as init.md §4 writes it, after the report's atomic write.
+    section = _section(_read(REFERENCES / "init.md"), "**Check the new report.**", "### 5.")
+    command = re.search(r"Run `(uv run \{validateFeasibilityReportHelper\} [^`]+)`", section).group(1)
+    words = shlex.split(command)
+    assert words[:3] == ["uv", "run", "{validateFeasibilityReportHelper}"], command
+    filled = [w.replace("{outputFile}", report.as_posix()).replace("{run_dir}", run_dir.as_posix()) for w in words[3:]]
+    proc = _run([SCRIPTS / "skf-validate-feasibility-report.py", *filled])
+    out = run_dir / "template-check.json"
+    check = json.loads(out.read_text(encoding="utf-8"))
+    if case == "bundled":
+        assert proc.returncode == 0, proc.stderr
+        assert check["status"] == "ok" and check["violation"] is None
+    else:
+        assert proc.returncode == 1, proc.stderr
+        assert check["missingHeadings"] == ["Recommendations"]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the check through bash")
+def test_the_template_check_fails_a_path_that_names_no_file(tmp_path):
+    init = _read(REFERENCES / "init.md")
+    command = re.search(r'`(test -f "\{reportTemplatePath\}" && test -r "\{reportTemplatePath\}")`', init).group(1)
+    for path, readable in ((SKILL / "assets" / "feasibility-report-template.md", True),
+                           (tmp_path / "house" / "feasibility.md", False)):
+        filled = command.replace('"{reportTemplatePath}"', shlex.quote(path.as_posix()))
+        proc = subprocess.run(["bash", "-c", filled], capture_output=True, text=True, check=False)
+        assert (proc.returncode == 0) is readable, path
+
+
 def test_no_stage_reads_a_removed_setting():
     for path in [SKILL / "SKILL.md", *sorted(REFERENCES.glob("*.md"))]:
         text = _read(path)
@@ -1078,3 +1179,25 @@ def test_step_1_asks_only_for_what_no_flag_answered():
     assert "| **Architecture Doc** | {architecture_doc_path} |" in summary
     assert "| **PRD Document** | {prd_path or 'Not provided: requirements pass will be skipped'} |" in summary
     assert "{prd_doc" not in init and "{architecture_doc}" not in init
+
+
+def test_the_hook_runs_after_the_run_folder_is_deleted_and_never_ends_the_run():
+    """#1109: §5 deletes `{run_dir}` first, so an instruction that starts another workflow leaves no run folder
+    behind; then it carries out the instruction, displays a failure on one line and continues, and chains to the
+    health check even when the instruction started another workflow."""
+    report = _read(REFERENCES / "report.md")
+    finish = _section(report, "### 5. Finish", "the health-check step is the true terminal step")
+    order = ['rm -rf "{run_dir}"', "If `{workflow.on_complete}` is non-empty, carry out that instruction now",
+             "When it fails, display `on_complete failed: {reason}` on a line of its own and continue",
+             "execute `{nextStepFile}`, even when the instruction started another workflow"]
+    at = [finish.index(token) for token in order]
+    assert at == sorted(at), order
+    assert "the hook never fails the run, whose report and result files are written" in finish
+    assert "in headless, display one line naming what it did" in finish and "log the action" not in finish
+    [line] = [line for line in _read(SKILL / "SKILL.md").splitlines() if "`workflow.on_complete`" in line]
+    assert "report.md §5 executes it, if non-empty, at the end of step 6, before the health check." in line
+    toml = _read(SKILL / "customize.toml")
+    comment = " ".join(line.lstrip("#").strip() for line in
+                       toml[: toml.index("\non_complete =")].rsplit("\n\n", 1)[-1].splitlines())
+    assert comment.startswith("Instruction executed at the end of step 6, before the health check"), comment
+    assert "terminal stage" not in comment

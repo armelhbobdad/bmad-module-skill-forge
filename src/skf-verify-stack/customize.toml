@@ -42,8 +42,9 @@ activation_steps_append = []
 # "PG" covers it and pairs it for step 3.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-verify-stack.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-verify-stack.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -75,8 +76,12 @@ on_complete = ""
 #     `## Integration Verdicts`, and the empty
 #     `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`
 #     table under `## Evidence Sources`: the stages fill both in place.
-# Step 6 checks the finished report against the schema and halts
-# (`schema-violation`) on a copy that breaks it.
+# Step 1 halts (`resolution-failure`) when the path names no readable file,
+# and checks the report it creates from the copy (frontmatter schemaVersion,
+# the five headings in order, one verdict table, no unknown verdict token),
+# halting (`schema-violation`) on one that breaks it; step 6 checks the
+# finished report again. Nothing checks the Evidence Sources table, which the
+# next run's delta reads.
 
 report_template_path = ""
 

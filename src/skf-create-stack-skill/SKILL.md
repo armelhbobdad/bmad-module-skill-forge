@@ -84,7 +84,7 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-create-stack-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): `references/init.md` records it as the run's first warning once its pre-flight has created `{run_dir}`.
@@ -98,6 +98,6 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
 
    Stash both paths plus `{onCompleteCommand}` as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` and `{integrationPatternsPath}` directly; empty-string overrides fall through to the bundled default.
 
-   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` after.
+   Run `workflow.activation_steps_prepend` now and keep `workflow.persistent_facts` as standing context (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
-4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+4. Run each entry in `workflow.activation_steps_append` in order, then load, read the full file, and execute `references/init.md` to begin the workflow.

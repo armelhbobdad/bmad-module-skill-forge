@@ -291,10 +291,10 @@ The emitter stamps the UTC time and the run id into the record, writes `{forge_d
 
 ### 9b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json` (the emitter wrote the timestamped result JSON and its `analyze-source-result-latest.json` copy), invoke it now:
+If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json` (the emitter wrote the timestamped result JSON and its `analyze-source-result-latest.json` copy), invoke it now from `{project-root}`:
 
 ```
-{onCompleteCommand} --result-path={forge_data_folder}/analyze-source-result-latest.json
+{onCompleteCommand} --result-path="{forge_data_folder}/analyze-source-result-latest.json"
 ```
 
 The stable `-latest` path is preferred over the timestamped copy so downstream consumers don't need to discover the timestamp.

@@ -308,7 +308,7 @@ uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project
 A finished run, this one or §1's no-change exit, fires the hook; `--detect-only`, `--dry-run` and a halt never do (customize.toml says so). If `{onCompleteCommand}` is non-empty, the emitter exited 0 and the line's `warnings[]` hold no entry that starts with `result_file_write_failed` (the emitter wrote both result files), invoke it:
 
 ```bash
-{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json
+{onCompleteCommand} --result-path="{forge_version}/update-skill-result-latest.json"
 ```
 
 The line has no `result_path`: any `result_file_write_failed` entry means this run's `update-skill-result-latest.json` was not written, since the emitter stops at the first write that fails. An interactive run reads the line for this check without displaying it. When `{onCompleteCommand}` is non-empty but the hook does not run, skip it and say why:
@@ -318,7 +318,7 @@ The line has no `result_path`: any `result_file_write_failed` entry means this r
 
 The hook never gets a `-latest` copy this run failed to write.
 
-Run it with a bounded timeout (default 60s). On success, log an Info note and continue; on non-zero exit, timeout, or any failure, tell the user in one line with the reason (the line and the result files are written before the hook runs, so they cannot carry its failure) and continue. The hook must never fail the workflow: it is integration glue (notify a CI router, chain audit/export/test) orthogonal to the update outcome. Empty `{onCompleteCommand}` = no-op, no log entry.
+Run it from `{project-root}` with a bounded timeout (default 60s). On success, log an Info note and continue; on non-zero exit, timeout, or any failure, tell the user in one line with the reason (the line and the result files are written before the hook runs, so they cannot carry its failure) and continue. The hook must never fail the workflow: it is integration glue (notify a CI router, chain audit/export/test) orthogonal to the update outcome. Empty `{onCompleteCommand}` = no-op, no log entry.
 
 ### 6. Chain to Health Check
 

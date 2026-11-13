@@ -83,13 +83,13 @@ Skip the copy when the emitter printed no line, or when its envelope's `warnings
 
 ### 2c. Post-Completion Hook (optional)
 
-If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now, after §2b and before chaining to health-check:
+If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now from `{project-root}`, after §2b and before chaining to health-check, with the `-latest` record §2b wrote:
 
 ```bash
-{onCompleteCommand}
+{onCompleteCommand} --result-path="{forge_version}/create-stack-skill-result-latest.json"
 ```
 
-The hook runs even when §2b updated no `create-stack-skill-result-latest.json` (a failed write or emit); that file then still holds an earlier forge's record, if any.
+Skip it when the emitter printed no line, a `result_file_write_failed` warning names `create-stack-skill-result-latest.json` or `{forge_version}` itself, or the line's `result_path` is null, and print one report line, "on_complete skipped: no result contract was written ({reason})": the hook never gets a missing file or an earlier forge's record.
 
 Run it with a bounded timeout (default 60s). On success, continue. On non-zero exit, timeout, or any failure, print one report line, `on_complete failed (exit {N}): {stderr_first_line}`, and continue: §1 has already listed the warnings and §2b has emitted the envelope, so that line is where the failure shows. **The hook must never fail the workflow**: it is integration glue (catalog registration, downstream pipeline notify) orthogonal to the forged stack. When `{onCompleteCommand}` is empty (bundled default), skip this section entirely.
 

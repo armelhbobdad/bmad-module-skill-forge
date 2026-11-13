@@ -37,8 +37,9 @@ activation_steps_append = []
 #     entry it names.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-analyze-source.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-analyze-source.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -58,12 +59,14 @@ analysis_report_template_path = "templates/analysis-report-template.md"
 # Pipeline hook: a shell command the run calls once the shared emitter has
 # written the result files, at the end of every run that writes them
 # (generate-briefs.md, step-auto-scope.md and auto-docs-only.md), as:
-#   <on_complete> --result-path=<forge_data_folder>/analyze-source-result-latest.json
+#   <on_complete> --result-path="<forge_data_folder>/analyze-source-result-latest.json"
 # A HALT calls no hook, nor does a run whose result file or its -latest
 # copy could not be written (result_path null, or a result_file_write_failed
 # warning naming the copy, in the envelope). Useful for Slack notifications,
 # dashboard ingest, CI hooks, or chaining into a brief linter. A hook
 # failure is displayed and never fails the run.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 #
 # Empty string = no hook (default).
 

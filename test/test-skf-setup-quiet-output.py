@@ -599,7 +599,7 @@ def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
     keeps the reason for report.md and every later halt."""
     item = _section(_on_activation(_read(SKILL_MD)), "6. **Resolve workflow customization.**")
     assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
-            "--project-root {project-root} --key workflow 2> \"{run_dir}/resolver.err\"") in item
+            "--project-root {project-root} --key workflow --facts 2> \"{run_dir}/resolver.err\"") in item
     assert "{project-root}/_bmad/scripts/resolve_customization.py" not in item
     flat = " ".join(item.split())
     assert ("It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-setup.toml` "

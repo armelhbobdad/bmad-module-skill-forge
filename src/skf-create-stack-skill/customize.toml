@@ -37,31 +37,67 @@ activation_steps_append = []
 #     entry it names.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-create-stack-skill.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-create-stack-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Command invoked once a run finishes (step 9, report.md §2c): after the
+# Optional post-completion hook: a shell command, not an instruction. Step 9
+# (report.md §2c) runs it from {project-root} once a run finishes: after the
 # stack package is committed, the report is shown and the result files are
-# written, before the health-check chain. A run that halts never invokes it.
-# Override wins. Use for a terminal action such as catalog registration or
-# notifying a downstream pipeline. Empty string = no terminal action. The
+# written, before the health-check chain, as:
+#   <on_complete> --result-path="<{forge_version}/create-stack-skill-result-latest.json>"
+# It is skipped, with a report line saying so, when the emitter wrote no
+# result file or not that -latest copy, and a run that halts never invokes
+# it. Override wins. Use for a terminal action such as catalog registration
+# or notifying a downstream pipeline. Empty string = no terminal action. The
 # hook never fails the run: a failure prints one report line.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 
 on_complete = ""
 
-# --- Optional asset overrides ---
-#
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
-# stack_skill_template_path covers the SKILL.md, context snippet, catalog and
-# reference-file structures; the metadata.json contract
-# (assets/metadata-contract.md) carries SKF's ownership markers, so no
-# override replaces it.
+# --- Optional overrides. An empty string means the default named below. ---
 
-stack_skill_template_path = ""
-integration_patterns_path = ""
+# The template steps 6 (references/compile-stack.md sections 1, 2, 4 and 6),
+# 7 (references/generate-output.md sections 3 to 5) and 8 (the body split
+# of references/validate.md section 3) build the stack from. Default:
+# assets/stack-skill-template.md, a path from the skill root. Keep a
+# house-style copy outside the skill folder, which every update overwrites,
+# and name it as {project-root}/<path to the copy>. It covers the SKILL.md,
+# context snippet, catalog and reference-file structures; the metadata.json
+# contract (assets/metadata-contract.md) carries SKF's ownership markers, so
+# no override replaces it. The copy may reword the prose and add optional
+# sections, and must keep:
+#   - its six `##` headings, which the steps find by name:
+#     `## SKILL.md Section Structure`, `## Sizing Guidance for Large Stacks`,
+#     `## context-snippet.md Format (Vercel-Aligned)`,
+#     `## references/stack-catalog.md Structure`,
+#     `## references/{library}.md Structure` and
+#     `## references/integrations/{pair}.md Structure`;
+#   - what skf-validate-output.py checks at step 8 and Test Skill counts:
+#     the `> N libraries | M integration patterns | Forge tier: T` line,
+#     `## Integration Patterns` with `### Cross-Cutting Patterns` and
+#     `### Library Pair Integrations`, `## Conventions`,
+#     `## Library Reference Index` and `## Per-Library Summaries` (or the
+#     `## Library Catalog` pointer), the `**Confidence:**` labels, a
+#     reference file's `**Version:**`, `## Key Exports` and
+#     `## Usage Patterns`, a pair file's `**Type:**`, `## Integration Pattern`
+#     and `## Key Files`, and the snippet's `[name vX]|root:` and
+#     `|IMPORTANT:` lines.
+
+stack_skill_template_path = "assets/stack-skill-template.md"
+
+# The integration types step 5 (references/detect-integrations.md section 3)
+# classifies every pair against, in both modes. Default:
+# references/integration-patterns.md, a path from the skill root; name a
+# copy kept outside the skill folder as {project-root}/<path to the copy>.
+# A copy may add or rename types, each with its signal: step 5 writes each
+# type name verbatim to the pair's `type` in the stack bundle, which the
+# `**Type:**` line of each pair file carries.
+
+integration_patterns_path = "references/integration-patterns.md"

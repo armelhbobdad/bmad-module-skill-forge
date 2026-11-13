@@ -530,9 +530,10 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   'write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
                   'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
                   '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`',
-                  "the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
-                  "`!` drops each earlier entry it names and loads nothing itself, so an override's "
-                  '`"!file:{project-root}/**/project-context.md"` turns that default off',
+                  "(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+                  "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` "
+                  "entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names "
+                  "one file)",
                   "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
         assert token in activation, token
     assert "\u2014" not in _section(_read(SKILL_MD), "3. **Resolve workflow customization.**", "4. **Resolve")
@@ -543,7 +544,7 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     assert ("Steps SKILL.md On Activation step 3 runs once this file resolves: after the config load (step 1) and "
             "the headless flag (step 2), before step 4 resolves the helpers and creates the run folder") in toml
     assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-export-skill.toml: '
-            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in toml
+            '[workflow] persistent_facts = ["!file:{project-root}/**/project-context.md"]') in toml
     assert "Team overrides: {project-root}/_bmad/custom/skf-export-skill.toml" in toml
     assert "Each entry is either:" not in toml
     assert ("Each entry is one of: - a literal sentence" in toml
@@ -592,7 +593,7 @@ def test_the_dry_run_shows_the_manifest_line_where_it_runs():
 
 
 def test_activation_checks_the_skills_folder_without_writing_under_dry_run():
-    probe = _section(_read(SKILL_MD), "5. **Pre-flight write check.**", "6. Load, read the full file")
+    probe = _section(_read(SKILL_MD), "5. **Pre-flight write check.**", "6. Execute each entry")
     assert "Without `--dry-run`, probe it with a write:" in probe
     dry = next(line for line in probe.splitlines() if "With `--dry-run`, check without writing" in line)
     assert '`test -w "{skills_output_folder}"`' in dry

@@ -15,7 +15,9 @@ workflows:
   which is where an init step binds what the invocation passed;
 - every flag On Activation parses is in the contract, apart from the shared
   `--headless` / `-H` pair, which src/shared/references/headless-gate-convention.md
-  defines for every workflow, and the KNOWN_UNLISTED flags below;
+  defines for every workflow, the customization helper's own flags (the
+  step names `--facts` when it says what the resolved list holds), and the
+  KNOWN_UNLISTED flags below;
 - every input an Inputs row names with a `[required]` or `[optional]` marker
   is bound at activation, by its name or its flag.
 
@@ -62,6 +64,9 @@ COMMAND_RE = re.compile(
 # A flag handed a {variable}, or an argument the prose says it passes to a helper.
 PASSED_FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]*)(?:\s+|=)[\"']?\{")
 HELPER_ARG_RE = re.compile(r"passes it to `[^`]+` as `(--[a-z][a-z0-9-]*)`")
+# The customization helper's call in its fence: the step's prose names its flags (`--facts`, #1106) when it says
+# what the resolved list holds, and they are the helper's, not the workflow's.
+RESOLVER_CALL_RE = re.compile(r"^\s*uv run \{resolveCustomizationHelper\}(.*)$", re.MULTILINE)
 NAMED_INPUT_RE = re.compile(r"`?\b([a-z][a-z0-9_]*)\b`?(?: \([^)]*\))? \[(?:required|optional|one or more)")
 FENCE_RE = re.compile(r"^[ \t]*```.*?^[ \t]*```", re.MULTILINE | re.DOTALL)
 
@@ -130,11 +135,14 @@ def _parsed_at_activation(workflow: str, flag: str) -> bool:
 def _activation_flags(workflow: str) -> set[str]:
     """The flags On Activation parses: every flag it names outside a code
     block, a command span, an argument handed a {variable}, an argument it
-    says it passes to a helper, and a blockquote, which states how the run
-    calls a helper (setup's halt contract and its emitter arguments)."""
+    says it passes to a helper, a flag its customization helper call passes,
+    and a blockquote, which states how the run calls a helper (setup's halt
+    contract and its emitter arguments)."""
+    resolver_args = {flag for call in RESOLVER_CALL_RE.findall(_on_activation(workflow))
+                     for flag in LONG_FLAG_RE.findall(call)}
     text = FENCE_RE.sub("", _on_activation(workflow))
     text = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">"))
-    helper_args = set(HELPER_ARG_RE.findall(text))
+    helper_args = set(HELPER_ARG_RE.findall(text)) | resolver_args
     found: set[str] = set()
 
     def span(match: re.Match) -> str:

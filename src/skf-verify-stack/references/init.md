@@ -165,6 +165,8 @@ This skill produces the feasibility report schema defined in `{feasibilitySchema
 
 **Filename variables:** `timestamp` was fixed at activation (SKILL.md On Activation §2) and `project_slug` by the Bind block at the top of this step; reuse them, do not re-derive. `{outputFile}` and `{outputFileLatest}` resolve from them per the stage frontmatter template, the latter as a copy, not a symlink (per schema), which only report.md §1 writes.
 
+**Check the template.** If `test -f "{reportTemplatePath}" && test -r "{reportTemplatePath}"` fails, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:report-template`, with `"path": "{reportTemplatePath}"`: "`report_template_path` names `{reportTemplatePath}`, which is not a readable file. Point it at your copy in `{project-root}/_bmad/custom/skf-verify-stack.toml` or `.user.toml`, or re-install SKF when it is the bundled `assets/feasibility-report-template.md`." Nothing is written.
+
 **Load** `{reportTemplatePath}` (the customize-aware template path resolved in SKILL.md On Activation §4) and stage the initial content. Substitute the template's `Schema contract:` line `{feasibilitySchemaRef}` placeholder with the resolved schema path so every emitted report cites a path that exists on the running machine.
 
 **Populate frontmatter (per shared schema — required keys):**
@@ -188,6 +190,8 @@ This skill produces the feasibility report schema defined in `{feasibilitySchema
 **Atomic write:** Pipe the staged content through `python3 {atomicWriteHelper} write --target {outputFile}`: a plain `rm`+rewrite risks a partial write corrupting the report.
 
 On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:report`, with `"path": "{outputFile}"` and no `report_path`: the report was not written.
+
+**Check the new report.** Run `uv run {validateFeasibilityReportHelper} "{outputFile}" -o "{run_dir}/template-check.json"`. On a non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `init:report-template`, with `"report_path": "{outputFile}"`: name from the JSON what the template `{reportTemplatePath}` breaks (`missingHeadings`, `orderViolations`, `verdictTableFound` false or `duplicateVerdictTableLine`, `unknownTokens`, `schemaVersionFound`), and leave `{outputFileLatest}` as it is. The message opens "`report_template_path` names `{reportTemplatePath}`, whose report fails the feasibility-report check:" and ends with the fix sentence of the template check above. No stage has analysed anything yet.
 
 ### 5. Display Initialization Summary
 

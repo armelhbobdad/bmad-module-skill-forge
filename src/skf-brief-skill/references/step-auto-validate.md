@@ -87,13 +87,13 @@ SKF_BRIEF_RESULT
 
 Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
 
-**On-complete hook.** Right after the envelope, if `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), run it:
+**On-complete hook.** Right after the envelope, if `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), run it from `{project-root}`:
 
 ```bash
-{onCompleteCommand} --result-path={brief_path}
+{onCompleteCommand} --result-path="{brief_path}"
 ```
 
-A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already bound, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook.
+A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already bound, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook. If step-auto-brief.md could not write the brief, the run halted there, so the hook never names a missing file.
 
 **Remove the run folder.** The brief is written, so the folder step 1 §1 created has done its job; remove it (the guard keeps the command to that folder):
 

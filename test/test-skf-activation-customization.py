@@ -18,10 +18,19 @@ block across all sixteen activations.
   that carries it keeps a reason that holds quotes or `$( )` as plain text.
 - #596 (the maintainer's 2026-10-02 decision): a `!` persistent_facts entry
   drops the bundled project-context.md default; SKILL.md says so and each
-  customize.toml shows the override, with no "cannot remove it" left.
+  customize.toml shows the override, with no "cannot remove it" left. Since
+  #1106 the helper applies the drop and expands each glob (`--facts`), and
+  SKILL.md points at that instead of asking the model to do it. Since #1107
+  Campaign ships no default, so its step names none.
 - #601: each Conventions block states the module-level path exception, and
   the sibling-skill rule wherever the skill names another skill's folder.
 - #603: headless_mode is read from `{sidecar_path}/preferences.yaml`.
+- #1111: every workflow but Drop Skill (which documents its earlier run
+  point) runs `activation_steps_append` at the On Activation step that loads
+  its first stage, after every On Activation step that can halt: inside that
+  step, before the file it loads, or in a clause that runs them before or at
+  that step and names each step that can halt in between as passed. Ferris
+  is an agent with no first stage.
 """
 
 from __future__ import annotations
@@ -47,20 +56,31 @@ STEPS = {
     "skf-brief-skill": ("3. **Resolve workflow customization.**", "4. **Resolve the envelope emitter**"),
     "skf-campaign": ("3. **Resolve workflow customization.**", "4. **Parse CLI overrides**"),
     "skf-create-skill": ("3. **Resolve workflow customization.**", "4. Resolve `{emitEnvelopeHelper}`"),
-    "skf-create-stack-skill": ("3. **Resolve workflow customization.**", "4. Load, read the full file"),
+    "skf-create-stack-skill": ("3. **Resolve workflow customization.**", "4. Run each entry"),
     "skf-quick-skill": ("3. **Resolve workflow customization.**", "4. **Parse CLI overrides**"),
     "skf-refine-architecture": ("4. **Resolve workflow customization.**", "5. **Pre-flight"),
     "skf-rename-skill": ("3. **Resolve workflow customization.**", "4. Load, read the full file"),
-    "skf-test-skill": ("3. **Resolve workflow customization.**", "4. Load, read the full file"),
+    "skf-test-skill": ("3. **Resolve workflow customization.**", "4. Run each entry"),
     "skf-verify-stack": ("4. **Resolve workflow customization.**", "5. **Pre-flight: the emitter.**"),
 }
 WORKFLOWS = sorted(STEPS)
 
 # #770: SKF's helper runs core's resolver, so a core before 6.11.0, which rejects --project-root, still applies
 # the overrides when it would read this project; the step binds the helper on one line before the fence.
+# #1106: `--facts`, the last argument, has the helper apply each `!` entry and expand each glob of persistent_facts
+# (Setup's fence then redirects stderr to a file, #1119).
 HELPER = "skf-resolve-customization.py"
 COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
-           "--project-root {project-root} --key workflow")
+           "--project-root {project-root} --key workflow --facts")
+# What the resolved list holds, in every activation's step (a skill whose bundled list is empty, Setup, Drop Skill,
+# Campaign and Ferris since #1107, carries it alone, in parentheses).
+# The helper exits 1 before its facts pass when BMAD core's resolver is missing (a project with SKF alone), so the
+# pointer holds only if it ran, and the bundled default, which the activation then reads as written, names the
+# folder it never loads from.
+FACTS_POINTER = ("if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, "
+                 "and expanded each glob, so a `file:` entry names one file")
+FACTS_NOTE = ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+              f"`{{project-root}}/_bmad-output/.skf-run/`; {FACTS_POINTER})")
 BINDING = (f"Bind `{{resolveCustomizationHelper}}` ← `{{project-root}}/_bmad/skf/shared/scripts/{HELPER}`, "
            f"else `{{project-root}}/src/shared/scripts/{HELPER}` (the first that exists)")
 CORE_RESOLVER = "{project-root}/_bmad/scripts/resolve_customization.py"
@@ -93,14 +113,10 @@ ROUTES = {
     "skf-verify-stack": ("for init.md to record once it has created `{run_dir}`",),
 }
 
-FACTS_CLAUSE = ("the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
-                "`!` drops each earlier entry it names and loads nothing itself, so an override's "
-                "`\"!file:{project-root}/**/project-context.md\"` turns that default off")
-# The workflows whose SKILL.md gains the clause here; brief, create and rename shipped their own wording.
-FACTS_CLAUSE_SKILLS = ("skf-analyze-source", "skf-campaign", "skf-create-stack-skill", "skf-quick-skill",
-                       "skf-refine-architecture", "skf-test-skill", "skf-verify-stack")
 CUSTOMIZE_CHANGED = ("skf-analyze-source", "skf-campaign", "skf-create-stack-skill", "skf-quick-skill",
                      "skf-refine-architecture", "skf-rename-skill", "skf-test-skill", "skf-verify-stack")
+# #1107: Campaign ships no project-context default, so only the others show how to drop it.
+DEFAULT_SHIPPED = tuple(skill for skill in CUSTOMIZE_CHANGED if skill != "skf-campaign")
 DEFAULT_FACT = "file:{project-root}/**/project-context.md"
 
 MODULE_RULE = ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve "
@@ -137,6 +153,10 @@ def _step(skill: str) -> str:
 
 def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", text)
+
+
+def _bundled_facts(skill: str) -> list:
+    return tomllib.loads(_read(SRC / skill / "customize.toml"))["workflow"]["persistent_facts"]
 
 
 # --------------------------------------------------------------------------
@@ -346,12 +366,20 @@ def test_create_stack_records_the_reason_in_its_pre_flight():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("skill", FACTS_CLAUSE_SKILLS)
-def test_activation_honours_a_drop_entry(skill):
-    assert FACTS_CLAUSE in _flat(_activation(skill)), skill
+@pytest.mark.parametrize("skill", WORKFLOWS)
+def test_activation_reads_the_list_the_helper_resolved(skill):
+    """#1106: the helper applies the `!` drop and expands each glob, so the step only says what the list holds.
+    #1107: a workflow whose bundled list is empty (Campaign) names no default and carries the pointer alone."""
+    activation = _flat(_activation(skill))
+    if _bundled_facts(skill):
+        assert activation.count(FACTS_NOTE) == 1, skill
+    else:
+        assert activation.count(f"({FACTS_POINTER})") == 1, skill
+        assert "the bundled default loads" not in activation, skill
+    assert "loads nothing itself" not in activation and "turns that default off" not in activation, skill
 
 
-@pytest.mark.parametrize("skill", CUSTOMIZE_CHANGED)
+@pytest.mark.parametrize("skill", DEFAULT_SHIPPED)
 def test_customize_toml_shows_how_to_drop_the_default(skill):
     text = _read(SRC / skill / "customize.toml")
     assert tomllib.loads(text)["workflow"]["persistent_facts"] == [DEFAULT_FACT]
@@ -423,3 +451,80 @@ def test_headless_mode_reads_the_sidecar_preferences(skill):
     activation = _activation(skill)
     assert "`{sidecar_path}/preferences.yaml`" in activation, skill
     assert "in preferences.yaml." not in activation, skill
+
+
+# --------------------------------------------------------------------------
+# #1111: activation_steps_append runs at the step that loads the first stage
+# --------------------------------------------------------------------------
+
+# The On Activation step that starts each workflow's first stage, and what it names: the stage file, or Campaign's
+# dispatch. Drop Skill runs the entries before its pre-flight on purpose (test-skf-drop-skill-contract.py pins
+# that), and Ferris has no first stage (test-skf-resolver-block.py pins his run point).
+FIRST_STAGE = {
+    "skf-analyze-source": (6, "references/init.md"),
+    "skf-audit-skill": (5, "references/init.md"),
+    "skf-brief-skill": (5, "references/gather-intent.md"),
+    "skf-campaign": (5, "**dispatch**"),
+    "skf-create-skill": (5, "references/load-brief.md"),
+    "skf-create-stack-skill": (4, "references/init.md"),
+    "skf-export-skill": (6, "references/load-skill.md"),
+    "skf-quick-skill": (5, "references/batch-mode.md"),
+    "skf-refine-architecture": (6, "references/init.md"),
+    "skf-rename-skill": (4, "references/select.md"),
+    "skf-setup": (7, "references/detect-and-tier.md"),
+    "skf-test-skill": (4, "references/init.md"),
+    "skf-update-skill": (5, "references/init.md"),
+    "skf-verify-stack": (6, "references/init.md"),
+}
+APPEND = "activation_steps_append"
+
+
+def _numbered_steps(skill: str) -> dict[int, str]:
+    """On Activation split at its column-0 `N. ` items, each flattened to one line."""
+    parts = re.split(r"(?m)^(\d+)\. ", _activation(skill))
+    return {int(parts[i]): _flat(parts[i + 1]).strip() for i in range(1, len(parts), 2)}
+
+
+def _append_clauses(text: str) -> list[tuple[int, str]]:
+    """Each `; ` or `. ` delimited clause of `text` that mentions the append surface, with its offset."""
+    found, start = [], 0
+    for clause in re.split(r"; |\. ", text):
+        at = text.index(clause, start)
+        start = at + len(clause)
+        if APPEND in clause:
+            found.append((at, clause))
+    return found
+
+
+def test_first_stage_names_every_workflow_but_drop_skill_and_ferris():
+    skills = {path.parent.name for path in SRC.glob("skf-*/SKILL.md")}
+    assert set(FIRST_STAGE) | {"skf-drop-skill", "skf-forger"} == skills
+    assert not set(FIRST_STAGE) & {"skf-drop-skill", "skf-forger"}
+
+
+@pytest.mark.parametrize("skill", sorted(FIRST_STAGE))
+def test_the_append_steps_run_where_the_first_stage_starts(skill):
+    """The entries run after every On Activation step that can halt: inside the step that loads the first stage,
+    before the file it loads, or, outside that step, in a clause that runs them before or at it (`before step N`,
+    `before On Activation step N`, `before item N`, `before §N`, `at step N`). A clause that runs them after
+    step N's file, such as "once step 6 has loaded init.md" or "at step 6, once load-skill.md has finished", fails.
+    A clause outside that step also names each step that can halt in between as passed (`after step M`,
+    `once step M ... passed`), as Audit's "once step 4 below has passed" and Refine's "once §5's pre-flight has
+    passed" do."""
+    n, stage = FIRST_STAGE[skill]
+    steps = _numbered_steps(skill)
+    assert stage in steps[n], (skill, n, stage)
+    halting = sorted(k for k, text in steps.items() if re.search(r"HALT|halt with phase", text))
+    assert all(k < n for k in halting), (skill, n, halting)
+    runs_by_step = re.compile(rf"\b(?:before|at) (?:On Activation )?(?:(?:step|item) |§){n}(?!\w)")
+    clauses = [(k, at, clause) for k, text in sorted(steps.items()) for at, clause in _append_clauses(text)]
+    assert clauses, skill
+    for k, at, clause in clauses:
+        if k == n:
+            assert at + clause.index(APPEND) < steps[n].index(stage), (skill, k, clause)
+        else:
+            assert runs_by_step.search(clause), (skill, k, clause)
+        for m in (m for m in halting if k <= m < n):
+            step_m = rf"(?:On Activation )?(?:(?:step|item) |§){m}(?!\w)"
+            passed = rf"\bafter {step_m}|\bonce {step_m}[^,;]*\bpassed\b"
+            assert re.search(passed, clause), (skill, k, m, clause)

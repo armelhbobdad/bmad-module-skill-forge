@@ -33,6 +33,9 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   on_complete, with 'report' out of the expected set and recorded once the
   result files are written, and its grep count catches a stage that skipped
   its section (#585, #583 item 4, #587, #593);
+- init.md §6c checks the report template before it creates the report, from
+  the one heading list report.md §4c reads too, and halts input-invalid on a
+  copy that is missing or lacks the title, a heading or a placeholder (#1110);
 - every discovery skip is a counted Info gap, and discovery gaps reach the
   Gap Report totals (#543);
 - each stage's closing line names its stepsCompleted token (#585);
@@ -76,6 +79,7 @@ SCORING_FILE = REFS / "scoring-rules.md"
 SKILL_MD = TS_DIR / "SKILL.md"
 TEMPLATE_FILE = TS_DIR / "templates" / "test-report-template.md"
 FORMATS_FILE = TS_DIR / "assets" / "output-section-formats.md"
+HEADINGS_FILE = TS_DIR / "assets" / "report-headings.txt"
 GAP_LEDGER = TS_DIR / "scripts" / "gap-ledger.py"
 HARD_GATE = TS_DIR / "scripts" / "hard-gate.py"
 COMBINE = TS_DIR / "scripts" / "combine-external-scores.py"
@@ -109,6 +113,8 @@ TEMPLATE_HEADINGS = [
     "## Completeness Score",
     "## Gap Report",
 ]
+# The loop line init.md §6c and report.md §4c run over the heading list.
+HEADINGS_LOOP = "while IFS= read -r heading; do"
 RUN_ID = "20260930T101010Z-ab12cd34"
 # The rule each step after the lock states before its first HALT.
 HALT_RELEASE = ('It releases the run lock first, whatever the release prints: from `{project-root}`, run '
@@ -1675,15 +1681,17 @@ class TestReportTerminalSequence:
 
     def test_the_section_check_catches_a_skipped_stage(self, text: str) -> None:
         check = _slice(text, "**Check the report sections.**", "**Renew the run lock**")
-        script = _fence(check, "for heading in")
-        assert re.findall(r"'(## [^']+)'", script) == TEMPLATE_HEADINGS
-        assert 'grep -cxF "$heading" "{outputFile}"' in script
+        script = _fence(check, HEADINGS_LOOP)
+        assert _read(HEADINGS_FILE).splitlines() == TEMPLATE_HEADINGS
+        assert not re.findall(r"## [A-Z]", script), "the headings come from the list file, not the fence"
+        assert ('while IFS= read -r heading; do printf \'%s: \' "$heading"; grep -cxF "$heading" "{outputFile}"; '
+                'done < "{reportHeadingsFile}"') in script
         assert "grep -c '^<!-- Populated by' \"{outputFile}\"" in script
         # #971: the H1 init.md §6c filled, counted as the exact line.
         assert "printf 'title: '; grep -cxF '# Test Report: {skill_name}' \"{outputFile}\"" in script
         flow = _flow(check)
         assert "Count them with grep, not by eye" in flow
-        assert "Each heading must print 1" in flow and "`placeholders` must print 0" in flow
+        assert "Each of the six headings must print 1" in flow and "`placeholders` must print 0" in flow
         assert "`title` must print 1" in flow and "a `title` count other than 1, HALT" in flow
         assert "a `title` count of" in flow and "the report does not hold `# Test Report: {skill_name}` once" in flow
         assert 'HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`)' in check
@@ -1696,7 +1704,7 @@ class TestReportTerminalSequence:
     @pytest.mark.parametrize("case", ["whole", "skipped", "appended", "untitled", "misnamed", "titled-twice",
                                       "quotes-braces", "suffixed"])
     def test_the_section_check_counts_as_written(self, text: str, tmp_path: pathlib.Path, case: str) -> None:
-        script = _fence(_slice(text, "**Check the report sections.**", "**Renew the run lock**"), "for heading in")
+        script = _fence(_slice(text, "**Check the report sections.**", "**Renew the run lock**"), HEADINGS_LOOP)
         report = _read(TEMPLATE_FILE)
         if case != "untitled":
             name = {"misnamed": "other", "suffixed": "demo (v1)"}.get(case, "demo")
@@ -1711,7 +1719,8 @@ class TestReportTerminalSequence:
             report += "\n# Test Report: demo\n\nWritten again by a stage.\n"
         path = tmp_path / f"test-report-demo-{RUN_ID}.md"
         path.write_bytes(report.encode("utf-8"))
-        command = script.replace("{outputFile}", path.as_posix()).replace("{skill_name}", "demo")
+        command = (script.replace("{outputFile}", path.as_posix()).replace("{skill_name}", "demo")
+                   .replace("{reportHeadingsFile}", HEADINGS_FILE.as_posix()))
         proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True, encoding="utf-8")
         counts = {k: int(v) for k, v in (line.rsplit(": ", 1) for line in proc.stdout.splitlines())}
         expected = dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 0, "title": 1}
@@ -1724,6 +1733,72 @@ class TestReportTerminalSequence:
         if case == "titled-twice":
             expected["title"] = 2
         assert counts == expected
+
+    # #1110: init.md §6c checks the template, from the one heading list this check reads too,
+    # before it creates the report, so a broken copy halts before any stage runs.
+    def test_init_checks_the_template_before_it_creates_the_report(self, text: str) -> None:
+        init = _read(INIT_FILE)
+        assert "**6c. Create `{outputFile}` from `{templateFile}`**" in init
+        section = _slice(init, "**6c. Create `{outputFile}` from `{templateFile}`**", "Initial frontmatter:")
+        script = _fence(section, HEADINGS_LOOP)
+        assert ('while IFS= read -r heading; do printf \'%s: \' "$heading"; grep -cxF "$heading" "{templateFile}"; '
+                'done < "{reportHeadingsFile}"') in script
+        assert "printf 'placeholders: '; grep -c '^<!-- Populated by' \"{templateFile}\"" in script
+        assert "printf 'title: '; grep -cxF '# Test Report: {{skillName}}' \"{templateFile}\"" in script
+        for fence in (script, _fence(_slice(text, "**Check the report sections.**", "**Renew the run lock**"),
+                                     HEADINGS_LOOP)):
+            assert not re.findall(r"## [A-Z]", fence), "a fence names a heading inline"
+        flow = _flow(section)
+        assert "Check it first: `{templateFile}` must be a readable file (`test -f`, `test -r`)" in flow
+        assert "Each of the six headings and `title` must print 1 and `placeholders` 6." in flow
+        assert "with LF line endings (a copy saved with CRLF endings counts 0 for every heading and the title)" in flow
+        halt = 'HALT (`halt_reason: "input-invalid"`, phase `init:report`, `"path": "{templateFile}"`)'
+        assert flow.count(halt) == 1
+        assert "`test_report_template_path` names `{templateFile}`, which is not a readable file" in flow
+        assert "`test_report_template_path` names `{templateFile}`, which lacks:" in flow
+        assert ("Point it at your copy in `{project-root}/_bmad/custom/skf-test-skill.toml` or `.user.toml`, or "
+                "re-install SKF when it is the bundled `templates/test-report-template.md`.") in flow
+        assert "releases the lock and stages `{run_dir}/halt.json` as the **Halt envelope** paragraph says" in flow
+        assert flow.index(halt) < flow.index("Then create it under the in-progress name")
+        # One list: both stage files bind it, and it holds the template's headings, each line ended.
+        assert _frontmatter(INIT_FILE)["reportHeadingsFile"] == "assets/report-headings.txt"
+        assert _frontmatter(REPORT_FILE)["reportHeadingsFile"] == "assets/report-headings.txt"
+        listed = _read(HEADINGS_FILE)
+        assert listed.endswith("\n"), "read skips a last line with no newline"
+        assert listed.splitlines() == TEMPLATE_HEADINGS
+        assert [line for line in _read(TEMPLATE_FILE).splitlines() if line.startswith("## ")] == TEMPLATE_HEADINGS
+        binding = _flow(_slice(_read(SKILL_MD), "- `{testReportTemplatePath}` ←", "\n"))
+        assert "`workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`" in binding
+        assert "each heading `assets/report-headings.txt` lists" in binding and "init.md §6c checks" in binding
+        assert _fence(_read(INIT_FILE), HEADINGS_LOOP) == script
+
+    @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the check through bash")
+    @pytest.mark.parametrize("case", ["bundled", "lost-heading", "lost-placeholder", "untitled"])
+    def test_the_template_check_counts_what_the_copy_keeps(self, tmp_path: pathlib.Path, case: str) -> None:
+        section = _slice(_read(INIT_FILE), "**6c. Create `{outputFile}` from `{templateFile}`**", "Initial frontmatter:")
+        script = _fence(section, HEADINGS_LOOP)
+        template = _read(TEMPLATE_FILE)
+        if case == "lost-heading":
+            template = template.replace("## Coherence Analysis\n", "")
+        if case == "lost-placeholder":
+            template = template.replace("<!-- Populated by external-validators §5 -->\n", "")
+        if case == "untitled":
+            template = template.replace("# Test Report: {{skillName}}\n", "")
+        path = tmp_path / "house-test-report.md"
+        path.write_bytes(template.encode("utf-8"))
+        command = script.replace("{templateFile}", path.as_posix()).replace("{reportHeadingsFile}",
+                                                                            HEADINGS_FILE.as_posix())
+        proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True, encoding="utf-8")
+        counts = {k: int(v) for k, v in (line.rsplit(": ", 1) for line in proc.stdout.splitlines())}
+        expected = dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 6, "title": 1}
+        if case == "lost-heading":
+            expected["## Coherence Analysis"] = 0
+        if case == "lost-placeholder":
+            expected["placeholders"] = 5
+        if case == "untitled":
+            expected["title"] = 0
+        assert counts == expected
+        assert (counts == dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 6, "title": 1}) is (case == "bundled")
 
     def test_the_inconclusive_paragraph_matches_the_order(self, text: str) -> None:
         final = _flow(_slice(text, "### 5. Finalize Output Document", "### 6."))
@@ -1942,7 +2017,7 @@ class TestReportTemplate:
         titles = [line for line in _body(TEMPLATE_FILE).splitlines() if line.startswith("# ")]
         assert titles == ["# Test Report: {{skillName}}"]
         script = _fence(_slice(_read(REPORT_FILE), "**Check the report sections.**", "**Renew the run lock**"),
-                        "for heading in")
+                        HEADINGS_LOOP)
         grepped = re.search(r"^printf 'title: '; grep -cxF '([^']+)' \"\{outputFile\}\"$", script, re.M)
         assert grepped, "report.md §4c does not count the title"
         assert grepped.group(1) == titles[0].replace("{{skillName}}", "{skill_name}")

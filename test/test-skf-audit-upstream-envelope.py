@@ -612,13 +612,13 @@ def test_the_customize_surface_reaches_what_it_overrides():
     assert "the bundled defaults are an empty string" not in activation
     report = _flow(_slice(_read(REPORT), "**Post-audit hook (optional).**", "### 6."))
     assert "invoke it from `{project-root}` as:" in report
-    assert "{onCompleteCommand} --result-path={result_json_path}" in report
+    assert '{onCompleteCommand} --result-path="{result_json_path}"' in report
 
 
 # The shared #595 resolver block every workflow's On Activation carries, and
-# the #596 `!` persistent_facts clause (W6 handoffs).
+# the #596 `!` persistent_facts clause (W6 handoffs), which the helper applies since #1106.
 RESOLVER_CALL = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
-                 "--project-root {project-root} --key workflow")
+                 "--project-root {project-root} --key workflow --facts")
 RESOLVER_LAYERS = ("It merges the bundled `{skill-root}/customize.toml` with "
                    "`{project-root}/_bmad/custom/skf-audit-skill.toml` (team overrides, committed) and `.user.toml` "
                    "(personal overrides, gitignored).")
@@ -628,9 +628,9 @@ RESOLVER_WARNING = ("When it exits non-zero, prints no JSON or is missing, print
                     "script is missing, `no JSON` when it printed none).")
 RESOLVER_FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                      "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
-DROP_CLAUSE = ("the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` "
-               "drops each earlier entry it names and loads nothing itself, so an override's "
-               '`"!file:{project-root}/**/project-context.md"` turns that default off')
+DROP_CLAUSE = ("(the bundled default loads every `project-context.md` under `{project-root}`, none in "
+               "`{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, "
+               "which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file)")
 
 
 def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():
@@ -652,7 +652,7 @@ def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():
     assert tomllib.loads(raw)["workflow"]["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
     comments = _flow(re.sub(r"(?m)^# ?", "", raw))
     assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-audit-skill.toml: '
-            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comments
+            '[workflow] persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comments
     for gone in ("cannot remove it", "add a literal fact", "(under {project-root})", "Each entry is either:"):
         assert gone not in comments, gone
     assert ("Each entry is one of: - a literal sentence" in comments
@@ -698,8 +698,9 @@ def test_skill_md_names_every_stage_and_folder_it_uses():
 
 
 @pytest.mark.parametrize("reason,phase", [("helper-missing", "on-activation:helpers"),
+                                          ("template-missing", "on-activation:template"),
                                           ("no-baseline", "init:provenance")],
-                         ids=["helper-missing", "no-baseline"])
+                         ids=["helper-missing", "template-missing", "no-baseline"])
 def test_a_halt_before_the_run_folder_prints_a_valid_envelope(reason, phase):
     """The activation halts pass their payload to the emitter directly, through
     python3 when uv is what is missing; the new reasons exit 3."""

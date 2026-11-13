@@ -14,7 +14,7 @@ Verifies that a skill is complete enough to be useful to an AI agent by checking
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` and `blockedStepFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/references/output-contract-schema.md` and `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one. The coherence and migration rules cite `skf-create-skill/assets/skill-sections.md` and `skf-create-stack-skill/references/compose-mode-rules.md`.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` holds deterministic helpers, `assets/` the output section formats and `templates/` the test report template.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` holds deterministic helpers, `assets/` the output section formats and the report heading list, and `templates/` the test report template.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -84,19 +84,19 @@ Headless callers: the full argument set (`Inputs`), the outputs, the exit codes 
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-test-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}`: report.md §4c hands it to the result as a warning.
 
    Apply the scalar fallbacks now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
 
-   - `{testReportTemplatePath}` ← `workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`
+   - `{testReportTemplatePath}` ← `workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`, bound as the file it names (`{project-root}` replaced, a bare path taken from `{skill-root}`); a copy keeps the title line, each heading `assets/report-headings.txt` lists and the `<!-- Populated by` comment under it, which init.md §6c checks before it creates the report
    - `{defaultThreshold}` ← `workflow.default_threshold` if non-empty/non-null, else `80`. init.md §1b resolves the precedence (CLI, then per-pipeline default, then this scalar) once and writes `threshold` and `thresholdSource` into the report frontmatter, which score.md §1 reads.
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (the post-finalization hook in `references/report.md` is then a no-op).
 
    Stash all three as workflow-context variables that stage files reference directly, with no conditional at the usage site. The scoring rules, the Gap Severity table and the output formats are not overridable: scripts own the scoring and the hard gate reads the table, so a house-style copy could change what blocks export.
 
-   **Apply the array surfaces** (not silent no-ops): run `workflow.activation_steps_prepend` in order now; treat each `workflow.persistent_facts` entry as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off); then run `workflow.activation_steps_append` after activation.
+   **Apply the array surfaces** (not silent no-ops): run `workflow.activation_steps_prepend` in order now; treat each `workflow.persistent_facts` entry as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
-4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+4. Run each entry in `workflow.activation_steps_append` in order, then load, read the full file, and execute `references/init.md` to begin the workflow.

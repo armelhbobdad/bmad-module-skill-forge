@@ -62,7 +62,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-brief-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case add `customization_resolver_unavailable: <reason>` to `workflow_warnings[]` as the run's first warning.
@@ -73,7 +73,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
    - `{scopeTemplatesPath}` ← `workflow.scope_templates_path`, else `assets/scope-templates.md`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty: no hook, so write-brief.md §6b and step-auto-validate.md §3, the two places it runs, skip it
 
-   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts, and the bundled default loads any `project-context.md` under `{project-root}`; an entry prefixed `!` loads nothing and drops each earlier entry it names); then, after activation completes and before step 5 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
+   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file); then, after activation completes and before step 5 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
 
 4. **Resolve the envelope emitter** before any stage can halt: `{emitBriefEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line of the run: a halt's through the Halt Contract above, the success line in write-brief.md §4b or step-auto-validate.md §3. `references/invocation-contract.md` defines the envelope.
 

@@ -13,16 +13,39 @@ that owns its rule, or it changes nothing, so:
   reads that variable: a helper command passes it on for a scalar a script
   owns, and campaign's quality gate scalars, passed the way step-01 passes
   them, change the state campaign-state.py writes;
-- each on_complete comment says whether the value is a command (named, or
-  shown with the arguments the run appends) or an instruction;
+- each on_complete comment (#1109) takes one of the two documented forms:
+  a shell command, whose comment says so, says that unlike BMad core this
+  workflow hands the value to the shell, and quotes any path it shows; or
+  an instruction (Setup Forge and Verify Stack only), whose comment opens
+  by saying so. Every command-style terminal stage passes its path quoted,
+  runs the hook from `{project-root}`, states when it skips the hook, and
+  never fails the run on a hook failure;
 - the `!` persistent_facts rule (the maintainer's 2026-10-02 decision): for
-  every workflow that ships a non-empty persistent_facts (all but skf-setup),
-  the On Activation persistent_facts sentence drops a `!` entry and each
-  earlier entry it names, the customize.toml comment above persistent_facts
-  shows `persistent_facts = ["!file:{project-root}/**/project-context.md"]`
-  and never says an override cannot remove the default or suggests a
-  counter-fact, and campaign's kickoff loader drops the default for that
-  override.
+  every workflow that ships a non-empty persistent_facts, the On Activation
+  persistent_facts sentence drops a `!` entry and each earlier entry it
+  names, and the customize.toml comment above persistent_facts shows
+  `persistent_facts = ["!file:{project-root}/**/project-context.md"]` and
+  never says an override cannot remove or delete the default or suggests a
+  counter-fact;
+- every persistent_facts example (#1108) is the override file it names:
+  `#   [workflow]` is the line before the `persistent_facts = [...]` line, so
+  the two lines, `#` markers dropped, parse to the `workflow` table the
+  resolver's `--key workflow` reads, where a key above that line is ignored
+  without a warning;
+- each `file` scalar's bundled default (#1108) names a file the skill
+  bundles, and only the scalars STILL_EMPTY lists ship an empty string; the
+  template comments of Audit, Test, Stack, Quick and Export say to keep a
+  house-style copy outside the skill folder and name it from
+  {project-root}, since a bare path resolves from the skill root;
+- Campaign (#1110) ships its real defaults: `{forge_data_folder}/_campaign`
+  for its workspace and the bundled `templates/` files for its three template
+  scalars, and its comments say a bare path resolves from the skill root;
+- the project-context default (the maintainer's 2026-11-12 decision, #1107):
+  the twelve workflows that read the project context ship it, and Audit,
+  Brief and Test Skill say it is kept on purpose; skf-setup, skf-drop-skill
+  and skf-campaign ship `[]`, and the comment of the last two shows the
+  two-line `[workflow]` override that loads those files anyway; campaign's
+  kickoff loader applies it, and a later `!` entry drops it again.
 
 skf-forger is not a workflow: its customize.toml holds an [agent] block.
 """
@@ -32,6 +55,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -128,7 +152,8 @@ DEFAULT_FACT = "file:{project-root}/**/project-context.md"
 DROP_OVERRIDE = f'#   persistent_facts = ["!{DEFAULT_FACT}"]'
 # A sentence that tells a team the default cannot be dropped, or to answer
 # it with a contradicting fact instead.
-STALE_FACT_ADVICE = ("cannot remove it", "add a literal fact", "counter-fact", "counter fact")
+STALE_FACT_ADVICE = ("cannot remove it", "cannot delete it", "no override can delete it", "add a literal fact",
+                     "counter-fact", "counter fact")
 
 
 def _read(path: Path) -> str:
@@ -213,12 +238,92 @@ def test_each_scalar_reaches_a_stage(skill, key):
         assert commands, f"{skill}: {placeholder} reaches no helper command"
 
 
-@pytest.mark.parametrize("skill", WORKFLOWS)
-def test_each_on_complete_comment_says_what_it_runs(skill):
-    """A command, shown or named, or an instruction the agent carries out."""
-    comment = _comment_above(skill, "on_complete")
-    assert re.search(r"(?i)\bcommand\b|\binstruction\b", comment) or "<on_complete> --" in comment, (
-        f"{skill}: the on_complete comment does not say whether the value is a command or an instruction")
+# #1109: in BMad core on_complete is an instruction; a command-style comment says
+# this workflow departs from that.
+HOOK_CONTRAST = ('Unlike BMad core, where on_complete is an instruction, this workflow hands the value to the shell, '
+                 'so an instruction such as "run Test Skill" fails.')
+INSTRUCTION_HOOKS = {"skf-setup", "skf-verify-stack"}
+# Each command-style terminal stage, by workflow: (file under references/, the
+# heading or lead that opens it, what follows it, the skip it states).
+HOOK_STAGES = {
+    "skf-analyze-source": [
+        ("generate-briefs.md", "### 9b.", "### 10.", "skip the hook and say so"),
+        ("step-auto-scope.md", "If `{onCompleteCommand}` is non-empty, the line's", "Then delete the run folder",
+         "skip the hook and say so"),
+        ("auto-docs-only.md", "If `{onCompleteCommand}` is non-empty, the line's", "### 6.",
+         "skip the hook and say so"),
+    ],
+    "skf-audit-skill": [("report.md", "**Post-audit hook (optional).**", "### 6.", "skip the hook when it is null")],
+    "skf-brief-skill": [
+        ("write-brief.md", "### 6b.", "### 7.", "the hook never names a missing file"),
+        ("step-auto-validate.md", "**On-complete hook.**", "**Remove the run folder.**",
+         "the hook never names a missing file"),
+    ],
+    # Campaign's skip is its call without --report-path when no report was written.
+    "skf-campaign": [("step-11-maintenance.md", "### §4: Post-Completion Hook", "### §5",
+                      "without `--report-path`, since there is no report to read")],
+    "skf-create-skill": [("report.md", "**Post-completion hook.**", "**Remove the run folder.**",
+                          "skip the hook and display the line for its case")],
+    "skf-create-stack-skill": [("report.md", "### 2c.", "### 3.",
+                                '"on_complete skipped: no result contract was written ({reason})"')],
+    "skf-drop-skill": [("report.md", "### Post-drop hook (optional)", "### 3.", "`{result_json_path}` is not null")],
+    "skf-export-skill": [("summary.md", "### 6b.", "### 7.", "when `{result_path}` is null")],
+    "skf-quick-skill": [("finalize.md", "**Post-completion hook (optional).**", "In a single-target run",
+                         "skip the hook and say so")],
+    "skf-refine-architecture": [("report.md", "### 5. Post-Completion Hook", "### 6.",
+                                 "When `{result_path}` is null, skip it too")],
+    "skf-rename-skill": [("report.md", "### 3. Post-Completion Hook", "### 4.",
+                          "when `{result_path}` is null, skip it")],
+    "skf-test-skill": [("report.md", "**Post-finalization hook.**", "### 5.", "`{result_path}` is not null")],
+    "skf-update-skill": [("report.md", "**Post-finalization hook.**", "### 6.", "skip it and say why")],
+}
+HOOK_STAGE_CASES = [(skill, *stage) for skill, stages in HOOK_STAGES.items() for stage in stages]
+UNQUOTED_PATH = re.compile(r"--(?:result|report)-path=(?!\")")
+
+
+def test_each_on_complete_comment_is_a_shell_command_or_an_instruction():
+    """#1109: a command-style comment says it is a shell command, gives the
+    BMad core contrast and quotes the path it shows; an instruction-style
+    comment opens by saying it is one. Setup Forge and Verify Stack alone are
+    instructions, and every other workflow has a stage in HOOK_STAGES."""
+    command, instruction = set(), set()
+    for skill in WORKFLOWS:
+        comment = _flat(_flat_comment(skill, "on_complete"))
+        if "shell command" in comment and HOOK_CONTRAST in comment:
+            assert not UNQUOTED_PATH.search(comment), f"{skill}: customize.toml shows an unquoted path"
+            command.add(skill)
+        elif re.match(r"(An instruction|Instruction)\b", comment) and "hands the value to the shell" not in comment:
+            instruction.add(skill)
+        else:
+            pytest.fail(f"{skill}: customize.toml describes on_complete in neither documented form: {comment[:120]}")
+    assert instruction == INSTRUCTION_HOOKS, sorted(instruction ^ INSTRUCTION_HOOKS)
+    assert command == set(HOOK_STAGES), sorted(command ^ set(HOOK_STAGES))
+
+
+@pytest.mark.parametrize("skill,name,start,end,skip", HOOK_STAGE_CASES,
+                         ids=[f"{case[0]}:{case[1]}" for case in HOOK_STAGE_CASES])
+def test_every_command_style_stage_runs_the_hook_the_same_way(skill, name, start, end, skip):
+    """#1109: the quoted path, the `{project-root}` working directory, a
+    failure that never fails the run, and the skip when there is no file."""
+    text = _read(SRC / skill / "references" / name)
+    assert start in text, f"{skill} {name}: no {start!r}"
+    stage = text.split(start, 1)[1]
+    assert end in stage, f"{skill} {name}: no {end!r} after {start!r}"
+    stage = stage.split(end, 1)[0]
+    campaign = skill == "skf-campaign"
+    hook = "{onComplete}" if campaign else "{onCompleteCommand}"
+    flag = "--report-path" if campaign else "--result-path"
+    assert f'{hook} {flag}="' in stage, f"{skill} {name}: the hook's path is not quoted"
+    # The call as the shell reads it in a project whose path holds a space: the path stays one argument.
+    call = re.search(re.escape(f"{hook} {flag}=") + r'"[^"\n]*"', stage)
+    assert call, f"{skill} {name}: the hook's quoted path does not close on its line"
+    words = shlex.split(re.sub(r"\{[^}]+\}", "/a b", call.group(0).replace(hook, "hook", 1)))
+    assert len(words) == 2 and words[1].startswith(f"{flag}=/a b"), (
+        f"{skill} {name}: {call.group(0)} splits into {words}")
+    assert not UNQUOTED_PATH.search(stage), f"{skill} {name}: an unquoted path"
+    assert "from `{project-root}`" in stage, f"{skill} {name}: no working directory for the hook"
+    assert re.search(r"(?i)\bnever fails? the\b", stage), f"{skill} {name}: a hook failure may fail the run"
+    assert skip in stage, f"{skill} {name}: no skip when there is no result file"
 
 
 def _step_01_init_args(**values: str) -> list[str]:
@@ -272,15 +377,35 @@ def test_campaign_quality_gate_overrides_change_the_state(tmp_path):
 
 
 FACT_SKILLS = [skill for skill in WORKFLOWS if _workflow_table(skill)["persistent_facts"]]
+# #1107 (the maintainer's 2026-11-12 decision): no Drop Skill stage reads the project context, and Brief, Create
+# and Test Skill load it in each run a campaign starts, so these two ship no default and show the override that
+# loads it anyway.
+NO_DEFAULT = ("skf-campaign", "skf-drop-skill")
+OPT_IN = f'#   [workflow]\n#   persistent_facts = ["{DEFAULT_FACT}"]\n'
+# Workflows that read the project context and say the default is kept on purpose.
+KEPT_ON_PURPOSE = ("skf-audit-skill", "skf-brief-skill", "skf-test-skill")
 
 
-def test_every_workflow_but_setup_ships_the_project_context_default():
-    assert sorted(set(WORKFLOWS) - set(FACT_SKILLS)) == ["skf-setup"]
+def _example(skill: str) -> str:
+    """The override lines the persistent_facts comment shows after naming the override file, `#` markers kept."""
+    return _comment_above(skill, "persistent_facts").split(f"{{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1]
+
+
+def _opt_in(skill: str) -> dict:
+    """The override the persistent_facts comment shows, `#` markers dropped, read as the override file it is."""
+    return tomllib.loads("\n".join(line.removeprefix("#").strip() for line in _example(skill).splitlines()))
+
+
+def test_only_setup_drop_and_campaign_ship_no_project_context_default():
+    assert sorted(set(WORKFLOWS) - set(FACT_SKILLS)) == sorted(("skf-setup", *NO_DEFAULT))
+    assert len(FACT_SKILLS) == 12, FACT_SKILLS
     for skill in FACT_SKILLS:
         assert _workflow_table(skill)["persistent_facts"] == [DEFAULT_FACT], skill
+    for skill in ("skf-setup", *NO_DEFAULT):
+        assert _workflow_table(skill)["persistent_facts"] == [], skill
 
 
-@pytest.mark.parametrize("skill", FACT_SKILLS)
+@pytest.mark.parametrize("skill", FACT_SKILLS + list(NO_DEFAULT))
 def test_activation_drops_a_bang_entry_and_the_entry_it_names(skill):
     sentences = [s for s in re.split(r"(?<=[.;])\s+(?=[A-Z])", _flat(_activation(skill)))
                  if "workflow.persistent_facts" in s]
@@ -299,6 +424,125 @@ def test_customize_toml_shows_the_drop_override(skill):
     assert not stale, f"{skill}: the persistent_facts comment still says {stale}"
 
 
+@pytest.mark.parametrize("skill", FACT_SKILLS + list(NO_DEFAULT))
+def test_the_persistent_facts_example_is_written_under_the_workflow_table(skill):
+    """#1108: the resolver reads `--key workflow`, so the example a team copies opens with the `[workflow]` line;
+    without it the key lands at the file's root, and the default stays loaded with no warning."""
+    entry = DEFAULT_FACT if skill in NO_DEFAULT else f"!{DEFAULT_FACT}"
+    assert _example(skill) == f'#   [workflow]\n#   persistent_facts = ["{entry}"]\n', (
+        f"{skill}: the persistent_facts example is not the two lines `[workflow]` then `persistent_facts = [...]`")
+    assert _opt_in(skill) == {"workflow": {"persistent_facts": [entry]}}, skill
+    comment = _comment_above(skill, "persistent_facts").lower()
+    stale = [phrase for phrase in STALE_FACT_ADVICE if phrase in comment]
+    assert not stale, f"{skill}: the persistent_facts comment still says {stale}"
+
+
+@pytest.mark.parametrize("skill", NO_DEFAULT)
+def test_customize_toml_shows_the_override_that_loads_the_project_context(skill):
+    comment = _comment_above(skill, "persistent_facts")
+    assert "# Ships empty: " in comment, skill
+    assert f"{{project-root}}/_bmad/custom/{skill}.toml:\n{OPT_IN}" in comment, (
+        f"{skill}: the persistent_facts comment does not end with the two-line opt-in")
+    assert _opt_in(skill) == {"workflow": {"persistent_facts": [DEFAULT_FACT]}}, skill
+    assert "!file:" not in comment and "The default below" not in comment, skill
+    # A personal override can still drop an entry the team override adds, so the `!` bullet stays.
+    assert "an entry prefixed with `!`, which loads nothing and drops each earlier" in comment, skill
+    for stale in ("cannot remove it", "add a literal fact", "Each entry is either", "kickoff_template_path"):
+        assert stale not in comment, (skill, stale)
+
+
+@pytest.mark.parametrize("skill", KEPT_ON_PURPOSE)
+def test_a_workflow_that_reads_the_project_context_keeps_the_default_on_purpose(skill):
+    comment = " ".join(line.lstrip("#").strip() for line in _comment_above(skill, "persistent_facts").splitlines())
+    assert ("The default below loads every project-context.md under {project-root} and is kept on purpose: this "
+            "workflow reads the project context (Drop Skill and Campaign, which do not need it, ship none). A `!` "
+            "entry in an override drops it; to stop loading those files, set in "
+            f"{{project-root}}/_bmad/custom/{skill}.toml:") in comment, skill
+    assert "cannot delete it" not in comment, skill
+
+
+# --------------------------------------------------------------------------
+# The file scalars' defaults (#1108)
+# --------------------------------------------------------------------------
+
+
+FILE_SCALARS = [(skill, key) for skill, key in SCALARS if ALLOWED[skill][key][1] == "file"]
+# The file scalars that ship an empty string today. The test never requires them to stay empty: one that gains
+# a bundled default leaves this set, and the check below then holds it to a file the skill bundles.
+STILL_EMPTY = {
+    ("skf-refine-architecture", "refinement_rules_path"),
+    ("skf-verify-stack", "report_template_path"),
+}
+# The sentence a template comment gives for a house-style copy: a bare path resolves from the skill root, which
+# every update overwrites.
+OUTSIDE_THE_SKILL = ("Keep a house-style copy outside the skill folder, which every update overwrites, and name it "
+                     "as {project-root}/<path to the copy>.")
+EMPTY_MEANS_DEFAULT = "# --- Optional overrides. An empty string means the default named below. ---\n"
+
+
+def _flat_comment(skill: str, key: str) -> str:
+    return " ".join(line.lstrip("#").strip() for line in _comment_above(skill, key).splitlines())
+
+
+def test_still_empty_names_file_scalars():
+    assert STILL_EMPTY <= set(FILE_SCALARS), STILL_EMPTY - set(FILE_SCALARS)
+
+
+@pytest.mark.parametrize("skill,key", FILE_SCALARS, ids=[f"{s}:{k}" for s, k in FILE_SCALARS])
+def test_each_file_scalar_default_names_a_bundled_file(skill, key):
+    value = _workflow_table(skill)[key]
+    assert isinstance(value, str), (skill, key, value)
+    if (skill, key) not in STILL_EMPTY:
+        assert value, f"{skill}: {key} ships an empty string instead of naming its bundled default"
+    if value:
+        assert not value.startswith(("/", "{")) and (SRC / skill / value).is_file(), (
+            f"{skill}: {key} = {value!r} names no file under src/{skill}/")
+
+
+@pytest.mark.parametrize("skill,key", [
+    ("skf-audit-skill", "drift_report_template_path"),
+    ("skf-test-skill", "test_report_template_path"),
+    ("skf-create-stack-skill", "stack_skill_template_path"),
+    ("skf-quick-skill", "skill_template_path"),
+    ("skf-export-skill", "snippet_format_path"),
+])
+def test_a_template_comment_keeps_the_house_copy_outside_the_skill(skill, key):
+    comment = _flat_comment(skill, key)
+    value = _workflow_table(skill)[key]
+    assert f"Default: {value}, a path from the skill root." in comment, (skill, key)
+    assert OUTSIDE_THE_SKILL in comment, (skill, key)
+
+
+def test_campaign_ships_its_real_path_defaults():
+    """#1110: the workspace and the three templates name their defaults, and the comments say how a path
+    resolves, so an org copy starts with {project-root}/."""
+    workflow = _workflow_table("skf-campaign")
+    assert workflow["campaign_workspace_path"] == "{forge_data_folder}/_campaign"
+    workspace = _flat_comment("skf-campaign", "campaign_workspace_path")
+    assert "Default: {forge_data_folder}/_campaign (an empty string means the same)." in workspace
+    assert ("a bare path resolves from the skill root, which every update overwrites, so name the folder as "
+            "{project-root}/<folder> or an absolute path.") in workspace
+    assert workflow["report_template_path"] == "templates/campaign-report-template.md"
+    assert workflow["kickoff_template_path"] == "templates/kickoff-template.md"
+    assert workflow["brief_template_path"] == "templates/campaign-brief-template.yaml"
+    text = _customize("skf-campaign")
+    assert "# --- Optional template overrides. An empty string means the default named below. ---\n" in text
+    comment = _flat_comment("skf-campaign", "report_template_path")
+    assert "Each defaults to its bundled file under templates/, a path from the skill root." in comment
+    assert OUTSIDE_THE_SKILL in comment
+    assert ("On Activation step 3 halts the campaign (exit 2, `invalid-input`) on one that names no readable file, "
+            "before Setup or a resume (`campaign status` skips it).") in comment
+    assert "Empty string = use the bundled default" not in text
+
+
+@pytest.mark.parametrize("skill", ("skf-test-skill", "skf-create-stack-skill"))
+def test_the_overrides_header_says_what_an_empty_string_means(skill):
+    text = _customize(skill)
+    assert EMPTY_MEANS_DEFAULT in text, skill
+    for gone in ("Optional asset overrides", "Empty string = use the bundled default"):
+        assert gone not in text, (skill, gone)
+
+
 def _kickoff_module():
     path = SRC / "skf-campaign" / "scripts" / "campaign-render-kickoff.py"
     spec = importlib.util.spec_from_file_location("campaign_render_kickoff_surface", path)
@@ -307,16 +551,21 @@ def _kickoff_module():
     return module
 
 
-def test_campaign_kickoff_drops_the_default_for_the_documented_override(tmp_path):
+def test_campaign_kickoff_loads_the_project_context_only_when_an_override_adds_it(tmp_path):
     """Campaign's facts reach each Tier A kickoff through load_facts, not
-    activation prose: the override the comment shows, appended to the
-    bundled default as BMad's resolver appends arrays, leaves no fact."""
+    activation prose: the bundled list loads nothing (#1107), the team
+    override the comment shows, appended as BMad's resolver appends arrays,
+    loads the project-context.md, and a later `!` entry in the personal
+    override drops it again."""
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "project-context.md").write_bytes(b"House rule.\n")
     load_facts = _kickoff_module().load_facts
     bundled = _workflow_table("skf-campaign")["persistent_facts"]
-    assert len(load_facts(bundled, str(tmp_path))) == 1
-    override = tomllib.loads(DROP_OVERRIDE.lstrip("# "))["persistent_facts"]
-    assert override == [f"!{DEFAULT_FACT}"]
-    assert load_facts(bundled + override, str(tmp_path)) == []
-    assert load_facts([*bundled, "Cite sources.", *override], str(tmp_path)) == ["Cite sources."]
+    assert bundled == [] and load_facts(bundled, str(tmp_path)) == []
+    team = _opt_in("skf-campaign")["workflow"]["persistent_facts"]
+    [fact] = load_facts(bundled + team, str(tmp_path))
+    assert "House rule." in fact
+    user = tomllib.loads(DROP_OVERRIDE.lstrip("# "))["persistent_facts"]
+    assert user == [f"!{DEFAULT_FACT}"]
+    assert load_facts(bundled + team + user, str(tmp_path)) == []
+    assert load_facts([*bundled, *team, "Cite sources.", *user], str(tmp_path)) == ["Cite sources."]

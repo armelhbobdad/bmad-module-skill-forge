@@ -120,10 +120,10 @@ The emitter writes the result contract from `result_contract`, with the payload'
 **Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and the emitter wrote the result contract (the line it printed has a non-null `result_path` and no `result_file_write_failed` warning naming `quick-skill-result-latest.json`), invoke it after the result contract is finalized:
 
 ```bash
-{onCompleteCommand} --result-path={skill_package}/quick-skill-result-latest.json
+{onCompleteCommand} --result-path="{skill_package}/quick-skill-result-latest.json"
 ```
 
-When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `result_path` is null, or a `result_file_write_failed` warning names `quick-skill-result-latest.json` (the copy alone failed), skip the hook and say so: "Post-completion hook skipped: `quick-skill-result-latest.json` was not written." The hook never gets a missing file or an earlier run's `-latest` copy. Log success/failure but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. Under `--batch` it runs once per target that reaches this section.
+When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `result_path` is null, or a `result_file_write_failed` warning names `quick-skill-result-latest.json` (the copy alone failed), skip the hook and say so: "Post-completion hook skipped: `quick-skill-result-latest.json` was not written." The hook never gets a missing file or an earlier run's `-latest` copy. Run it from `{project-root}` with a 60s timeout. Log success or failure, a timeout counting as a failure, but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. Under `--batch` it runs once per target that reaches this section.
 
 In a single-target run, then delete the run folder, which a finished run no longer needs: the files step 3 fetched into it, and the files the steps staged (if `rmdir` reports it is not empty, leave it). The `case` guard deletes nothing unless the path is a quick-skill run folder:
 

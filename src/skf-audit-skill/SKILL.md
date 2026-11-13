@@ -76,27 +76,29 @@ Stage 1b returns to init.md at §5b's **Record for report**, then §6. Step 1 §
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-audit-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Then keep the reason as `{customization_resolver_unavailable}`, which step 6 hands to the emitter as a warning.
 
    Bind the two scalars the stages read, each to its bundled default when the merged value is empty or absent:
 
-   - `{driftReportTemplatePath}` ← `workflow.drift_report_template_path`, else `assets/drift-report-template.md`
+   - `{driftReportTemplatePath}` ← `workflow.drift_report_template_path`, else `assets/drift-report-template.md`, bound as the file it names (`{project-root}` replaced by the project root, a bare path taken from `{skill-root}`); step 4 checks that it is a readable file
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 then runs no hook)
 
-   Run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (a `file:` entry loads its file or glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` once step 4 below has passed.
+   Run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file), then run `workflow.activation_steps_append` once step 4 below has passed, before step 5 loads `references/init.md`.
 
-4. **Pre-flight: `uv`, the helpers and the run folder.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. If neither exists, HALT (exit code 3, `halt_reason: "helper-missing"`) and display only: "Audit Skill cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
+4. **Pre-flight: `uv`, the helpers, the template and the run folder.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. If neither exists, HALT (exit code 3, `halt_reason: "helper-missing"`) and display only: "Audit Skill cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
 
-   Run `uv --version`, and check that `skf-load-provenance.py`, `skf-structural-diff.py`, `skf-severity-classify.py` and `skf-detect-docs.py` each exist in `{project-root}/_bmad/skf/shared/scripts/` or `{project-root}/src/shared/scripts/`. If `uv --version` fails, or a helper is in neither folder, HALT (exit code 3, `halt_reason: "helper-missing"`) at phase `on-activation:helpers`, naming what is missing: "Audit Skill cannot run without `<uv or the script>`, which is not installed. Install uv (<https://docs.astral.sh/uv/>) or re-install SKF, then re-run." Then create the run folder:
+   Run `uv --version`, and check that `skf-load-provenance.py`, `skf-structural-diff.py`, `skf-severity-classify.py` and `skf-detect-docs.py` each exist in `{project-root}/_bmad/skf/shared/scripts/` or `{project-root}/src/shared/scripts/`. If `uv --version` fails, or a helper is in neither folder, HALT (exit code 3, `halt_reason: "helper-missing"`) at phase `on-activation:helpers`, naming what is missing: "Audit Skill cannot run without `<uv or the script>`, which is not installed. Install uv (<https://docs.astral.sh/uv/>) or re-install SKF, then re-run."
+
+   Then check the template: if `test -f "{driftReportTemplatePath}" && test -r "{driftReportTemplatePath}"` fails, HALT (exit code 3, `halt_reason: "template-missing"`) at phase `on-activation:template`, with `"path"` that path: "`drift_report_template_path` names `{driftReportTemplatePath}`, which is not a readable file. Point it at your copy in `{project-root}/_bmad/custom/skf-audit-skill.toml` or `.user.toml`, or re-install SKF when it is the bundled `assets/drift-report-template.md`." Then create the run folder:
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"
    ```
 
-   If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}." With no folder to stage in, a headless HALT of this step passes its payload to the emitter directly, through `python3` in place of `uv run` when `uv` is what is missing:
+   If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}." With no folder to stage in, a headless HALT of this step passes its payload to the emitter directly, with `"path"` added when the halt names one, through `python3` in place of `uv run` when `uv` is what is missing:
 
    ```bash
    uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --target stderr <<'SKF_AS_HALT'

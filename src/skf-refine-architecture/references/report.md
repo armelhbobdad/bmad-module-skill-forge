@@ -99,7 +99,7 @@ It writes `{outputFolderPath}/refine-architecture-result-{YYYYMMDD-HHmmss}.json`
 
 ### 5. Post-Completion Hook (optional)
 
-Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`) is empty, the bundled default. When `{result_path}` is null, skip it too, with one line saying no result file was written for the hook to read. Otherwise invoke it now, after the emitter wrote the per-run record, so a notifier, indexer or chained pipeline sees a complete record:
+Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`) is empty, the bundled default. When `{result_path}` is null, skip it too, with one line saying no result file was written for the hook to read. Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record, so a notifier, indexer or chained pipeline sees a complete record:
 
 ```bash
 {onCompleteCommand} --result-path="{result_path}"

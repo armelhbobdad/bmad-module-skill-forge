@@ -809,8 +809,9 @@ def test_campaign_setup_asks_one_question_and_drafts_the_table():
 def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     """A `file:` path that names no file stops the kickoff; a glob that matches nothing adds nothing.
 
-    The line also says how an override drops the bundled default (#596, the maintainer's 2026-10-02 decision): a
-    `!` entry naming the default exactly as customize.toml's persistent_facts array holds it.
+    The line also says that the list ships empty and how a team override adds the project-context.md entry
+    (#1107, the maintainer's 2026-11-12 decision), and how a personal override's `!` entry, naming that entry
+    exactly as the team override holds it, drops it again (#596).
     """
     kickoff = _kickoff()
     with pytest.raises(FileNotFoundError):
@@ -822,12 +823,49 @@ def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     for token in ("A `file:` path with no glob character that names no file stops the campaign at its first Tier A "
                   "kickoff with exit code 2", "a glob that matches nothing adds nothing"):
         assert token in line, token
-    default = "file:{project-root}/**/project-context.md"
-    assert tomllib.loads(_read(SRC / "skf-campaign" / "customize.toml"))["workflow"]["persistent_facts"] == [default]
-    for token in (f'`persistent_facts = ["!{default}"]`', "a team or personal override",
-                  "an entry that starts with `!` adds nothing and removes every earlier entry it names",
-                  "those files stay out of every Tier A kickoff"):
+    entry = "file:{project-root}/**/project-context.md"
+    assert tomllib.loads(_read(SRC / "skf-campaign" / "customize.toml"))["workflow"]["persistent_facts"] == []
+    for token in ("It ships empty: Brief, Create and Test Skill already load every `project-context.md` in your "
+                  "project in their own runs, so listing those files here would put them in each skill's context "
+                  "twice.",
+                  # Into the list already there: a second persistent_facts line is a TOML duplicate key.
+                  f'add `"{entry}"` to the `persistent_facts` list under `[workflow]` in `_bmad/custom/skf-campaign.toml` '
+                  f'(`persistent_facts = ["{entry}"]` when the file has no such list)',
+                  "An entry that starts with `!` adds nothing and removes every earlier entry it names",
+                  f'`persistent_facts = ["!{entry}"]` under `[workflow]` in `_bmad/custom/skf-campaign.user.toml` '
+                  "keeps those files out of your Tier A kickoffs when the team override adds that same entry"):
         assert token in line, token
+    assert "By default it loads" not in line and "To drop the default" not in line
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "project-context.md").write_bytes(b"rule\n")
+    assert len(kickoff.load_facts([entry], str(tmp_path))) == 1
+    assert kickoff.load_facts([entry, f"!{entry}"], str(tmp_path)) == []
+
+
+def test_campaign_path_settings_name_their_defaults_and_the_start_check():
+    """#1110: the workspace and template lines say what each ships, how a path resolves, and that a template
+    that names no file stops the campaign as it starts; workflows.md says which workflows check a template."""
+    lines = _read(CAMPAIGN_DOC).splitlines()
+    [workspace] = [line for line in lines if line.startswith("- **`campaign_workspace_path`**")]
+    workflow = _settings("skf-campaign")
+    assert workflow["campaign_workspace_path"] == "{forge_data_folder}/_campaign"
+    assert ("It ships `{forge_data_folder}/_campaign`, and an empty value means the same; name another folder as "
+            "`{project-root}/<folder>` or an absolute path, since a bare path resolves from the installed skill's "
+            "folder.") in workspace
+    [templates] = [line for line in lines if line.startswith("- **Template overrides**")]
+    for key in ("report_template_path", "kickoff_template_path", "brief_template_path"):
+        assert f"`{key}`" in templates and workflow[key].startswith("templates/"), key
+    for token in ("Each ships its bundled file under `templates/`, in the installed skill's folder, which every "
+                  "update overwrites: keep your copy outside it and name it as `{project-root}/<path to the copy>`.",
+                  "When one names no readable file, the campaign stops as it starts, before Setup or a resume, with "
+                  "exit code 2 (`invalid-input`), naming the setting and the path; `campaign status` does not check "
+                  "them."):
+        assert token in templates, token
+    assert ("Audit Skill and Campaign stop at the start of a run when the path names no readable file, naming the "
+            "setting and the path. Test Skill and Verify Stack do the same in their first step, before they create "
+            "the report: Test Skill once it has found the skill, Verify Stack once it has its input documents and the "
+            "skills. Test Skill and Verify Stack also stop when the copy lacks a section heading their steps fill "
+            "in.") in _read(WORKFLOWS)
 
 
 # --------------------------------------------------------------------------
@@ -1268,6 +1306,10 @@ def test_campaign_doc_follows_the_state_helper_and_the_result_line():
     assert "run `{onComplete}` without `--report-path`" in maintenance
     [hook] = [line for line in doc.splitlines() if line.startswith("- **`on_complete`**")]
     assert "after its final state write" in hook and "only when the report was written" in hook
+    # #1109: the Campaign page says what step-11 and customize.toml say: a shell command, from the project root.
+    assert "a shell command, run from your project root" in hook and "run it from `{project-root}`." in maintenance
+    assert ("Unlike BMad core, where `on_complete` is an instruction, Campaign hands the value to the shell, so an "
+            'instruction such as "run Test Skill" fails.') in hook
     schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
     assert {"exit_code", "halt_reason", "export_verdicts", "skills_excluded"} <= set(schema["required"])
     for token in ("`skf-campaign-result-envelope.v1.json`", "`export_verdicts`", "`skills_excluded`", "`stage_outcomes`",
@@ -1894,10 +1936,12 @@ RESOLVER_WARNING = "`[activation/warn] customization_resolver_unavailable: <reas
 # The workflows whose on_complete is not called with --result-path, and what their customize.toml says instead.
 HOOK_FORMS = {
     "skf-campaign": "<on_complete> --report-path=",
-    "skf-create-stack-skill": "Command invoked once a run finishes",
     "skf-setup": "An instruction the agent carries out",
     "skf-verify-stack": "Instruction executed at the end of step 6, before the health check",
 }
+# #1109: the sentence the docs add, that the shell meaning departs from BMad core's.
+DOCS_HOOK_CONTRAST = ("Unlike BMad core, where `on_complete` is an instruction, these workflows hand the value to the "
+                      'shell, so an instruction such as "run Test Skill" fails.')
 CHAIN_HALT = "`<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`"
 CHAIN_HALT_EXAMPLE = "`QS needs a target before the pipeline can start: give it as QS[<target>]`"
 
@@ -1982,12 +2026,26 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
 
     settings = _slice(doc, "Settings every workflow has:", "Useful settings in specific workflows:")
     [facts] = [line for line in settings.splitlines() if line.startswith("- `persistent_facts`:")]
-    assert _settings("skf-setup")["persistent_facts"] == []
-    for token in ("Every workflow except Setup Forge loads any `project-context.md`",
-                  "an entry that starts with `!` drops each earlier entry it names and loads nothing itself",
-                  f'add `persistent_facts = ["!{DEFAULT_FACT}"]` under `[workflow]` in '
-                  "`_bmad/custom/<skill-name>.toml`",
-                  "Every workflow that loads the default honours such an entry", "Campaign's kickoff loader"):
+    for skill in ("skf-setup", "skf-drop-skill", "skf-campaign"):
+        assert _settings(skill)["persistent_facts"] == [], skill
+    for token in ("Every workflow except Setup Forge, Drop Skill and Campaign loads any `project-context.md` in your "
+                  "project by default. In a team or personal override, an entry that starts with `!` drops each "
+                  "earlier entry it names and loads nothing itself. To turn that default off for one workflow, add "
+                  f'`persistent_facts = ["!{DEFAULT_FACT}"]` under `[workflow]` in `_bmad/custom/<skill-name>.toml`. '
+                  "Drop Skill and Campaign ship no default: Drop Skill never reads the project context, and each "
+                  "Brief, Create and Test Skill run a campaign starts loads it on its own.",
+                  # Into the list already there: a second persistent_facts line is a TOML duplicate key.
+                  f'To load it in Drop Skill or Campaign anyway, add `"{DEFAULT_FACT}"` to the `persistent_facts` '
+                  "list under `[workflow]` in `_bmad/custom/skf-drop-skill.toml` or `_bmad/custom/skf-campaign.toml` "
+                  f'(`persistent_facts = ["{DEFAULT_FACT}"]` when the file has no such list).',
+                  "SKF's customization helper applies each such entry and expands each glob before a workflow "
+                  "reads the list", "a `**` never enters a hidden folder or a folder reached through a link",
+                  "never loads a file under `_bmad-output/.skf-run/`",
+                  # The helper exits before its facts pass when BMAD core's resolver is missing.
+                  "When the customization script cannot run, as in a project with SKF alone, the workflow reads the "
+                  "bundled list as written and loads each file its glob matches itself, again none under "
+                  "`_bmad-output/.skf-run/`.",
+                  "Campaign's kickoff loader runs the same code"):
         assert token in facts, token
     assert "Brief, Create, Update and Rename Skill" not in facts
 
@@ -2001,24 +2059,29 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
         else:
             assert "--result-path=" in hook, skill
     quick = _comment_above(_read(QUICK / "customize.toml"), "on_complete")
-    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in quick
+    assert '<on_complete> --result-path="<skill package>/quick-skill-result-latest.json"' in quick
     assert "skipped when the emitter wrote no result file, or not that -latest copy" in quick
     assert "skipped when the emitter wrote no result file" in _comment_above(
         _read(SRC / "skf-rename-skill" / "customize.toml"), "on_complete")
     [on_complete] = [line for line in settings.splitlines() if line.startswith("- `on_complete`:")]
-    for token in ("Every workflow except Campaign, Stack Skill, Verify Stack and Setup Forge (Quick Skill included)",
+    for token in ("`on_complete`: a shell command to run after", DOCS_HOOK_CONTRAST,
+                  "Every workflow except Campaign, Verify Stack and Setup Forge (Quick Skill and Stack Skill "
+                  "included) calls it from your project root with",
                   "`--result-path=<result file>`", "the hook is skipped when the emitter wrote no result file",
                   "`--result-path=<skill package>/quick-skill-result-latest.json`",
                   "the skill package is that file's folder", "or did not write that `-latest` copy",
-                  "Analyze Source, Create Skill and Update Skill pass their `-latest` copy too "
+                  "Analyze Source, Create Skill, Stack Skill and Update Skill pass their `-latest` copy too "
                   "(`<forge_data_folder>/analyze-source-result-latest.json`, "
-                  "`<version folder>/create-skill-result-latest.json` and "
+                  "`<version folder>/create-skill-result-latest.json`, "
+                  "`<version folder>/create-stack-skill-result-latest.json` and "
                   "`<version folder>/update-skill-result-latest.json`), and skip the hook, with a line that says so, "
                   "when the run did not write it.",
-                  "Campaign passes `--report-path=<report>`", "Stack Skill runs the command with no argument",
-                  "Setup Forge and Verify Stack carry it out as an instruction",
+                  "Campaign runs it from your project root too, with `--report-path=<report>` when it wrote its report",
+                  "Setup Forge and Verify Stack carry it out as an instruction once they finish (Verify Stack at the "
+                  "end of step 6, once its run folder is deleted, before the health check).",
                   "A failing command never fails the workflow"):
         assert token in on_complete, token
+    assert "no argument" not in on_complete
 
     aliases = _paragraph(_read(AGENTS), "Ferris can run several workflows in one command.")
     for token in ("such as `QS[cocoindex] TS EX`", "every step runs in headless mode",

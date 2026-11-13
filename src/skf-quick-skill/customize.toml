@@ -18,9 +18,10 @@
 
 activation_steps_prepend = []
 
-# Steps to run once activation completes (step 4 has parsed the CLI flags),
-# before step 1 or a --batch run starts; a batch runs them once, not per
-# target. Overrides append. Use for context loads or banner customization.
+# Steps to run once activation completes (SKILL.md On Activation step 4 has
+# parsed the CLI flags), before stage 1 (references/resolve-target.md) or a
+# --batch run starts; a batch runs them once, not per target. Overrides
+# append. Use for context loads or banner customization.
 
 activation_steps_append = []
 
@@ -37,8 +38,9 @@ activation_steps_append = []
 #     entry it names.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-quick-skill.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-quick-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -47,9 +49,11 @@ persistent_facts = [
 
 # --- Optional overrides. An empty string means the default named below. ---
 
-# The template step 4 assembles SKILL.md and context-snippet.md from, a path
-# from the skill root. Default: assets/skill-template.md. A house-style copy
-# may reword it and add optional sections, and must keep:
+# The template step 4 assembles SKILL.md and context-snippet.md from.
+# Default: assets/skill-template.md, a path from the skill root. Keep a
+# house-style copy outside the skill folder, which every update overwrites,
+# and name it as {project-root}/<path to the copy>. The copy may reword the
+# prose and add optional sections, and must keep:
 #   - its `## SKILL.md Section Structure` and `## context-snippet.md Format`
 #     headings, which step 4 reads;
 #   - the `## Overview`, `## Description`, `## Key Exports` and
@@ -69,15 +73,17 @@ skill_template_path = "assets/skill-template.md"
 batch_output_path = "{skills_output_folder}/_batch/"
 
 # Optional post-completion hook: a shell command, not an instruction. Step 6
-# runs it once the success envelope is printed and the result contract
-# written, as:
-#   <on_complete> --result-path=<skill package>/quick-skill-result-latest.json
+# runs it from {project-root}, with a 60s timeout, once the success envelope
+# is printed and the result contract written, as:
+#   <on_complete> --result-path="<skill package>/quick-skill-result-latest.json"
 # The result file sits in the skill package, which then holds SKILL.md,
 # metadata.json and context-snippet.md (unless --skip-snippet); its
 # `outputs` list those paths. It is skipped when the emitter wrote no result
 # file, or not that -latest copy. Under --batch it runs once per target
 # that finishes; a HARD HALT never runs it. A failure is logged and never
 # fails the workflow, and the envelope, already printed, does not carry it.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 # Use for git-add, skill-registry registration, or a notifier on the
 # freshly compiled skill. Empty string = no hook (default).
 
