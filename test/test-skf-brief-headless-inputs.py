@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """skf-brief-skill's headless inputs, scope defaults, gates and override surface.
 
-#594 (brief part): step 1 §1b sends a headless run to the input gate in
+#594 (brief part): step 0 §1b sends a headless run to the input gate in
 references/headless-args.md before any section reads an argument, so a
 preset is merged and the validator has run before a name is checked or the
 description is composed from `intent`. Step 3 names one headless boundary

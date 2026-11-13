@@ -54,7 +54,7 @@ helper or the user through `{run_dir}/warning.txt`, so no stage keeps a
 `workflow_warnings[]` list or flattens a `{field, message}` warning: the
 emitter does. Each of the twenty halt sites is one `emit-halt --halt-reason`
 command that reads no stdin and takes the mode and the skill name from
-`{run_dir}/halt-state.json`, which step 1 §1 writes and the steps that
+`{run_dir}/halt-state.json`, which step 0 §1 writes and the steps that
 resolve the name rewrite; the success sites run `emit --run-dir`. SKILL.md
 stays under its 2,500-token budget.
 

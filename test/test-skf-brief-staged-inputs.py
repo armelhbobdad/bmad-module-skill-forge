@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """skf-brief-skill hands repositories, files and payloads to its helpers by file.
 
-#592 (brief part): step 1 §1 creates a run folder. Step 2 lists the
+#592 (brief part): step 0 §1 creates a run folder. Step 2 lists the
 repository into it once (skf-github-probe.py tree, or git ls-files for a
 local folder), and the workspace detector, the tree snapshot, the language
 detector, the export parser and step 3's scope-type recommender read that
