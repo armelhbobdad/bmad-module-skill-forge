@@ -72,7 +72,15 @@ mode, a `[from skill: ...]` line citing each constituent's exports in
 compose mode, whatever the constituent's type) and needs no fenced code
 block, section 5 is the one home of that rule (scoring-rules.md points at
 it), and the producer formats the criterion names are pinned, so a change
-there fails here.
+there fails here. Section 5 runs the scanner's integration-scan, which
+applies that rule, and the integration file built from its output feeds
+aggregate-coherence.py, which refuses one whose incomplete patterns
+disagree with its counts (#1187).
+
+coherence-check.md keeps section 1 as the router and the shared sections 6
+and 7, and loads the naive branch (sections 2 and 2b) from
+coherence-naive.md or the contextual one (sections 3 to 5c) from
+coherence-contextual.md, each with its own bindings (#1187).
 
 They keep the run's config and tier on helpers too (#1118): SKILL.md On
 Activation step 1 checks `uv`, then loads config.yaml and preferences.yaml
@@ -118,6 +126,9 @@ COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
 # The text only some other coverage-check branches take, carved out the same way.
 COVERAGE_BRANCHES = REFS / "coverage-check-branches.md"
 COHERENCE = REFS / "coherence-check.md"
+# The mode branches coherence-check.md §1 loads (#1187).
+COHERENCE_NAIVE = REFS / "coherence-naive.md"
+COHERENCE_CONTEXTUAL = REFS / "coherence-contextual.md"
 SCORING = REFS / "scoring-rules.md"
 # The rules every signature judge compares by (#827, #835): the overload rule and the `difference` tags live there.
 SIGNATURE_RULES = REFS / "signature-comparison-rules.md"
@@ -239,7 +250,8 @@ def _fence(text: str, needle: str) -> str:
 
 
 def _coherence_5() -> str:
-    return _slice(_read(COHERENCE), "### 5. Contextual Mode: Check Integration Pattern Completeness", "### 5b.")
+    return _slice(_read(COHERENCE_CONTEXTUAL), "### 5. Contextual Mode: Check Integration Pattern Completeness",
+                  "### 5b.")
 
 
 def _init_2() -> str:
@@ -443,7 +455,8 @@ def test_case_4_is_an_evidence_report_without_the_pinned_count():
     gate = _flow(_slice(text, "## Gate Check", "## Scope of Section 4b"))
     assert ("If either condition fails, skip the check with no note and proceed to the next section: a missing "
             "evidence report is not Case 4.") in gate
-    assert "Case 4" not in _read(COHERENCE), "coherence-check records a gap for Cases 1 to 3 only"
+    for path in (COHERENCE, COHERENCE_NAIVE, COHERENCE_CONTEXTUAL):
+        assert "Case 4" not in _read(path), f"{path.name}: coherence-check records a gap for Cases 1 to 3 only"
 
 
 def test_the_case_4_note_has_a_line_in_each_coherence_format():
@@ -473,8 +486,8 @@ def test_the_coherence_formats_take_their_counts_and_rows_from_a_render():
     section6 = _slice(_read(COHERENCE), "### 6. Write the Coherence Analysis Section", "### 7.")
     assert "uv run {gapLedgerScript} render --from structure" in section6
     assert "uv run {coherenceAggregationScript} render --coherence" in section6
-    assert "{percentage}" not in _read(COHERENCE)
-    assert "§6's render writes these values into the Coherence Score list." in _flow(_read(COHERENCE))
+    assert "{percentage}" not in _read(COHERENCE) + _read(COHERENCE_CONTEXTUAL)
+    assert "§6's render writes these values into the Coherence Score list." in _flow(_read(COHERENCE_CONTEXTUAL))
 
 
 def _awk_program() -> str:
@@ -1681,7 +1694,7 @@ def test_only_pattern_entries_are_integration_points():
 
 def test_criterion_one_defines_the_evidence_of_each_mode():
     section = _flow(_coherence_5())
-    wiring = _slice(section, "**Wiring evidence (first criterion).**", "Build integration completeness findings")
+    wiring = _slice(section, "**Wiring evidence (first criterion).**", "**Run the integration scan.**")
     # The mode comes from the markers create-stack-skill puts on every compose-mode integration.
     for marker in ("`[composed]`", "`[composed, +T2 annotations]`", "`[inferred from shared domain]`"):
         assert marker in wiring
@@ -1697,7 +1710,7 @@ def test_criterion_one_defines_the_evidence_of_each_mode():
 
 
 def test_cited_producer_files_exist():
-    wiring = _slice(_flow(_coherence_5()), "**Wiring evidence (first criterion).**", "Build integration completeness")
+    wiring = _slice(_flow(_coherence_5()), "**Wiring evidence (first criterion).**", "**Run the integration scan.**")
     cited = re.findall(r"`(skf-[a-z-]+/references/[a-z-]+\.md)`", wiring)
     assert cited == ["skf-create-stack-skill/references/compose-mode-rules.md"]
     assert all((SRC / path).is_file() for path in cited)
@@ -1740,17 +1753,161 @@ def test_coherence_section_5_is_the_one_home_of_the_rule():
     assert "Each Cross-Cutting Patterns entry and each Library Pair Integrations entry" in section
     assert COMPOSE_EVIDENCE in section and "A fenced code block is not required in either mode" in section
     # §5c names the script as the formula's home; with no pattern, coherence is reference validity.
-    aggregate = _flow(_slice(_read(COHERENCE), "### 5c. Calculate Coherence Scores", "### 6."))
+    aggregate = _flow(_slice(_read(COHERENCE_CONTEXTUAL), "### 5c. Calculate Coherence Scores",
+                             "When this file is done"))
     assert "is the one home of the formula and its weights" in aggregate
     scoring = _flow(_read(SCORING))
     for gone in ("## Coherence Score Aggregation", "Hub Library Connections", "0.6", "## Category Weights",
                  "## Result Determination", "Pass threshold:** 80%"):
         assert gone not in scoring, gone
     pointers = _slice(scoring, "## Where the Scoring Rules Live", "## Gap Severity")
-    for owner in ("`scripts/compute-score.py`", "`scripts/aggregate-coherence.py`", "coherence-check.md §5",
+    for owner in ("`scripts/compute-score.py`", "`scripts/aggregate-coherence.py`", "coherence-contextual.md §5",
                   "`scripts/reconcile-coverage.py`", "`docsOnly` branch", "`scripts/score-signatures.py`",
                   "`{defaultThreshold}`"):
         assert owner in pointers, owner
+
+
+# --------------------------------------------------------------------------
+# #1187: coherence-check loads one mode file, and section 5 takes its count from a scan
+# --------------------------------------------------------------------------
+
+
+# (file, title, its frontmatter keys, its sections, the gap categories its opening names)
+COHERENCE_MODE_FILES = [
+    (COHERENCE_NAIVE, "# Coherence Check: Naive Mode",
+     {"scoringRulesFile", "locateExportSegmentsScript", "migrationSectionRules"}, ["2.", "2b."],
+     "as `structural`, `scripts-assets` and `migration-section` gaps."),
+    (COHERENCE_CONTEXTUAL, "# Coherence Check: Contextual Mode",
+     {"signatureRulesFile", "coherenceAggregationScript", "migrationSectionRules"}, ["3.", "4.", "5.", "5b.", "5c."],
+     "as `broken-reference`, `inaccurate-reference`, `reference-escape`, `scripts-assets`, `integration-pattern` "
+     "and `migration-section` gaps."),
+]
+
+
+def test_coherence_check_routes_to_one_mode_file():
+    """architecture-3: §1 loads the branch of the run's mode, and coherence-check.md keeps only §1, §6 and §7."""
+    router = _read(COHERENCE)
+    front = _frontmatter(COHERENCE)
+    assert (front["coherenceNaiveFile"], front["coherenceContextualFile"]) == (
+        "references/coherence-naive.md", "references/coherence-contextual.md")
+    for gone in ("scoringRulesFile", "signatureRulesFile", "locateExportSegmentsScript", "migrationSectionRules"):
+        assert gone not in front, gone
+    assert re.findall(r"^### (\S+)", router, re.M) == ["1.", "6.", "7."]
+    one = _flow(_slice(router, "### 1. Check Test Mode", "### 6."))
+    assert ("**IF naive mode → load `{coherenceNaiveFile}` and follow it (§2 and §2b), then continue at §6.** "
+            "**IF contextual mode → load `{coherenceContextualFile}` and follow it (§3 to §5c), then continue at "
+            "§6.**") in one
+    six = _flow(_slice(router, "### 6. Write the Coherence Analysis Section", "### 7."))
+    assert six.startswith("### 6. Write the Coherence Analysis Section A §2 to §5c below is a section of the mode "
+                          "file §1 loaded.")
+    # leanness-6: the naive Hard rule's "rerank" and the findings JSON nothing read are gone
+    for path in (COHERENCE, COHERENCE_NAIVE, COHERENCE_CONTEXTUAL):
+        for gone in ("structural_issues", "issues_found", "Hard rule", "rerank", "no hand-waving"):
+            assert gone not in _read(path), (path.name, gone)
+    assert ("Each §2.1 to §2.7 finding is a row of the naive Structural Findings table that §6 records; with none, "
+            "the **Structural Issues** count is 0.") in _flow(_read(COHERENCE_NAIVE))
+    assert "**Structural Issues:** {the number of rows}" in _read(REFS.parent / "assets" / "output-section-formats.md")
+    assert ("`coherence-naive.md` and `coherence-contextual.md`, the mode branches coherence-check.md loads"
+            in _read(SKILL_MD))
+
+
+@pytest.mark.parametrize("path, title, keys, sections, categories", COHERENCE_MODE_FILES,
+                         ids=["naive", "contextual"])
+def test_each_coherence_mode_file_stands_alone(path, title, keys, sections, categories):
+    """Each mode file binds what it uses and nothing else, takes no stage chain, names its run folder, its
+    helper, the halt rule and the ledger stage and categories §6 records it under, and hands back to §6."""
+    text = _read(path)
+    front = _frontmatter(path)
+    assert set(front) == keys and "nextStepFile" not in front
+    body = text.split("\n---\n", 1)[1]
+    for key in keys:
+        assert f"{{{key}}}" in body, key
+    assert re.findall(r"^#{1,2} .*", body, re.M) == [title, "## Sections"]
+    assert re.findall(r"^### (\S+)", body, re.M) == sections
+    assert "<!-- Config" not in text and "**After" not in text
+    opening = _flow(_slice(text, title, "## Sections"))
+    for needle in ("Load this file only from coherence-check.md §1, in", "`{run_dir}`",
+                   "the `{scanSkillMdStructureHelper}` coherence-check.md §1 resolved (a command of it that exits "
+                   "non-zero halts as that section says)", "coherence-check.md's **Halt envelope** apply here",
+                   "A bare §1 or §6 is coherence-check.md's, any other bare § this file's.",
+                   "records what this file finds in the gap ledger under stage `coherence-check`", categories):
+        assert needle in opening, needle
+    assert text.endswith("\n\nWhen this file is done, continue at coherence-check.md §6.\n")
+    migration = _flow(_slice(text, "Migration/Deprecation Verification", "When this file is done"))
+    assert ("Apply rules from `{migrationSectionRules}`, the single source of truth for the gate, scope and case "
+            "rules.") in migration
+
+
+# A code-mode stack whose second pair has no file:line citation, with the hub list after the pairs, and a
+# compose-mode one whose pair has a `[from skill:]` line for one of its two skills only.
+CODE_STACK_MD = ("---\nname: demo-stack\ndescription: Demo\n---\n# Demo Stack Skill\n\n## Integration Patterns\n\n"
+                 "### Library Pair Integrations\n#### express + passport\n**Pattern:** wired at `src/app.ts:12`.\n"
+                 "**Key files:** src/app.ts\n**Confidence:** T1 (grep-co-import)\n\n#### express + zod\n"
+                 "**Pattern:** zod validates bodies.\n**Key files:** src/validate.ts\n**Confidence:** T1-low\n\n"
+                 "**Hub library connections:**\n- **express**: passport at src/app.ts:5, zod\n\n## Conventions\n")
+COMPOSE_STACK_MD = ("# Demo Stack Skill\n\n## Integration Patterns\n\n### Library Pair Integrations\n#### a + b\n"
+                    "**Evidence:**\n[from skill: a] f()\n**Confidence:** T1 (x) [composed]\n")
+
+
+@pytest.mark.parametrize("text, mode, failing", [
+    (CODE_STACK_MD, "code", [("express + zod", 15, "no file:line citation")]),
+    (COMPOSE_STACK_MD, "compose", [("a + b", 6, "no [from skill: \u2026] line for b")]),
+], ids=["code", "compose"])
+def test_section_5_takes_its_count_from_the_integration_scan(tmp_path, text, mode, failing):
+    """determinism-4 and determinism-3: §5's scan, run as written, gives the count, the mode and each entry's
+    first criterion; the integration.json §5 builds from it aggregates, its incomplete pattern reaches
+    coherence.json and §6's `--from coherence` call records it, and one whose incomplete patterns disagree with its
+    counts is refused with no coherence.json left."""
+    command = _command(COHERENCE_CONTEXTUAL, "integration-scan")
+    assert command == ('uv run {scanSkillMdStructureHelper} integration-scan "{resolved_skill_package}/SKILL.md" > '
+                       '"{run_dir}/integration-scan.json"')
+    section = _flow(_coherence_5())
+    assert section.index("**Wiring evidence (first criterion).**") < section.index("**Run the integration scan.**")
+    for needle in ("so the count, the mode and each entry's evidence are never taken by hand",
+                   "You judge each entry against the other three criteria",
+                   "a line that cites nothing fails the first criterion",
+                   "`patterns_documented` as the scan gives it",
+                   "its `issue` the entry's `missing` joined by `; `",
+                   "§5c copies the list into `{run_dir}/coherence.json`, and §6 records each from there",
+                   "If the scan's `patterns_documented` is 0", "`incomplete_patterns: []`"):
+        assert needle in section, needle
+    assert ("It also copies `integration.json`'s `incomplete_patterns` into `incompletePatterns[]`, which §6 records "
+            "the same way.") in _flow(_read(COHERENCE_CONTEXTUAL))
+    skill = _write_tree(tmp_path / "skill", {"SKILL.md": text})
+    run = tmp_path / "run"
+    run.mkdir()
+    ledger = tmp_path / "test-findings-run.json"
+    values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix(),
+              "{ledgerFile}": ledger.as_posix()}
+    scan = _exec(command, values, tmp_path)
+    assert json.loads((run / "integration-scan.json").read_text(encoding="utf-8")) == scan
+    assert (scan["stack_mode"], scan["patterns_documented"]) == (mode, 2 if mode == "code" else 1)
+    incomplete = [{"pattern": e["name"], "line": e["line"], "issue": "; ".join(e["missing"])}
+                  for e in scan["entries"] if e["first_criterion"] is False]
+    assert [(e["pattern"], e["line"], e["issue"]) for e in incomplete] == failing
+    integration = {"patterns_documented": scan["patterns_documented"],
+                   "patterns_complete": scan["patterns_documented"] - len(incomplete),
+                   "incomplete_patterns": incomplete}
+    (run / "integration.json").write_bytes(json.dumps(integration).encode("utf-8"))
+    _exec(_choose(_command(COHERENCE_CONTEXTUAL, "reference-check")), values, tmp_path)
+    aggregate = _choose(_command(COHERENCE_CONTEXTUAL, "uv run {coherenceAggregationScript}"))
+    coherence = _exec(aggregate, values, tmp_path)
+    assert coherence["incompletePatterns"] == incomplete
+    assert coherence["input"]["patterns_complete"] == integration["patterns_complete"]
+    _exec(_command(COHERENCE, "--from coherence"), values, tmp_path)
+    records = json.loads(ledger.read_bytes())["records"]
+    assert [(r["severity"], r["category"], r["title"], r["source"], r["issue"]) for r in records] == [
+        ("Medium", "integration-pattern", f"coherence: incomplete integration pattern: {name}", f"SKILL.md:{line}",
+         issue) for name, line, issue in failing]
+    # a pattern counted complete that the file still lists as incomplete
+    (run / "integration.json").write_bytes(json.dumps({**integration, "incomplete_patterns": []}).encode("utf-8"))
+    words = shlex.split(aggregate.removeprefix("uv run {coherenceAggregationScript} ").replace(
+        "{run_dir}", run.as_posix()))
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{coherenceAggregationScript}"]), *words],
+                          capture_output=True, text=True, check=False)
+    assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT", proc.stdout
+    assert not (run / "coherence.json").exists()
+
 
 
 
@@ -2892,10 +3049,10 @@ def test_the_deep_tier_asks_only_for_what_runs():
             "judge:") in _flow(_read(COVERAGE))
     # §5b writes no such record by hand, the tier branch file sends a Deep run back to the paragraph, which adds
     # nothing to the fallback scan, and the severity table names the script that records them
-    records = _flow(_slice(_read(COVERAGE), "Then write the records no script wrote", "```"))
+    records = _flow(_slice(_read(COVERAGE), "Save each §1b entry's settlement", "```"))
     assert "Not checked by script" not in records
-    assert ("Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of "
-            "`{outputFormatsFile}`, each naming its export in `export` and in its title") in records
+    # #1187: the split-body adapter builds the one record §5b used to write, from the inventory and a settlements file
+    assert "The script builds each record's title, Source and `export` from the inventory entry." in records
     assert "its extra checks" not in _read(COVERAGE_TIERS)
     assert ("at Deep tier, its **Deep Tier** paragraph, whose `--doc-errors` adds nothing to this scan's plan, which "
             "has no checks, so leave it out;") in _read(COVERAGE_TIERS)
@@ -4113,30 +4270,30 @@ def test_the_later_steps_read_the_verdict_inputs_from_the_report():
 
 
 def test_the_naive_usage_and_scripts_checks_read_the_scanner():
-    section = _slice(_read(COHERENCE), "### 2. Naive Mode", "### 2b.")
-    command = _command(COHERENCE, "usage-scope")
+    section = _slice(_read(COHERENCE_NAIVE), "### 2. Naive Mode", "### 2b.")
+    command = _command(COHERENCE_NAIVE, "usage-scope")
     assert command == ('uv run {scanSkillMdStructureHelper} usage-scope "{resolved_skill_package}/SKILL.md" '
                        '--exports "{run_dir}/inventory.json" --kinds function,method [--body single] '
                        '> "{run_dir}/usage-scope.json"')
     for gone in ('grep -c "{export.name}"', "grep -n '^## Scripts'", "grep -n"):
         assert gone not in section, gone
-    seven = _flow(_slice(section, "**2.7 Scripts & Assets section.**", "**Hard rule:**"))
+    seven = _flow(_slice(_read(COHERENCE_NAIVE), "**2.7 Scripts & Assets section.**", "### 2b."))
     assert "Read `scripts_assets` from the second JSON blob" in seven and "`missing` is true" in seven
 
 
 def test_the_contextual_reference_checks_read_the_scanner():
-    section = _flow(_slice(_read(COHERENCE), "### 3. Contextual Mode", "### 5. Contextual Mode"))
-    command = _command(COHERENCE, "reference-check")
+    section = _flow(_slice(_read(COHERENCE_CONTEXTUAL), "### 3. Contextual Mode", "### 5. Contextual Mode"))
+    command = _command(COHERENCE_CONTEXTUAL, "reference-check")
     assert command == ('uv run {scanSkillMdStructureHelper} reference-check "{resolved_skill_package}/SKILL.md" '
                        '[--source-root "{source_path}"] [--skills-root "{skills_output_folder}"] '
                        '> "{run_dir}/references.json"')
     assert "Do not check these targets again by hand or through subagents" in section
     assert "For EACH reference found, delegate" not in section and "os.path.realpath`) and require" not in section
-    aggregate = _command(COHERENCE, "uv run {coherenceAggregationScript}")
+    aggregate = _command(COHERENCE_CONTEXTUAL, "uv run {coherenceAggregationScript}")
     assert aggregate == ('uv run {coherenceAggregationScript} --references "{run_dir}/references.json" '
                          '[--judged "{run_dir}/judged-references.json"] --integration "{run_dir}/integration.json" '
                          '--output "{run_dir}/coherence.json"')
-    assert "echo '{\"valid_references\"" not in _read(COHERENCE), "no count is tallied by hand"
+    assert "echo '{\"valid_references\"" not in _read(COHERENCE_CONTEXTUAL), "no count is tallied by hand"
 
 
 def test_the_coherence_commands_run_against_the_scanner(tmp_path):
@@ -4155,22 +4312,25 @@ def test_the_coherence_commands_run_against_the_scanner(tmp_path):
     ]}).encode("utf-8"))
     values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix()}
 
-    usage = _exec(_choose(_command(COHERENCE, "usage-scope")), values, tmp_path)
+    usage = _exec(_choose(_command(COHERENCE_NAIVE, "usage-scope")), values, tmp_path)
     assert [(e["name"], e["count"]) for e in usage["exports"]] == [("$state", 1), ("a.b", 0)]
     assert [e["name"] for e in usage["zero_usage"]] == ["a.b"]
     assert json.loads((run / "usage-scope.json").read_text(encoding="utf-8")) == usage
 
-    refs = _exec(_choose(_command(COHERENCE, "reference-check")), values, tmp_path)
+    refs = _exec(_choose(_command(COHERENCE_CONTEXTUAL, "reference-check")), values, tmp_path)
     assert [(r["target"], r["status"]) for r in refs["references"]] == [
         ("references/api.md", "ok"), ("references/gone.md", "missing"), ("../../outside.md", "escapes")]
     assert refs["scripts_assets"]["missing"] is True, "scripts/ exists and no Scripts heading does"
-    (run / "integration.json").write_bytes(b'{"patterns_documented": 2, "patterns_complete": 1}')
-    coherence = _exec(_choose(_command(COHERENCE, "uv run {coherenceAggregationScript}")), values, tmp_path)
+    (run / "integration.json").write_bytes(json.dumps({"patterns_documented": 2, "patterns_complete": 1,
+        "incomplete_patterns": [{"pattern": "a + b", "issue": "no file:line citation", "line": 9}]}).encode("utf-8"))
+    coherence = _exec(_choose(_command(COHERENCE_CONTEXTUAL, "uv run {coherenceAggregationScript}")), values,
+                      tmp_path)
     assert (coherence["input"]["valid_references"], coherence["input"]["total_references"]) == (1, 3)
     assert [r["status"] for r in coherence["invalidReferences"]] == ["missing", "escapes"]
+    assert coherence["incompletePatterns"] == [{"pattern": "a + b", "issue": "no file:line citation", "line": 9}]
     assert (run / "coherence.json").is_file()
     # #1063: stdout gives the number of invalid references, so §6 records each one from the file
-    doc = _flow(_read(COHERENCE))
+    doc = _flow(_read(COHERENCE_CONTEXTUAL))
     assert ("`{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, "
             "which §6 records from that file; stdout gives only their number.") in doc
     assert "Its `invalidReferences[]` lists" not in doc
@@ -4180,7 +4340,7 @@ def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):
     """§3 names what the scanner checks: markdown links and `references/`, `scripts/` and `assets/`
     mentions. A path written outside a link (`../shared/types.ts` in inline code, an import
     specifier) is neither extracted nor handed to a subagent, and §3 says so."""
-    section = _flow(_slice(_read(COHERENCE), "### 3. Contextual Mode", "### 4. Contextual Mode"))
+    section = _flow(_slice(_read(COHERENCE_CONTEXTUAL), "### 3. Contextual Mode", "### 4. Contextual Mode"))
     for form in ("`[types](src/types.ts)`", "`[guide](references/guide.md)`", "`references/{file}.md`",
                  "`scripts/{file}`", "`assets/{file}`"):
         assert form in section, form
@@ -4202,7 +4362,8 @@ def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):
     run.mkdir()
     values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix(),
               "{source_path}": source.as_posix()}
-    refs = _exec(_choose(_command(COHERENCE, "reference-check"), keep=("--source-root",)), values, tmp_path)
+    refs = _exec(_choose(_command(COHERENCE_CONTEXTUAL, "reference-check"), keep=("--source-root",)), values,
+                 tmp_path)
     assert [(r["target"], r["form"], r["type"], r["status"], r["root"]) for r in refs["references"]] == [
         ("../shared/types.ts", "link", "file-path", "ok", "source"),
         ("references/guide.md", "link", "file-path", "ok", "skill"),

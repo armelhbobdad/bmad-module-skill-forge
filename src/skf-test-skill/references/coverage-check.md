@@ -14,7 +14,6 @@ reconcileScript: 'scripts/reconcile-coverage.py'
 coherenceScript: 'scripts/check-metadata-coherence.py'
 numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
 stageHelperPayloadScript: 'scripts/stage-helper-payload.py'
-outputFormatsFile: 'assets/output-section-formats.md'
 ledgerFile: '{forge_version}/test-findings-{run_id}.json'
 gapLedgerScript: 'scripts/gap-ledger.py'
 # Each `<name>ProbeOrder` resolves `{<name>Helper}` to its first existing path:
@@ -298,12 +297,10 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check -
 
 **A split-body mismatch's Source** is a line inside the skill package: when §1b found one, load `{coverageBranchesFile}` and follow its **Split-Body Sources** section.
 
-Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of `{outputFormatsFile}`, each naming its export in `export` and in its title: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
+Save each §1b entry's settlement, in `cross_check_mismatches` order, to `{run_dir}/split-body-settlements.json` with the Write tool: one JSON array of `{"export", "reference_file", "source", "remediation"}`, the entry's `export` and `reference_file`, `source` `reference` when its Source is `{reference_file}:{reference_line}` and `other` when it is the other side, and the remediation that section gives it. The script builds each record's title, Source and `export` from the inventory entry. Run the command even when §1b found none, leaving out `--settlements`: the hard gate refuses to decide until every stage before it has recorded.
 
 ```bash
-uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check <<'SKF_GAPS'
-<the records, one JSON array>
-SKF_GAPS
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from split-body --input "{run_dir}/inventory.json" [--settlements "{run_dir}/split-body-settlements.json"]
 ```
 
 Rely on the JSON of each command:

@@ -2,8 +2,8 @@
 
 # Migration & Deprecation Section Rules (§2b / §5b)
 
-> **Single source of truth.** Both `coherence-check.md` §2b (naive path)
-> and §5b (contextual path) apply the rules in this file verbatim. Update this
+> **Single source of truth.** Both `coherence-naive.md` §2b (naive path)
+> and `coherence-contextual.md` §5b (contextual path) apply the rules in this file verbatim. Update this
 > file — not the step file sections — when the rule set changes.
 
 ## Gate Check

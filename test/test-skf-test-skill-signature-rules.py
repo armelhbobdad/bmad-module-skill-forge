@@ -25,9 +25,9 @@ and none of the `difference` tags. These tests keep:
   which load it; the fallback per-file scan of coverage-check-tiers.md gives
   its subagents the absolute path too, and neither repeats the overload rule
   or the tag definitions;
-- coherence-check.md binding the file the same way and giving its contextual
-  reference judge, whose `signature_match` is an `inaccurate-reference` gap,
-  its absolute path;
+- coherence-contextual.md, the contextual branch coherence-check.md loads
+  (#1187), binding the file the same way and giving its reference judge,
+  whose `signature_match` is an `inaccurate-reference` gap, its absolute path;
 - the split-body cross-check comparing a parameter's optionality only when
   both forms state it, the file (not coverage-check.md §1) saying what a form
   may leave out, each export's form read alone (#843), and forms attributed
@@ -115,7 +115,8 @@ REFS = TEST_SKILL / "references"
 RULES = REFS / "signature-comparison-rules.md"
 COVERAGE = REFS / "coverage-check.md"
 COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
-COHERENCE = REFS / "coherence-check.md"
+# The contextual branch coherence-check.md §1 loads, which holds the §4 reference judge (#1187).
+COHERENCE = REFS / "coherence-contextual.md"
 SCORING = REFS / "scoring-rules.md"
 SCORE_SIGNATURES = TEST_SKILL / "scripts" / "score-signatures.py"
 COMPONENT_EXTRACTION = REPO_ROOT / "src" / "skf-create-skill" / "references" / "component-extraction.md"
@@ -181,7 +182,7 @@ def test_the_rules_file_is_a_reference_with_its_six_sections():
     for judge in ("coverage-check.md §1's split-body cross-check", "its §2 judge (or the main thread in its place)",
                   "its §5b split-body Source (the Split-Body Sources section of coverage-check-branches.md)",
                   "coverage-check-tiers.md's fallback per-file scan",
-                  "coherence-check.md §4's reference judge (its `signature_match`)"):
+                  "coherence-contextual.md §4's reference judge (its `signature_match`)"):
         assert judge in opening, judge
 
 
@@ -1302,7 +1303,7 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
     assert ("A Rust tail expression, a Kotlin or Scala expression body and a Ruby implicit return have no such line and "
             "cannot be tagged: there, as when you cannot name the line, the declaration decides.") in annotations
     # the judges with no `difference` field read the same case as agreeing
-    assert ("A judge whose result has no `difference` field (coherence-check.md §4's `signature_match`, "
+    assert ("A judge whose result has no `difference` field (coherence-contextual.md §4's `signature_match`, "
             "coverage-check.md §5b's split-body Source) reads such a documented return type, at a line it can name, as "
             "agreeing with the source: a match for `signature_match`, and for §5b a form that agrees with the "
             "source.") in annotations
@@ -1764,8 +1765,9 @@ def test_create_skill_names_the_props_interface_as_a_component_contract():
 
 def test_the_coherence_judge_reads_the_rules_file():
     """A stack skill's `signature_match` is a High `inaccurate-reference` gap that blocks the gate, so the coherence
-    check's contextual reference judge compares signatures by the rules file too: coherence-check.md binds it as
-    coverage-check.md does, gives the judge its absolute path, and the main thread loads it in the judge's place."""
+    check's contextual reference judge compares signatures by the rules file too: coherence-contextual.md, the branch
+    coherence-check.md loads in contextual mode, binds it as coverage-check.md does, gives the judge its absolute path,
+    and the main thread loads it in the judge's place."""
     assert _frontmatter(COHERENCE)["signatureRulesFile"] == _frontmatter(COVERAGE)["signatureRulesFile"]
     section4 = _slice(_read(COHERENCE), "### 4. Contextual Mode: Validate Each Reference", "### 5.")
     flowed = _flow(section4)

@@ -40,7 +40,7 @@ The category scores are never read back out of the report: each is the output fi
 
 - `coverage.json`: Export Coverage (coverage-check §2c)
 - `signatures.json`: Signature Accuracy and Type Coverage (coverage-check §2b; there is none at Quick tier, for a docs-only skill, at States 2 to 5, or for a stack or a reference app)
-- `coherence.json`: the combined coherence (coherence-check §5c; contextual mode only)
+- `coherence.json`: the combined coherence (coherence-contextual.md §5c; contextual mode only)
 - `external.json`: the external validation score (external-validators §4; its `externalScore` is null when neither validator scored)
 - `surface.json`: the source surface coverage-check §2 wrote, on every run but a docs-only one; at State 2 it holds the provenance-map and metadata counts behind the State 2 undercount deduction
 

@@ -5,7 +5,7 @@
 # ///
 """Locate where a skill describes each export, each example call to it, and whether the call awaits it.
 
-coherence-check.md §2.5 (naive mode) raises a High finding when a skill
+coherence-naive.md §2.5 (naive mode) raises a High finding when a skill
 describes an export as async and its examples never await it, or describes
 it as sync and an example awaits it. What a description asserts about an
 export is the model's call, never a keyword's: "`readFileSync` is the sync
@@ -1296,7 +1296,7 @@ def _build_parser():
         prog="locate-export-segments",
         description=(
             "Locate where a skill describes each export and each example call to it, and "
-            "whether the call awaits it (coherence-check.md §2.5). It judges no meaning: the "
+            "whether the call awaits it (coherence-naive.md §2.5). It judges no meaning: the "
             "caller decides what each description asserts."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

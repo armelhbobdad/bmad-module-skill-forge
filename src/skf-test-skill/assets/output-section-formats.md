@@ -10,7 +10,7 @@
 **Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it records none}
 
 {the render output}
-{one row per §2.5 finding, numbered on from the render's last row: | {N} | structural | High | {its naive-coherence: text} | {its call's line} |}
+{one row per coherence-naive.md §2.5 finding, numbered on from the render's last row: | {N} | structural | High | {its naive-coherence: text} | {its call's line} |}
 
 **Structural Issues:** {the number of rows}
 ```
@@ -39,7 +39,7 @@ Only rendered when `references/` directory exists alongside SKILL.md. Each row i
 **Mode:** Contextual (full reference validation)
 **Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it records none}
 {the render output}
-{one row per §5 integration point, under the render's last table: | {pattern} | yes | - |, or | {pattern} | no | {its incomplete_patterns issue} |}
+{one row per coherence-contextual.md §5 integration point, under the render's last table: | {pattern} | yes | - |, or | {pattern} | no | {its incomplete_patterns issue} |}
 ```
 
 ## Ledger Record Format

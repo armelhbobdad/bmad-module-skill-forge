@@ -43,6 +43,10 @@ Covers:
     folders beside SKILL.md and the Scripts heading test-skill's coherence
     check reads instead of grepping SKILL.md (any heading level, outside
     fenced code), `missing` only when a folder exists without the section
+  - integration-scan (#1187): a code-mode and a compose-mode stack, the
+    cross-cutting list items, the hub list left out, citations in fenced
+    code and URL ports not counted, no section, the CLI, and the headings
+    read from skf-validate-output.py's stack template names
 """
 
 from __future__ import annotations
@@ -2025,3 +2029,257 @@ class TestReferenceCheck:
         result = _run_cli("reference-check", str(tmp_path / "nope.md"))
         assert result.returncode == 1
         assert "file not found" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# integration-scan (#1187): a stack skill's integration entries, its mode and
+# each entry's wiring evidence, the facts coherence-contextual.md §5 judges
+# --------------------------------------------------------------------------
+
+
+VALIDATOR_PATH = SCRIPT_PATH.with_name("skf-validate-output.py")
+
+# Two pair entries, the second with no file:line citation, and the hub list
+# create-stack-skill adds after them: its bullets cite files too, and a
+# `####` heading under it would read as a pair.
+CODE_STACK = """---
+name: demo-stack
+description: Demo
+---
+# Demo Stack Skill
+
+> 3 libraries | 2 integration patterns | Forge tier: Deep
+
+## Integration Patterns
+
+### Cross-Cutting Patterns
+[No pattern spans three libraries.]
+
+### Library Pair Integrations
+#### express + passport
+**Type:** middleware chain
+**Pattern:** passport registers on the app at `src/app.ts:12` [SRC:src/auth.ts:L3-L9].
+**Key files:** `src/app.ts`, src/auth.ts, the router
+**Confidence:** T1 (grep-co-import)
+
+#### express + zod
+**Type:** validation
+**Pattern:** zod validates bodies; see http://example.com:8080/docs.
+**Key files:** src/validate.ts
+**Confidence:** T1-low (grep-co-import)
+
+```ts
+// src/inner.ts:9 is in fenced code
+```
+
+**Hub library connections:**
+- **express** (2 connections): passport at src/app.ts:5, zod
+
+#### stray + heading
+
+## Library Reference Index
+"""
+
+# One pair whose label marks the stack compose-mode, with a `[from skill:]`
+# line for one of its two skills only.
+COMPOSE_STACK = """# Demo Stack Skill
+
+## Integration Patterns
+
+### Library Pair Integrations
+#### a + b
+**Type:** data flow
+**Evidence:**
+[from skill: a] f()
+**Architecture reference:** "a feeds b" (architecture doc line 4)
+**Confidence:** T1 (x) [composed]
+"""
+
+
+def _scan_integration(text: str) -> dict:
+    return mod.integration_scan(text, mod.stack_headings())
+
+
+def _entry_facts(payload: dict) -> list[tuple]:
+    return [(e["name"], e["line"], e["kind"], e["first_criterion"], e["missing"])
+            for e in payload["entries"]]
+
+
+class TestIntegrationScan:
+    def test_a_code_mode_stack(self) -> None:
+        payload = _scan_integration(CODE_STACK)
+        assert payload["section"] == {"heading": "Integration Patterns", "line": 9}
+        assert (payload["stack_mode"], payload["patterns_documented"]) == ("code", 2)
+        assert _entry_facts(payload) == [
+            ("express + passport", 15, "pair", True, []),
+            ("express + zod", 21, "pair", False, ["no file:line citation"]),
+        ]
+        first, second = payload["entries"]
+        assert first["libraries"] == ["express", "passport"]
+        assert first["confidence"] == "T1 (grep-co-import)"
+        assert first["citations"] == [{"line": 17, "text": "src/app.ts:12"},
+                                      {"line": 17, "text": "src/auth.ts:L3-L9"}]
+        assert first["key_files"] == {"line": 18, "files": ["src/app.ts", "src/auth.ts"]}
+        assert first["from_skill"] == []
+        # neither the URL's dotted host and port nor the citation in fenced code counts
+        assert second["citations"] == []
+        assert second["key_files"] == {"line": 24, "files": ["src/validate.ts"]}
+
+    @pytest.mark.parametrize("url", ["http://example.com:8080/docs", "https://api.example.io:443/v1"])
+    def test_a_url_with_a_port_is_no_citation(self, url: str) -> None:
+        assert mod._CITATION_RE.findall(f"see {url} or [SRC:src/a.ts:L3]") == ["src/a.ts:L3"]
+
+    def test_a_pair_with_no_key_file_misses_both_kinds_of_evidence(self) -> None:
+        text = CODE_STACK.replace("**Key files:** src/validate.ts", "**Key files:** none yet")
+        [_, second] = _scan_integration(text)["entries"]
+        assert second["key_files"] == {"line": 24, "files": []}
+        assert second["missing"] == ["no file:line citation", "no **Key files:** line naming a file"]
+
+    def test_the_hub_line_ends_every_entry(self) -> None:
+        """The hub list only summarizes the pairs: its bullets, their citations and any heading after it are not
+        integration points, in either spelling of the line."""
+        names = [e["name"] for e in _scan_integration(CODE_STACK)["entries"]]
+        assert "stray + heading" not in names and len(names) == 2
+        for label in ("#### Hub Library Connections", "- **Hub library connections:**",
+                      "**Hub library connections (3+ partners):**"):
+            text = CODE_STACK.replace("**Hub library connections:**", label)
+            assert _entry_facts(_scan_integration(text)) == _entry_facts(_scan_integration(CODE_STACK)), label
+
+    def test_a_compose_mode_stack(self) -> None:
+        payload = _scan_integration(COMPOSE_STACK)
+        assert (payload["stack_mode"], payload["patterns_documented"]) == ("compose", 1)
+        [entry] = payload["entries"]
+        assert entry["from_skill"] == [{"line": 9, "skill": "a", "text": "f()"}]
+        assert (entry["first_criterion"], entry["missing"]) == (False, ["no [from skill: …] line for b"])
+        assert entry["citations"] == [] and entry["key_files"] is None
+
+    def test_a_compose_entry_with_a_line_for_each_skill_meets_the_first_criterion(self) -> None:
+        """A skill matches case-insensitively with its spaces collapsed; a marker with no text after it cites
+        nothing, and two markers on one line split it."""
+        text = COMPOSE_STACK.replace("#### a + b", "#### Skill  A + b").replace(
+            "[from skill: a] f()", "[from skill: skill a] f() [from skill: B]   ")
+        [entry] = _scan_integration(text)["entries"]
+        assert entry["from_skill"] == [{"line": 9, "skill": "skill a", "text": "f()"},
+                                       {"line": 9, "skill": "B", "text": ""}]
+        assert entry["missing"] == ["no [from skill: …] line for b"]
+        text = text.replace("[from skill: B]   ", "[from skill: B] g(x)")
+        [entry] = _scan_integration(text)["entries"]
+        assert (entry["first_criterion"], entry["missing"]) == (True, [])
+        # a name in inline code or bold matches its skill's plain name
+        ticked = COMPOSE_STACK.replace("#### a + b", "#### `a` + **b**").replace(
+            "[from skill: a] f()", "[from skill: a] f()\n[from skill: b] g()")
+        [entry] = _scan_integration(ticked)["entries"]
+        assert (entry["libraries"], entry["first_criterion"]) == (["`a`", "**b**"], True)
+
+    @pytest.mark.parametrize("label", ["T2 [composed, +T2 annotations]", "T1-low [inferred from shared domain]"])
+    def test_every_compose_marker_sets_the_mode(self, label: str) -> None:
+        text = COMPOSE_STACK.replace("T1 (x) [composed]", label)
+        assert _scan_integration(text)["stack_mode"] == "compose"
+        plain = COMPOSE_STACK.replace("T1 (x) [composed]", "T1 (grep-co-import)")
+        assert _scan_integration(plain)["stack_mode"] == "code"
+
+    def test_cross_cutting_list_items_are_entries(self) -> None:
+        """A Cross-Cutting Patterns subsection with no `####` heading takes each list item as an entry; in a
+        compose stack, an entry whose name names no libraries is left to the caller."""
+        text = COMPOSE_STACK.replace("### Library Pair Integrations", (
+            "### Cross-Cutting Patterns\n"
+            "- Shared domain models across a, b and c\n"
+            "  [from skill: a] Model\n"
+            "1. Request tracing\n"
+            "    - nested detail is part of the item\n\n"
+            "### Library Pair Integrations"))
+        payload = _scan_integration(text)
+        assert payload["patterns_documented"] == 3
+        assert _entry_facts(payload) == [
+            ("Shared domain models across a, b and c", 6, "cross-cutting", None, []),
+            ("Request tracing", 8, "cross-cutting", None, []),
+            ("a + b", 12, "pair", False, ["no [from skill: …] line for b"]),
+        ]
+        assert payload["entries"][0]["libraries"] == []
+        assert payload["entries"][0]["from_skill"] == [{"line": 7, "skill": "a", "text": "Model"}]
+        # code mode reads a cross-cutting entry's citations and asks no key files of it
+        code = text.replace("T1 (x) [composed]", "T1").replace("  [from skill: a] Model", "  wired at src/trace.ts:4")
+        first = _scan_integration(code)["entries"][0]
+        assert (first["first_criterion"], first["missing"]) == (True, [])
+
+    def test_a_nested_list_item_is_part_of_its_entry(self) -> None:
+        """A sub-item indented past the first-level items, by 2 spaces under `-` or 3 under `1.`, is not an
+        entry: its citation is its parent's evidence."""
+        text = CODE_STACK.replace("[No pattern spans three libraries.]", (
+            "- Request tracing across express, pino and otel\n"
+            "  - express middleware at src/app.ts:4\n"
+            "  - pino child logger at src/log.ts:9\n"
+            "1. Shared config loader\n"
+            "   - **Confidence:** T2"))
+        payload = _scan_integration(text)
+        assert payload["patterns_documented"] == 4
+        tracing, config = payload["entries"][:2]
+        assert (tracing["name"], tracing["first_criterion"]) == ("Request tracing across express, pino and otel", True)
+        assert [c["text"] for c in tracing["citations"]] == ["src/app.ts:4", "src/log.ts:9"]
+        assert (config["name"], config["confidence"], config["missing"]) == (
+            "Shared config loader", "T2", ["no file:line citation"])
+
+    def test_cross_cutting_headings_win_over_list_items(self) -> None:
+        text = COMPOSE_STACK.replace("### Library Pair Integrations", (
+            "### Cross-Cutting Patterns\n"
+            "#### Request tracing\n"
+            "- spans a, b and c\n\n"
+            "### Library Pair Integrations"))
+        assert [(e["name"], e["kind"]) for e in _scan_integration(text)["entries"]] == [
+            ("Request tracing", "cross-cutting"), ("a + b", "pair")]
+
+    def test_headings_match_by_full_text_case_insensitively(self) -> None:
+        text = CODE_STACK.replace("## Integration Patterns", "## integration patterns").replace(
+            "### Library Pair Integrations", "### LIBRARY PAIR INTEGRATIONS ###")
+        assert _scan_integration(text)["patterns_documented"] == 2
+        renamed = CODE_STACK.replace("### Library Pair Integrations", "### Library Pair Integrations (code)")
+        assert _scan_integration(renamed)["patterns_documented"] == 0
+
+    @pytest.mark.parametrize("text", ["# Demo\n\n## Usage\n\nx\n", "", "```md\n## Integration Patterns\n```\n"],
+                             ids=["no-section", "empty", "fenced"])
+    def test_no_section(self, text: str) -> None:
+        assert _scan_integration(text) == {"section": None, "stack_mode": "code", "patterns_documented": 0,
+                                           "entries": []}
+
+    def test_the_headings_are_the_validators_stack_template_names(self) -> None:
+        spec = importlib.util.spec_from_file_location("skf_validate_output_for_scan_test", VALIDATOR_PATH)
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        assert mod.stack_headings() == {
+            "_INTEGRATION_PATTERNS": validator._INTEGRATION_PATTERNS,
+            "_PAIR_INTEGRATIONS": validator._PAIR_INTEGRATIONS,
+            "_CROSS_CUTTING_PATTERNS": validator._CROSS_CUTTING_PATTERNS,
+        }
+        template = (REPO_ROOT / "src" / "skf-create-stack-skill" / "assets" / "stack-skill-template.md").read_text(
+            encoding="utf-8")
+        for level, name in (("##", validator._INTEGRATION_PATTERNS), ("###", validator._PAIR_INTEGRATIONS),
+                            ("###", validator._CROSS_CUTTING_PATTERNS)):
+            assert f"\n{level} {name}\n" in template, name
+
+
+class TestIntegrationScanCli:
+    def test_emits_json(self, tmp_path: Path) -> None:
+        skill = _write(tmp_path / "SKILL.md", CODE_STACK)
+        result = _run_cli("integration-scan", str(skill))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == _scan_integration(CODE_STACK)
+
+    def test_a_missing_file_exits_1(self, tmp_path: Path) -> None:
+        result = _run_cli("integration-scan", str(tmp_path / "nope.md"))
+        assert result.returncode == 1 and result.stdout == ""
+        assert result.stderr.startswith("error: file not found")
+
+    def test_a_validator_that_does_not_load_exits_1(self, tmp_path: Path) -> None:
+        """The headings come from skf-validate-output.py beside the scanner: without it the scan cannot name them."""
+        alone = tmp_path / "scripts"
+        alone.mkdir()
+        (alone / SCRIPT_PATH.name).write_bytes(SCRIPT_PATH.read_bytes())
+        skill = _write(tmp_path / "SKILL.md", CODE_STACK)
+        result = subprocess.run([sys.executable, str(alone / SCRIPT_PATH.name), "integration-scan", str(skill)],
+                                capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and result.stdout == ""
+        assert result.stderr.startswith("error: cannot load the stack headings")
+        assert len(result.stderr.strip().splitlines()) == 1
+
+    def test_no_argument_is_a_usage_error(self) -> None:
+        assert _run_cli("integration-scan").returncode == 2

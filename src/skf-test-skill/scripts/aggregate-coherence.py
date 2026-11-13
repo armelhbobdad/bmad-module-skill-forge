@@ -6,7 +6,7 @@
 """Deterministic contextual-coherence aggregator.
 
 Pure-function tally + weighted mean for the SKF test-skill workflow
-(step-04, coherence-check.md §5c). The prompt keeps the judgment — deciding
+(step-04, coherence-contextual.md §5c). The prompt keeps the judgment, deciding
 which skill, type-import and integration-pattern references are accurate
 (§4) and which integration patterns are complete (§5). This script does the
 counting and the arithmetic those judgments feed: it counts the valid
@@ -17,7 +17,7 @@ compute-score.py is computed once, deterministically, instead of by hand on
 every run (this skill grades other skills — a false PASS is catastrophic, so
 every scoring input is scripted for run-to-run reproducibility).
 
-Per-reference input (the files coherence-check.md §5c passes):
+Per-reference input (the files coherence-contextual.md §5c passes):
   --references   skf-scan-skill-md-structure.py reference-check output: its
                  `references[]` hold the file-path and script/asset
                  references, each valid when its `status` is "ok"
@@ -32,19 +32,27 @@ Per-reference input (the files coherence-check.md §5c passes):
                  booleans are true and `issues` is empty. Optional: a skill
                  with no such reference has no file.
   --integration  the §5 integration JSON ({"patterns_documented",
-                 "patterns_complete", ...}, fence stripped)
+                 "patterns_complete", "incomplete_patterns"}, fence
+                 stripped). `incomplete_patterns` lists each integration
+                 point that fails a criterion as {"pattern", "issue",
+                 "line"}: `pattern` and `issue` non-blank strings, `line`
+                 an integer of 1 or more (a bool refused). It must be a
+                 list of exactly `patterns_documented - patterns_complete`
+                 entries, and may be absent only when the two counts are
+                 equal; otherwise the file is refused (exit 2), checked
+                 once the counts pass.
   `total_references` is the number of entries in both, `valid_references`
   the number of valid ones, and `invalidReferences[]` lists each invalid
   one with its `status`: "missing" or "escapes" from the scan, and for a
   judged one "missing" (target_exists false) or "inaccurate". Each entry
-  also carries what coherence-check.md §5c needs for its gap, so the
+  also carries what coherence-contextual.md §5c needs for its gap, so the
   caller never matches it back to the per-reference files: a scanned
   one's `canonical` (the realpath the scanner checked, which an escape
   names) and `root`, and a judged one's `issues` (when the subagent gave
   none, the flags that are false, such as "type_match: false").
 
 Formula (this script is its one home: scoring-rules.md points here, and
-coherence-check.md §5 defines what makes a pattern complete):
+coherence-contextual.md §5 defines what makes a pattern complete):
 
     reference_validity       = (valid_references / total_references) * 100
     integration_completeness = (complete_patterns / total_patterns) * 100
@@ -82,10 +90,14 @@ Output (JSON):
     "invalidReferences":       [{"source": "scan" | "judged", "line": N | null,
                                  "target": "...", "status": "...",
                                  "canonical": "..." | null, "root": "..." | null,
-                                 "issues": ["..."]}]
+                                 "issues": ["..."]}],
                                # with the per-reference files only; canonical
                                # and root are null for a judged entry, and
                                # issues is empty for a scanned one
+    "incompletePatterns":      [{"pattern": "...", "issue": "...", "line": N}]
+                               # with --integration only: the file's
+                               # incomplete_patterns, each entry's three fields
+                               # as given; the counts-only input has none
   }
   or {"error": ..., "code": "INVALID_INPUT"} on a schema violation.
 
@@ -100,8 +112,9 @@ CLI usage (mirrors compute-score.py):
 
 --output <file> writes the result to a file (UTF-8 JSON), the one
 compute-score.py --coherence reads, and prints only its summary: each field
-as the file gives it, a list as its length (`invalidReferences` as their
-number), and "output": the --output path (#1063). A refused input prints its
+as the file gives it, a list as its length (`invalidReferences` and
+`incompletePatterns` as their number), and "output": the --output path
+(#1063). A refused input prints its
 envelope either way and removes a file left there earlier.
 
 Exit codes (same convention as compute-score.py / reconcile-coverage.py):
@@ -138,7 +151,7 @@ Coherence Analysis section after its Mode and Migration Section lines:
                      (N/A when no integration pattern is documented) and
                      Combined Coherence, from --coherence
   ### Integration Pattern Completeness  its header rows, last, for the
-                     rows coherence-check §5 judged
+                     rows coherence-contextual.md §5 judged
 Exit 0 when it printed; 1 when a file is missing or not JSON; 2 a usage
 error, a file that is not its script's result, or a --coherence whose
 reference counts differ from the recount (one `error:` line on stderr).
@@ -365,6 +378,47 @@ def _read_json_file(path, label, fenced=False):
         raise ValueError(f"{label} {path} is not valid JSON: {exc.msg}") from exc
 
 
+def incomplete_patterns(patterns):
+    """The §5 file's `incomplete_patterns`, each entry's three fields as given, or an error string. Call it once
+    validate_input passed the counts.
+
+    >>> incomplete_patterns({"patterns_documented": 2, "patterns_complete": 1,
+    ...                      "incomplete_patterns": [{"pattern": "a + b", "issue": "no file:line citation",
+    ...                                               "line": 12, "note": "x"}]})
+    [{'pattern': 'a + b', 'issue': 'no file:line citation', 'line': 12}]
+    >>> incomplete_patterns({"patterns_documented": 2, "patterns_complete": 2})
+    []
+    >>> incomplete_patterns({"patterns_documented": 3, "patterns_complete": 2, "incomplete_patterns": []})
+    '--integration lists 0 incomplete_patterns entries; patterns_documented - patterns_complete is 1'
+    >>> incomplete_patterns({"patterns_documented": 1, "patterns_complete": 0,
+    ...                      "incomplete_patterns": [{"pattern": "a", "issue": "b", "line": True}]})
+    '--integration incomplete_patterns[0] needs an integer `line` of 1 or more, not true'
+    """
+    expected = patterns["patterns_documented"] - patterns["patterns_complete"]
+    if "incomplete_patterns" not in patterns and expected == 0:
+        return []
+    entries = patterns.get("incomplete_patterns")
+    if not isinstance(entries, list):
+        return ("--integration `incomplete_patterns` must be a list of the patterns that fail a criterion "
+                "(absent only when patterns_complete equals patterns_documented)")
+    kept = []
+    for index, entry in enumerate(entries):
+        where = f"--integration incomplete_patterns[{index}]"
+        if not isinstance(entry, dict):
+            return f"{where} is not an object with `pattern`, `issue` and `line`"
+        for field in ("pattern", "issue"):
+            if not isinstance(entry.get(field), str) or not entry[field].strip():
+                return f"{where} needs a non-blank string `{field}`"
+        line = entry.get("line")
+        if isinstance(line, bool) or not isinstance(line, int) or line < 1:
+            return f"{where} needs an integer `line` of 1 or more, not {json.dumps(line)}"
+        kept.append({"pattern": entry["pattern"], "issue": entry["issue"], "line": line})
+    if len(kept) != expected:
+        return (f"--integration lists {len(kept)} incomplete_patterns entries; patterns_documented - "
+                f"patterns_complete is {expected}")
+    return kept
+
+
 def aggregate_from_files(references, judged=None, integration=None):
     """Aggregate from the per-reference files and the §5 integration JSON."""
     scan = _read_json_file(references, "--references")
@@ -388,8 +442,13 @@ def aggregate_from_files(references, judged=None, integration=None):
         "patterns_documented": patterns.get("patterns_documented"),
         "patterns_complete": patterns.get("patterns_complete"),
     })
-    if result.get("code") != "INVALID_INPUT":
-        result["invalidReferences"] = invalid
+    if result.get("code") == "INVALID_INPUT":
+        return result
+    incomplete = incomplete_patterns(patterns)
+    if isinstance(incomplete, str):
+        return make_error(incomplete)
+    result["invalidReferences"] = invalid
+    result["incompletePatterns"] = incomplete
     return result
 
 
@@ -546,7 +605,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--judged", metavar="PATH",
                         help="the subagent results for the skill, type-import and integration references")
     parser.add_argument("--integration", metavar="PATH",
-                        help="the integration JSON (patterns_documented, patterns_complete)")
+                        help="the integration JSON (patterns_documented, patterns_complete, incomplete_patterns)")
     parser.add_argument("--output", metavar="PATH", help="write the result to this file and print only its summary")
     return parser
 
@@ -562,7 +621,8 @@ def _write_output(path, result):
 
 def _summary(result: dict, output: str) -> dict:
     """What main prints when --output holds the result: each field as the file gives it, a list as its length, and
-    the file's path as `output`. coherence-check §6 records the invalid references from the file (#1063)."""
+    the file's path as `output`. coherence-check §6 records the invalid references and the incomplete patterns from
+    the file (#1063)."""
     return {**{key: len(value) if isinstance(value, list) else value for key, value in result.items()},
             "output": output}
 

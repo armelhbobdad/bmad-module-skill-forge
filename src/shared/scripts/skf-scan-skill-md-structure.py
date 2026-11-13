@@ -5,7 +5,7 @@
 """SKF Scan Skill.md Structure — deterministic structural checks for SKILL.md.
 
 Replaces the synonym-grep loops, bash fence recipes, and inline Python
-table-parser in `references/coherence-check.md` §§2.1 / 2.2 / 2.3 / 2.6 with
+table-parser in `references/coherence-naive.md` §§2.1 / 2.2 / 2.3 / 2.6 with
 a single subprocess invocation that emits JSON.
 
 The usage-scope, cross-reference and reference-check subcommands emit the
@@ -153,6 +153,28 @@ Subcommands:
       directory (a stale metadata.json `source_root`, say) is a warning,
       not an error.
 
+  integration-scan <skill-md>
+      Emit JSON listing a stack skill's integration entries, the stack's
+      mode and each entry's wiring evidence (see "Integration entries"
+      below):
+        {
+          "section": {"heading": "<text>", "line": N} | null,
+          "stack_mode": "code" | "compose",
+          "patterns_documented": N,
+          "entries": [{"name": "...", "line": N,
+                       "kind": "pair" | "cross-cutting",
+                       "libraries": ["<a>", "<b>"],
+                       "confidence": "..." | null,
+                       "citations": [{"line": N, "text": "..."}],
+                       "key_files": {"line": N, "files": ["..."]} | null,
+                       "from_skill": [{"line": N, "skill": "...",
+                                       "text": "..."}],
+                       "first_criterion": <bool> | null,
+                       "missing": ["..."]}, ...]
+        }
+      With no Integration Patterns section, `section` is null,
+      `stack_mode` `code`, `patterns_documented` 0 and `entries` empty.
+
 Scripts & Assets section:
   `folders` lists the `scripts` and `assets` folders beside SKILL.md,
   sorted; `section` is the first heading outside the frontmatter and
@@ -178,7 +200,7 @@ Bare opening fence:
   opening fence is one where `in_code` transitions 0→1 and the line, with
   the leading ``` stripped, has no language tag (empty or whitespace-only
   remainder). Closing fences are never flagged — they are bare by markdown
-  convention. This mirrors the Python recipe in coherence-check.md §2.3.
+  convention. This mirrors the Python recipe in coherence-naive.md §2.3.
 
 Table drift:
   Walks markdown table blocks. A block starts when a `^\\|.*\\|$` line is
@@ -204,7 +226,7 @@ Empty SKILL.md:
   empty `outline`.
 
 Line model (scan --required-sections, usage-scope, cross-reference,
-reference-check):
+reference-check, integration-scan):
   A file is read as UTF-8, a leading byte order mark dropped, and split
   on `\\n` alone (a `\\r\\n` pair loses its `\\r`, a lone `\\r` stays in
   its line), so every `line` matches `grep -n`. The frontmatter is a
@@ -220,7 +242,7 @@ reference-check):
 Usage scope:
   Single-body (no `*.md` file under `references/`): the section of the
   first heading whose text is a usage synonym (REQUIRED_SYNONYMS["usage"],
-  the anchor coherence-check.md §2.1 matches), fenced code inside it
+  the anchor coherence-naive.md §2.1 matches), fenced code inside it
   included. The Key Exports list is outside it, so listing an export
   there does not count as using it. With no such heading the scope is
   empty and every export is zero-usage.
@@ -231,7 +253,7 @@ Usage scope:
   included, plus every `*.md` file under `references/` at any depth, in
   path order. Overlapping sections count each line once.
   --body auto (the default) decides by the `references/` test alone.
-  coherence-check.md §2.4 also calls a package with `references/`
+  coherence-naive.md §2.4 also calls a package with `references/`
   single-body when its `## Full*` sections carry real content rather than
   stubs: that is the caller's judgment, passed as --body single.
 
@@ -283,11 +305,52 @@ Reference extraction:
   a one-word line such as `[Note]: see-below` is a reference definition,
   as CommonMark reads it.
 
+Integration entries:
+  The rule test-skill's coherence check applies to a stack skill
+  (coherence-contextual.md §5). The headings are skf-validate-output.py's
+  stack template names (`_INTEGRATION_PATTERNS`, `_PAIR_INTEGRATIONS`,
+  `_CROSS_CUTTING_PATTERNS`), read from that file beside this script and
+  matched by the Line model (full text, case-insensitive): the first `##`
+  Integration Patterns heading, and the `###` Library Pair Integrations
+  and Cross-Cutting Patterns headings in its section. Each `####` heading
+  of those subsections is one entry (`kind` `pair` or `cross-cutting`); a
+  Cross-Cutting Patterns subsection with no `####` heading takes each list
+  item (`-`, `*`, `+` or `N.`, indented 0 to 3 spaces) as an entry, named
+  by its first line after the marker; an item indented further than the
+  list's first-level items is nested, part of its parent entry. An entry's
+  block runs to the next entry, the next heading of level 4 or higher, or
+  a line that reads `Hub Library Connections` once `#`, `*`, `-`, `+`, `:`
+  and whitespace are dropped (case-insensitive, a trailing parenthetical
+  such as `(3+ partners)` allowed): that line ends all entries, since the
+  hub list only summarizes the pairs. Read outside fenced code, per entry: `libraries`
+  is the name split on ` + ` when that gives two or more parts, else
+  empty; `confidence` the text after its first `**Confidence:**` line (a
+  list marker allowed); `citations` each `<path>.<ext>:<N>` with an
+  optional `L` and `-N` range, not preceded by a word character, `.`, `/`
+  or `-` nor starting at a URL's `//` (so `[SRC:a.ts:L3]` counts and a
+  URL's host and port do not); `key_files`
+  the tokens of its first `**Key files:**` line that hold a `/` or a file
+  extension; and `from_skill` each `[from skill: X]` with the text after
+  it, up to the next marker or the line's end.
+  The stack is `compose` when an entry's `confidence` holds `[composed]`,
+  `[composed,` or `[inferred from shared domain]`, else `code`. Code mode:
+  `missing` names `no file:line citation` for an entry with no citation
+  and, for a `pair`, `no **Key files:** line naming a file`. Compose mode:
+  for each of an entry's `libraries` that no `from_skill` line with
+  non-blank text names (case-insensitive, whitespace collapsed, backticks
+  and asterisks dropped), `no [from
+  skill: …] line for {library}`; an entry with no `libraries` has a
+  null `first_criterion`, which the caller decides from its `from_skill`
+  lines. Otherwise `first_criterion` is true when nothing is `missing`.
+  Whether a `[from skill:]` line cites something its skill exports is the
+  caller's judgment.
+
 Exit codes:
   0: operation succeeded
   1: user error (file not found or unreadable, malformed JSON input, both
      --skills and --pairs on stdin, a cross-reference --skills-root that
-     is not a directory)
+     is not a directory, an integration-scan whose skf-validate-output.py
+     does not load)
   2: usage error (argparse: missing or unknown argument or subcommand)
 """
 
@@ -295,6 +358,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import importlib.util
 import json
 import os
 import re
@@ -308,7 +372,7 @@ from urllib.parse import unquote
 # --------------------------------------------------------------------------
 
 
-# The synonyms test-skill's coherence check (coherence-check.md §2.1)
+# The synonyms test-skill's coherence check (coherence-naive.md §2.1)
 # matches, with the SKF-template headings folded in so they are
 # first-class matches rather than literal-name misses: the Deep/create-skill
 # template (`Overview`, `Quick Start`, `Common Workflows`, `Key API
@@ -685,7 +749,7 @@ def _bounded(term: str, word_chars: str) -> str:
 # --------------------------------------------------------------------------
 
 
-# coherence-check.md §2.4 counts a split-body skill over every usage-family
+# coherence-naive.md §2.4 counts a split-body skill over every usage-family
 # heading: the usage synonyms above plus the api-surface headings that carry
 # call examples in the SKF templates. A single-body skill counts over its
 # first usage-synonym section alone, so an export does not count as used
@@ -1194,6 +1258,237 @@ def check_references(
 
 
 # --------------------------------------------------------------------------
+# Integration scan: a stack skill's integration entries
+# --------------------------------------------------------------------------
+
+
+# skf-validate-output.py beside this script holds the stack template's
+# heading names, so the scan reads the headings the validator checks.
+_STACK_HEADINGS_HELPER = "skf-validate-output.py"
+_STACK_HEADING_NAMES = (
+    "_INTEGRATION_PATTERNS", "_PAIR_INTEGRATIONS", "_CROSS_CUTTING_PATTERNS"
+)
+# A list item that starts a cross-cutting entry: `-`, `*`, `+` or `N.`,
+# indented 0 to 3 spaces and no further than the list's first-level items,
+# so a nested item is part of its parent entry.
+_ENTRY_ITEM_RE = re.compile(r"^( {0,3})(?:[-*+]|\d+\.)[ \t]+(\S.*?)[ \t]*$")
+# A `**Confidence:**` or `**Key files:**` line, a list marker allowed.
+_LABEL_LINE = r"^\s*(?:(?:[-*+]|\d+\.)[ \t]+)?\*\*{}:\*\*[ \t]*(.*?)[ \t]*$"
+_CONFIDENCE_RE = re.compile(_LABEL_LINE.format("Confidence"), re.IGNORECASE)
+_KEY_FILES_RE = re.compile(_LABEL_LINE.format("Key files"), re.IGNORECASE)
+# A `file:line` citation: a path with an extension, a line number with an
+# optional `L` and an optional `-N` range, never inside a longer path or
+# word nor after a URL's `//`, so `[SRC:a.ts:L3]` counts and a URL's host
+# and port do not.
+_CITATION_RE = re.compile(
+    r"(?<![\w./-])(?!//)[\w./-]*\.[A-Za-z][A-Za-z0-9]*:L?\d+(?:-L?\d+)?"
+)
+_FROM_SKILL_RE = re.compile(r"\[from skill:[ \t]*([^\]]*?)[ \t]*\]")
+# A Key files token that names a file: it holds a `/` or ends in an
+# extension, a `:N` line suffix allowed.
+_FILE_TOKEN_RE = re.compile(r"\.[A-Za-z][A-Za-z0-9]*(?::L?\d+(?:-L?\d+)?)?$")
+_COMPOSE_MARKERS = ("[composed]", "[composed,", "[inferred from shared domain]")
+# The hub list's label once `#`, `*`, `-`, `+`, `:` and whitespace are
+# dropped, a trailing parenthetical such as `(3+ partners)` allowed.
+_HUB_LINE_RE = re.compile(r"hublibraryconnections(?:\(.*\))?")
+
+_STACK_HEADINGS: dict[str, str] | None = None
+
+
+def stack_headings() -> dict[str, str]:
+    """The stack template's heading names, read from skf-validate-output.py
+    beside this script. Raises UserError when it does not load."""
+    global _STACK_HEADINGS
+    if _STACK_HEADINGS is None:
+        path = Path(__file__).resolve().parent / _STACK_HEADINGS_HELPER
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "skf_validate_output_headings", path
+            )
+            if spec is None or spec.loader is None or not path.is_file():
+                raise ImportError(f"{_STACK_HEADINGS_HELPER} not found")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            names = {
+                name: getattr(module, name) for name in _STACK_HEADING_NAMES
+            }
+        except (ImportError, OSError, SyntaxError, AttributeError) as exc:
+            raise UserError(
+                f"cannot load the stack headings from {path}: {exc}"
+            ) from exc
+        if not all(isinstance(v, str) and v for v in names.values()):
+            raise UserError(f"{path} gives no stack heading names")
+        _STACK_HEADINGS = names
+    return _STACK_HEADINGS
+
+
+def _collapse(text: str) -> str:
+    """A skill name to compare: backticks and asterisks dropped, whitespace
+    collapsed, lowercased."""
+    return " ".join(re.sub(r"[`*]", "", text).split()).lower()
+
+
+def _key_files(text: str) -> list[str]:
+    """The tokens of a Key files line that name a file."""
+    files: list[str] = []
+    for token in re.split(r"[\s,;]+", text):
+        token = token.strip("`'\"()[]<>").rstrip(".")
+        if token and ("/" in token or _FILE_TOKEN_RE.search(token)):
+            files.append(token)
+    return files
+
+
+def _integration_entry(
+    lines: list[str], code: list[bool], kind: str, name: str, start: int,
+    end: int,
+) -> dict:
+    """The facts of one entry, read from its block outside fenced code."""
+    confidence = None
+    key_files = None
+    citations: list[dict] = []
+    from_skill: list[dict] = []
+    for i in range(start, end):
+        if code[i]:
+            continue
+        line = lines[i]
+        if confidence is None:
+            m = _CONFIDENCE_RE.match(line)
+            if m:
+                confidence = m.group(1)
+        if key_files is None:
+            m = _KEY_FILES_RE.match(line)
+            if m:
+                key_files = {"line": i + 1, "files": _key_files(m.group(1))}
+        citations.extend(
+            {"line": i + 1, "text": m.group(0)}
+            for m in _CITATION_RE.finditer(line)
+        )
+        markers = list(_FROM_SKILL_RE.finditer(line))
+        for pos, m in enumerate(markers):
+            stop = markers[pos + 1].start() if pos + 1 < len(markers) else len(line)
+            from_skill.append({
+                "line": i + 1,
+                "skill": m.group(1),
+                "text": line[m.end():stop].strip(),
+            })
+    parts = [part.strip() for part in name.split(" + ")]
+    return {
+        "name": name,
+        "line": start + 1,
+        "kind": kind,
+        "libraries": parts if len(parts) >= 2 else [],
+        "confidence": confidence,
+        "citations": citations,
+        "key_files": key_files,
+        "from_skill": from_skill,
+        "first_criterion": None,
+        "missing": [],
+    }
+
+
+def _first_criterion(entry: dict, mode: str) -> None:
+    """Fill the entry's `missing` and `first_criterion` by its stack's mode
+    (coherence-contextual.md §5's wiring evidence)."""
+    missing: list[str] = []
+    if mode == "code":
+        if not entry["citations"]:
+            missing.append("no file:line citation")
+        if entry["kind"] == "pair" and not (
+            entry["key_files"] and entry["key_files"]["files"]
+        ):
+            missing.append("no **Key files:** line naming a file")
+    elif entry["libraries"]:
+        cited = {
+            _collapse(f["skill"]) for f in entry["from_skill"] if f["text"].strip()
+        }
+        missing = [
+            f"no [from skill: …] line for {library}"
+            for library in entry["libraries"]
+            if _collapse(library) not in cited
+        ]
+    else:
+        return
+    entry["missing"] = missing
+    entry["first_criterion"] = not missing
+
+
+def integration_scan(text: str, headings: dict[str, str]) -> dict:
+    """List a stack skill's integration entries, its mode and each entry's
+    first-criterion result (see "Integration entries" in the module
+    docstring). `headings` is stack_headings()."""
+    lines = _split_lines(text)
+    start = _frontmatter_end(lines)
+    code = _code_lines(lines, start)
+    body = _body_headings(lines, start, code)
+    wanted = headings["_INTEGRATION_PATTERNS"].lower()
+    section = next(
+        (pos for pos, (_, level, heading) in enumerate(body)
+         if level == 2 and heading.lower() == wanted),
+        None,
+    )
+    if section is None:
+        return {"section": None, "stack_mode": "code",
+                "patterns_documented": 0, "entries": []}
+    sec_idx = body[section][0]
+    sec_end = next(
+        (idx for idx, level, _ in body[section + 1:] if level <= 2), len(lines)
+    )
+    hub = next(
+        (i for i in range(sec_idx + 1, sec_end)
+         if not code[i]
+         and _HUB_LINE_RE.fullmatch(re.sub(r"[#*:\s+-]", "", lines[i]).lower())),
+        sec_end,
+    )
+    kinds = {
+        headings["_PAIR_INTEGRATIONS"].lower(): "pair",
+        headings["_CROSS_CUTTING_PATTERNS"].lower(): "cross-cutting",
+    }
+    inner = [h for h in body if sec_idx < h[0] < sec_end]
+    entries: list[dict] = []
+    for pos, (idx, level, heading) in enumerate(inner):
+        kind = kinds.get(heading.lower()) if level == 3 else None
+        if kind is None or idx >= hub:
+            continue
+        sub_end = next(
+            (i for i, lvl, _ in inner[pos + 1:] if lvl <= 3), sec_end
+        )
+        sub_end = min(sub_end, hub)
+        starts = [(i, text) for i, lvl, text in inner
+                  if idx < i < sub_end and lvl == 4]
+        if not starts and kind == "cross-cutting":
+            items = [
+                (i, m) for i in range(idx + 1, sub_end)
+                if not code[i] and (m := _ENTRY_ITEM_RE.match(lines[i]))
+            ]
+            top = min((len(m.group(1)) for _, m in items), default=0)
+            starts = [(i, m.group(2)) for i, m in items if len(m.group(1)) == top]
+        bounds = [i for i, lvl, _ in inner if idx < i < sub_end and lvl <= 4]
+        for n, (begin, name) in enumerate(starts):
+            stop = min(
+                [sub_end]
+                + [s for s, _ in starts[n + 1:n + 2]]
+                + [b for b in bounds if b > begin][:1]
+            )
+            entries.append(
+                _integration_entry(lines, code, kind, name, begin, stop)
+            )
+    mode = "code"
+    for entry in entries:
+        label = (entry["confidence"] or "").lower()
+        if any(marker in label for marker in _COMPOSE_MARKERS):
+            mode = "compose"
+            break
+    for entry in entries:
+        _first_criterion(entry, mode)
+    return {
+        "section": {"heading": body[section][2], "line": sec_idx + 1},
+        "stack_mode": mode,
+        "patterns_documented": len(entries),
+        "entries": entries,
+    }
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1555,6 +1850,11 @@ def _cmd_reference_check(args: argparse.Namespace) -> int:
     return _emit(payload)
 
 
+def _cmd_integration_scan(args: argparse.Namespace) -> int:
+    _, text = _load_skill_md(args.skill_md)
+    return _emit(integration_scan(text, stack_headings()))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-scan-skill-md-structure",
@@ -1563,7 +1863,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "bare opening fences, table column drift, required-section "
             "presence (case-insensitive synonym match), export usage counts "
             "over the usage sections, literal citations between skills, "
-            "and file, script and asset reference checks."
+            "file, script and asset reference checks, and a stack skill's "
+            "integration entries."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -1671,6 +1972,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_refs.set_defaults(func=_cmd_reference_check)
+
+    p_integ = sub.add_parser(
+        "integration-scan",
+        help=(
+            "list a stack skill's integration entries with their wiring "
+            "evidence, the stack's mode and each entry's first criterion"
+        ),
+    )
+    p_integ.add_argument("skill_md", help="path to a stack SKILL.md file")
+    p_integ.set_defaults(func=_cmd_integration_scan)
 
     return parser
 

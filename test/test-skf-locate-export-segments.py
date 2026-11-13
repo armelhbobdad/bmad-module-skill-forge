@@ -11,7 +11,7 @@ rather than call, what comments, strings and data blocks hide, which prose
 describes an export, qualified names, line numbers, and the CLI contract.
 The --inventory input reads the validated inventory file coverage-check
 writes and keeps its function and method names. The last section pins the
-§2.5 prose that calls it.
+§2.5 prose that calls it, in coherence-naive.md since #1187.
 
 #783: a call's `directlyAwaited` holds only when the await applies to the
 call itself, so §2.5's sync rule no longer raises a High finding for a sync
@@ -40,6 +40,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SKILL = REPO_ROOT / "src" / "skf-test-skill"
 SCRIPT_PATH = TEST_SKILL / "scripts" / "locate-export-segments.py"
 COHERENCE = TEST_SKILL / "references" / "coherence-check.md"
+# The naive branch coherence-check.md §1 loads, which holds §2.5 (#1187).
+COHERENCE_NAIVE = TEST_SKILL / "references" / "coherence-naive.md"
 SCANNER_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-scan-skill-md-structure.py"
 
 spec = importlib.util.spec_from_file_location("locate_export_segments", SCRIPT_PATH)
@@ -1028,12 +1030,12 @@ def test_script_header():
 
 
 # --------------------------------------------------------------------------
-# coherence-check §2.5 reads the script's facts and classifies the descriptions
+# coherence-naive.md §2.5 reads the script's facts and classifies the descriptions
 # --------------------------------------------------------------------------
 
 
 def _section_25() -> str:
-    text = COHERENCE.read_text(encoding="utf-8")
+    text = COHERENCE_NAIVE.read_text(encoding="utf-8")
     start = text.index("**2.5 Async/sync consistency.**")
     return text[start:text.index("**2.6 Table syntax.**", start)]
 
@@ -1043,7 +1045,7 @@ def _flow(text: str) -> str:
 
 
 def test_coherence_binds_the_script():
-    frontmatter = COHERENCE.read_text(encoding="utf-8").split("\n---\n", 1)[0]
+    frontmatter = COHERENCE_NAIVE.read_text(encoding="utf-8").split("\n---\n", 1)[0]
     assert "locateExportSegmentsScript: 'scripts/locate-export-segments.py'" in frontmatter
 
 
@@ -1121,14 +1123,14 @@ def test_async_check_findings_cite_the_calls_own_file():
     """#783: the cited call can sit in a references/*.md file, so a §2.5 finding's Source is its file."""
     text = _flow(COHERENCE.read_text(encoding="utf-8"))
     record = text[text.index("Then write the records no script wrote"):]
-    record = record[:record.index("each §5 incomplete integration pattern")]
+    record = record[:record.index("and in both modes")]
     assert ("the §2.5 findings, titled with their `naive-coherence:` text and with their Source at the cited "
             "call's `{file}:{line}`;") in record
     assert "`SKILL.md:{line}`" not in record
 
 
 def test_every_naive_finding_title_uses_one_separator():
-    text = COHERENCE.read_text(encoding="utf-8")
+    text = COHERENCE_NAIVE.read_text(encoding="utf-8")
     naive = text[text.index("### 2. Naive Mode"):text.index("### 2b.")]
     titles = re.findall(r"`naive-coherence(.)", naive)
     assert titles and set(titles) == {":"}, titles

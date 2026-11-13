@@ -6,7 +6,9 @@ now delegates to instead of computing in-prompt. Runs the module's embedded
 doctests plus reference-value and CLI (exit-code) checks, and the
 per-reference input (#598): the script counts `valid_references` itself from
 the scanner's reference-check output and the judged results, and names each
-invalid reference with the status coherence-check classifies.
+invalid reference with the status coherence-check classifies. It also checks
+the incomplete integration patterns of the integration file against its counts
+and copies them into the result (#1187).
 """
 
 from __future__ import annotations
@@ -187,10 +189,15 @@ JUDGED = [
 ]
 
 
+# One of the five patterns fails a criterion, so the file lists one incomplete pattern (#1187).
+INCOMPLETE = [{"pattern": "Auth middleware chain", "issue": "no file:line citation", "line": 95}]
+
+
 def _files(tmp_path, scan=SCAN, judged=JUDGED, integration=None, fence=True):
     paths = {"--references": tmp_path / "references.json", "--integration": tmp_path / "integration.json"}
     paths["--references"].write_bytes(json.dumps(scan).encode("utf-8"))
-    body = json.dumps(integration or {"patterns_documented": 5, "patterns_complete": 4, "incomplete_patterns": []})
+    body = json.dumps(integration or {"patterns_documented": 5, "patterns_complete": 4,
+                                      "incomplete_patterns": INCOMPLETE})
     paths["--integration"].write_bytes(body.encode("utf-8"))
     if judged is not None:
         paths["--judged"] = tmp_path / "judged-references.json"
@@ -217,9 +224,10 @@ def test_count_references_from_both_kinds(tmp_path):
 
 def test_output_prints_only_a_summary(tmp_path):
     """#1063: with --output the result goes to the file alone and stdout gives each field, the invalid references
-    as their number, and the path: coherence-check §5c reads the three percentages there, its template's counts come
-    from `input`, and §6 records each invalid reference from the file. The file is the stdout of the same run
-    without --output; a refused file prints its envelope as before and leaves no score file."""
+    and the incomplete patterns as their number, and the path: coherence-contextual.md §5c reads the three
+    percentages there, and coherence-check §6 records each invalid reference and incomplete pattern from the file.
+    The file is the stdout of the same run without --output; a refused file prints its envelope as before and
+    leaves no score file."""
     paths = _files(tmp_path)
     out_file = tmp_path / "run" / "coherence.json"
     proc = _cli_files(paths, "--output", str(out_file))
@@ -227,9 +235,10 @@ def test_output_prints_only_a_summary(tmp_path):
     assert json.loads(proc.stdout) == {
         "input": {"valid_references": 2, "total_references": 6, "patterns_documented": 5, "patterns_complete": 4},
         "referenceValidity": 33.33, "integrationCompleteness": 80.0, "combinedCoherence": 52.0,
-        "patternsScored": True, "invalidReferences": 4, "output": str(out_file)}
+        "patternsScored": True, "invalidReferences": 4, "incompletePatterns": 1, "output": str(out_file)}
     whole = json.loads(_cli_files(paths).stdout)
     assert json.loads(out_file.read_text(encoding="utf-8")) == whole and len(whole["invalidReferences"]) == 4
+    assert whole["incompletePatterns"] == INCOMPLETE
 
     (tmp_path / "refused").mkdir()
     refused = _cli_files(_files(tmp_path / "refused", scan={"refs": []}, judged=None), "--output", str(out_file))
@@ -294,6 +303,67 @@ def test_a_malformed_file_is_refused_and_removes_the_score(tmp_path, scan, judge
     assert not out_file.exists()
 
 
+def test_the_incomplete_patterns_are_copied_as_given(tmp_path):
+    """#1187: each entry's `pattern`, `issue` and `line` reach coherence.json unchanged, any other key dropped, and a
+    file whose counts are equal may leave the list out."""
+    entry = {"pattern": "  a + b ", "issue": "no [from skill: \u2026] line for b", "line": 7, "note": "dropped"}
+    paths = _files(tmp_path, integration={"patterns_documented": 2, "patterns_complete": 1,
+                                          "incomplete_patterns": [entry]})
+    out = json.loads(_cli_files(paths).stdout)
+    assert out["incompletePatterns"] == [{"pattern": "  a + b ", "issue": "no [from skill: \u2026] line for b",
+                                          "line": 7}]
+    (tmp_path / "equal").mkdir()
+    paths = _files(tmp_path / "equal", integration={"patterns_documented": 3, "patterns_complete": 3})
+    assert json.loads(_cli_files(paths).stdout)["incompletePatterns"] == []
+
+
+@pytest.mark.parametrize("integration, error", [
+    ({"patterns_documented": 3, "patterns_complete": 2, "incomplete_patterns": []},
+     "lists 0 incomplete_patterns entries; patterns_documented - patterns_complete is 1"),
+    ({"patterns_documented": 1, "patterns_complete": 1, "incomplete_patterns": INCOMPLETE},
+     "lists 1 incomplete_patterns entries; patterns_documented - patterns_complete is 0"),
+    ({"patterns_documented": 3, "patterns_complete": 2}, "`incomplete_patterns` must be a list"),
+    ({"patterns_documented": 3, "patterns_complete": 2, "incomplete_patterns": None},
+     "`incomplete_patterns` must be a list"),
+    ({"patterns_documented": 1, "patterns_complete": 0, "incomplete_patterns": ["a + b"]}, "is not an object"),
+    ({"patterns_documented": 1, "patterns_complete": 0,
+      "incomplete_patterns": [{"pattern": " ", "issue": "x", "line": 3}]}, "non-blank string `pattern`"),
+    ({"patterns_documented": 1, "patterns_complete": 0,
+      "incomplete_patterns": [{"pattern": "a", "line": 3}]}, "non-blank string `issue`"),
+    ({"patterns_documented": 1, "patterns_complete": 0,
+      "incomplete_patterns": [{"pattern": "a", "issue": "x", "line": "95"}]}, 'integer `line` of 1 or more, not "95"'),
+    ({"patterns_documented": 1, "patterns_complete": 0,
+      "incomplete_patterns": [{"pattern": "a", "issue": "x", "line": True}]}, "integer `line` of 1 or more, not true"),
+    ({"patterns_documented": 1, "patterns_complete": 0,
+      "incomplete_patterns": [{"pattern": "a", "issue": "x", "line": 0}]}, "integer `line` of 1 or more, not 0"),
+], ids=["fewer", "more", "absent", "null", "not-an-object", "blank-pattern", "no-issue", "line-a-string",
+        "line-a-bool", "line-zero"])
+def test_incomplete_patterns_that_disagree_are_refused(tmp_path, integration, error):
+    """#1187: an integration file whose incomplete patterns do not match its counts, or lack a field, is refused
+    (exit 2) and leaves no coherence.json, so §5c corrects it and runs again."""
+    paths = _files(tmp_path, integration=integration)
+    out_file = tmp_path / "coherence.json"
+    out_file.write_bytes(b'{"combinedCoherence": 100}')
+    proc = _cli_files(paths, "--output", str(out_file))
+    assert proc.returncode == 2, proc.stdout
+    envelope = json.loads(proc.stdout)
+    assert envelope["code"] == "INVALID_INPUT" and error in envelope["error"], envelope
+    assert not out_file.exists()
+
+
+def test_the_counts_are_checked_before_the_incomplete_patterns(tmp_path):
+    paths = _files(tmp_path, integration={"patterns_documented": 1, "patterns_complete": 2,
+                                          "incomplete_patterns": "none"})
+    envelope = json.loads(_cli_files(paths).stdout)
+    assert "patterns_complete cannot exceed patterns_documented" in envelope["error"]
+
+
+def test_the_counts_only_input_has_no_incomplete_patterns():
+    proc = _cli(["--json-input", json.dumps({"valid_references": 6, "total_references": 7,
+                                             "patterns_documented": 5, "patterns_complete": 4})])
+    assert proc.returncode == 0 and "incompletePatterns" not in json.loads(proc.stdout)
+
+
 def test_a_missing_file_exits_1(tmp_path):
     paths = _files(tmp_path)
     paths["--references"].unlink()
@@ -333,6 +403,8 @@ def test_the_scanners_own_output_is_read_as_written(tmp_path):
 # --------------------------------------------------------------------------
 
 COHERENCE_STEP = Path(__file__).resolve().parent.parent / "src" / "skf-test-skill" / "references" / "coherence-check.md"
+# §3 to §5c, which coherence-check.md §1 loads in contextual mode (#1187).
+COHERENCE_CONTEXTUAL = COHERENCE_STEP.with_name("coherence-contextual.md")
 # The scanner's reference-check output: each reference's `type` is the Type cell of its row.
 RENDER_SCAN = {"references": [
     {"line": 3, "form": "link", "target": "references/api.md", "type": "file-path",
@@ -464,9 +536,9 @@ def test_render_refuses_what_it_cannot_write(tmp_path, case, code, error):
 
 
 def test_coherence_check_renders_the_contextual_tables_as_written(tmp_path):
-    """§6 runs the render over the files §3 to §5c wrote: with one judged and two scanned references, every
-    reference row and count comes from the files, and the format leaves the model the Integration Pattern rows and
-    the Migration Section line alone."""
+    """§6 runs the render over the files coherence-contextual.md §3 to §5c wrote: with one judged and two scanned
+    references, every reference row and count comes from the files, and the format leaves the model the Integration
+    Pattern rows and the Migration Section line alone."""
     text = COHERENCE_STEP.read_text(encoding="utf-8")
     section = text[text.index("### 6. Write the Coherence Analysis Section"):text.index("### 7.")]
     [command] = [line.strip() for line in section.splitlines()
@@ -475,7 +547,8 @@ def test_coherence_check_renders_the_contextual_tables_as_written(tmp_path):
     run.mkdir()
     scan = {"references": RENDER_SCAN["references"][:2]}
     paths = _files(run, scan=scan, judged=[RENDER_JUDGED[1]])
-    aggregate = text[text.index("### 5c."):text.index("### 6.")]
+    contextual = COHERENCE_CONTEXTUAL.read_text(encoding="utf-8")
+    aggregate = contextual[contextual.index("### 5c."):]
     [first] = [line for line in aggregate.splitlines() if line.startswith("uv run {coherenceAggregationScript}")]
     words = shlex.split(re.sub(r" \[([^\]]+)\]", r" \1", first).replace("{run_dir}", run.as_posix()))
     assert _cli(words[3:]).returncode == 0
@@ -493,5 +566,5 @@ def test_coherence_check_renders_the_contextual_tables_as_written(tmp_path):
     flow = " ".join(section.split())
     assert '(`halt_reason: "helper-failed"`, phase `coherence-check:render`)' in flow
     assert "write the format, with the render's output unchanged where it places it" in flow
-    judged = text[text.index("### 4. Contextual Mode"):text.index("### 5. Contextual Mode")]
+    judged = contextual[contextual.index("### 4. Contextual Mode"):contextual.index("### 5. Contextual Mode")]
     assert '`{"reference": "...", "type": "<its §3 type>", "line": N,' in judged
