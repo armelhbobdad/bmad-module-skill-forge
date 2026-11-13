@@ -72,10 +72,11 @@ on_complete = ""
 # context snippet, catalog and reference-file structures; the metadata.json
 # contract (assets/metadata-contract.md) carries SKF's ownership markers, so
 # no override replaces it. skf-render-stack-metadata.py writes the header
-# lines, Key Exports and Key Files of each reference and pair file and the
-# Library Reference Index rows in the bundled form, so in those a copy
-# shapes only the prose the steps fill and any section it adds. The copy
-# may reword the prose and add optional sections, and must keep:
+# lines, Key Exports and Key Files of each reference and pair file, the
+# Library Reference Index rows and the context snippet's lines in the
+# bundled form, so in those a copy shapes only the prose the steps fill and
+# any section it adds. The copy may reword the prose and add optional
+# sections, and must keep:
 #   - its six `##` headings, which the steps find by name:
 #     `## SKILL.md Section Structure`, `## Sizing Guidance for Large Stacks`,
 #     `## context-snippet.md Format (Vercel-Aligned)`,
@@ -90,8 +91,8 @@ on_complete = ""
 #     (or the `## Library Catalog` pointer), the `**Confidence:**` labels, a
 #     reference file's `**Version:**`, `## Key Exports` and
 #     `## Usage Patterns`, a pair file's `**Type:**`, `## Integration Pattern`
-#     and `## Key Files`, and the snippet's `[name vX]|root:` and
-#     `|IMPORTANT:` lines.
+#     and `## Key Files`, and the snippet's `[name vX]|root:`,
+#     `|IMPORTANT:`, `|stack:` and `|integrations:` lines.
 
 stack_skill_template_path = "assets/stack-skill-template.md"
 

@@ -64,8 +64,8 @@ compose branch of the sections they govern.
   from them in the evidence format, a `[VS: Blocked]` pair still carrying
   the label the structure pass reads (step 5b run 2 architecture-1).
 - Step 7 §1 takes the stack version from skf-skill-inventory.py `version`
-  (#597), and §5 measures the snippet with skf-count-tokens.py, the count
-  the validator takes (#591).
+  (#597), and §5 writes and trims the snippet with skf-render-stack-metadata.py
+  `snippet`, whose count is the one the validator takes (#591, #1157).
 - Step 1 binds every input the Invocation Contract declares and halts with
   `input-invalid` on one it cannot use (#594); `stack_name` names every path
   and envelope, and every envelope carries the skill-check `quality_score`
@@ -178,6 +178,12 @@ compose branch of the sections they govern.
   map as the stats helper does and lists the recorded warnings and
   decisions, the scope gate's dropped libraries and `prior_kept` included
   (#1156).
+- Step 7 §5 writes only the gotchas text, to a file the snippet call reads
+  on stdin, and binds `{token_estimate}` from the helper's `tokens`; step 8
+  §1 passes the validator the workspace folder, the skill group and the
+  version, records `stack_workspace` as ERROR findings and keeps its manual
+  rows for a missing validator; §1 holds the one field map, §5 and §7 are
+  one sentence each and §8 opens with its record rule (#1157).
 
 The step calls run as written, on small fixtures.
 
@@ -1518,15 +1524,95 @@ def test_step_8_reads_the_structure_pass():
     assert validator._STACK_RULES_HELPER == STACK_METADATA.name
 
 
+def _split_filled(call: str, prefix: str, values: dict[str, str]) -> list[str]:
+    """The arguments of a documented call after `prefix`, split first and filled in after."""
+    filled = []
+    for arg in shlex.split(call.split(prefix, 1)[1]):
+        for placeholder, value in values.items():
+            arg = arg.replace(placeholder, value)
+        assert "{" not in arg, f"placeholder left unfilled: {arg}"
+        filled.append(arg)
+    return filled
+
+
+def _shell_split(call: str, prefix: str, values: dict[str, str]) -> list[str]:
+    """The arguments of a documented call after `prefix`, filled in first and split after, as a shell splits the
+    call it runs, so a placeholder left unquoted splits a path that holds a space."""
+    text = call.split(prefix, 1)[1]
+    for placeholder, value in values.items():
+        text = text.replace(placeholder, value)
+    assert "{" not in text, f"placeholder left unfilled: {text}"
+    return shlex.split(text)
+
+
 def test_the_validator_call_runs_as_written(tmp_path):
+    """#1157: the call checks what step 7 wrote beside the package, the workspace files and the `active` link §10
+    flips, and the snippet's stack lines, so step 8 confirms none of them by hand."""
     call = [line for line in _fence_lines(_sections(_body(_read(VALIDATE)))["1"]) if "{outputValidator}" in line][0]
-    package = tmp_path / "demo-stack"
-    package.mkdir()
-    args = shlex.split(call.split("python3 {outputValidator}", 1)[1].replace("{skill_package}", str(package))
-                       .replace("{forge_tier}", "Deep"))
-    result = subprocess.run([sys.executable, str(VALIDATOR), *args], capture_output=True, text=True)
-    out = json.loads(result.stdout)
-    assert set(out["validation"]) >= {"stack_counts", "stack_structure"}
+    group = tmp_path / "skills dir" / "demo-stack"
+    package = group / "1.0.0" / "demo-stack"
+    package.mkdir(parents=True)
+    (package / "context-snippet.md").write_bytes(
+        b"[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: demo-stack: read SKILL.md first.\n|stack: liba\n")
+    forge = tmp_path / "forge data" / "demo-stack" / "1.0.0"
+    forge.mkdir(parents=True)
+    (forge / "provenance-map.json").write_bytes(b"{}\n")
+    values = {"{skill_package}": str(package), "{forge_tier}": "Deep", "{forge_version}": str(forge),
+              "{skill_group}": str(group), "{version}": "1.0.0"}
+    flip = _call(_sections(_body(_read(GENERATE)))["10"], "atomicWriteHelper")
+    flipped = subprocess.run([sys.executable, str(ATOMIC_WRITER),
+                              *_split_filled(flip, "python3 {atomicWriteHelper}", values)],
+                             capture_output=True, text=True)
+    assert flipped.returncode == 0, flipped.stderr
+
+    def validate() -> dict:
+        result = subprocess.run([sys.executable, str(VALIDATOR),
+                                 *_shell_split(call, "python3 {outputValidator}", values)],
+                                capture_output=True, text=True)
+        assert result.returncode in (0, 1), result.stderr
+        return json.loads(result.stdout)["validation"]
+
+    out = validate()
+    assert set(out) >= {"stack_counts", "stack_structure", "stack_workspace"}
+    assert [i["field"] for i in out["stack_workspace"]["issues"]] == ["evidence-report.md"]
+    snippet = [i["field"] for i in out["context_snippet"]["issues"]]
+    assert "integrations" in snippet and "stack" not in snippet
+    (forge / "evidence-report.md").write_bytes(b"# demo-stack Evidence Report\n")
+    assert validate()["stack_workspace"]["issues"] == [], "the link step 7 flipped resolves to the version"
+
+
+def test_step_8_reads_the_workspace_and_its_lines_from_the_validator():
+    """#1157 determinism-10, leanness-5: §1 holds the one field map and records `stack_workspace` as ERROR
+    findings, the references/ rows gone and the manual rows kept for a missing validator; §2 drops its padding, the
+    pointer form is "not a violation" in §4 only, §5 and §7 are one sentence each and §8 opens with its record
+    rule, its manual line checks kept for a missing validator."""
+    text = _read(VALIDATE)
+    sections = _sections(_body(text))
+    one = sections["1"]
+    (call,) = [line for line in _fence_lines(one) if "{outputValidator}" in line]
+    for flag in ('--forge-version "{forge_version}"', '--active-link "{skill_group}"', '--expected-version "{version}"'):
+        assert flag in call, flag
+    assert "- `validation.stack_workspace`:" in one
+    assert "each `validation.stack_workspace.issues[]` entry as an **ERROR** finding" in one
+    assert "references/ directory" not in one and "Then confirm the remaining files" not in one
+    manual = _from(one, "When the validator is missing")
+    for row in ("- [ ] provenance-map.json", "- [ ] evidence-report.md",
+                "- [ ] `{skill_group}/active` exists and resolves to `{version}`"):
+        assert row in manual, row
+    assert "Do not assume availability" not in sections["2"]
+    assert text.count("not a violation") == 1 and "not a violation" in sections["4"]
+    for number, check in (("5", "metadata"), ("7", "tier_labels")):
+        body = sections[number].split("\n", 1)[1].strip()
+        assert "\n" not in body and ". " not in body and body.endswith("as a **WARNING** finding."), body
+        assert f"`check` is `{check}`" in body and "the latest output-validator run" in body, body
+    assert text.count("library_count_meta") == 1 and text.count("confidence_sum") == 1, "the field map is §1's"
+    eight = sections["8"].split("\n\n", 2)[1]
+    assert eight.startswith("Record each `validation.context_snippet.issues` entry as a **WARNING** finding.")
+    for token in ("<40 / >300", "step 7 §5", "`snippet-over-budget`"):
+        assert token in eight, token
+    lines = _from(sections["8"], "When the validator is missing")
+    assert "`|stack:`" in lines and "`|integrations:`" in lines
+    assert "\u2014" not in text
 
 
 def test_a_changed_package_is_validated_again():
@@ -2069,26 +2155,57 @@ def test_a_list_with_spaces_survives_the_bump_call():
     assert "unexpected argument" in refused["error"]
 
 
-def test_the_snippet_is_measured_with_the_count_helper(tmp_path):
-    """#591: the snippet budget reads the count step 8's validator takes, from a script, not an estimate."""
+def _snippet_call(mode: str) -> tuple[str, str]:
+    """§5's snippet call of `mode`, and the file the call's redirect pipes to its stdin."""
+    call = _mode_calls(_sections(_body(_read(GENERATE)))["5"], "snippet")[mode]
+    command, redirect = call.split(" < ", 1)
+    return command, shlex.split(redirect)[0]
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_the_snippet_is_written_and_trimmed_by_the_helper(mode, run_dir, tmp_path):
+    """#591, #1157: §5 writes only the gotchas text, to a file no shell reads, and the stack helper builds and trims
+    the snippet; `{token_estimate}` is its `tokens`, the count step 8's validator and skf-count-tokens.py take."""
     text = _read(GENERATE)
-    assert _probe_script(text, "countTokens") == COUNT_TOKENS
+    assert "countTokens" not in _frontmatter(text) and "{countTokensHelper}" not in text
     five = _sections(_body(text))["5"]
-    assert "ceil(" not in five and "character count" not in five
-    assert "`{token_estimate}` exceeds **120**" in five and "snippet-unmeasured" in five
-    call = _call(five, "countTokensHelper")
+    assert "`{run_dir}/snippet-gotchas.txt` with a file write, never an `echo`" in five
+    for token in ("the helper §3 resolved", "Bind `{token_estimate}` \u2190 its `tokens`", "its `over_budget` is true",
+                  '`code: "snippet-over-budget"`', '`code: "snippet-unmeasured"`', "untrimmed",
+                  "invoke the rollback contract from §1"):
+        assert token in five, token
+    assert "ceil(" not in five and "measure again" not in five and "...+{N} more" not in five
+    assert "`{token_estimate}`" in _sections(_body(text))["11"]
+    command, stdin_path = _snippet_call(mode)
+    assert "--gotchas - --budget 120" in command and '--target "{skill_staging}/context-snippet.md"' in command
+    assert ('--pairs "{pairsFile}"' in command) == (mode == "code")
+    assert stdin_path == "{run_dir}/snippet-gotchas.txt"
     staging = tmp_path / "demo-stack.skf-tmp"
-    staging.mkdir()
-    snippet = ("[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: demo-stack: read SKILL.md first.\n"
-               "|stack: react@18.2.0, express@4.19.2\n|integrations: react+express\n")
-    (staging / "context-snippet.md").write_bytes(snippet.encode("utf-8"))
-    argv = _argv(call, "countTokensHelper", {"{skill_staging}": str(staging)})
-    result = subprocess.run([sys.executable, str(COUNT_TOKENS), *argv], capture_output=True, text=True)
+    values = dict(_step_7_run(run_dir, mode), **{"{skill_staging}": str(staging), "{stack_name}": "demo-stack",
+                                                "{version}": "1.0.0"})
+    gotchas = Path(stdin_path.replace("{run_dir}", str(run_dir)))
+    gotchas.write_bytes(b"call `connect()` before $(serve)\n")
+    with open(gotchas, "rb") as stdin:
+        result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(command, values)], stdin=stdin,
+                                capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    (row,) = [row for row in json.loads(result.stdout)["files"] if row["path"] == "context-snippet.md"]
-    assert row["tokens"] == len(snippet) // 4
-    # Step 8's validator takes the same count of the same file.
+    out = json.loads(result.stdout)
+    assert (out["trims_applied"], out["over_budget"]) == ([], False)
+    snippet = (staging / "context-snippet.md").read_bytes().decode("utf-8")
+    lines = snippet.splitlines()
+    assert lines[0] == "[demo-stack v1.0.0]|root: skills/demo-stack/" and lines[1].startswith("|IMPORTANT: demo-stack ")
+    assert lines[2:] == ["|stack: liba@2.1.0, libb@1.0.0", "|integrations: liba+libb",
+                         "|gotchas: call `connect()` before $(serve)"]
+    # Step 8's validator takes the same count of the same file, and finds the lines it checks.
+    assert out["tokens"] == len(snippet) // 4
     assert "approx_tokens = len(content) // 4" in VALIDATOR.read_text(encoding="utf-8")
+    counted = subprocess.run([sys.executable, str(COUNT_TOKENS), str(staging)], capture_output=True, text=True)
+    assert counted.returncode == 0, counted.stderr
+    (row,) = [row for row in json.loads(counted.stdout)["files"] if row["path"] == "context-snippet.md"]
+    assert row["tokens"] == out["tokens"]
+    validator = _load(VALIDATOR, "skf_validate_output_snippet_lines")
+    assert [i for i in validator.validate_context_snippet(snippet) if i["field"] != "length"] == []
+    assert validator.validate_stack_snippet_lines(snippet) == []
 
 
 # --- #538: compose-mode export names checked before the commit --------------------

@@ -505,6 +505,8 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/compile-stack.md", "skf-render-stack-metadata.py", "references"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "references"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "evidence-report"),
+    # The context snippet step 7 writes and trims with it, its gotchas read from a file on stdin (#1157).
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "snippet"),
 ]
 
 

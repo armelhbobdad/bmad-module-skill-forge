@@ -33,30 +33,31 @@ Validate all written output files against their expected structure and verify co
 
 ### 1. Verify File Existence
 
-Run the shared deterministic output validator once against the committed package — it checks the three core deliverable files' existence, SKILL.md frontmatter, and context-snippet format/token in a single call, so this step consumes its JSON rather than re-deriving those by hand. Resolve `{outputValidator}` from `{outputValidatorProbeOrder}` (first existing path wins). If neither candidate exists, log a WARNING (`"output validator unavailable — skf-validate-output.py missing"`) and fall back to the manual file/frontmatter/snippet checks below.
+Run the shared deterministic output validator once against the committed package and the run's workspace: it checks the three core deliverable files' existence, SKILL.md frontmatter, context-snippet format/token, the workspace files and the `active` link in a single call, so this step consumes its JSON rather than re-deriving those by hand. Resolve `{outputValidator}` from `{outputValidatorProbeOrder}` (first existing path wins). If neither candidate exists, log a WARNING (`"output validator unavailable: skf-validate-output.py missing"`) and fall back to the manual file/frontmatter/snippet checks below.
 
 ```bash
-python3 {outputValidator} {skill_package} --generated-by create-stack-skill --skill-type stack --forge-tier {forge_tier}
+python3 {outputValidator} "{skill_package}" --generated-by create-stack-skill --skill-type stack --forge-tier {forge_tier} --forge-version "{forge_version}" --active-link "{skill_group}" --expected-version "{version}"
 ```
 
 `{forge_tier}` is the `forge_tier` of `{runFile}`, the run tier step 1 saved.
 
 Consume from its JSON:
 
-- `files_found` — existence of `SKILL.md` / `context-snippet.md` / `metadata.json` (the three core deliverable rows below).
-- `validation.skill_md.frontmatter` — feeds the frontmatter check in §3 (manual-fallback path).
-- `validation.context_snippet.issues` — feeds §8.
-- `validation.stack_counts` — the stack count-equalities, derived deterministically from disk + metadata by the `--skill-type stack` pass: `issues[]` (each `{severity, field, message}`, one per mismatch of `library_count` / `integration_count` / `confidence_distribution`; empty when all agree) and `observed` (`library_count_meta`, `ref_file_count`, `integration_count_meta`, `pair_file_count`, `confidence_sum`). Feeds the count rows in §5 and the confidence-sum row in §7 — do not re-count files or re-sum the distribution by hand.
+- `files_found`: existence of `SKILL.md` / `context-snippet.md` / `metadata.json`.
+- `validation.skill_md.frontmatter`: feeds the frontmatter check in §3 (manual-fallback path).
+- `validation.context_snippet.issues`: feeds §8, the stack's `|stack:` and `|integrations:` line checks included.
+- `validation.stack_counts`: the stack count-equalities, derived deterministically from disk + metadata by the `--skill-type stack` pass: `issues[]` (each `{severity, field, message}`, one per mismatch of `library_count` / `integration_count` / `confidence_distribution`; empty when all agree) and `observed` (`library_count_meta`, `ref_file_count`, `integration_count_meta`, `pair_file_count`, `confidence_sum`). §5 records its `library_count` and `integration_count` entries and §7 its `confidence_distribution` entry: do not re-count files or re-sum the distribution by hand.
 - `validation.stack_structure`: the stack structure pass. The `check` of each `issues[]` entry (`{severity, check, field, message}`) names the section below that records it: `skill_md` (§4), `metadata` (§5), `references` (§6) or `tier_labels` (§7). Do not re-read the output files to check what it checks.
+- `validation.stack_workspace`: the workspace and link pass: `issues[]` (each `{severity, field, message}`, one per file `{forge_version}` lacks, `provenance-map.json` or `evidence-report.md`, and one with `field: "active"` when `{skill_group}/active` is missing, broken or resolves to anything but `{version}`) and `observed`.
 
-Under `--skill-type stack` the validator skips the individual-skill body and metadata passes (their `{"skipped": ...}` markers are no finding) and runs these two instead. When §3 changes the package it runs this command again, and §4 to §8 read the latest run. When the validator is unavailable, §4 to §7 each record one **WARNING** finding that their checks did not run.
+Under `--skill-type stack` the validator skips the individual-skill body and metadata passes (their `{"skipped": ...}` markers are no finding) and runs the `stack_counts` and `stack_structure` passes instead. When §3 changes the package it runs this command again, and §4 to §8 read the latest run. When the validator is unavailable, §4 to §7 each record one **WARNING** finding that their checks did not run.
 
-Then confirm the remaining files the validator does not cover:
+Record each `files_found` file that is `false` and each `validation.stack_workspace.issues[]` entry as an **ERROR** finding.
+
+When the validator is missing, confirm these rows by hand instead, and when its JSON has no `validation.stack_workspace` (an older installed validator), the Workspace and Symlink rows; record each miss as an **ERROR** finding:
 
 **Deliverables** (`{skill_package}`):
-- [ ] SKILL.md · context-snippet.md · metadata.json — from `files_found` above
-- [ ] references/ directory with per-library files
-- [ ] references/integrations/ directory with pair files (if integrations detected)
+- [ ] SKILL.md · context-snippet.md · metadata.json
 
 **Workspace** (`{forge_version}`):
 - [ ] provenance-map.json
@@ -64,8 +65,6 @@ Then confirm the remaining files the validator does not cover:
 
 **Symlink:**
 - [ ] `{skill_group}/active` exists and resolves to `{version}`
-
-Record any missing files (from `files_found` or the manual rows) as **ERROR** findings.
 
 ### 2. Check Tool Availability
 
@@ -78,8 +77,6 @@ timeout 10s npx --no-install skill-check -h
 - If exits 0: Use skill-check for automated validation in section 3.
 - If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used"`) so step 9 does not report the run as skill-check validated, recording it at once (write its `[step-08/warn] skill-check-unavailable: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound), and list every skipped check in the §10 validation results.
 
-**Important:** Do not assume availability — empirical check required.
-
 ### 3. Validate SKILL.md via skill-check (if available)
 
 **If available**, resolve `{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`, then run in order: `uv run {hashContentHelper} hash <skill-dir>/SKILL.md`, `npx skill-check check <skill-dir> --fix --format json --no-security-scan`, then `uv run {hashContentHelper} hash <skill-dir>/SKILL.md` again, keeping the `content_hash` each `hash` call prints.
@@ -90,7 +87,7 @@ Bind `{quality_score}` ← that score, from the latest skill-check run (§3 runs
 
 **Post-fix provenance drift guard:** When SKILL.md changed across the `--fix` call, `skill-check --fix` modified it after step 7 wrote it, so the `metadata.json` hashes and provenance recorded against the earlier body may now be stale. Emit one **WARNING** finding, `"skill-check --fix modified SKILL.md after step 7 wrote it: metadata.json hashes and provenance may be out of date"` (`"SKILL.md may have been rewritten (not hashed) by skill-check --fix after step 7 wrote it: metadata.json hashes and provenance may be out of date"` when SKILL.md was not hashed), rather than silently accepting the fix, so the drift is surfaced. If the caller wants authoritative metadata, they should re-run the workflow.
 
-**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplatePath}` "Sizing Guidance"). The moved catalog's links resolve from `references/`, so rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`. This is the **intended** large-stack layout, not a violation: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. After the split, verify that any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve, and that every link inside a moved section resolves from its new file.
+**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplatePath}` "Sizing Guidance"). The moved catalog's links resolve from `references/`, so rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`. This is the **intended** large-stack layout: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. After the split, verify that any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve, and that every link inside a moved section resolves from its new file.
 
 **Re-validate a changed package.** When SKILL.md changed across the `--fix` call (not hashed included) or a split ran, run the §1 `{outputValidator}` command again (after a split, skill-check too), so §4 to §8 record the package as it now stands.
 
@@ -102,11 +99,7 @@ Record each `validation.stack_structure.issues[]` entry whose `check` is `skill_
 
 ### 5. Validate metadata.json Fields
 
-Record each `validation.stack_structure.issues[]` entry whose `check` is `metadata` as a **WARNING** finding.
-
-**Count equalities (library / integration):** do NOT re-count files here; take them from `validation.stack_counts` in the latest output-validator run (§1, or §3's re-run), which derived them deterministically from disk. The `library_count` vs per-library reference files and `integration_count` vs integration pair files checks surface as `field: "library_count"` / `field: "integration_count"` entries in `validation.stack_counts.issues[]` (absent when they agree); echo the exact numbers from `validation.stack_counts.observed` (`library_count_meta` / `ref_file_count`, `integration_count_meta` / `pair_file_count`). The `confidence_distribution`-sum equality is covered in §7.
-
-Record each `validation.stack_counts.issues[]` count entry (`library_count` / `integration_count`) as a **WARNING** finding.
+Record each `validation.stack_structure.issues[]` entry whose `check` is `metadata`, and each `library_count` or `integration_count` entry of `validation.stack_counts.issues[]`, from the latest output-validator run as a **WARNING** finding.
 
 ### 6. Validate Reference File Completeness
 
@@ -114,21 +107,15 @@ Record each `validation.stack_structure.issues[]` entry whose `check` is `refere
 
 ### 7. Validate Confidence Tier Labels
 
-Record each `validation.stack_structure.issues[]` entry whose `check` is `tier_labels` as a **WARNING** finding.
-
-- [ ] metadata.json: `confidence_distribution` sums to `library_count`: take this from the latest output-validator run (`--skill-type stack`): the `field: "confidence_distribution"` entry in `validation.stack_counts.issues[]` is present only on mismatch, with `validation.stack_counts.observed.confidence_sum` vs `library_count_meta` for the exact numbers. Do not re-sum the distribution by hand.
-
-Record the `validation.stack_counts` `confidence_distribution` issue, if any, as a **WARNING** finding.
+Record each `validation.stack_structure.issues[]` entry whose `check` is `tier_labels`, and the `confidence_distribution` entry of `validation.stack_counts.issues[]`, from the latest output-validator run as a **WARNING** finding.
 
 ### 8. Validate context-snippet.md
 
-Take the first-line format, `|IMPORTANT:` second-line, and token-estimate checks from `validation.context_snippet.issues` returned by the §1 output-validator run — it performs the line-1 `[name vVersion]|root:` pattern match, the line-2 check, and the `len(content)//4` token estimate deterministically, so this step does not recompute them. Record each reported issue as a **WARNING** finding.
+Record each `validation.context_snippet.issues` entry as a **WARNING** finding. Its `length` entries use the validator's <40 / >300 bounds: the 120-token budget is step 7 §5's, which records `snippet-over-budget` for a snippet it could not trim under it.
 
-Then verify the two stack-specific rows the generic validator does not cover:
-- [ ] Stack and integrations lines present
-- [ ] Token estimate lands near the ~80-120 design target from step 7 §5 (the validator flags only its wider <40 / >300 bounds; an ~80-150 snippet with an overflow-strategy `workflow_warning` is expected, not a defect)
-
-Record format violations as **WARNING** findings.
+When the validator is missing, check these rows by hand instead, and when its JSON has no `validation.stack_workspace` (an older installed validator, which checks no stack line), the second row; record each miss as a **WARNING** finding:
+- [ ] Line 1 is `[{stack_name} v{version}]|root: skills/{stack_name}/` and line 2 starts with `|IMPORTANT:`
+- [ ] A `|stack:` line and an `|integrations:` line are present
 
 ### 9. Security Scan
 

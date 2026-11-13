@@ -18,9 +18,6 @@ namesPresentProbeOrder:
 renderStackMetadataProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
   - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
-countTokensProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
-  - '{project-root}/src/shared/scripts/skf-count-tokens.py'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -58,7 +55,7 @@ Display the line it prints and stop with the halt's exit code (`references/invoc
 
 **Warnings.** Every `workflow_warnings[]` entry here has `step: "step-07"` and `severity: "warn"` unless its section names another severity. Record each at once: write its `[step-07/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
-**Advisory checks.** §5's snippet count, §7's source-line check and §8's validator and export-name check never halt the run: when a check's helper resolves to no path, cannot run or prints no JSON (exit `2`), append a `workflow_warnings[]` entry (`code`: the one the section names, `message`: the reason) and go on.
+**Advisory checks.** §7's source-line check and §8's validator and export-name check never halt the run: when a check's helper resolves to no path, cannot run or prints no JSON (exit `2`), append a `workflow_warnings[]` entry (`code`: the one the section names, `message`: the reason) and go on.
 
 ### 1. Resolve Paths and Stage Target Directory
 
@@ -141,13 +138,14 @@ If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skil
 
 ### 5. Stage context-snippet.md
 
-Write `{skill_staging}/context-snippet.md` in the context-snippet format of `{stackSkillTemplatePath}`, with the `{version}` §1 resolved. Measure it as step 8's validator does: resolve `{countTokensHelper}` from `{countTokensProbeOrder}`, run the call below and bind `{token_estimate}` ← its `context-snippet.md` row's `tokens` (advisory, `snippet-unmeasured`: an unmeasured snippet stays as written).
+Write the snippet's gotchas, the one or two most critical integration pitfalls on one line separated by `; ` (an empty file when there is none), to `{run_dir}/snippet-gotchas.txt` with a file write, never an `echo` (a pitfall can quote backticks or `$( )`, which a shell runs), then run the call of the run's mode with the helper §3 resolved:
 
 ```bash
-uv run {countTokensHelper} {skill_staging}
+uv run {renderStackMetadataHelper} snippet --bundle "{bundleFile}" --pairs "{pairsFile}" --stack-name "{stack_name}" --version "{version}" --gotchas - --budget 120 --target "{skill_staging}/context-snippet.md" < "{run_dir}/snippet-gotchas.txt"
+uv run {renderStackMetadataHelper} snippet --bundle "{bundleFile}" --stack-name "{stack_name}" --version "{version}" --gotchas - --budget 120 --target "{skill_staging}/context-snippet.md" < "{run_dir}/snippet-gotchas.txt"
 ```
 
-While `{token_estimate}` exceeds **120**, apply the next trim and measure again: drop the `gotchas` line; strip the `stack` line's versions; keep its top 8 dependencies by import count (export count in compose mode); keep the top 5 `integrations` by co-import file count (§4), each cut list ending `, ...+{N} more`. Never trim the `IMPORTANT:` line. Over budget after the last trim, keep the snippet and append a `workflow_warnings[]` entry (`code: "snippet-over-budget"`, `message`: its `{token_estimate}`).
+It writes the snippet lines of the bundled `assets/stack-skill-template.md` from `{bundleFile}`, with the `{version}` §1 resolved, and trims them while the snippet's tokens, as step 8's validator counts them, exceed the budget, never the `IMPORTANT:` line. Bind `{token_estimate}` ← its `tokens`; when its `over_budget` is true, append a `workflow_warnings[]` entry (`code: "snippet-over-budget"`, `message`: the `{token_estimate}` and its `trims_applied`). On exit `2` its stderr `error:` line names the input it refused (fix it and run the call again) or the write that failed (invoke the rollback contract from §1), unless it reads `invalid choice: 'snippet'`: the installed helper has no `snippet`. Only then, or when the call cannot run or prints no JSON otherwise, write the snippet yourself in the context-snippet format of `{stackSkillTemplatePath}`, untrimmed, and append a `workflow_warnings[]` entry (`code: "snippet-unmeasured"`, `message`: why the call did not run).
 
 ### 6. Stage metadata.json
 

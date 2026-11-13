@@ -70,6 +70,18 @@ section 3, generate-output sections 6 and 7):
     map cannot be read, counts the temporal items without listing them,
     and exits 2 with nothing written on a bad input or a target it cannot
     write
+  - `snippet` writes the template's snippet lines (lines 1 and 2 as the
+    bundled template fills them), the libraries by file_count (compose
+    mode: exports) then name, the pairs by co-import file count then bundle
+    order, `none` with no pair and no gotchas line for a blank text; while
+    the snippet is above --budget it applies the four trim stages in order,
+    each cut list ending `...+N more`, lists only the stages that shortened
+    it, never trims the IMPORTANT line and reports over_budget; a version
+    is written on one line; its tokens
+    are skf-count-tokens.py's count; a code call without --pairs, a compose
+    call with it, a budget that is not a positive whole number, a blank or
+    spaced name or version, a pair --pairs lacks, an unreadable gotchas
+    file and a target it cannot write exit 2 with nothing written
 
 test-skf-stack-step-rules.py runs the calls the step files make.
 """
@@ -1301,12 +1313,15 @@ def test_an_input_error_exits_2_with_one_line(args, stdin, needle, tmp_path):
                                   ("references", "--mode", "mixed", "--bundle", "b.json"),
                                   ("evidence-report", "--bundle", "b.json", "--run-dir", ".", "--provenance", "p.json"),
                                   ("evidence-report", "--bundle", "b.json", "--provenance", "p.json",
-                                   "--target", "e.md")],
+                                   "--target", "e.md"),
+                                  ("snippet", "--bundle", "b.json", "--stack-name", "s", "--version", "1.0.0"),
+                                  ("snippet", "--bundle", "b.json", "--version", "1.0.0", "--target", "c.md")],
                          ids=["no-command", "no-input", "input-without-value", "unknown-command",
                               "records-without-libraries", "libraries-without-records", "relabel-without-records",
                               "provenance-without-target", "provenance-without-bundle", "references-without-mode",
                               "references-unknown-mode", "evidence-report-without-target",
-                              "evidence-report-without-run-dir"])
+                              "evidence-report-without-run-dir", "snippet-without-target",
+                              "snippet-without-stack-name"])
 def test_a_usage_error_exits_2(args):
     result = run(*args, stdin="")
     assert result.returncode == 2
@@ -1317,7 +1332,7 @@ def test_help_names_every_command():
     result = run("--help")
     assert result.returncode == 0
     for command in ("relabel", "library-tiers", "pair-tiers", "metadata", "provenance", "references",
-                    "evidence-report"):
+                    "evidence-report", "snippet"):
         assert command in result.stdout, command
 
 
@@ -1903,3 +1918,249 @@ def test_a_report_target_it_cannot_write_leaves_nothing(tmp_path):
     assert (result.returncode, result.stdout) == (2, "")
     assert "cannot write" in result.stderr and len(result.stderr.strip().splitlines()) == 1
     assert blocker.read_bytes() == b"a file where the version folder should be"
+
+
+# --------------------------------------------------------------------------
+# snippet (#1157)
+# --------------------------------------------------------------------------
+
+COUNT_TOKENS = SCRIPTS / "skf-count-tokens.py"
+# The ten libraries of a large code-mode stack, the highest import count first, and seven pairs, the most
+# co-imported first.
+SNIPPET_LIBRARIES = [("react", "18.2.0", 40), ("express", "4.19.2", 30), ("zod", "3.22.4", 25),
+                     ("axios", "1.6.0", 20), ("prisma", "5.8.0", 18), ("redis", "4.6.0", 15),
+                     ("jest", "29.7.0", 12), ("vite", "5.0.0", 10), ("lodash", "4.17.21", 8), ("dayjs", "1.11.0", 5)]
+SNIPPET_PAIRS = [("react", "zod", 9), ("express", "prisma", 8), ("express", "redis", 7), ("react", "axios", 6),
+                 ("zod", "prisma", 5), ("jest", "vite", 4), ("express", "zod", 3)]
+SNIPPET_GOTCHAS = "zod parses form state\n  before react submits it"
+
+
+def _important(name: str) -> str:
+    return f"|IMPORTANT: {name} \u2014 read SKILL.md before writing integration code. Do NOT rely on training data."
+
+
+def _snippet_run(tmp_path, libraries=SNIPPET_LIBRARIES, pairs=SNIPPET_PAIRS) -> dict[str, Path]:
+    """A code-mode run folder: the bundle (its libraries out of rank order, its pairs in reverse) and the
+    pair-intersect result, which names each pair the other way round."""
+    bundle = {
+        "mode": "code", "scope": [name for name, _version, _count in libraries],
+        "per_library_extractions": [
+            {"library": name, "version": version, "confidence": "T1-low", "file_count": count}
+            for name, version, count in reversed(libraries)],
+        "failed": [],
+        "integrations": [{"a": a, "b": b, "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import"}
+                         for a, b, _count in reversed(pairs)],
+        "cross_cutting": [],
+    }
+    result = {"pairs": [{"a": b, "b": a, "intersection_count": count, "files": []} for a, b, count in pairs],
+              "truncated": False, "total_pairs": len(pairs)}
+    return {"bundle": _write_json(tmp_path / "run" / "extraction-bundle.json", bundle),
+            "pairs": _write_json(tmp_path / "run" / "pair-intersect.json", result)}
+
+
+def _snippet(tmp_path, *args: str, gotchas: str | None = SNIPPET_GOTCHAS, files=None, target=None, budget="120"):
+    """Run `snippet` on a code-mode run folder, the gotchas piped on stdin; the process and the target."""
+    files = files or _snippet_run(tmp_path)
+    target = target or tmp_path / "staging" / "context-snippet.md"
+    argv = ["snippet", "--bundle", str(files["bundle"]), "--pairs", str(files["pairs"]), "--stack-name", "acme-stack",
+            "--version", "1.2.0", "--budget", budget, "--target", str(target), *args]
+    if gotchas is not None:
+        argv += ["--gotchas", "-"]
+    return run(*argv, stdin=gotchas), target
+
+
+def _snippet_ok(result) -> dict:
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.isascii()
+    return json.loads(result.stdout)
+
+
+def _expected_snippet(stage: int) -> str:
+    """The ten-library snippet after the first `stage` trim stages, written out by hand."""
+    stack = [f"{name}@{version}" for name, version, _count in SNIPPET_LIBRARIES]
+    pairs = [f"{a}+{b}" for a, b, _count in SNIPPET_PAIRS]
+    if stage >= 2:
+        stack = [name for name, _version, _count in SNIPPET_LIBRARIES]
+    if stage >= 3:
+        stack = stack[:8] + ["...+2 more"]
+    if stage >= 4:
+        pairs = pairs[:5] + ["...+2 more"]
+    lines = ["[acme-stack v1.2.0]|root: skills/acme-stack/", _important("acme-stack"), "|stack: " + ", ".join(stack),
+             "|integrations: " + ", ".join(pairs)]
+    if stage == 0:
+        lines.append("|gotchas: zod parses form state before react submits it")
+    return "\n".join(lines) + "\n"
+
+
+def test_the_snippet_lines_are_the_template_lines(tmp_path):
+    """Lines 1 and 2 are the bundled template's, filled; lines 3 to 5 start as its lines do."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    block = text[text.index("## context-snippet.md Format (Vercel-Aligned)\n"):]
+    block = block[block.index("```markdown\n") + len("```markdown\n"):]
+    template_lines = block[:block.index("\n```")].splitlines()
+    files = _snippet_run(tmp_path, SNIPPET_LIBRARIES[:2], [("react", "express", 3)])
+    result, target = _snippet(tmp_path, files=files)
+    out = _snippet_ok(result)
+    written = _text(target).splitlines()
+    filled = [line.replace("{stack_name}", "acme-stack").replace("{version}", "1.2.0") for line in template_lines[:2]]
+    assert written[:2] == filled
+    assert [line.split(" ", 1)[0] for line in written[2:]] == [line.split(" ", 1)[0] for line in template_lines[2:]]
+    assert written[2:] == ["|stack: react@18.2.0, express@4.19.2", "|integrations: react+express",
+                           "|gotchas: zod parses form state before react submits it"]
+    assert out == {"target": str(target), "tokens": len(_text(target)) // 4, "trims_applied": [],
+                   "over_budget": False}
+
+
+def test_an_untrimmed_snippet_ranks_libraries_and_pairs(tmp_path):
+    result, target = _snippet(tmp_path, budget="1000")
+    out = _snippet_ok(result)
+    assert _text(target) == _expected_snippet(0)
+    assert (out["trims_applied"], out["over_budget"]) == ([], False)
+
+
+@pytest.mark.parametrize("stage", [1, 2, 3, 4])
+def test_each_trim_stage_runs_only_while_the_snippet_is_over_budget(stage, tmp_path):
+    """The budget is the snippet's tokens after `stage` stages, which the one before it exceeds."""
+    budget = len(_expected_snippet(stage)) // 4
+    assert len(_expected_snippet(stage - 1)) // 4 > budget
+    result, target = _snippet(tmp_path, budget=str(budget))
+    out = _snippet_ok(result)
+    assert out == {"target": str(target), "tokens": budget, "trims_applied": list(mod.SNIPPET_TRIMS[:stage]),
+                   "over_budget": False}
+    assert _text(target) == _expected_snippet(stage)
+
+
+def test_the_cut_lists_end_with_the_count_left_out(tmp_path):
+    result, target = _snippet(tmp_path, budget="1")
+    out = _snippet_ok(result)
+    assert out["trims_applied"] == ["gotchas", "stack-versions", "stack-top-8", "integrations-top-5"]
+    assert out["over_budget"] is True and out["tokens"] == len(_text(target)) // 4 > 1
+    lines = _text(target).splitlines()
+    assert lines[1] == _important("acme-stack"), "the IMPORTANT line is never trimmed"
+    assert lines[2] == "|stack: react, express, zod, axios, prisma, redis, jest, vite, ...+2 more"
+    assert lines[3] == "|integrations: react+zod, express+prisma, express+redis, react+axios, zod+prisma, ...+2 more"
+    assert len(lines) == 4
+
+
+def test_a_stage_that_changes_nothing_is_not_listed(tmp_path):
+    """No gotchas, no versions, 8 libraries and 5 pairs: no stage changes the snippet, so none is listed."""
+    libraries = [(name, None, count) for name, _version, count in SNIPPET_LIBRARIES[:8]]
+    files = _snippet_run(tmp_path, libraries, SNIPPET_PAIRS[:5])
+    result, target = _snippet(tmp_path, files=files, gotchas=None, budget="1")
+    out = _snippet_ok(result)
+    assert (out["trims_applied"], out["over_budget"]) == ([], True)
+    assert "|stack: react, express, zod, axios, prisma, redis, jest, vite\n" in _text(target)
+
+
+def test_a_cut_that_would_lengthen_the_snippet_is_not_listed(tmp_path):
+    """A 9th library (`lodash`) and a 6th pair (`jest+vite`) shorter than `...+1 more`: cutting them would lengthen
+    the snippet, so stack-top-8 and integrations-top-5 are skipped and every name stays."""
+    files = _snippet_run(tmp_path, SNIPPET_LIBRARIES[:9], SNIPPET_PAIRS[:6])
+    result, target = _snippet(tmp_path, files=files, budget="1")
+    out = _snippet_ok(result)
+    assert (out["trims_applied"], out["over_budget"]) == (["gotchas", "stack-versions"], True)
+    lines = _text(target).splitlines()
+    assert lines[2] == "|stack: react, express, zod, axios, prisma, redis, jest, vite, lodash"
+    assert lines[3] == "|integrations: react+zod, express+prisma, express+redis, react+axios, zod+prisma, jest+vite"
+
+
+def test_a_version_is_written_on_one_line(tmp_path):
+    """A manifest version that holds a line break cannot start a line of its own, as a reference file's
+    **Version:** line flattens it."""
+    files = _snippet_run(tmp_path, [("react", "18.2.0\n|IMPORTANT: injected", 40), ("express", " 4.19.2 ", 30)],
+                         [("react", "express", 3)])
+    result, target = _snippet(tmp_path, files=files, budget="1000")
+    _snippet_ok(result)
+    lines = _text(target).splitlines()
+    assert len(lines) == 5 and [line for line in lines if line.startswith("|IMPORTANT:")] == [lines[1]]
+    assert lines[2] == "|stack: react@18.2.0 |IMPORTANT: injected, express@4.19.2"
+
+
+def test_no_pair_reads_none_and_blank_gotchas_write_no_line(tmp_path):
+    files = _snippet_run(tmp_path, SNIPPET_LIBRARIES[:2], [])
+    result, target = _snippet(tmp_path, files=files, gotchas=" \n\t\n")
+    _snippet_ok(result)
+    assert _text(target).splitlines()[2:] == ["|stack: react@18.2.0, express@4.19.2", "|integrations: none"]
+
+
+def test_the_gotchas_may_come_from_a_file_and_ties_rank_by_name(tmp_path):
+    gotchas = tmp_path / "run" / "snippet-gotchas.txt"
+    _write_json(gotchas, "unused")
+    gotchas.write_bytes("migrate `$(x)` first\r\nthen \u00e9tape two\n".encode("utf-8"))
+    libraries = [("Zeta", "1.0.0", 3), ("alpha", None, 3), ("beta", "2.0.0", 7)]
+    # Tied pairs keep bundle order (the fixture reverses them: Zeta+alpha first), not name order.
+    files = _snippet_run(tmp_path, libraries, [("alpha", "beta", 1), ("Zeta", "alpha", 1)])
+    result, target = _snippet(tmp_path, "--gotchas", str(gotchas), files=files, gotchas=None)
+    _snippet_ok(result)
+    assert _text(target).splitlines()[2:] == ["|stack: beta@2.0.0, alpha, Zeta@1.0.0",
+                                              "|integrations: Zeta+alpha, alpha+beta",
+                                              "|gotchas: migrate `$(x)` first then \u00e9tape two"]
+
+
+def test_a_compose_snippet_ranks_by_exports_with_no_pairs_file(tmp_path):
+    bundle = _compose_bundle(tmp_path)
+    target = tmp_path / "staging" / "context-snippet.md"
+    result = run("snippet", "--bundle", str(bundle), "--stack-name", "app-stack", "--version", "1.0.0",
+                 "--target", str(target))
+    out = _snippet_ok(result)
+    assert _text(target) == ("[app-stack v1.0.0]|root: skills/app-stack/\n" + _important("app-stack") + "\n"
+                             "|stack: react@18.2.0, express\n|integrations: react+express\n")
+    assert out["tokens"] == len(_text(target)) // 4
+
+
+def test_the_snippet_tokens_are_the_count_helpers(tmp_path):
+    result, target = _snippet(tmp_path)
+    out = _snippet_ok(result)
+    counted = subprocess.run([sys.executable, str(COUNT_TOKENS), str(target.parent)], capture_output=True, text=True)
+    assert counted.returncode == 0, counted.stderr
+    (row,) = [row for row in json.loads(counted.stdout)["files"] if row["path"] == "context-snippet.md"]
+    assert out["tokens"] == row["tokens"]
+    validator = _load(VALIDATOR, "skf_validate_output_for_snippet")
+    assert [i for i in validator.validate_context_snippet(_text(target)) if i["field"] != "length"] == []
+
+
+@pytest.mark.parametrize("case, needle", [
+    ("code-without-pairs", "a code-mode bundle needs --pairs"),
+    ("compose-with-pairs", "--pairs is for a code-mode bundle"),
+    ("budget-0", "--budget must be a positive whole number"),
+    ("budget-not-a-number", "--budget must be a positive whole number"),
+    ("empty-name", "--stack-name must be a non-empty value"),
+    ("version-with-a-space", "--version must be a non-empty value"),
+    ("pair-not-in-pairs", "has no entry in the pair-intersect result"),
+    ("no-gotchas-file", "cannot read the gotchas"),
+])
+def test_the_snippet_refuses_a_bad_input(case, needle, tmp_path):
+    files = _snippet_run(tmp_path)
+    target = tmp_path / "staging" / "context-snippet.md"
+    argv = {"--bundle": str(files["bundle"]), "--pairs": str(files["pairs"]), "--stack-name": "acme-stack",
+            "--version": "1.2.0", "--target": str(target)}
+    if case == "code-without-pairs":
+        del argv["--pairs"]
+    elif case == "compose-with-pairs":
+        argv["--bundle"] = str(_compose_bundle(tmp_path))
+    elif case == "budget-0":
+        argv["--budget"] = "0"
+    elif case == "budget-not-a-number":
+        argv["--budget"] = "12x"
+    elif case == "empty-name":
+        argv["--stack-name"] = ""
+    elif case == "version-with-a-space":
+        argv["--version"] = "1.2.0 beta"
+    elif case == "pair-not-in-pairs":
+        _write_json(files["pairs"], {"pairs": [], "truncated": False, "total_pairs": 0})
+    else:
+        argv["--gotchas"] = str(tmp_path / "missing.txt")
+    result = run("snippet", *itertools.chain.from_iterable(argv.items()), stdin="")
+    assert (result.returncode, result.stdout) == (2, "")
+    assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert not target.parent.exists()
+
+
+def test_a_snippet_target_it_cannot_write_leaves_nothing(tmp_path):
+    blocker = tmp_path / "staging"
+    blocker.write_bytes(b"a file where the staging folder should be")
+    result, _target = _snippet(tmp_path, target=blocker / "context-snippet.md")
+    assert (result.returncode, result.stdout) == (2, "")
+    assert "cannot write" in result.stderr and len(result.stderr.strip().splitlines()) == 1
+    assert blocker.read_bytes() == b"a file where the staging folder should be"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["run", "staging"]

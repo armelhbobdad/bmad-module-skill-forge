@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""SKF Render Stack Metadata: a stack's export labels, library tiers, pair tiers, metadata.json fields, provenance entries, reference files and evidence report.
+"""SKF Render Stack Metadata: a stack's export labels, library tiers, pair tiers, metadata.json fields, provenance entries, reference files, evidence report and context snippet.
 
 create-stack-skill relabels its code-mode export records and sets each
 library's tier from them (parallel-extract section 3a), gives each
@@ -14,9 +14,10 @@ the run's files in either mode: its entries, its integrations, each with the
 detection method of its qualifier, and, in compose mode, its constituents
 (generate-output section 7). It also renders the Library Reference Index
 (compile-stack section 6), writes the fixed parts of each reference and pair
-file (generate-output sections 3 and 4) and writes the evidence report
-(generate-output section 8b), so the step writes only their prose. This
-helper holds those rules once, so no step file restates them, and
+file (generate-output sections 3 and 4), writes the context snippet, trimmed
+to its token budget (generate-output section 5), and writes the evidence
+report (generate-output section 8b), so the step writes only their prose.
+This helper holds those rules once, so no step file restates them, and
 skf-validate-output.py --skill-type stack recomputes the dominant tier with
 dominant_tier here.
 
@@ -88,6 +89,18 @@ Rules:
       with no kind; and a record with no valid signature_source takes T1
       when an ast-grep rule matched it (ast_bridge or ast-grep) and T1-low
       otherwise.
+
+  snippet trim
+      While the snippet's tokens, len(text)//4 as skf-validate-output.py and
+      skf-count-tokens.py count them, exceed --budget (120 unless given),
+      `snippet` applies the next stage, in this order: gotchas (drop the
+      gotchas line), stack-versions (strip every @version), stack-top-8
+      (keep the first 8 libraries) and integrations-top-5 (keep the first 5
+      pairs), each cut list ending `, ...+{N} more`. A stage that would not
+      shorten the snippet (a 9th library or 6th pair shorter than its
+      `...+1 more`) is skipped and not listed, and the IMPORTANT line is
+      never trimmed. over_budget is true when the snippet is still above
+      the budget after the last stage.
 
 Input (--input <json-file-or-'-'>, where '-' reads stdin):
   {
@@ -263,6 +276,26 @@ Subcommands:
                 {"target": "<path>", "library_count": N, "failed_count": F,
                  "integration_count": M, "warning_count": W, "decision_count": D,
                  "confidence_distribution": {"t1": 0, ...} or null}
+  snippet     writes context-snippet.md to --target atomically (generate-output
+              section 5), in the bundled template's form, from the extraction
+              bundle --bundle and its pairs' co-import file counts in --pairs,
+              which code mode needs and compose mode refuses:
+                [{stack-name} v{version}]|root: skills/{stack-name}/
+                the template's |IMPORTANT: line for {stack-name}
+                |stack: each library as {name}@{version} ({name} with no
+                        version), by file_count (compose mode: its number of
+                        exports), the highest first, then by name
+                |integrations: each pair as {a}+{b}, by its intersection_count
+                        in --pairs (0 in compose mode), the highest first, ties
+                        in bundle order; `none` with no pair
+                |gotchas: the --gotchas text (a file, or '-' for stdin) on one
+                        line, each whitespace run as one space; no line when
+                        it is blank or not given
+              and trims it by the snippet trim rule above. --stack-name and
+              --version are non-empty with no whitespace, and --budget is a
+              positive whole number. It prints
+                {"target": "<path>", "tokens": N,
+                 "trims_applied": ["<stage>", ...], "over_budget": false}
 
 CLI:
   uv run skf-render-stack-metadata.py relabel --records export-records.json
@@ -280,6 +313,8 @@ CLI:
   uv run skf-render-stack-metadata.py references --mode compose --bundle extraction-bundle.json
   uv run skf-render-stack-metadata.py evidence-report --bundle extraction-bundle.json --run-dir run \\
       --provenance provenance-map.json --pairs pair-intersect.json --target evidence-report.md
+  uv run skf-render-stack-metadata.py snippet --bundle extraction-bundle.json --pairs pair-intersect.json \\
+      --stack-name acme-stack --version 1.2.0 --gotchas - --target context-snippet.md < snippet-gotchas.txt
 
 Exit codes:
   0  the JSON is printed (relabel: the records pass the label check)
@@ -1495,6 +1530,93 @@ def evidence_report(mode: str, libraries: list[dict], pairs_of_order: list[tuple
 
 
 # --------------------------------------------------------------------------
+# Context snippet (generate-output section 5)
+# --------------------------------------------------------------------------
+
+# The token budget of the snippet, in len(text)//4 tokens, when --budget names none.
+SNIPPET_BUDGET = 120
+# The trim stages, in the order the cascade applies them while the snippet is
+# above its budget.
+SNIPPET_TRIMS = ("gotchas", "stack-versions", "stack-top-8", "integrations-top-5")
+# How many libraries stack-top-8 and pairs integrations-top-5 keep.
+SNIPPET_STACK_KEEP = 8
+SNIPPET_PAIRS_KEEP = 5
+# The template's IMPORTANT line, never trimmed. The dash is the template's own
+# character, written as an escape.
+SNIPPET_IMPORTANT = ("|IMPORTANT: {stack_name} \u2014 read SKILL.md before writing integration code. "
+                     "Do NOT rely on training data.")
+# The stack or integrations line of a stack with no library or no pair.
+SNIPPET_NONE = "none"
+
+
+def snippet_tokens(text: str) -> int:
+    """The snippet's token estimate: len(text)//4, as skf-validate-output.py and skf-count-tokens.py count it."""
+    return len(text) // 4
+
+
+def snippet_stack(mode: str, libraries: list[dict], details: dict[str, dict]) -> list[tuple[str, str | None]]:
+    """Each library as (name, version), by file_count (compose mode: its number
+    of distinct exports), the highest first, then by name. The version is on
+    one line, as a reference file's **Version:** line writes it."""
+    def count(name: str) -> int:
+        detail = details[name]
+        return detail["file_count"] if mode == "code" else len(detail["exports"])
+
+    names = sorted((library["name"] for library in libraries), key=lambda name: (-count(name), *_name_key(name)))
+    return [(name, details[name]["version"] and _flat(details[name]["version"])) for name in names]
+
+
+def snippet_pairs(pairs: list[dict]) -> list[str]:
+    """Each pair as `{a}+{b}`, by its co-import file count (0 in compose mode),
+    the highest first, ties in bundle order."""
+    ranked = sorted(pairs, key=lambda pair: -(pair["co_import_files"] or 0))
+    return [f"{pair['a']}+{pair['b']}" for pair in ranked]
+
+
+def _cut(items: list[str], keep: int) -> list[str]:
+    """The first `keep` items, then `...+{N} more` for the N cut."""
+    if len(items) <= keep:
+        return items
+    return [*items[:keep], f"...+{len(items) - keep} more"]
+
+
+def snippet_text(stack_name: str, version: str, stack: list[tuple[str, str | None]], pairs: list[str],
+                 gotchas: str | None, trims: list[str]) -> str:
+    """context-snippet.md in the bundled template's form, with the trim stages
+    `trims` applied."""
+    keep_versions = "stack-versions" not in trims
+    names = [f"{name}@{library_version}" if keep_versions and library_version else name
+             for name, library_version in stack]
+    if "stack-top-8" in trims:
+        names = _cut(names, SNIPPET_STACK_KEEP)
+    if "integrations-top-5" in trims:
+        pairs = _cut(pairs, SNIPPET_PAIRS_KEEP)
+    lines = [f"[{stack_name} v{version}]|root: skills/{stack_name}/",
+             SNIPPET_IMPORTANT.format(stack_name=stack_name),
+             "|stack: " + (", ".join(names) or SNIPPET_NONE),
+             "|integrations: " + (", ".join(pairs) or SNIPPET_NONE)]
+    if gotchas and "gotchas" not in trims:
+        lines.append(f"|gotchas: {gotchas}")
+    return "\n".join(lines) + "\n"
+
+
+def trim_snippet(stack_name: str, version: str, stack: list[tuple[str, str | None]], pairs: list[str],
+                 gotchas: str | None, budget: int) -> tuple[str, list[str]]:
+    """The snippet and the trim stages applied: while it is above `budget`,
+    the next stage of SNIPPET_TRIMS, a stage that does not shorten it skipped."""
+    trims: list[str] = []
+    text = snippet_text(stack_name, version, stack, pairs, gotchas, trims)
+    for stage in SNIPPET_TRIMS:
+        if snippet_tokens(text) <= budget:
+            break
+        trimmed = snippet_text(stack_name, version, stack, pairs, gotchas, [*trims, stage])
+        if len(trimmed) < len(text):
+            trims.append(stage)
+            text = trimmed
+    return text, trims
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1705,6 +1827,55 @@ def _cmd_evidence_report(args: argparse.Namespace) -> dict:
             "confidence_distribution": distribution}
 
 
+def _read_text(source: str, what: str) -> str:
+    """The text of a file path, or of stdin for '-'. Raises InputError."""
+    try:
+        return sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"cannot read {what} {source}: {exc}") from exc
+
+
+def _snippet_word(value: str, flag: str) -> str:
+    """A --stack-name or --version value: non-empty, with no whitespace. Raises InputError."""
+    if not value or any(char.isspace() for char in value):
+        raise InputError(f"{flag} must be a non-empty value with no whitespace; got {value!r}")
+    return value
+
+
+def _budget(value: str) -> int:
+    """The --budget value: a positive whole number. Raises InputError."""
+    if not re.fullmatch(r"[0-9]+", value) or int(value) < 1:
+        raise InputError(f"--budget must be a positive whole number; got {value!r}")
+    return int(value)
+
+
+def _cmd_snippet(args: argparse.Namespace) -> dict:
+    stack_name = _snippet_word(args.stack_name, "--stack-name")
+    version = _snippet_word(args.version, "--version")
+    budget = _budget(args.budget)
+    bundle = _read_input(_records_file(args.bundle, "snippet", "--bundle"))
+    mode = bundle_mode(bundle)
+    if mode == "code" and args.pairs is None:
+        raise InputError("a code-mode bundle needs --pairs, the skf-pair-intersect.py result that holds each "
+                         "pair's co-import file count")
+    if mode == "compose" and args.pairs is not None:
+        raise InputError("--pairs is for a code-mode bundle; this bundle's mode is compose")
+    _mode, libraries, _pairs = bundle_stack(bundle)
+    details = library_details(bundle, mode)
+    counts = None
+    if args.pairs is not None:
+        counts = pair_counts(_read_input(_records_file(args.pairs, "snippet", "--pairs")))
+    pairs = snippet_pairs(bundle_pairs(bundle, mode, counts))
+    gotchas = None
+    if args.gotchas is not None:
+        gotchas = _flat(_read_text(args.gotchas, "the gotchas")) or None
+    text, trims = trim_snippet(stack_name, version, snippet_stack(mode, libraries, details), pairs, gotchas, budget)
+    target = Path(args.target)
+    _write_text_atomic(target, text)
+    tokens = snippet_tokens(text)
+    return {"target": str(target), "tokens": tokens, "trims_applied": trims, "over_budget": tokens > budget}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-render-stack-metadata",
@@ -1721,7 +1892,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "bundle (each pair's detection_method from its qualifier) and, in code "
             "mode, the pair-intersect result or, in compose mode, the stack inventory, "
             "the fixed parts of its reference and pair files with their Library "
-            "Reference Index rows, and its evidence report."
+            "Reference Index rows, its evidence report and its context snippet, "
+            "trimmed to a token budget."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1815,6 +1987,23 @@ def _build_parser() -> argparse.ArgumentParser:
                         "intersection_count")
     command.add_argument("--target", required=True, help="the evidence-report.md to write")
     command.set_defaults(func=_cmd_evidence_report)
+    text = ("write context-snippet.md from the extraction bundle in the bundled template's form, trimmed while "
+            "its len(text)//4 tokens exceed --budget, atomically")
+    command = sub.add_parser("snippet", help=text, description=text)
+    command.add_argument("--bundle", required=True, help="path to the extraction bundle JSON")
+    command.add_argument(
+        "--pairs", help="code mode: path to the skf-pair-intersect.py result, which holds each pair's "
+                        "intersection_count")
+    command.add_argument("--stack-name", required=True, help="the stack's name, for the root and IMPORTANT lines")
+    command.add_argument("--version", required=True, help="the stack's version, for the root line")
+    command.add_argument(
+        "--gotchas", help="the gotchas line's text: a file, or '-' for stdin; without it, or with a blank text, "
+                          "the snippet has no gotchas line")
+    command.add_argument(
+        "--budget", default=str(SNIPPET_BUDGET),
+        help=f"the token budget, a positive whole number (default {SNIPPET_BUDGET})")
+    command.add_argument("--target", required=True, help="the context-snippet.md to write")
+    command.set_defaults(func=_cmd_snippet)
     return parser
 
 

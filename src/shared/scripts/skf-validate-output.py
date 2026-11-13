@@ -29,7 +29,18 @@ Two package shapes are supported via --skill-type (default: individual):
                per-library summary, pair entry and reference file. Each of
                its issues names in `check` the create-stack-skill validate.md
                section that records it. --forge-tier <tier> also checks
-               metadata.json's forge_tier against the run's tier.
+               metadata.json's forge_tier against the run's tier. The
+               context snippet must hold a `|stack:` and an `|integrations:`
+               line (medium issues under validation.context_snippet).
+               --forge-version <dir> checks that the forge data version
+               folder holds provenance-map.json and evidence-report.md, and
+               --active-link <skill_group> --expected-version <version> that
+               <skill_group>/active exists and resolves to
+               <skill_group>/<version> (a symlink or a Windows junction); each
+               miss is a medium issue under validation.stack_workspace.
+               --active-link and --expected-version go together, and the
+               three flags need --skill-type stack: a call that breaks either
+               rule, or gives one of them no value, exits 2.
 
 The --export-gate flag selects a third, self-contained mode used by
 skf-export-skill's publishing gate (load-skill.md §2 runs it, §3 binds its
@@ -105,6 +116,8 @@ CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --skip-frontmatter
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack --forge-tier Deep
+     python3 skf-validate-output.py <skill-package-dir> --skill-type stack --forge-version <forge-version-dir> \
+         --active-link <skill-group-dir> --expected-version <version>
      python3 skf-validate-output.py <skill-package-dir> --export-gate
      python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>
 """
@@ -113,6 +126,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import posixpath
 import re
 import sys
@@ -1204,8 +1218,68 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
     return issues, observed
 
 
+# The lines a stack's context snippet holds after the shared first two (the
+# stack template's context-snippet.md format), by the issue field each miss
+# takes.
+_STACK_SNIPPET_LINES = (("stack", "|stack:"), ("integrations", "|integrations:"))
+# The workspace files create-stack-skill writes into the forge data version
+# folder (generate-output sections 7 and 8b), which --forge-version checks.
+_STACK_WORKSPACE_FILES = ("provenance-map.json", "evidence-report.md")
+
+
+def validate_stack_snippet_lines(content):
+    """A medium issue for each stack snippet line a non-empty snippet lacks."""
+    if not content or not content.strip():
+        return []
+    lines = content.splitlines()
+    return [{"severity": "medium", "field": field, "message": f"Context snippet has no `{prefix}` line"}
+            for field, prefix in _STACK_SNIPPET_LINES if not any(line.startswith(prefix) for line in lines)]
+
+
+def validate_stack_workspace(forge_version=None, active_link=None, expected_version=None):
+    """The stack's workspace files and its `active` link (create-stack-skill validate.md §1).
+
+    `forge_version`, when given, is the forge data version folder, which must
+    hold each of _STACK_WORKSPACE_FILES. `active_link`, when given, is the
+    skill group folder: its `active` must exist and resolve (os.path.realpath,
+    so a Windows junction counts as a link) to the `expected_version` folder
+    beside it. Each miss is a medium issue, so the package's result keeps its
+    meaning. Returns (issues, observed).
+    """
+    issues, observed = [], {}
+    if forge_version is not None:
+        folder = Path(forge_version)
+        found = {name: (folder / name).is_file() for name in _STACK_WORKSPACE_FILES}
+        observed["forge_version"] = str(folder)
+        observed["workspace_files"] = found
+        for name, present in found.items():
+            if not present:
+                issues.append({"severity": "medium", "field": name, "message": f"{name} not found in {folder}"})
+    if active_link is not None:
+        if expected_version is None:
+            raise ValueError("active_link needs expected_version")
+        group = Path(active_link)
+        link = group / "active"
+        expected = group / expected_version
+        resolved = os.path.realpath(link) if os.path.lexists(link) else None
+        observed.update({"active_link": str(link), "expected_version": expected_version,
+                         "active_resolves_to": resolved})
+        message = None
+        if resolved is None:
+            message = f"{link} does not exist"
+        elif not os.path.exists(link):
+            message = f"{link} is broken: it resolves to {resolved}, which does not exist"
+        elif os.path.normcase(resolved) == os.path.normcase(os.path.join(os.path.realpath(group), "active")):
+            message = f"{link} is not a link: it should resolve to {expected}"
+        elif os.path.normcase(resolved) != os.path.normcase(os.path.realpath(expected)):
+            message = f"{link} resolves to {resolved}, not to {expected}"
+        if message:
+            issues.append({"severity": "medium", "field": "active", "message": message})
+    return issues, observed
+
+
 def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False, skill_type="individual", export_gate=False,
-                           forge_tier=None):
+                           forge_tier=None, forge_version=None, active_link=None, expected_version=None):
     """Validate a complete skill package directory.
 
     When `skip_frontmatter` is True, the SKILL.md frontmatter pass is omitted —
@@ -1218,7 +1292,11 @@ def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False,
     runs validate_stack_counts, emitting validation.stack_counts.{issues,observed},
     and validate_stack_structure, emitting validation.stack_structure.{issues,observed}
     (`forge_tier`, when given, is the run's tier metadata.json must record).
-    Frontmatter and context-snippet checks are shape-agnostic and run for both.
+    Frontmatter and context-snippet checks are shape-agnostic and run for both;
+    a stack's snippet must also hold its `|stack:` and `|integrations:` lines.
+    With `forge_version` or `active_link` (and `expected_version`), a stack
+    also runs validate_stack_workspace, emitting
+    validation.stack_workspace.{issues,observed}.
 
     When `export_gate` is True, a self-contained export-gate validation runs
     instead (see _validate_export_gate). This branch is additive: the
@@ -1282,6 +1360,8 @@ def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False,
     if snippet_path.exists():
         content = snippet_path.read_text(encoding="utf-8")
         snippet_issues = validate_context_snippet(content)
+        if skill_type == "stack":
+            snippet_issues += validate_stack_snippet_lines(content)
         result["validation"]["context_snippet"] = {"issues": snippet_issues}
         for issue in snippet_issues:
             result["summary"]["total_issues"] += 1
@@ -1337,6 +1417,12 @@ def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False,
         for issue in structure_issues:
             result["summary"]["total_issues"] += 1
             result["summary"]["by_severity"][issue["severity"]] += 1
+        if forge_version is not None or active_link is not None:
+            workspace_issues, observed = validate_stack_workspace(forge_version, active_link, expected_version)
+            result["validation"]["stack_workspace"] = {"issues": workspace_issues, "observed": observed}
+            for issue in workspace_issues:
+                result["summary"]["total_issues"] += 1
+                result["summary"]["by_severity"][issue["severity"]] += 1
 
     # Overall pass/fail
     result["result"] = "PASS" if result["summary"]["by_severity"]["high"] == 0 else "FAIL"
@@ -1605,7 +1691,8 @@ if __name__ == "__main__":
         print(
             "Usage: python3 skf-validate-output.py <skill-package-dir> "
             "[--generated-by <generator>] [--skip-frontmatter] "
-            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--export-gate]\n"
+            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--forge-version <dir>] "
+            "[--active-link <skill_group> --expected-version <version>] [--export-gate]\n"
             "       python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>",
             file=sys.stderr,
         )
@@ -1665,9 +1752,31 @@ if __name__ == "__main__":
         if idx + 1 < len(sys.argv):
             run_forge_tier = sys.argv[idx + 1]
 
+    def _workspace_flag(flag):
+        """The value after `flag`, or None when it is absent; exits 2 when it has none."""
+        if flag not in sys.argv:
+            return None
+        idx = sys.argv.index(flag)
+        value = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
+        if not value or value.startswith("--"):
+            print(f"Error: {flag} needs a value", file=sys.stderr)
+            sys.exit(2)
+        return value
+
+    forge_version = _workspace_flag("--forge-version")
+    active_link = _workspace_flag("--active-link")
+    expected_version = _workspace_flag("--expected-version")
+    if (active_link is None) != (expected_version is None):
+        print("Error: --active-link and --expected-version go together", file=sys.stderr)
+        sys.exit(2)
+    if skill_type != "stack" and (forge_version is not None or active_link is not None):
+        print("Error: --forge-version and --active-link need --skill-type stack", file=sys.stderr)
+        sys.exit(2)
+
     result = validate_skill_package(
         pkg_dir, generated_by=gen_by, skip_frontmatter=skip_fm, skill_type=skill_type,
-        forge_tier=run_forge_tier,
+        forge_tier=run_forge_tier, forge_version=forge_version, active_link=active_link,
+        expected_version=expected_version,
     )
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["result"] == "PASS" else 1)
