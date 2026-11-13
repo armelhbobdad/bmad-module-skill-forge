@@ -3054,16 +3054,26 @@ def test_the_fold_reads_the_record_skf_rewrite_skill_name_writes(tmp_path):
     assert latest["summary"]["versions_renamed"] == record["renamed_versions"]
 
 
-def test_the_fold_creates_the_result_contract_the_payload_leaves_out(tmp_path):
+def test_a_payload_without_a_result_contract_records_the_envelope(tmp_path):
+    """The fold adds no `result_contract`: a finished rename whose payload has none records its envelope, as the
+    Result files rule says, never a contract with no `skill`."""
     payload = {k: v for k, v in RENAME_SUCCESS.items() if k != "result_contract"}
     (tmp_path / "rename-rewrite.json").write_text(json.dumps(RENAME_RECORD), encoding="utf-8")
     folded = mod.fold_rename_record(payload, tmp_path, "emit")
-    assert folded["versions_renamed"] == ["2.0.0", "1.0.0"]
-    assert folded["result_contract"] == {"summary": {"versions_renamed": ["2.0.0", "1.0.0"]},
-                                         "outputs": [{"type": "skill", "path": "C:/s/demo-kit/2.0.0/demo-kit/SKILL.md"},
-                                                     {"type": "skill",
-                                                      "path": "/p/forge/demo-kit/1.0.0/provenance-map.json"}]}
-    assert "result_contract" not in payload, "the payload given is not changed"
+    assert folded["versions_renamed"] == ["2.0.0", "1.0.0"] and "result_contract" not in folded
+    assert "versions_renamed" not in payload, "the payload given is not changed"
+    env = _stdout_envelope(_rename_emit(tmp_path, payload, RENAME_RECORD))
+    latest = json.loads((tmp_path / "skills" / "demo-kit" / "rename-skill-result-latest.json").read_text("utf-8"))
+    assert (latest["status"], latest["old_name"], latest["versions_renamed"]) == ("success", "demo", ["2.0.0", "1.0.0"])
+    assert latest["versions_renamed"] == env["versions_renamed"] and "outputs" not in latest
+    assert "a payload with no `result_contract` gets none, so its result file is the envelope" in _folded_doc().lower()
+
+
+def test_the_rename_paragraph_follows_the_setup_section():
+    """One section per workflow: skf-rename-skill's paragraph comes after skf-setup's last line, not inside it."""
+    doc = _folded_doc()
+    assert (doc.index("Setup's step 4 passes no `error`") < doc.index("skf-rename-skill. Step 2 stages")
+            < doc.index("CLI: the step files invoke it"))
 
 
 @pytest.mark.parametrize("record, run_dir, needle", [

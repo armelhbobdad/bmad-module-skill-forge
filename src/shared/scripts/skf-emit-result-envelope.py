@@ -278,16 +278,6 @@ in the sidecar folder) and `forge_data_folder`, each written with `/`.
 The emitter reads no config.yaml value itself, so preflight stays the one
 place that resolves them. The derived values replace the payload's own.
 
-skf-rename-skill. Step 2 stages skf-rewrite-skill-name.py's record as
-rename-rewrite.json in the run folder. For a finished rename (`emit` with
-payload `status` "success"), the emitter takes `versions_renamed` and the
-summary's `versions_renamed` from the record's `renamed_versions`, and
-`result_contract.outputs` from its `files_rewritten`, one {"type": "skill",
-"path"} each, the path written with `/`, so no step types those values. No
---run-dir, no record, or a record of another shape exits 1 before any
-result file is written, with a message that names the record. A dry run
-and a halt read no record.
-
 Context payload shape (consumed by `emit` for skf-setup):
 
   {
@@ -383,6 +373,17 @@ tier_changed: the script derives them from the inputs above.
 Setup's step 4 passes no `error`, so it is null: every halt that names a
 phase emits through `emit-blocked` instead. A non-null error still
 yields status 'blocked'.
+
+skf-rename-skill. Step 2 stages skf-rewrite-skill-name.py's record as
+rename-rewrite.json in the run folder. For a finished rename (`emit` with
+payload `status` "success"), the emitter takes `versions_renamed` and the
+summary's `versions_renamed` from the record's `renamed_versions`, and
+`result_contract.outputs` from its `files_rewritten`, one {"type": "skill",
+"path"} each, the path written with `/`, so no step types those values. A
+payload with no `result_contract` gets none, so its result file is the
+envelope (see "Result files"). No --run-dir, no record, or a record of
+another shape exits 1 before any result file is written, with a message
+that names the record. A dry run and a halt read no record.
 
 CLI: the step files invoke it via `uv run`, like every sibling helper.
 It imports only the standard library (dependencies = []) and must stay
@@ -1903,9 +1904,10 @@ def fold_rename_record(payload: dict, run_dir: Path | None, label: str) -> dict:
     module docstring). Its `renamed_versions` replace `versions_renamed` and
     `result_contract.summary.versions_renamed`, and one {"type": "skill",
     "path"} per `files_rewritten` entry, written with `/`, replaces
-    `result_contract.outputs`; the fold creates `result_contract` and
-    `summary` when the payload has none. No --run-dir, no record, or a record
-    of another shape exits 1 before any result file is written.
+    `result_contract.outputs`. A payload with no `result_contract` gets none,
+    so its result file is the envelope ("Result files" in the module
+    docstring). No --run-dir, no record, or a record of another shape exits
+    1 before any result file is written.
     """
     if run_dir is None:
         _die(1, f"{label}: a finished {RENAME_WORKFLOW} run reads its rewrite record, rename-rewrite.json, "
@@ -1925,11 +1927,15 @@ def fold_rename_record(payload: dict, run_dir: Path | None, label: str) -> dict:
             or not all(isinstance(f, dict) and isinstance(f.get("path"), str) for f in files)):
         _die(1, f"{label}: the rewrite record {path.as_posix()} is not an object with a list of strings "
                 "`renamed_versions` and a list `files_rewritten` of objects that each have a string `path`")
-    contract = dict(payload.get("result_contract") or {})
-    summary = contract.get("summary")
-    contract["summary"] = {**(summary if isinstance(summary, dict) else {}), "versions_renamed": list(versions)}
-    contract["outputs"] = [{"type": "skill", "path": f["path"].replace("\\", "/")} for f in files]
-    return {**payload, "versions_renamed": list(versions), "result_contract": contract}
+    folded = {**payload, "versions_renamed": list(versions)}
+    contract = payload.get("result_contract")
+    if isinstance(contract, dict):
+        summary = contract.get("summary")
+        folded["result_contract"] = {
+            **contract,
+            "summary": {**(summary if isinstance(summary, dict) else {}), "versions_renamed": list(versions)},
+            "outputs": [{"type": "skill", "path": f["path"].replace("\\", "/")} for f in files]}
+    return folded
 
 
 # ─── subcommands ────────────────────────────────────────────────────────────

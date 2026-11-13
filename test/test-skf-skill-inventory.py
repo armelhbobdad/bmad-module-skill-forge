@@ -2144,14 +2144,16 @@ class TestResolve:
         assert _resolve(flat / "skills", flat / "forge")["source_authority"] == "official"
 
     def test_the_knowledge_lists_the_field_as_the_docstring_does(self):
-        """#1180: both copies of `resolve`'s field list name `source_authority`, and the knowledge
-        says what rename reads from it."""
+        """#1180: both copies of `resolve`'s field list name `source_authority`, and both say what rename
+        reads from it: its `active` link and `source_authority`, not the counts drop-skill reads."""
         knowledge = (Path(__file__).parent.parent / "src" / "knowledge" / "version-paths.md").read_text(encoding="utf-8")
         paragraph = knowledge[knowledge.index("**The resolve command.**"):]
         paragraph = paragraph[:paragraph.index("\n")]
         assert "the `source_authority` that `metadata.json` gives (null without one)" in paragraph
         assert "rename-skill its `active` link and `source_authority`" in paragraph
-        assert "the `source_authority` that metadata.json gives (null without one)" in " ".join(mod.__doc__.split())
+        doc = " ".join(mod.__doc__.split())
+        assert "the `source_authority` that metadata.json gives (null without one)" in doc
+        assert "with its manifest status and the counts drop-skill reads." in doc
 
     def test_broken_link_and_real_active_folder(self, tmp_path, links_ok):
         skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), versions=("0.5.0",))

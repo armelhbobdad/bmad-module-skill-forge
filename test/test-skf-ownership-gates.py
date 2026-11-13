@@ -608,6 +608,9 @@ def test_rename_recreates_active_with_flip_link():
     assert ("Otherwise, when `resolve.symlink_target` is null, skip to the report at the end of this section: there "
             "is no link to carry over. Else set `{target_version}` ← `symlink_target`.") in fix
     assert "`{target_version}` is not one of `renamed_versions`" in fix, "a link to a version §2 skipped rolls back"
+    # A hand-run flip names the manifest's version, so the link it leaves and the manifest agree.
+    assert "or point it at the version the export manifest has active (any of the skill's version folders" in fix
+    assert "Point it at one of them, the version the export manifest has active when it is one, with" in fix
     assert fix.index("{skillInventoryHelper} resolve") < fix.index("is not one of `renamed_versions`") < fix.index(
         'then rm -f "{new_skill_group}/active"') < fix.index("{atomicWriteHelper} flip-link \\")
     rollback = _section(fix, "**Rollback on a failure in step 1, 2 or 4:**", "Report:")

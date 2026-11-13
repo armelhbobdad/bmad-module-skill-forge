@@ -1001,6 +1001,9 @@ class TestRenameProse:
         rename = _between(workflows, "### Rename Skill (RS)", "### Drop Skill (DS)")
         assert "A rename's dry run also runs the check for leftovers of the old name, so it stops with " \
                "`verify-failed` (exit `5`)" in rename
+        # The RS and DS sections each carry the dry-run line that names both workflows: the copies stay equal.
+        previews = [line for line in workflows.split("\n") if line.startswith("**Preview first:**")]
+        assert len(previews) == 2 and previews[0] == previews[1]
         knowledge = _between(VERSION_PATHS.read_text(encoding="utf-8"), "### Rename (RS - Rename Skill)", "### Drop")
         assert "Before anything is copied, rename runs the same check on what its rewrite would make of the " \
                "old skill's files, a `--dry-run` included, and stops with nothing changed on a match." in knowledge
