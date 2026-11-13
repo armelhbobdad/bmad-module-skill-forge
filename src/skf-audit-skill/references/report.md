@@ -33,6 +33,8 @@ Finalize the drift report by completing the Audit Summary with calculated metric
 - Remediation suggestions must be practical: what to change, where, and why
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
 - The post-audit hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
+- `{compose_mode_stack}` is the `compose_mode_stack` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still skips the snapshot a compose-mode stack does not have
+- `{docs_only_skill}` is the `docs_only_skill` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still skips the snapshot and words the doc drift line for a docs-only skill
 
 ## MANDATORY SEQUENCE
 
@@ -50,10 +52,10 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
 
 - Fill in the severity count table from `{auditDataFolder}/severity.json`, the classification step 5 saved: `by_severity` for each level and `total_items` for **Total**
 - Set the overall drift score (its `drift_score`)
-- Include doc drift summary from `doc_drift_summary` context (set by step 5a):
-  - If `changed > 0`: "**Doc Drift:** {changed} of {total_tracked} tracked doc(s) have changed since compile." Then, for a docs-only skill (whose score these changes set): "Run `[US] Update Skill` to bring the skill up to them."; otherwise: "Consider re-running CS to update doc_sources."
+- Include the doc drift counts, the `stats` of `{auditDataFolder}/doc-drift.json`, the comparison step 5a saved:
+  - If `changed > 0`: "**Doc Drift:** {changed} of {total_tracked} tracked doc(s) have changed since compile." Then, for a docs-only skill (`{docs_only_skill}`, whose score these changes set): "Run `[US] Update Skill` to bring the skill up to them."; otherwise: "Consider re-running CS to update doc_sources."
   - If `fetch_failed > 0`: "{fetch_failed} doc URL(s) could not be reached during audit."
-  - If `skipped_entirely`: no mention in summary (already noted in the doc drift section)
+  - If the file does not exist, step 5a skipped the check: no mention in the summary (its Documentation Drift section already says why)
 
 ### 2. Generate Remediation Suggestions
 
@@ -67,7 +69,7 @@ Rows of step 3's **Provenance label differences (not drift)** table are not find
 uv run {renderDriftTablesScript} outside-scope "{forge_version}/extraction-snapshot.json"
 ```
 
-Paste its output unchanged under Remediation Suggestions, where the template below shows it (nothing when it prints nothing: `outside_scope` is empty, as at Quick tier). update-skill's scope reconciliation (`skf-provenance-gap-dispatch.py`) reads that subsection from the newest drift report and asks whether to bring each path into scope. A compose-mode stack and a docs-only skill have no snapshot: skip the command. When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Out-of-Scope New Public API not rendered: {error}` in place of its output and go on.
+Paste its output unchanged under Remediation Suggestions, where the template below shows it (nothing when it prints nothing: `outside_scope` is empty, as at Quick tier). update-skill's scope reconciliation (`skf-provenance-gap-dispatch.py`) reads that subsection from the newest finished drift report and asks whether to bring each path into scope. A compose-mode stack and a docs-only skill have no snapshot: skip the command. When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Out-of-Scope New Public API not rendered: {error}` in place of its output and go on.
 
 Append to {outputFile}:
 

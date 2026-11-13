@@ -5022,6 +5022,7 @@ def test_headless_skips_are_deferred_for_a_person(tmp_path):
     forge = tmp_path / "forge"
     (forge / "lib" / "1.0.0").mkdir(parents=True)
     (forge / "lib" / "1.0.0" / "drift-report-1.md").write_bytes(
+        b"---\nstepsCompleted: ['init', 'report']\n---\n"
         b"# Drift\n\n## Out-of-Scope Observations\n- `plugins/**` - 2 exports\n- `extras/**` - 1 export\n")
     brief = forge / "lib" / "skill-brief.yaml"
     brief.write_bytes(yaml.safe_dump({"scope": {"amendments": [

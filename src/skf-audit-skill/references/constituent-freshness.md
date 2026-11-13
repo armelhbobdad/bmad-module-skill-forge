@@ -19,6 +19,7 @@ Audit a compose-mode stack in place of steps 2 to 4: check whether each constitu
 ## Rules
 
 - Run only for a compose-mode stack (`{compose_mode_stack}`, step 1 §4): every other skill runs steps 2 to 4
+- `{compose_mode_stack}` is the `compose_mode_stack` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still takes the compose route
 - Do not classify severity (step 5) or suggest remediation (step 6)
 
 ## MANDATORY SEQUENCE

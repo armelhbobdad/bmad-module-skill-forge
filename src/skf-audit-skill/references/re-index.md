@@ -31,6 +31,7 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 - Focus only on extracting current source state — do not compare yet (that's Step 03)
 - Extract every file in the bounded scan list: a file skipped here makes step 3 flag its exports as false "removed" drift. The snapshot helper gives each file a status and says whether the snapshot is complete (§3), so never judge completeness by eye
 - At Forge, Forge+ and Deep the recipe runner extracts; read by eye only what it leaves (§3), using subprocess Pattern 2 (per-file deep analysis) when available to read those files; if unavailable, read them in the main thread file by file
+- `{scope_type}` is the `scope_type` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still passes a public-api skill's `--scope-type public-api`
 
 ## MANDATORY SEQUENCE
 

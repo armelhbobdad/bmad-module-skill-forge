@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-audit-skill
+summary: |
+  The drift report now shows each section heading once, in the order the run writes its sections, where before the template laid out empty Structural Drift, Semantic Drift, Severity Classification, Documentation Drift, Remediation Suggestions and Provenance headings that each stage then wrote again below them, and a compose-mode stack or a docs-only skill wrote them in another order. The report's frontmatter now records `scope_type`, `is_stack_skill`, `legacy_stack_provenance` and `compose_mode_stack` beside `docs_only_skill`, and each stage that picks a route reads them there, so a run whose session context was compacted still passes a public-api skill's `--scope-type public-api`, still diffs a stack library by library and still takes a compose-mode stack's route. The Audit Summary's doc drift line takes its counts from the comparison the run saved instead of from the session. The unused `lastStep` and `previousWorkflow` keys are gone from the frontmatter.
+migration: |
+  If `drift_report_template_path` names a copy of the template, add `scope_type: ''`, `is_stack_skill: ''`, `legacy_stack_provenance: ''` and `compose_mode_stack: ''` to its frontmatter after `docs_only_skill`, and delete every heading after the Audit Summary's table, with its comment, so the copy ends with the `| **Total** |` row. `lastStep` and `previousWorkflow` can go too.
+issues: [1129]

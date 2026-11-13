@@ -1,8 +1,8 @@
 """Structural integration tests for the doc-drift.md step file (story 1.4).
 
 Validates the doc-drift step contract: correct pipeline wiring, required
-sections, graceful failure rules, drift report template positioning, and
-stages-table placement in the AS workflow.
+sections, graceful failure rules, the order each route writes the drift
+report's sections in, and stages-table placement in the AS workflow.
 
 The step file was step-doc-drift.md (#600, BMad Builder architecture-9): its
 siblings are named by their content, so it is doc-drift.md, and every file,
@@ -24,6 +24,7 @@ SEVERITY_CLASSIFY_FILE = AS_DIR / "references" / "severity-classify.md"
 REPORT_FILE = AS_DIR / "references" / "report.md"
 SKILL_MD = AS_DIR / "SKILL.md"
 DRIFT_REPORT_TEMPLATE = AS_DIR / "assets" / "drift-report-template.md"
+INIT_FILE = AS_DIR / "references" / "init.md"
 
 
 # ---------------------------------------------------------------------------
@@ -146,10 +147,14 @@ class TestStepFileStructure:
     def test_references_null_hash_handling(self, text: str) -> None:
         assert "null" in text.lower(), "step must handle null content_hash entries"
 
-    def test_references_doc_drift_summary(self, text: str) -> None:
-        assert "doc_drift_summary" in text, (
-            "step must store doc_drift_summary in workflow context"
-        )
+    def test_step_6_reads_the_saved_counts(self, text: str) -> None:
+        # #1129: no context value carries the counts; step 6 reads the saved file.
+        assert "doc_drift_summary" not in text
+        flat = re.sub(r"\s+", " ", text)
+        assert "Step 6 reads the counts from the saved JSON's `stats`" in flat
+        assert "no file tells step 6 this check was skipped" in flat
+        assert ("Only after the `## Documentation Drift` section is appended and `'doc-drift'` is in "
+                "`stepsCompleted`, load and read fully the next step file.") in flat
 
 
 # ---------------------------------------------------------------------------
@@ -212,58 +217,69 @@ class TestStagesTable:
 # ---------------------------------------------------------------------------
 
 
+# Each route's stage files in run order, from init: the frontmatter key a
+# stage names its next file by on that route, when it is not nextStepFile.
+ROUTE_KEYS = {
+    "default": {},
+    "compose": {"init.md": "composeStepFile"},
+    "docs-only": {"init.md": "docsOnlyStepFile", "doc-drift.md": "classifyStepFile",
+                  "severity-classify.md": "reportStepFile"},
+}
+DRIFT_SECTIONS = ["## Audit Summary", "## Structural Drift", "## Semantic Drift", "## Severity Classification",
+                  "## Documentation Drift", "## Remediation Suggestions", "## Provenance"]
+ROUTE_SECTIONS = {
+    "default": DRIFT_SECTIONS,
+    "compose": DRIFT_SECTIONS,
+    "docs-only": ["## Audit Summary", "## Documentation Drift", "## Severity Classification",
+                  "## Remediation Suggestions", "## Provenance"],
+}
+
+
+def _route(name: str) -> list[pathlib.Path]:
+    """The stage files a route runs after init, in run order, to report.md."""
+    files, path = [], INIT_FILE
+    while path.name != "report.md":
+        key = ROUTE_KEYS[name].get(path.name, "nextStepFile")
+        m = re.search(rf"^{key}:\s*'([^']+)'\s*$", _frontmatter(path) or "", re.MULTILINE)
+        assert m, f"{path.name} names no {key}"
+        path = path.parent / m.group(1)
+        assert path not in files, f"{name} route loops at {path.name}"
+        files.append(path)
+    return files
+
+
+def _fence_headings(path: pathlib.Path) -> list[str]:
+    """The `## ` headings of a stage's markdown fences, each once, in order:
+    a stage's fences are alternatives (skipped or written), so a run writes
+    each heading once."""
+    headings: list[str] = []
+    for block in re.findall(r"^[ \t]*```markdown\n(.*?)^[ \t]*```", _read(path), re.MULTILINE | re.DOTALL):
+        for line in block.splitlines():
+            line = line.strip()
+            if line.startswith("## ") and line not in headings:
+                headings.append(line)
+    return headings
+
+
 class TestDriftReportTemplate:
+    """#1129: the template holds only the Audit Summary, which step 6 fills
+    in; every stage writes its own section, heading included."""
+
     @pytest.fixture(scope="class")
     def text(self) -> str:
         return _read(DRIFT_REPORT_TEMPLATE)
 
-    def test_has_documentation_drift_section(self, text: str) -> None:
-        assert re.search(
-            r"^## Documentation Drift", text, re.MULTILINE
-        ), "drift-report-template.md must include a ## Documentation Drift section"
+    def test_the_only_section_is_the_audit_summary(self, text: str) -> None:
+        assert re.findall(r"^## .*$", text, re.MULTILINE) == ["## Audit Summary"]
+        assert "Appended by" not in text
+        assert text.endswith("| **Total** |       |\n")
 
-    def test_doc_drift_after_severity_classification(self, text: str) -> None:
-        sev_idx = text.find("## Severity Classification")
-        doc_idx = text.find("## Documentation Drift")
-        assert sev_idx != -1, "Template must have ## Severity Classification"
-        assert doc_idx != -1, "Template must have ## Documentation Drift"
-        assert sev_idx < doc_idx, (
-            "## Documentation Drift must come after ## Severity Classification"
-        )
-
-    def test_doc_drift_before_remediation_suggestions(self, text: str) -> None:
-        doc_idx = text.find("## Documentation Drift")
-        rem_idx = text.find("## Remediation Suggestions")
-        assert doc_idx != -1, "Template must have ## Documentation Drift"
-        assert rem_idx != -1, "Template must have ## Remediation Suggestions"
-        assert doc_idx < rem_idx, (
-            "## Documentation Drift must come before ## Remediation Suggestions"
-        )
-
-    def test_full_section_ordering(self, text: str) -> None:
-        """All template sections must appear in the canonical order."""
-        sections = [
-            "## Structural Drift",
-            "## Semantic Drift",
-            "## Severity Classification",
-            "## Documentation Drift",
-            "## Remediation Suggestions",
-            "## Provenance",
-        ]
-        indices = []
-        for section in sections:
-            idx = text.find(section)
-            assert idx != -1, f"Template must have {section}"
-            indices.append(idx)
-        assert indices == sorted(indices), (
-            f"Sections out of order: {sections}"
-        )
-
-    def test_doc_drift_has_step_comment(self, text: str) -> None:
-        assert "<!-- Appended by doc-drift -->" in text, (
-            "Documentation Drift section must name the doc-drift step"
-        )
-        assert "step-doc-drift" not in text
+    @pytest.mark.parametrize("route", list(ROUTE_SECTIONS))
+    def test_each_route_writes_each_heading_once_in_run_order(self, text: str, route: str) -> None:
+        written = re.findall(r"^## .*$", text, re.MULTILINE)
+        for path in _route(route):
+            written += _fence_headings(path)
+        assert written == ROUTE_SECTIONS[route], (route, written)
 
 
 # ---------------------------------------------------------------------------
@@ -359,18 +375,13 @@ class TestStepContentContract:
             r"sha256:.*hexdigest", text
         ), "step must document the sha256:{hexdigest} hash convention"
 
-    def test_doc_drift_summary_schema_fields(self, text: str) -> None:
-        for field in (
-            "total_tracked",
-            "changed",
-            "unchanged",
-            "fetch_failed",
-            "skipped_null_hash",
-            "skipped_entirely",
-        ):
-            assert field in text, (
-                f"doc_drift_summary must include field: {field}"
-            )
+    def test_the_saved_stats_hold_every_count(self, text: str) -> None:
+        store = text.split("### 5. Store Context and Auto-Proceed", 1)[1]
+        stats = re.search(r"`stats` \(([^)]*)\)", store)
+        assert stats, "§5 must name the counts step 6 reads from `stats`"
+        for field in ("total_tracked", "changed", "unchanged", "fetch_failed", "skipped_null_hash"):
+            assert f"`{field}`" in stats.group(1), f"`stats` must hold: {field}"
+        assert "skipped_entirely" not in text
 
     def test_no_severity_classification_of_doc_drift(self, text: str) -> None:
         assert re.search(
@@ -413,10 +424,17 @@ class TestReportDocDriftIntegration:
     def text(self) -> str:
         return _read(REPORT_FILE)
 
-    def test_report_references_doc_drift_summary(self, text: str) -> None:
-        assert "doc_drift_summary" in text, (
-            "report.md must reference doc_drift_summary from step 5a"
-        )
+    @pytest.fixture(scope="class")
+    def summary(self, text: str) -> str:
+        section = text.split("### 1. Complete Audit Summary", 1)[1].split("### 2.", 1)[0]
+        return re.sub(r"\s+", " ", section)
+
+    def test_report_reads_the_saved_comparison(self, text: str, summary: str) -> None:
+        # #1129: the counts come from the file step 5a saved, not a context value.
+        assert "doc_drift_summary" not in text
+        assert ("Include the doc drift counts, the `stats` of `{auditDataFolder}/doc-drift.json`, the comparison "
+                "step 5a saved:") in summary
+        assert "for a docs-only skill (`{docs_only_skill}`, whose score these changes set)" in summary
 
     def test_report_mentions_doc_drift_changed(self, text: str) -> None:
         assert re.search(r"changed\s*>", text) or "Doc Drift" in text, (
@@ -428,7 +446,7 @@ class TestReportDocDriftIntegration:
             "report.md must mention fetch_failed doc URLs in summary"
         )
 
-    def test_report_mentions_skipped_entirely(self, text: str) -> None:
-        assert "skipped_entirely" in text, (
-            "report.md must handle skipped_entirely case"
-        )
+    def test_no_saved_comparison_means_skipped(self, text: str, summary: str) -> None:
+        assert "skipped_entirely" not in text
+        assert ("If the file does not exist, step 5a skipped the check: no mention in the summary (its "
+                "Documentation Drift section already says why)") in summary

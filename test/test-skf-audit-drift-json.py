@@ -152,7 +152,8 @@ SEMANTIC_RE = re.compile(r"(New Patterns|Changed Conventions|Dependency Shifts|A
                          r"Deprecated Patterns) `([a-z_]+)`")
 # The run context the drift report's frontmatter carries, by the step that writes it.
 RUN_CONTEXT = {
-    INIT: ("audited_version", "audited_version_reason", "manifest_version", "docs_only_skill",
+    INIT: ("audited_version", "audited_version_reason", "manifest_version", "docs_only_skill", "scope_type",
+           "is_stack_skill", "legacy_stack_provenance", "compose_mode_stack",
            "provenance_map", "provenance_generated_at", "provenance_age_days", "baseline_ref",
            "baseline_commit", "audit_ref", "audit_ref_source", "audit_commit", "latest_tag",
            "remote_head", "upstream_fetch", "upstream_moved", "upstream_ref", "source_tree"),
@@ -160,6 +161,15 @@ RUN_CONTEXT = {
     STRUCTURAL: ("applied_transforms",),
 }
 RUN_CONTEXT_IDS = ["init", "re-index", "structural-diff"]
+# #1129: each flag that picks a route, with the stages that read it back from
+# the drift report's frontmatter instead of from session memory.
+ROUTE_FLAGS = {
+    "docs_only_skill": (DOC_DRIFT, SEVERITY, REPORT),
+    "scope_type": (RE_INDEX,),
+    "is_stack_skill": (STRUCTURAL,),
+    "legacy_stack_provenance": (STRUCTURAL,),
+    "compose_mode_stack": (COMPOSE, SEVERITY, REPORT),
+}
 # Each Provenance row of report.md, with the frontmatter keys it shows.
 PROVENANCE_ROWS = {
     "Audit Date": ("date",),
@@ -897,9 +907,13 @@ def test_the_constituent_check_lives_in_the_compose_stage():
     assert "compareConstituentHashesProbeOrder" in _frontmatter(COMPOSE)
     assert "### Constituent Freshness (drifted {stats.drifted}" in compose
     assert "**Status:** Skipped: a compose-mode stack has no source tree to compare" in compose
-    template = _read(TEMPLATE)
-    assert "Constituent Freshness (compose-mode stacks)" in template
-    assert "each drifted (HIGH) or missing (MEDIUM) one is a finding" in template
+    # #1129: the stage that writes the table says what grades each row, not the template.
+    compare = _flow(_slice(compose, "### 1. Compare the Constituents' Hashes", "### 2."))
+    for graded in ("`drifted[]`: a constituent whose live `metadata.json` differs from the one the stack was "
+                   "composed from. Step 5 grades each one HIGH.", "Step 5 grades each one MEDIUM.",
+                   "so there is nothing to compare. Never drift."):
+        assert graded in compare, graded
+    assert "Constituent Freshness" not in _read(TEMPLATE)
 
 
 def test_a_drifted_constituent_alone_grades_high(tmp_path):
@@ -1282,8 +1296,27 @@ def test_no_step_keeps_a_value_no_stage_reads():
     for path in sorted(REFS.glob("*.md")):
         text = _read(path)
         for gone in ("audit_target_version", "manifest_symlink_drift", "split_body",
-                     "mapping consumed by `structural-diff.md` §1 to collapse public-API renames"):
+                     "mapping consumed by `structural-diff.md` §1 to collapse public-API renames",
+                     "doc_drift_summary"):
             assert gone not in text, (path.name, gone)
+    # #1129: no step writes lastStep, and none reads previousWorkflow.
+    keys = set(_frontmatter(TEMPLATE))
+    assert not keys & {"lastStep", "previousWorkflow"}, keys & {"lastStep", "previousWorkflow"}
+
+
+@pytest.mark.parametrize("flag,readers", list(ROUTE_FLAGS.items()), ids=list(ROUTE_FLAGS))
+def test_each_route_flag_is_read_back_from_the_report(flag, readers):
+    """#1129: a flag that picks a route has a template slot, init §6 writes
+    it, and each stage that reads it takes it from the report's frontmatter,
+    so a compacted session keeps the route."""
+    assert flag in _frontmatter(TEMPLATE), flag
+    writer = _flow(_slice(_read(INIT), "Create `{outputFile}` from `{templateFile}`:", "If the write fails"))
+    assert f"`{flag}`" in writer, flag
+    clause = (f"`{{{flag}}}` is the `{flag}` value step 1 §6 wrote into {{outputFile}}'s frontmatter: read it "
+              "there, not from memory")
+    for path in readers:
+        rules = _flow(_slice(_read(path), "## Rules", "## MANDATORY SEQUENCE"))
+        assert clause in rules, (path.name, flag)
 
 
 def test_every_run_creates_a_fresh_report():

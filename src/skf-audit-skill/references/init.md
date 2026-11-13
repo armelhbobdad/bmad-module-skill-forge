@@ -175,7 +175,7 @@ Load the provenance map at `{provenanceMap}`, the path §1 bound: the audited ve
 
   Parse the emitted JSON and stash these fields in workflow context (downstream steps read them directly — no re-walk):
   - `{bounded_scan_files}` — sorted POSIX list, union of `entries[].source_file` and `file_entries[].source_file`. Step 2 `re-index.md` consumes this as the bounded scan list.
-  - `{is_stack_skill}`, `{legacy_stack_provenance}` and `{compose_mode_stack}`: stack-skill flags (see Stack Skill Detection below for downstream branching).
+  - `{is_stack_skill}`, `{legacy_stack_provenance}` and `{compose_mode_stack}`: stack-skill flags (see Stack Skill Detection below for downstream branching). §6 records them in the drift report's frontmatter, and the later steps read them there.
   - `{source_root}`, `{baseline_commit}`, `{baseline_ref}` — used by §5 Resolve Source Path and §5b Detect Upstream Drift.
   - `{export_count}` ← `export_count`, `{provenance_generated_at}` ← `generated_at` and `{provenance_age_days}` ← `age_days`: the baseline facts §7 shows and §6 records. `age_days` counts from the map's `generated_at`, or from the file's modification time when the map has none.
 
@@ -228,7 +228,7 @@ It reads the remote's default branch and tags with one `git ls-remote`, fetches 
 Create `{outputFile}` from `{templateFile}`:
 
 - Populate frontmatter: skill_name, skill_path, source_path, forge_tier, date, user_name
-- Record the run context in the frontmatter, so later steps read it from the file rather than from a session that may have been compacted: `audited_version`, `audited_version_reason` and `manifest_version` (§1); `docs_only_skill` (§3: `{docs_only_skill}`, which steps 5a and 5 read here to pick their next step); `provenance_map` (`{provenanceMap}`), `provenance_generated_at` and `provenance_age_days` (§4); `baseline_ref`, `baseline_commit`, `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref` and `source_tree` (`{source_tree}`, the private tree every later step reads the source in) (§5b, and `upstream-checkout.md` when upstream moved). Write null for a value the run does not have. `source_path` keeps the source root the provenance map records.
+- Record the run context in the frontmatter, so later steps read it from the file rather than from a session that may have been compacted: `audited_version`, `audited_version_reason` and `manifest_version` (§1); `docs_only_skill` (§3: `{docs_only_skill}`, which steps 5a and 5 read here to pick their next step); `scope_type` (§3, `{scope_type}`); `is_stack_skill`, `legacy_stack_provenance` and `compose_mode_stack` (§4's normalize call); `provenance_map` (`{provenanceMap}`), `provenance_generated_at` and `provenance_age_days` (§4); `baseline_ref`, `baseline_commit`, `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref` and `source_tree` (`{source_tree}`, the private tree every later step reads the source in) (§5b, and `upstream-checkout.md` when upstream moved). Write null for a value the run does not have. `source_path` keeps the source root the provenance map records.
 - Set `stepsCompleted: ['init']`
 - Fill Audit Summary skeleton with loaded baseline data
 

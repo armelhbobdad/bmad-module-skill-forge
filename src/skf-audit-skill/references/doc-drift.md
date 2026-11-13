@@ -40,7 +40,7 @@ Display the line it prints, then stop with the halt's exit code. If the emitter 
 
 Check the skill metadata loaded at init (step 1 §3, Load Skill Artifacts) for a `doc_sources` array. A docs-only skill always has one with a recorded `content_hash`: step 1 §3 stops a docs-only skill without it.
 
-**If `doc_sources` is absent:** append the section below to {outputFile}, set `doc_drift_summary = { skipped_entirely: true }`, append `'doc-drift'` to `stepsCompleted` in its frontmatter and auto-proceed to {nextStepFile}:
+**If `doc_sources` is absent:** append the section below to {outputFile}, append `'doc-drift'` to `stepsCompleted` in its frontmatter and auto-proceed to {nextStepFile}:
 
 ```markdown
 ## Documentation Drift
@@ -48,7 +48,7 @@ Check the skill metadata loaded at init (step 1 §3, Load Skill Artifacts) for a
 No doc_sources recorded: skip doc drift check. This skill was compiled before doc tracking was available. Recompile with the current CS pipeline to enable doc drift detection.
 ```
 
-**If `doc_sources` is an empty array:** do the same with `doc_drift_summary = { total_tracked: 0, skipped_entirely: false }` and this section:
+**If `doc_sources` is an empty array:** do the same with this section:
 
 ```markdown
 ## Documentation Drift
@@ -81,7 +81,7 @@ It fetches each URL whose `content_hash` is set and compares the hashes. A `null
 
 **If the command exits non-zero** (exit 2 is a `doc_sources` it cannot read) or saves no JSON:
 
-- **A skill built from source:** delete the file, append the section below to {outputFile}, set `doc_drift_summary = { skipped_entirely: true }`, append `'doc-drift'` to `stepsCompleted` and auto-proceed to {nextStepFile}:
+- **A skill built from source:** delete the file, append the section below to {outputFile}, append `'doc-drift'` to `stepsCompleted` and auto-proceed to {nextStepFile}:
 
   ```markdown
   ## Documentation Drift
@@ -130,7 +130,7 @@ If some entries were `fetch_failed` or `skipped_null_hash`, append a note after 
 
 ### 5. Store Context and Auto-Proceed
 
-Set `doc_drift_summary` to the saved JSON's `stats` (`total_tracked`, `changed`, `unchanged`, `fetch_failed`, `skipped_null_hash`) plus `skipped_entirely: false`: report.md reads it. Append `'doc-drift'` to `stepsCompleted` in {outputFile}'s frontmatter.
+Step 6 reads the counts from the saved JSON's `stats` (`total_tracked`, `changed`, `unchanged`, `fetch_failed`, `skipped_null_hash`), so keep the file: no file tells step 6 this check was skipped. Append `'doc-drift'` to `stepsCompleted` in {outputFile}'s frontmatter.
 
 Display: "**Documentation drift check complete. {changed} of {total_tracked} source(s) drifted.**"
 
@@ -138,4 +138,4 @@ Load, read the full file, then execute {nextStepFile}, or `{classifyStepFile}` f
 
 ## CRITICAL STEP COMPLETION NOTE
 
-Only after the `## Documentation Drift` section is appended and `doc_drift_summary` is set, load and read fully the next step file.
+Only after the `## Documentation Drift` section is appended and `'doc-drift'` is in `stepsCompleted`, load and read fully the next step file.

@@ -7,8 +7,11 @@
 `skf-update-skill/references/detect-changes.md §1c` performs three
 deterministic operations before the LLM can prompt the user:
 
-  1. **Locate** the latest audit drift report under
-     `{forge_data_folder}/{skill_name}/{baseline_version}/drift-report-*.md`
+  1. **Locate** the latest finished audit drift report under
+     `{forge_data_folder}/{skill_name}/{baseline_version}/drift-report-*.md`:
+     the newest one whose frontmatter `stepsCompleted` lists `report`, so
+     the partial report a halted or stopped audit left never hides the
+     last finished one
   2. **Parse** the report for an "Out-of-Scope Observations" section
      (either `## Out-of-Scope Observations` at the top level or
      `### Out-of-Scope New Public API` under `## Remediation Suggestions`).
@@ -63,8 +66,9 @@ Output JSON (stdout):
   }
 
 `status` field shortcuts the caller:
-  - `no-report`     → no drift report exists; §1c skipped entirely
-  - `no-candidates` → report exists but Out-of-Scope section is absent/empty
+  - `no-report`     → no finished drift report exists; §1c skipped entirely
+  - `no-candidates` → a finished report exists but its Out-of-Scope section
+                      is absent/empty
   - `candidates-found` → classified[] is populated; iterate unresolved entries
 
 An `unresolved` entry with `prior_action: "deferred-headless"` is one a
@@ -73,6 +77,8 @@ headless run deferred; with `null` no run has decided it yet.
 Exit codes:
   0  — operation succeeded (any status)
   1  — user error (paths invalid, brief unparseable)
+
+A helper beside this script that cannot be loaded also exits 1.
 """
 
 from __future__ import annotations
@@ -88,18 +94,62 @@ import yaml
 
 
 # --------------------------------------------------------------------------
-# Discovery: locate the latest drift report
+# Discovery: locate the latest finished drift report
 # --------------------------------------------------------------------------
+
+
+_STEPS_KEY = "stepsCompleted"
+# The step id audit-skill's report step appends last: a report without it
+# is the partial one a halted or stopped run left.
+_FINISHED_STEP = "report"
+
+_READER = None
+
+
+def _reader():
+    """skf-validate-feasibility-report.py from this folder, loaded once: its
+    frontmatter_list reads a report's stepsCompleted in either YAML list
+    form. Raises ValueError when it cannot be loaded."""
+    global _READER
+    if _READER is None:
+        path = Path(__file__).resolve().parent / "skf-validate-feasibility-report.py"
+        spec = importlib.util.spec_from_file_location("skf_validate_feasibility_report", path)
+        if spec is None or spec.loader is None:
+            raise ValueError(f"cannot load {path.name} beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (OSError, ImportError, SyntaxError) as exc:
+            raise ValueError(f"cannot load {path.name} beside {Path(__file__).name}: {exc}") from exc
+        _READER = module
+    return _READER
+
+
+def _finished(report: Path, reader) -> bool:
+    """True when the report's frontmatter stepsCompleted lists `report`.
+
+    A report this process cannot read, or whose frontmatter holds no such
+    list, is not finished.
+    """
+    try:
+        # utf-8-sig drops a byte order mark, as the shared reader does.
+        content = report.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return False
+    steps = reader.frontmatter_list(content, _STEPS_KEY)
+    return steps is not None and _FINISHED_STEP in steps
 
 
 def discover_drift_report(
     forge_data_folder: Path, skill_name: str, baseline_version: str
 ) -> Path | None:
-    """Return the most recent drift-report-*.md under
+    """Return the latest finished drift-report-*.md under
     {forge_data_folder}/{skill_name}/{baseline_version}/, or None.
 
-    Reports are sorted by filename DESC — the convention is timestamped
-    filenames so lexicographic order == chronological order.
+    Reports are walked by filename DESC (the names are timestamped, so
+    lexicographic order is chronological order), and the first finished
+    one (_finished) wins. The shared frontmatter reader is loaded only
+    when a report exists; one it cannot load raises ValueError.
     """
     search_dir = forge_data_folder / skill_name / baseline_version
     if not search_dir.is_dir():
@@ -109,7 +159,13 @@ def discover_drift_report(
         key=lambda p: p.name,
         reverse=True,
     )
-    return candidates[0] if candidates else None
+    if not candidates:
+        return None
+    reader = _reader()
+    for candidate in candidates:
+        if _finished(candidate, reader):
+            return candidate
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -463,7 +519,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-provenance-gap-dispatch",
         description=(
-            "Locate the latest drift report, extract Out-of-Scope candidates, "
+            "Locate the latest finished drift report, extract Out-of-Scope candidates, "
             "and classify them against brief.scope.amendments[]."
         ),
     )

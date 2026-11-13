@@ -3,7 +3,10 @@
 
 Covers:
   - discover_drift_report: missing dir, no reports, single report, multiple
-    reports (returns latest by name DESC)
+    reports (returns the latest finished one by name DESC), a newer partial
+    report skipped for a finished one, only unfinished reports giving None,
+    each stepsCompleted shape, a report it cannot open, the finished step
+    id report.md appends, the reader left unloaded with no candidate
   - extract_out_of_scope_section: top-level heading, nested under
     Remediation Suggestions, missing section, multiple matches
   - parse_candidates: bullet format, table format, mixed formats,
@@ -13,13 +16,16 @@ Covers:
     when same path has multiple amendments, and a deferred-headless or
     legacy headless skip left unresolved for a person
   - dispatch end-to-end: no-report, no-candidates, candidates-found
-  - CLI: happy path, bad paths exit 1
+  - CLI: happy path, bad paths exit 1, a frontmatter reader it cannot load
+    exits 1
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import re
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -49,9 +55,15 @@ def _make_report_dir(tmp_path: Path, skill: str, version: str) -> Path:
     return d
 
 
-def _write_report(report_dir: Path, name: str, body: str) -> Path:
+# The frontmatter of a report whose audit finished: report.md appends
+# `report` to stepsCompleted last.
+FINISHED = "---\nstepsCompleted: ['init', 'report']\n---\n"
+
+
+def _write_report(report_dir: Path, name: str, body: str, finished: bool = True) -> Path:
     p = report_dir / name
-    p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+    text = textwrap.dedent(body).lstrip("\n")
+    p.write_text((FINISHED if finished else "") + text, encoding="utf-8")
     return p
 
 
@@ -99,6 +111,65 @@ class TestDiscover:
         _write_report(d, "drift-report-A.md", "# A")
         result = mod.discover_drift_report(tmp_path, "my-skill", "1.0.0")
         assert result.name == "drift-report-A.md"
+
+    def test_a_newer_partial_report_does_not_shadow_a_finished_one(self, tmp_path: Path) -> None:
+        # A gate [X] or a HALT after init leaves a baseline-only report.
+        d = _make_report_dir(tmp_path, "my-skill", "1.0.0")
+        _write_report(d, "drift-report-2026-04-01T120000.md", "# Finished")
+        _write_report(d, "drift-report-2026-05-01T120000.md",
+                      "---\nstepsCompleted: ['init']\n---\n# Partial\n", finished=False)
+        result = mod.discover_drift_report(tmp_path, "my-skill", "1.0.0")
+        assert result.name == "drift-report-2026-04-01T120000.md"
+
+    def test_only_unfinished_reports_give_none(self, tmp_path: Path) -> None:
+        forge = tmp_path / "forge"
+        d = _make_report_dir(forge, "my-skill", "1.0.0")
+        for name, body in (("A", "---\nstepsCompleted: ['init']\n---\n"), ("B", "---\nstepsCompleted: []\n---\n"),
+                           ("C", "# No frontmatter\n\n## Out-of-Scope Observations\n- `src/x.py` - 1 export\n")):
+            _write_report(d, f"drift-report-{name}.md", body, finished=False)
+        # A report that is not UTF-8 cannot be read, so it is not finished either.
+        (d / "drift-report-D.md").write_bytes(FINISHED.encode("utf-8") + b"\xff\xfe\n")
+        assert mod.discover_drift_report(forge, "my-skill", "1.0.0") is None
+        result = mod.dispatch(forge_data_folder=forge, skill_name="my-skill", baseline_version="1.0.0",
+                              brief_path=_write_brief(tmp_path, []))
+        assert (result["status"], result["report_path"]) == ("no-report", None)
+
+    @pytest.mark.parametrize("raw", [
+        b"---\nstepsCompleted:\n  - init\n  - report\n---\n# Block list\n",
+        b"---\r\nstepsCompleted: ['init', 'report']\r\n---\r\n# CRLF\r\n",
+        b"\xef\xbb\xbf---\nstepsCompleted: ['init', 'report']\n---\n# BOM\n",
+    ], ids=["block-list", "crlf", "bom"])
+    def test_each_steps_completed_shape_reads_as_finished(self, tmp_path: Path, raw: bytes) -> None:
+        d = _make_report_dir(tmp_path, "my-skill", "1.0.0")
+        (d / "drift-report-A.md").write_bytes(raw)
+        # A newer partial report in the same shape, which discovery must pass over.
+        (d / "drift-report-B.md").write_bytes(raw.replace(b"report", b"init"))
+        result = mod.discover_drift_report(tmp_path, "my-skill", "1.0.0")
+        assert result is not None and result.name == "drift-report-A.md"
+
+    def test_a_report_it_cannot_open_is_not_finished(self, tmp_path: Path) -> None:
+        # A directory under a report's name raises OSError on read: it is passed over.
+        d = _make_report_dir(tmp_path, "my-skill", "1.0.0")
+        _write_report(d, "drift-report-A.md", "# Finished")
+        (d / "drift-report-B.md").mkdir()
+        result = mod.discover_drift_report(tmp_path, "my-skill", "1.0.0")
+        assert result is not None and result.name == "drift-report-A.md"
+
+    def test_the_finished_step_is_the_one_audit_report_appends(self) -> None:
+        # Audit Skill's report step appends this id last; a rename there would
+        # make every report read as unfinished here.
+        report = (REPO_ROOT / "src" / "skf-audit-skill" / "references" / "report.md").read_text(encoding="utf-8")
+        assert re.findall(r"Append `'([^']+)'` to `stepsCompleted`", report) == [mod._FINISHED_STEP]
+
+    def test_no_candidate_never_loads_the_reader(self, tmp_path: Path, monkeypatch) -> None:
+        def _fail():
+            pytest.fail("the frontmatter reader was loaded with no candidate report")
+
+        monkeypatch.setattr(mod, "_reader", _fail)
+        d = _make_report_dir(tmp_path, "my-skill", "1.0.0")
+        assert mod.discover_drift_report(tmp_path, "my-skill", "1.0.0") is None
+        _write_report(d, "other.md", "# Other")
+        assert mod.discover_drift_report(tmp_path, "my-skill", "1.0.0") is None
 
 
 # --------------------------------------------------------------------------
@@ -511,3 +582,25 @@ class TestCli:
     def test_no_subcommand_exits_2(self) -> None:
         result = _run_cli()
         assert result.returncode == 2
+
+    def test_a_reader_it_cannot_load_exits_1(self, tmp_path: Path) -> None:
+        # The script copied alone: skf-validate-feasibility-report.py is not beside it.
+        alone = tmp_path / "alone"
+        alone.mkdir()
+        script = alone / SCRIPT_PATH.name
+        shutil.copyfile(SCRIPT_PATH, script)
+        brief_path = _write_brief(tmp_path, [])
+        forge = tmp_path / "forge"
+        _write_report(_make_report_dir(forge, "x", "1.0.0"), "drift-report-A.md", "# Report")
+        result = subprocess.run(
+            [sys.executable, str(script), "dispatch", "--skill-name", "x", "--baseline-version", "1.0.0",
+             "--forge-data-folder", str(forge), "--brief", str(brief_path)],
+            capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert result.stdout == ""
+        # The helper's own one-line error, never an uncaught traceback.
+        assert result.stderr.startswith(
+            "error: cannot load skf-validate-feasibility-report.py beside skf-provenance-gap-dispatch.py"
+        ), result.stderr
+        assert "Traceback" not in result.stderr

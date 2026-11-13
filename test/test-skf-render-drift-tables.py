@@ -752,6 +752,8 @@ def test_the_report_renders_the_out_of_scope_table_with_one_call():
     for gone in ("### Out-of-Scope New Public API", "| Path | Evidence |", "{outside_scope[].path}",
                  "Write one table row per item"):
         assert gone not in text, gone
-    # The report template still says where the subsection goes.
-    remediation = _slice(_read(TEMPLATE), "## Remediation Suggestions", "---")
-    assert "Out-of-Scope New Public API" in remediation
+    # #1129: report.md's block says where the subsection goes, and the template
+    # holds no Remediation Suggestions heading for the stage to write again.
+    assert "## Remediation Suggestions" not in _read(TEMPLATE)
+    block = _slice(text, "## Remediation Suggestions\n", "### Workflow Recommendation")
+    assert block.count(OUTSIDE_SCOPE_SLOT) == 1

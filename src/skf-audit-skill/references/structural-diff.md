@@ -38,6 +38,8 @@ Compare the provenance map create-skill wrote with step 2's re-index snapshot: a
 - Focus only on structural comparison — added/removed/changed exports
 - Do not classify severity (Step 05) or suggest remediation (Step 06)
 - Save each helper's JSON in `{auditDataFolder}`: step 5 classifies those files, not the tables this step renders, and §5 renders the tables from them
+- `{is_stack_skill}` is the `is_stack_skill` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still diffs a stack library by library
+- `{legacy_stack_provenance}` is the `legacy_stack_provenance` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still diffs a v1 stack's exports as one list
 
 ## MANDATORY SEQUENCE
 
@@ -61,7 +63,7 @@ Compare the baseline provenance map (`{provenanceMap}`, step 1 §1) with the ext
 uv run {structuralDiffHelper} "{provenanceMap}" "{extractionSnapshot}" -o "{auditDataFolder}/structural-diff.json"
 ```
 
-For a stack skill with v2 provenance, add `--group-by source_library` (see Stack-Specific Structural Diff).
+For a stack skill with v2 provenance, add `--group-by source_library` (see Stack-Specific Structural Diff): `{is_stack_skill}` true and `{legacy_stack_provenance}` false.
 
 With `-o` the helper saves the diff to the file and prints one line, `{"status": "ok", "output": ..., "summary": {...}}`. Exit `0` (no export added, removed, changed or moved) and exit `1` (differences found) both saved it. Exit `2` saved nothing; act on its `error`:
 
@@ -80,7 +82,7 @@ The saved diff holds every set §5 renders. This step reads three of its fields 
 An export moved to a file outside the bounded scan list is missing from the snapshot, so the diff reports it as removed, which step 5 grades CRITICAL. Look for each `removed[]` entry of `{auditDataFolder}/structural-diff.json` elsewhere in the source:
 
 1. Search for its name: `cd {source_root} && ccc search --limit 5 "{name}"` (CLI), the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor). `ccc search` reads the index of the current working directory (`knowledge/ccc-bridge.md` gives its flags). When `{source_tree}` is set, `{source_root}` is the private tree the [C] of `upstream-checkout.md` read, which has no ccc index: list the files of the tree that hold the name as a word instead, with `git -C "{source_root}" grep -l -w -F -e "{name}"`, and take them as the candidates.
-2. Drop each candidate file on `{bounded_scan_files}`: step 2 extracted those files, so the diff already saw their exports.
+2. Drop each candidate file listed in `{auditDataFolder}/scan-files.json`, the scan list step 2 wrote: step 2 extracted those files, so the diff already saw their exports.
 3. Write the remaining candidates of every name, relative to `{source_root}` with forward slashes, as one JSON list in `{auditDataFolder}/relocation-candidates.json`. Resolve `{extractPublicApiHelper}` and `{extractionSnapshotHelper}` from their probe orders, then, from `{project-root}`, run the recipes over the candidates and add what they find to the snapshot:
 
    ```bash
@@ -147,7 +149,7 @@ Render the section's tables from the saved files, never by hand: a hand copy of 
 uv run {renderDriftTablesScript} structural "{auditDataFolder}/structural-diff.json" --file-drift "{auditDataFolder}/file-drift.json"
 ```
 
-It prints the section's tables (`--help` lists them). A rollup changes no count: the headings and the summary come from the JSON.
+It prints the section's tables (`--help` lists them). Among them, a **Provenance label differences (not drift)** table comes only when `label_changes[]` is non-empty and an **Off the public surface:** note under the Summary only when `summary.not_public` is above 0, neither counted in Total Drift Items. A rollup changes no count: the headings and the summary come from the JSON.
 
 Append to {outputFile}:
 
