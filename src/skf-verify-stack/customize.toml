@@ -89,9 +89,6 @@ report_template_path = ""
 #   - the integration verification rules: they hold the obligations the shared
 #     schema puts on this report's producer (Check 4's literal citation and the
 #     Plausible cap), which the report's readers rely on;
-#   - the coverage patterns: the shared mentions helper finds the skills the
-#     architecture document names, and a fact (see persistent_facts) adds the
-#     other names a skill goes by;
 #   - the report folder: the report always lands in {forge_data_folder}, where
 #     create-stack-skill and refine-architecture look for it. Change
 #     forge_data_folder in config.yaml to move the report and its readers

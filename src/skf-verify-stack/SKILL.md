@@ -14,7 +14,7 @@ Cross-references generated skills against architecture and PRD documents to prod
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `references/` holds the workflow stages, chained by frontmatter `nextStepFile`; the rules file a stage loads (`integrations.md` loads `integration-verification-rules.md`); and the halt reference the stages point to (`exit-codes.md`). `scripts/` holds this skill's deterministic helpers and `assets/` the report template.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.

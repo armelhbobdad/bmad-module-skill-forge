@@ -43,13 +43,18 @@ and pin the prose around them:
 - a pair of one skill is dropped before the scanner and the tally, which both
   refuse it, and a pair whose skill changed mid-run is a Risky row;
 - coverage finds the skills the document names, by name or source basename,
-  through the shared mentions helper, and runs it again with each term the
-  model matched to a skill under a common alias, so the integrations stage
-  judges the candidate pairs of every Covered skill; the requirements stage
-  reads the step 3 summaries, never a SKILL.md;
-- the integration rules, the coverage patterns and the report folder are no
-  customize.toml settings, the report template's comment names what the
-  schema fixes, and a path a flag gave is never asked for again;
+  through the shared mentions helper, hands it the other technologies
+  (`--technologies`) so the helper settles every name and alias match and
+  the model judges only the names it leaves unverified, and runs it again
+  with each term matched to a skill the document did not name, so the
+  integrations stage judges the candidate pairs of every Covered skill; the
+  requirements stage reads the step 3 summaries, never a SKILL.md (#1199);
+- coverage.md states each rule once, with no coverage-patterns.md beside it,
+  and the integration rules file ends after Check 4, integrations.md §4
+  being the one home of verdict evidence (#1199);
+- the integration rules and the report folder are no customize.toml
+  settings, the report template's comment names what the schema fixes, and
+  a path a flag gave is never asked for again;
 - report.md §5 deletes the run folder, then carries out the on_complete
   instruction, shows its failure on one line and goes on, then chains to
   the health check even when the instruction started another workflow,
@@ -812,6 +817,28 @@ def test_init_persists_the_inventory_in_the_run_folder():
 
 
 MENTIONS_CALL = 'uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - > "{docMentionsFile}"'
+TECHNOLOGIES_CALL = ('uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - '
+                     '--technologies "{run_dir}/technologies.json" > "{docMentionsFile}"')
+
+
+def _run_mentions(call: str, doc: Path, run_dir: Path, skills: list[dict]):
+    """Run a coverage.md mentions call as written, for this document and run folder, the skills on stdin."""
+    filled = call.split(" > ", 1)[0].replace("<architectureDoc>", doc.as_posix())
+    words = shlex.split(filled.replace("{run_dir}", run_dir.as_posix()))
+    assert words[:3] == ["uv", "run", "{comentionHelper}"], words
+    return _run([COMENTION, *words[3:]], stdin=json.dumps(skills))
+
+
+def _mentions(call: str, doc: Path, run_dir: Path, skills: list[dict]) -> dict:
+    """The JSON of a coverage.md mentions call that succeeds."""
+    proc = _run_mentions(call, doc, run_dir, skills)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _write_technologies(run_dir: Path, names: list[str]) -> None:
+    """Section 2's `{run_dir}/technologies.json`: the other technologies, as the document writes them."""
+    (run_dir / "technologies.json").write_bytes(json.dumps(names).encode("utf-8"))
 
 
 def _mentions_skills(inventory: dict) -> list[dict]:
@@ -836,6 +863,8 @@ def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
     # No hand scan for skill names and no hand equality on the source basenames.
     match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
     assert "A `mentioned` skill matches its own row" in match
+    # The other technologies go to the helper too, by the call the fixture below runs (#1199).
+    assert TECHNOLOGIES_CALL in match
     for stale in ("Direct name matching", "for equality with", "extract the basename",
                   "strip any trailing `.git` suffix"):
         assert stale not in coverage, stale
@@ -854,23 +883,29 @@ def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
     doc = tmp_path / "architecture.md"
     doc.write_bytes(("# App\n\n## Data\n\nReact Query caches what Cognee returns.\n\n"
                      "```mermaid\ngraph LR\n  zod --> app\n```\n").encode("utf-8"))
-    proc = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"],
-                stdin=json.dumps(_mentions_skills(json.loads(enum.stdout))))
-    assert proc.returncode == 0, proc.stderr
-    mentions = json.loads(proc.stdout)
-    # "Cognee" names oms-cognee by its repository; "React Query" is no skill
-    # name or alias, so the model's own detection reads it under an alias.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    mentions = _mentions(MENTIONS_CALL, doc, run_dir, _mentions_skills(json.loads(enum.stdout)))
+    # "Cognee" names oms-cognee by its repository; "React Query" names no skill
+    # at a word boundary, so section 2 lists it as another technology.
     assert mentions["mentioned"] == ["oms-cognee"]
     assert mentions["fenced_only"] == ["zod"] and mentions["unmentioned"] == ["react-query"]
     assert [b["info"] for b in mentions["fenced_blocks"]] == ["mermaid"]
     assert mentions["candidates"] == []
 
-    # The second run §3 documents: the document's "React Query" is now an
+    # Section 3's --technologies run: the helper finds "React Query" equal to
+    # the react-query skill's name, so the model judges nothing.
+    _write_technologies(run_dir, ["React Query"])
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, _mentions_skills(json.loads(enum.stdout)))
+    [technology] = matched["technologies"]
+    assert technology["name"] == "React Query"
+    assert [(c["skill"], c["kind"]) for c in technology["covered_by"]] == [("react-query", "name")]
+    assert matched["unverified_technologies"] == []
+
+    # The run again §3 documents: the document's "React Query" is now an
     # alias of react-query, so the skill is named and its pair is a candidate.
     rerun = _with_alias(_mentions_skills(json.loads(enum.stdout)), "react-query", "React Query")
-    proc = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"], stdin=json.dumps(rerun))
-    assert proc.returncode == 0, proc.stderr
-    mentions = json.loads(proc.stdout)
+    mentions = _mentions(TECHNOLOGIES_CALL, doc, run_dir, rerun)
     assert mentions["mentioned"] == ["oms-cognee", "react-query"]
     assert [(c["a"], c["b"]) for c in mentions["candidates"]] == [("oms-cognee", "react-query")]
 
@@ -883,11 +918,16 @@ def _with_alias(skills: list[dict], name: str, term: str) -> list[dict]:
 def test_a_skill_the_model_matches_under_a_common_alias_reaches_the_pairs(tmp_path):
     coverage = _read(REFERENCES / "coverage.md")
     match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
-    rerun = _section(match, "**Run the mentions helper again when the model matched a skill.**", "\n\n")
-    assert "add the technology's term, as the document writes it, to that skill's `aliases`" in rerun
-    assert "run the §2 `mentions` command once more with the extended array, overwriting `{docMentionsFile}`" in rerun
+    lead = "**Run the mentions helper again when a technology matches a skill that is not `mentioned`.**"
+    rerun = _section(match, lead, "\n\n")
+    assert "Add the technology's term, as the document writes it, to that skill's `aliases`" in rerun
+    assert "run the command above once more with the extended array, overwriting `{docMentionsFile}`" in rerun
     assert "take §2's skill rows from the new file" in rerun
     assert "labelled with its `name`, replaces the technology's" in rerun
+    assert "With no such match, skip this run." in rerun
+    # The command above is the --technologies one, so the run again keeps one command shape.
+    above = match[:match.index("**Run the mentions helper again")]
+    assert above.count("uv run {comentionHelper} mentions") == 1 and TECHNOLOGIES_CALL in above
     extras = _section(coverage, "### 4. Detect Extra Skills", "**Subdivide")
     assert "as §3 left it" in extras and "matched by no technology" not in extras
     # The integrations stage reads the same file, so the pair reaches it.
@@ -896,21 +936,168 @@ def test_a_skill_the_model_matches_under_a_common_alias_reaches_the_pairs(tmp_pa
 
     doc = tmp_path / "architecture.md"
     doc.write_bytes("# App\n\n## Data\n\nPrisma connects to PostgreSQL over TCP.\n".encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
     skills = [{"name": "postgres", "aliases": []}, {"name": "prisma", "aliases": []}]
-    first = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"], stdin=json.dumps(skills))
-    assert first.returncode == 0, first.stderr
-    first_out = json.loads(first.stdout)
-    # "PostgreSQL" is no skill name: only the model's common-alias match finds it.
+    first_out = _mentions(MENTIONS_CALL, doc, run_dir, skills)
     assert first_out["mentioned"] == ["prisma"] and first_out["unmentioned"] == ["postgres"]
     assert first_out["candidates"] == []
-    second = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"],
-                  stdin=json.dumps(_with_alias(skills, "postgres", "PostgreSQL")))
-    assert second.returncode == 0, second.stderr
-    second_out = json.loads(second.stdout)
+    # "PostgreSQL" is no skill name or alias: the helper leaves it unverified,
+    # and only the model's common-alias match finds the postgres skill.
+    _write_technologies(run_dir, ["PostgreSQL"])
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    assert [(t["name"], t["covered_by"]) for t in matched["technologies"]] == [("PostgreSQL", [])]
+    assert matched["unverified_technologies"] == ["PostgreSQL"]
+    second_out = _mentions(TECHNOLOGIES_CALL, doc, run_dir, _with_alias(skills, "postgres", "PostgreSQL"))
     assert second_out["mentioned"] == ["postgres", "prisma"] and second_out["unmentioned"] == []
     [candidate] = second_out["candidates"]
     assert (candidate["a"], candidate["b"]) == ("postgres", "prisma")
     assert "Prisma connects to PostgreSQL" in candidate["evidence"][0]["unit_excerpt"]
+
+
+def test_coverage_matches_the_other_technologies_by_script(tmp_path):
+    """#1199 determinism-3: section 2 writes the other technologies to a file, section 3 hands it to the
+    mentions helper (--technologies), whose name and alias matches are Covered, and the model judges only
+    the names the helper leaves unverified."""
+    coverage = _read(REFERENCES / "coverage.md")
+    extract = _section(coverage, "### 2. Extract Technology References", "### 3.")
+    assert "write `{run_dir}/technologies.json`, a JSON array" in extract and "(`[]` when there is none)" in extract
+    assert "no name from fenced code goes in the file" in extract and "`fenced_only` list" in extract
+    for gone in ("**Section-based detection:**", "**Contextual detection:**", "**Build a deduplicated list**"):
+        assert gone not in coverage, gone
+    match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
+    assert TECHNOLOGIES_CALL in match
+    assert "each `covered_by` entry of kind `name` or `alias`" in match
+    assert "Judge only the names in `unverified_technologies`" in match
+    assert "A `name-contained` or `alias-contained` entry is no match by itself: React Native is not `react`." in match
+    # The folded common aliases and the framework rule.
+    for kept in ('"ReactJS" or "react.js" for a `react` skill', '"PostgreSQL" for a `postgres` skill',
+                 '"Tauri" encompasses the Tauri ecosystem'):
+        assert kept in match, kept
+    for gone in ("by the skill's name (case-insensitive)", "coveragePatternsData", "### 1. Load Coverage Patterns",
+                 "must be binary", "§2's own detection"):
+        assert gone not in coverage, gone
+    assert "- Each technology gets exactly one verdict: Covered, Missing or Replaced (§3)\n" in coverage
+
+    # The documented calls on a document naming Tailwind CSS and PostgreSQL in prose.
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(("# App\n\n## Styling\n\nThe web app styles its pages with Tailwind CSS.\n\n"
+                     "## Data\n\nPrisma connects to PostgreSQL over TCP.\n").encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    skills = [{"name": n, "aliases": []} for n in ("postgres", "prisma", "tailwindcss")]
+    first = _mentions(MENTIONS_CALL, doc, run_dir, skills)
+    assert first["mentioned"] == ["prisma"] and first["unmentioned"] == ["postgres", "tailwindcss"]
+    # Section 2 lists the two other technologies; prisma names a mentioned skill.
+    _write_technologies(run_dir, ["Tailwind CSS", "PostgreSQL"])
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    covered = {t["name"]: [(c["skill"], c["kind"]) for c in t["covered_by"]] for t in matched["technologies"]}
+    assert covered == {"Tailwind CSS": [("tailwindcss", "name")], "PostgreSQL": []}
+    # Tailwind CSS is Covered by script; the model judges PostgreSQL alone, under its common alias.
+    assert matched["unverified_technologies"] == ["PostgreSQL"]
+    assert matched["mentioned"] == ["prisma"]
+    # Both matched skills go unmentioned, so the run again adds both terms.
+    rerun = _with_alias(_with_alias(skills, "tailwindcss", "Tailwind CSS"), "postgres", "PostgreSQL")
+    final = _mentions(TECHNOLOGIES_CALL, doc, run_dir, rerun)
+    assert final["mentioned"] == ["postgres", "prisma", "tailwindcss"] and final["unmentioned"] == []
+    assert [(c["a"], c["b"]) for c in final["candidates"]] == [("postgres", "prisma")]
+    assert final["unverified_technologies"] == []
+
+
+def test_a_named_skill_keeps_one_row_and_a_glued_version_stays_in_its_alias(tmp_path):
+    """#1199 review: a technology the helper matches to a `mentioned` skill adds no second row, and the
+    run again keeps a version written onto a name, since the helper finds a term only at word boundaries."""
+    coverage = _read(REFERENCES / "coverage.md")
+    match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
+    assert "- A technology matched to a `mentioned` skill adds no row: that skill's own row stands.\n" in match
+    rerun = _section(match, "**Run the mentions helper again", "\n\n")
+    assert "Keep a version written onto the name (`Vue3`, not `Vue`)" in rerun
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    # "Tailwind CSS" is no word-boundary mention of tailwindcss, yet the helper covers it by that named skill.
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(("# App\n\n## Styling\n\nPages use tailwindcss utilities.\n\n"
+                     "## Build\n\nTailwind CSS runs in the build.\n").encode("utf-8"))
+    skills = [{"name": "tailwindcss", "aliases": []}]
+    _write_technologies(run_dir, ["Tailwind CSS"])
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    assert matched["mentioned"] == ["tailwindcss"]
+    assert [[c["skill"] for c in t["covered_by"]] for t in matched["technologies"]] == [["tailwindcss"]]
+
+    # "Vue3" with its version stripped is covered by vue, but only the written term names vue in the run again.
+    doc.write_bytes("# App\n\n## UI\n\nThe UI keeps its Vue3 state in Pinia.\n".encode("utf-8"))
+    skills = [{"name": "pinia", "aliases": []}, {"name": "vue", "aliases": []}]
+    _write_technologies(run_dir, ["Vue"])
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    assert matched["mentioned"] == ["pinia"]
+    assert [(c["skill"], c["kind"]) for c in matched["technologies"][0]["covered_by"]] == [("vue", "name")]
+    stripped = _mentions(TECHNOLOGIES_CALL, doc, run_dir, _with_alias(skills, "vue", "Vue"))
+    assert stripped["unmentioned"] == ["vue"]
+    written = _mentions(TECHNOLOGIES_CALL, doc, run_dir, _with_alias(skills, "vue", "Vue3"))
+    assert written["mentioned"] == ["pinia", "vue"]
+    assert [(c["a"], c["b"]) for c in written["candidates"]] == [("pinia", "vue")]
+
+
+def test_a_contained_name_or_an_empty_list_matches_no_skill(tmp_path):
+    """#1199: a skill name found only inside a longer name covers nothing, an empty technologies file
+    adds empty lists, and a technologies file the helper rejects fails the call (the coverage:mentions HALT)."""
+    coverage = _read(REFERENCES / "coverage.md")
+    run = _section(coverage, "**Match the other technologies by script.**", "```bash")
+    assert "overwriting `{docMentionsFile}` (the same HALT applies)" in run
+    match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal")
+    assert TECHNOLOGIES_CALL in match
+    extract = _section(coverage, "### 2. Extract Technology References", "### 3.")
+    assert ('If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_reason: '
+            '"resolution-failure"`) at phase `coverage:mentions`, naming its first stderr line') in extract
+
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes("# App\n\n## Mobile\n\nThe mobile app is built with React Native.\n".encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    skills = [{"name": "react", "aliases": []}]
+    _write_technologies(run_dir, ["React Native"])
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    [technology] = matched["technologies"]
+    assert [(c["skill"], c["kind"]) for c in technology["covered_by"]] == [("react", "name-contained")]
+    assert matched["unverified_technologies"] == ["React Native"]
+
+    _write_technologies(run_dir, [])
+    empty = _mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    assert empty["technologies"] == [] and empty["unverified_technologies"] == []
+
+    # A file the helper rejects exits non-zero with a first stderr line to name.
+    (run_dir / "technologies.json").write_bytes(b'{"names": ["React Native"]}')
+    proc = _run_mentions(TECHNOLOGIES_CALL, doc, run_dir, skills)
+    assert proc.returncode != 0 and proc.stdout == ""
+    assert "--technologies" in proc.stderr.splitlines()[0]
+
+
+def test_coverage_states_each_rule_once():
+    """#1199 architecture-5 and leanness-7: coverage-patterns.md is folded into coverage.md, and section 4
+    keeps one Extra/Orphan list."""
+    assert not (REFERENCES / "coverage-patterns.md").exists()
+    suffixes = {".md", ".toml", ".py", ".json", ".yaml"}
+    for path in sorted(p for p in SKILL.rglob("*") if p.is_file() and p.suffix in suffixes):
+        text = _read(path)
+        for gone in ("coverage-patterns.md", "coveragePatternsData", "Verdict Evidence Format", "must be binary",
+                     "by the skill's name (case-insensitive)"):
+            assert gone not in text, f"{_rel(path)}: {gone}"
+    coverage = _read(REFERENCES / "coverage.md")
+    extras = _section(coverage, "### 4. Detect Extra Skills", "### 5.")
+    assert extras.count("**Subdivide") == 1 and "**For each extra skill:**" not in extras
+    assert [line for line in extras.splitlines() if line.startswith("Both are informational")] == [
+        "Both are informational: neither affects the coverage verdict."]
+    for note in ("exists and has a resolvable `source_repo`, but no architecture reference was found.",
+                 "has no resolvable `source_repo`, so it cannot be cross-referenced against the architecture."):
+        assert coverage.count(note) == 1, note
+    # Section numbers stay put once section 1 goes, so every section reference holds.
+    headings = [line for line in coverage.splitlines() if line.startswith("### ")]
+    assert [h.split(".", 1)[0] for h in headings] == ["### 2", "### 3", "### 4", "### 5", "### 6", "### 7"]
+    # SKILL.md names the rules file and the stage that loads it.
+    conventions = _section(_read(SKILL / "SKILL.md"), "## Conventions", "## Role")
+    assert "`integrations.md` loads `integration-verification-rules.md`" in conventions
+    assert "static reference docs" not in conventions
 
 
 def test_integrations_judges_the_mentions_candidates(tmp_path):
@@ -1013,7 +1200,11 @@ def test_requirements_reads_the_step_3_summaries_not_skill_md():
 
 def test_the_rules_file_says_the_scanner_runs_check_4():
     rules = _read(REFERENCES / "integration-verification-rules.md")
-    check4 = _section(rules, "### 4. Documentation Cross-Reference", "---")
+    # Check 4 ends the file: no evidence template follows it (#1199 leanness-1).
+    check4 = rules[rules.index("### 4. Documentation Cross-Reference"):]
+    assert "Verdict Evidence Format" not in rules and "## Purpose" not in rules and "\n---" not in check4
+    assert "Extract: verification checks" not in _read(REFERENCES / "integrations.md")
+    assert "**Each verdict includes:**" in _read(REFERENCES / "integrations.md")
     assert "skf-scan-skill-md-structure.py cross-reference" in check4
     assert "a citation is a hit it lists, never a line read from a SKILL.md" in check4
     assert "the next step" in check4
@@ -1157,13 +1348,13 @@ def test_no_stage_reads_a_removed_setting():
         for stale in ("{integrationRulesPath}", "{coveragePatternsPath}", "integration_rules_path",
                       "coverage_patterns_path", "output_folder_path"):
             assert stale not in text, f"{_rel(path)}: {stale}"
-    # Each stage loads the bundled file by its path from the skill root.
-    assert "coveragePatternsData: 'references/coverage-patterns.md'" in _frontmatter(_read(REFERENCES / "coverage.md"))
+    # The integrations stage loads the bundled rules file by its path from the skill root;
+    # coverage loads no data file, its patterns folded into it (#1199).
     integrations = _frontmatter(_read(REFERENCES / "integrations.md"))
     assert "integrationRulesData: 'references/integration-verification-rules.md'" in integrations
-    assert "coveragePatternsData" not in integrations
-    for name in ("coverage-patterns.md", "integration-verification-rules.md"):
-        assert (REFERENCES / name).is_file(), name
+    assert (REFERENCES / "integration-verification-rules.md").is_file()
+    assert "Data:" not in _frontmatter(_read(REFERENCES / "coverage.md"))
+    assert not (REFERENCES / "coverage-patterns.md").exists()
     # The report folder is the forge data folder, always.
     skill = _read(SKILL / "SKILL.md")
     assert "Bind `{outputFolderPath}` ← `{forge_data_folder}`, always (no setting moves it)" in skill

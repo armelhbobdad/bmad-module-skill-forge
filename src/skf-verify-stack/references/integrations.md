@@ -58,8 +58,6 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 Load `{integrationRulesData}` for the cross-reference verification protocol.
 
-Extract: verification checks (language boundary, protocol compatibility, type compatibility, documentation cross-reference), verdict criteria, and evidence requirements.
-
 ### 2. Extract Integration Claims
 
 **Prose co-mention:** step 2's mentions run already found the candidate pairs. Take each entry of `candidates[]` in `{docMentionsFile}` whose two skills (`a` and `b`) are both Covered in Step 02, and judge it from its `evidence[]` (`unit_excerpt`, with its `header` and `unit_line`): it is an integration claim when an entry describes an *integration relationship* (data flowing between the two, one wrapping, bridging, extending or consuming the other, or a layer boundary connecting them), not mere co-mention in the same text. A pair outside `candidates[]` is not claimed: no paragraph names both, the document only lists them together, or it draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads.

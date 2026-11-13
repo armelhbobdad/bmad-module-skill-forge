@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'integrations.md'
-coveragePatternsData: 'references/coverage-patterns.md'
 coverageTallyScript: 'scripts/skf-coverage-tally.py'
 reportUpdateScript: 'scripts/skf-report-update.py'
 comentionProbeOrder:
@@ -28,7 +27,7 @@ Verify that a generated skill exists for every technology, library, or framework
 ## Rules
 
 - Focus only on technology-to-skill coverage mapping — do not analyze API surfaces (Step 03) or requirements (Step 04)
-- Coverage verdicts must be binary: Covered or Missing
+- Each technology gets exactly one verdict: Covered, Missing or Replaced (§3)
 
 ## MANDATORY SEQUENCE
 
@@ -39,10 +38,6 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-verify-stack --run-dir "{ru
 ```
 
 Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
-
-### 1. Load Coverage Patterns
-
-Load `{coveragePatternsData}`: which technologies the mentions helper finds and which the model finds, the aliases a skill goes by, and what fenced code hides from both.
 
 ### 2. Extract Technology References
 
@@ -56,27 +51,23 @@ piping on stdin a JSON array with one object per `skills[]` entry of `{inventory
 
 **Skills the document names:** each skill in the helper's `mentioned` list is a referenced technology, labelled with the skill's `name`, whose source section is the `header` of its first `skills[].paragraphs[]` entry (none when that `header` is null or the document names the skill only in a heading).
 
-**Other technologies:** find the document's other technology, library and framework names, skipping each term that names a `mentioned` skill:
-
-**Section-based detection:**
-- Identify section headings that indicate technology listings (e.g., "Tech Stack", "Dependencies", "Technologies", "Libraries", layer-specific headings)
-- Extract technology names listed under these headings
-
-**Contextual detection:**
-- Identify technology names mentioned in prose alongside architectural descriptions
-- Look for version-pinned references (e.g., "Express v4", "Tailwind CSS 3.x")
-
-**Build a deduplicated list** of all referenced technologies with the document section where each was found.
+**Other technologies:** write `{run_dir}/technologies.json`, a JSON array of the other technology, library and framework names the document's prose writes (`[]` when there is none): each once, as the document writes it but without a version (`Tailwind CSS` for "Tailwind CSS 3.x"), skipping each term that names a `mentioned` skill. Note the section each was first found under. Coverage reads only prose (headings, paragraphs, lists, tables): the helper skips every fenced block, a Mermaid diagram or an install command alike, so a skill the document names only inside one is in its `fenced_only` list, and no name from fenced code goes in the file.
 
 ### 3. Cross-Reference Against Skills
 
-For each referenced technology in the list:
+**Match the other technologies by script.** Run the §2 command again with the same array on stdin and `--technologies` added, overwriting `{docMentionsFile}` (the same HALT applies):
 
-**Check if a matching skill exists** in the skill inventory step 1 wrote to `{inventoryFile}`.
+```bash
+uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - --technologies "{run_dir}/technologies.json" > "{docMentionsFile}"
+```
+
+Each referenced technology matches a skill of `{inventoryFile}` this way:
 - A `mentioned` skill matches its own row: the helper already matched its name and aliases.
-- A technology §2's own detection found matches a skill by the skill's name (case-insensitive), or by a common alias from {coveragePatternsData} (e.g., "PostgreSQL" for `postgres`), so a document that writes only "PostgreSQL" still covers a `postgres` skill.
+- A `technologies[]` entry matches the `skill` of each `covered_by` entry of kind `name` or `alias`: the helper found the name equal to that skill's name or an alias once case, spaces, hyphens, dots and underscores are dropped (`Tailwind CSS` for `tailwindcss`).
+- Judge only the names in `unverified_technologies`: one matches a skill under a common alias of the skill's name ("ReactJS" or "react.js" for a `react` skill, "PostgreSQL" for a `postgres` skill), or a framework name for the skill of a library it encompasses (e.g., "Tauri" encompasses the Tauri ecosystem). A `name-contained` or `alias-contained` entry is no match by itself: React Native is not `react`.
+- A technology matched to a `mentioned` skill adds no row: that skill's own row stands.
 
-**Run the mentions helper again when the model matched a skill.** When a technology §2's own detection found matches a skill that is not in `mentioned`, add the technology's term, as the document writes it, to that skill's `aliases`. Once every technology is checked, run the §2 `mentions` command once more with the extended array, overwriting `{docMentionsFile}` (the same HALT applies), and take §2's skill rows from the new file: each such skill is in `mentioned` now, and its row, labelled with its `name`, replaces the technology's. The integrations stage then finds that skill's pairs in `candidates[]`. With no such match, skip the second run.
+**Run the mentions helper again when a technology matches a skill that is not `mentioned`.** Add the technology's term, as the document writes it, to that skill's `aliases`. Keep a version written onto the name (`Vue3`, not `Vue`): the helper finds a term only at word boundaries. Once every technology is checked, run the command above once more with the extended array, overwriting `{docMentionsFile}` (the same HALT applies), and take §2's skill rows from the new file: each such skill is in `mentioned` now, and its row, labelled with its `name`, replaces the technology's. The integrations stage then finds that skill's pairs in `candidates[]`. With no such match, skip this run.
 
 **Detect a deliberate-removal signal (from the architecture document):** Before assigning Covered/Missing, check whether the referenced technology is explicitly marked for removal or replacement in the architecture document itself. Be conservative — recognize a removal signal only when one of these is present, and when in doubt leave it as a normal reference (a false removal signal silently drops a real coverage gap):
 - The technology is listed under a section whose heading matches (case-insensitive) one of: "deprecated", "removed", "legacy", "migrating away", "being replaced", "to be removed", "sunset", "retiring".
@@ -101,15 +92,11 @@ uv run {coverageTallyScript} --stdin < "{run_dir}/coverage-rows.json" > "{run_di
 
 Check if any skills in the inventory are not referenced in the architecture document: a skill in the `unmentioned` or `fenced_only` list of `{docMentionsFile}`, as §3 left it.
 
-**Subdivide into two categories (both informational, not errors), by the skill's `source_repo_basename` in `{inventoryFile}`:**
-- **Extra (unreferenced):** `source_repo_basename` is set, but no architecture document tech token matches the skill.
-- **Orphan (source_repo unresolvable):** `source_repo_basename` is null: metadata.json records no `source_repo`, or none a repository name can be read from. Cross-reference against architecture tokens is not possible for this skill.
+**Subdivide them by the skill's `source_repo_basename` in `{inventoryFile}`:**
+- **Extra (unreferenced)** when `source_repo_basename` is set: "Skill `{skill_name}` exists and has a resolvable `source_repo`, but no architecture reference was found."
+- **Orphan (source_repo unresolvable)** when `source_repo_basename` is null (metadata.json records no `source_repo`, or none a repository name can be read from): "Skill `{skill_name}` has no resolvable `source_repo`, so it cannot be cross-referenced against the architecture. Re-run [CS] or update the skill's metadata."
 
-**For each extra skill:**
-- If `source_repo_basename` is set → mark as **Extra (unreferenced)**, note: "Skill `{skill_name}` exists and has a resolvable `source_repo`, but no architecture reference was found."
-- If `source_repo_basename` is null → mark as **Orphan (source_repo unresolvable)**, note: "Skill `{skill_name}` has no resolvable `source_repo`, so it cannot be cross-referenced against the architecture. Re-run [CS] or update the skill's metadata."
-
-Extra and Orphan skills are informational only. They do not affect the coverage verdict.
+Both are informational: neither affects the coverage verdict.
 
 ### 5. Display Coverage Results
 

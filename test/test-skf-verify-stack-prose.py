@@ -15,7 +15,8 @@ No test runs a stage file, so these pin what the stages promise:
 - the integrations stage takes each skill's language, exports and evidence
   tier from the inventory, never from metadata.json, and its pairs from the
   document's prose alone (no stack-manifest source, tag or column);
-- the Plausible recommendation says what Check 4 reads;
+- the Plausible recommendation says what Check 4 reads, and the rules file
+  keeps Checks 1 to 3 short around its two nudges (#1199);
 - each fact has one home (the single-technology note, where each run
   variable is fixed);
 - module-help.csv and skill-lifecycle.md name the file the skill writes.
@@ -264,8 +265,25 @@ def test_the_plausible_recommendation_names_what_check_4_reads():
     assert "SKILL.md names the other" in plausible
     assert "[SS]" not in plausible and "integration_patterns" not in plausible
     assert "promote" not in plausible
-    check4 = _section(_read(RULES), "### 4. Documentation Cross-Reference", "---")
+    rules = _read(RULES)
+    check4 = rules[rules.index("### 4. Documentation Cross-Reference"):]
     assert "Skill A's SKILL.md" in check4 and "Skill B's SKILL.md" in check4
+
+
+def test_the_rules_file_keeps_the_two_nudges_around_short_checks():
+    """#1199 leanness-8: Checks 1 to 3 are short definitions around the bridge-library and
+    lock-file nudges, with no general interop advice and no Purpose block."""
+    rules = _read(RULES)
+    assert "## Purpose" not in rules
+    check1 = _section(rules, "### 1. Language Boundary Check", "### 2.")
+    check2 = _section(rules, "### 2. Protocol Compatibility Check", "### 3.")
+    check3 = _section(rules, "### 3. Type Compatibility Check", "### 4.")
+    assert "**check whether a bridge library already exists in the stack**" in check1
+    assert "**two embedded databases may conflict on lock files" in check2
+    for check in (check1, check2, check3):
+        assert len([line for line in check.splitlines() if line.startswith("- ")]) <= 2, check
+    for gone in ("Common patterns: JSON serialization", "both WebSocket", "C/C++ exposes FFI"):
+        assert gone not in rules, gone
 
 
 # --- One home for each fact -----------------------------------------------------------
