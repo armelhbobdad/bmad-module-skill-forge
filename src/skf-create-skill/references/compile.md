@@ -20,9 +20,9 @@ verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{extractionInventoryHelper}` to the first existing path. §1 reads
-# the inventory's counts through its `summary`, §6 writes the provenance
-# map through its `provenance` and §4 metadata.json through its
-# `metadata`; step 3 §5 already halted when neither path exists.
+# the inventory's counts and run through its `summary`, §1c writes the
+# provenance map through its `provenance` and §4 metadata.json through its
+# `metadata`; step 3 already halted when neither path exists.
 extractionInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
   - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
@@ -55,7 +55,7 @@ To assemble the complete skill content from the extraction inventory and enrichm
 - Write all compiled artifacts to the staging directory `_bmad-output/.skf-stage/{skill-name}/`. Do not write to `skills/` or `forge-data/` — step 7 promotes staged artifacts to their final versioned locations.
 - Do not fabricate examples not found in source tests or docs
 - Seed `<!-- [MANUAL] -->` markers for future update-skill compatibility
-- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -63,7 +63,15 @@ To assemble the complete skill content from the extraction inventory and enrichm
 
 Load `{skillSectionsData}` and `{assemblyRulesData}` completely. These define the agentskills.io-compliant format and detailed assembly rules for all output artifacts.
 
-Then load `{extraction_inventory}` (`{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`) completely: the extraction inventory step 3 §5 wrote, with the T3 items step 3c and the T2 annotations step 4 added. Compile from this file, not from what context still holds of steps 3 and 4: its `exports[]` (one marked `public: false`, off a `public-api` skill's public surface, stays out of SKILL.md, `references/` and the provenance map), `top_exports`, `t2_annotations`, `t3_items`, `scripts_inventory`, `assets_inventory`, `intent_mapping`, `promoted_docs`, `authoritative_files_scan`, `counts`, `arms`, `aggregates`, `co_imports` and `warnings` (a component library's `component_catalog` too) are every input below. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and, from `{project-root}`, run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"`: bind `{inventory_counts}` ← its `counts`, which §7 reads.
+Then load `{extraction_inventory}` (`{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`) completely: the extraction inventory step 3 §5 wrote, with the T3 items step 3c and the T2 annotations step 4 added. Compile from this file, not from what context still holds of steps 3 and 4: its `exports[]` (one marked `public: false`, off a `public-api` skill's public surface, stays out of SKILL.md, `references/` and the provenance map), `top_exports`, `t2_annotations`, `t3_items`, `scripts_inventory`, `assets_inventory`, `intent_mapping`, `promoted_docs`, `authoritative_files_scan`, `counts`, `arms`, `aggregates`, `co_imports`, `warnings` and `run` (a component library's `component_catalog` and `component_stats` too) are every input below. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and, from `{project-root}`, run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"`: bind `{inventory_counts}` ← its `counts`, which §7 reads. Bind `{run_dir}` ← its `run.run_dir` when `{run_dir}` is not bound, and `{source_tree}` ← its `run.source_tree` when `{source_tree}` is not bound: step 3 §2a recorded both, so a compaction since then loses neither.
+
+When `{run_dir}` is still not bound, **HARD HALT** (exit code 4, `staging-unreadable`, phase `compile`; emit with nothing to stage in, as load-brief.md §0 does, with no `--run-dir`): "Cannot compile: the run folder is lost (`{run_dir}` is not bound and the extraction inventory records none), so this run's decisions cannot be read. Re-run create-skill."
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --target stderr <<'SKF_JSON'
+{"phase": "compile", "halt_reason": "staging-unreadable", "reason": "<that message, one line>", "summary": {"halt_reason": "staging-unreadable", "evidence_report": null}}
+SKF_JSON
+```
 
 For a whole-language reference, also load `{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json`, the index step 3c §4a wrote, and build `language_guide[]` from it: for each of its `language_guide` entries, in order, `{url, label, prose}`, where `prose` is the substantive body (narrative, idioms, usage examples, conceptual reference) of the pages its `pages` lists in its `docs_folder`, lightly trimmed of navigation and boilerplate, each block cited `[EXT:{url}]`, and `null` when `pages` is empty (the fetch failed). When the file is missing, or a page it lists is gone, display "The Language Guide from step 3c is missing ({the file or page}): assembling without it." and leave `language_guide[]` empty: `{assemblyRulesData}`'s empty-guide guard then assembles a standard library skill.
 
@@ -77,7 +85,7 @@ rm -rf "{project-root}/_bmad-output/.skf-stage/{skill-name}" && mkdir -p "{proje
 
 If the command fails, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staging folder: "Cannot create the staging folder `_bmad-output/.skf-stage/{skill-name}/`: {the first stderr line}."
 
-All artifacts produced in sections 2 to 7 below are written here:
+All artifacts produced in sections 1c to 7 below are written here:
 
 - `SKILL.md`
 - `context-snippet.md`
@@ -98,6 +106,45 @@ This is the `<staging-skill-dir>` referenced by step 6 (`npx skill-check check`,
 - **`signature_source` field:** Record `signature_source: "T1" | "T1-low" | "T2" | "T3"` in each provenance-map entry to indicate the highest-confidence tier that contributed the structural signature data (params, return_type). A signature an ast-grep rule matched contributes T1; a signature read by eye contributes T1-low at any tier, so an entry with `extraction_method: source-read` never carries `signature_source: "T1"`. This enables test-skill to verify signature provenance.
 
 This rule applies to every section including Tier 1 Key API Summary, Tier 2 Full API Reference, and Section 4b Migration & Deprecation Warnings.
+
+### 1c. Stage the Provenance Map
+
+The map holds one entry per export of the inventory's `exports[]` but one marked `public: false` (export_name, export_type, params[] as typed strings, return_type, source_file, source_line, confidence, extraction_method, ast_node_type, and signature_source, the tier that contributed the structural signature: "T1", "T1-low", "T2" or "T3"), then the entries and file entries the inventory does not hold. `{extractionInventoryHelper}` writes it: never type an entry the inventory holds. It is staged before §2 assembles SKILL.md, so a signature its `unsigned` list below sends back through `patch` reaches SKILL.md and `references/`. From `{project-root}`, run it with the brief's `source_repo`: it takes `source_commit` and `source_ref` from the inventory's `run`, which step 3 §2a recorded (send one only to correct it):
+
+```bash
+uv run {extractionInventoryHelper} provenance --inventory "{extraction_inventory}" --target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json" <<'SKF_JSON'
+{"source_repo": "<source_repo>"}
+SKF_JSON
+```
+
+It writes the map's header (`provenance_version` `"2.0"`, the skill's name, `skill_type` `"single"` and `generated_at`) and every export's entry, labeled by the tool that produced it, at every forge tier:
+
+- `extraction_method: "ast-grep"` (an ast-grep rule matched the export): `confidence: "T1"`, `signature_source: "T1"`, an `[AST:...]` citation, and `ast_node_type` the `kind` the matching recipe declares in extraction-patterns.md, copied from the recipe, never inferred from the source (validate.md §7a asks ast-grep whether it is a real kind).
+- `extraction_method: "source-read"` (the export was read by eye): `confidence: "T1-low"`, `signature_source: "T1-low"`, a `[SRC:...]` citation and `ast_node_type: null`.
+
+For a `public-api` skill it writes no entry for an export the inventory marks `public: false`, off the package's public surface (step 3 §5's `init` or `add` marked it, and one of the inventory's `warnings` names each such export), and SKILL.md and `references/` leave it out too. When the runner gave no surface the rule could read, nothing is marked: every export has its entry, and an inventory warning says why.
+
+Its `unsigned` lists the functions whose signature nobody read, which extract.md §5's `patch` left: read each one's parameters and return type from the source at its `source_line`, send them through that `patch` call as extract.md §5 says, and run the command above again, which rewrites the map: §2 then writes each one's parameters and return type.
+
+**Then add what the inventory does not hold**, in one call, leaving out a list that is empty and the call when both are: the T2 and T3 entries (a docs-only skill's exports, from the inventory's `t3_items`), each with the fields above, and the file entries below.
+
+```bash
+uv run {extractionInventoryHelper} provenance --inventory "{extraction_inventory}" --target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json" --add-entries <<'SKF_JSON'
+{"entries": [{"export_name": "...", "export_type": "...", "params": null, "return_type": null, "source_file": "...", "source_line": null, "confidence": "T3", "extraction_method": "...", "ast_node_type": null, "signature_source": "T3"}], "file_entries": [{"file_name": "...", "file_type": "...", "source_file": "...", "content_hash": "...", "confidence": "...", "extraction_method": "..."}]}
+SKF_JSON
+```
+
+The helper appends them and skips an entry whose `export_name` and `source_file` the map already holds (its `duplicates`): T2 and T3 content never replaces an inventory export's entry. Send no entry for an export the inventory marks `public: false`: the helper skips one and lists it in its `not_public`. If either call exits non-zero, fix what its `message` names and run it again; when it fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `provenance-map.json`: "Cannot write the provenance map: {the helper's message}. Check permissions and disk space."
+
+`{renderMetadataStatsHelper}` (§4) checks these pairings on every T1 or T1-low entry, and the `signature_source` of an entry read by eye at any other confidence too (T2, T3 or none): the distribution bins every entry by its `signature_source`, so a `source-read` entry that claims `"T1"` is a violation whatever its `confidence`. Besides the two values above it accepts only the stack-map values `ast_bridge` (pairs with T1), `source_reading` (pairs with T1-low and a `signature_source` other than T1), `qmd_bridge` and `compose-from-skill` (no pairing); any other `extraction_method` on a T1 or T1-low entry is a violation.
+
+**File entries:** one `file_entries[]` row, sent in the `--add-entries` call above, per tracked non-code file when any of these inventories are non-empty:
+
+- `scripts_inventory` → `file_type: "script"`, `extraction_method: "file-copy"`, stored in `{skill_package}/scripts/` by step 7
+- `assets_inventory` → `file_type: "asset"`, `extraction_method: "file-copy"`, stored in `{skill_package}/assets/` by step 7
+- `promoted_docs` (the inventory's, from step 3 §2b) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **not** copied into the skill package by step 7. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by step 3 §2b.
+
+Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_name, file_type, source_file, content_hash, confidence, extraction_method}`. See `{skillSectionsData}` for full schema and the canonical list of `file_type` values.
 
 ### 2. Build SKILL.md Content
 
@@ -132,7 +179,7 @@ Vercel-aligned indexed format for CLAUDE.md managed section (~80-120 tokens):
 
 **Derivation rules:**
 
-- **version**: From source detection (reconciled in step 3), not brief default
+- **version**: the inventory's `run.version`, the source version step 3 reconciled, not the brief's default
 - **api**: Top 10 exports from extraction inventory, none marked `public: false`, append `()` to function names
 - **key-types**: Inline summary of most important enum/type values from Key Types section
 - **gotchas**: Derived from T2-future annotations (breaking changes) of exports not marked `public: false`, async requirements, version-specific behavior changes. If no gotchas available, omit the gotchas line.
@@ -149,7 +196,7 @@ Vercel-aligned indexed format for CLAUDE.md managed section (~80-120 tokens):
   - `scripts` / `assets`: the `scripts_inventory` / `assets_inventory` arrays (or `[]` when empty) — the helper sets `stats.scripts_count` / `stats.assets_count` from their lengths
   - `effective_denominator` (**optional**): `counts.effective_denominator`, only when `counts.effective_denominator_decision.store` is true and the brief's `scope.notes` documents the stratification strategy (e.g., a tiered A/B/C plan), the intent marker that the curated subset is by design. `skf-extract-public-api.py` decides `store` with the count (the recipe runner, or `--mode denominator` for names counted without its diff). Otherwise omit it from the payload: `skf-test-skill` then measures coverage over the surface it re-derives (its `references/source-access-protocol.md` §Source API Surface Definition).
 - **Shape:** pass `--shape reference-app` when the reference-app assembly-rules override applies (default `library`), and also `--skill-md <staging-skill-dir>/SKILL.md` (the SKILL.md §2a wrote), with no `pattern_surfaces_documented` in the payload: the helper counts `pattern_surfaces_documented` as the data rows of that file's `## Pattern Surface` tables, never a typed count, uses it as `exports_documented`, emits `stats.pattern_surfaces_documented`, and refuses to emit `effective_denominator`; the distribution then sums to the per-citation count, not to `exports_documented`. When it exits 2 naming the table (no `Pattern Surface` heading, a file it cannot read), fix the staged table it names and run it again.
-- **Invoke**: stage `provenance-map.json` (§6) first, since the helper reads its `entries[]`, and bind `{stats_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.stats.json`, beside the staging folder:
+- **Invoke**: the helper reads the `entries[]` of the `provenance-map.json` §1c staged. Bind `{stats_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.stats.json`, beside the staging folder:
 
   ```bash
   rm -f "{stats_json}"
@@ -164,11 +211,11 @@ Vercel-aligned indexed format for CLAUDE.md managed section (~80-120 tokens):
 
   ```bash
   uv run {extractionInventoryHelper} metadata --inventory "{extraction_inventory}" --brief "{brief_path}" --stats "{stats_json}" --skf-root "{project-root}/_bmad/skf" --target <staging-skill-dir>/metadata.json <<'SKF_JSON'
-  {"version": "<version>", "language": "<language>", "source_root": "<source_root>", "source_commit": "<source_commit>", "source_ref": "<source_ref>", "qmd_version": null}
+  {"language": "<language>", "qmd_version": null}
   SKF_JSON
   ```
 
-  `version` is the source version step 3 reconciled, not the brief's default; `language` is the entry-point file's primary language; `source_root` is `{resolved-source-path}`; `source_commit` and `source_ref` (a tag, a branch or `HEAD`) are the resolved source's; `qmd_version` is what `qmd --version` prints (`qmd 2.0.1` gives `"2.0.1"`) when step 4 queried QMD; each is `null` when unavailable. When step 3 ran the recipes without the runner (extraction-patterns.md's **When the Runner Cannot Run**), add `ast_grep_version`, what `ast-grep --version` prints, `null` when only the MCP server ran them. For a component library, add `stats_extra`, the fields `{assemblyRulesData}`'s Component Library stats block adds; for a reference app, only its `notes`, when you write one (the stats helper writes `pattern_surfaces_documented`). The helper writes every other field from the brief, the inventory, `{stats_json}`, the staged SKILL.md (its `description`), the clock and the installed SKF (`--help` lists each). Bind `{commit_short}` ← its `commit_short` (step 8) and `{tool_versions}` ← its `tool_versions` (§7), and list its `warnings` in the evidence report. If it exits non-zero, fix what its `message` names and run it again; when it fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `metadata.json`: "Cannot write metadata.json: {the helper's message}."
+  The helper takes `version` (the source version step 3 reconciled, not the brief's default), `source_root` (`{resolved-source-path}`), `source_commit` and `source_ref` (a tag, a branch or `HEAD`) from the inventory's `run`, which step 3 §2a recorded: send one only to correct it. `language` is the entry-point file's primary language; `qmd_version` is what `qmd --version` prints (`qmd 2.0.1` gives `"2.0.1"`) when step 4 queried QMD, `null` when unavailable. When step 3 ran the recipes without the runner (extraction-patterns.md's **When the Runner Cannot Run**), add `ast_grep_version`, what `ast-grep --version` prints, `null` when only the MCP server ran them. For a component library, add `stats_extra`, the inventory's `component_stats` (the fields `{assemblyRulesData}`'s Component Library stats block adds); for a reference app, only its `notes`, when you write one (the stats helper writes `pattern_surfaces_documented`). The helper writes every other field from the brief, the inventory, `{stats_json}`, the staged SKILL.md (its `description`), the clock and the installed SKF (`--help` lists each). Bind `{commit_short}` ← its `commit_short` (step 8) and `{tool_versions}` ← its `tool_versions` (§7), and list its `warnings` in the evidence report. If it exits non-zero, fix what its `message` names and run it again; when it fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `metadata.json`: "Cannot write metadata.json: {the helper's message}."
 
 ### 5. Build references/ Content
 
@@ -182,42 +229,7 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-The map holds one entry per export of the inventory's `exports[]` but one marked `public: false` (export_name, export_type, params[] as typed strings, return_type, source_file, source_line, confidence, extraction_method, ast_node_type, and signature_source, the tier that contributed the structural signature: "T1", "T1-low", "T2" or "T3"), then the entries and file entries the inventory does not hold. `{extractionInventoryHelper}` writes it: never type an entry the inventory holds. From `{project-root}`, run it with the brief's `source_repo` and the resolved source's `source_commit` and `source_ref`, the values §4's `metadata` call sends (`null` for one that is unavailable):
-
-```bash
-uv run {extractionInventoryHelper} provenance --inventory "{extraction_inventory}" --target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json" <<'SKF_JSON'
-{"source_repo": "<source_repo>", "source_commit": "<source_commit>", "source_ref": "<source_ref>"}
-SKF_JSON
-```
-
-It writes the map's header (`provenance_version` `"2.0"`, the skill's name, `skill_type` `"single"` and `generated_at`) and every export's entry, labeled by the tool that produced it, at every forge tier:
-
-- `extraction_method: "ast-grep"` (an ast-grep rule matched the export): `confidence: "T1"`, `signature_source: "T1"`, an `[AST:...]` citation, and `ast_node_type` the `kind` the matching recipe declares in extraction-patterns.md, copied from the recipe, never inferred from the source (validate.md §7a asks ast-grep whether it is a real kind).
-- `extraction_method: "source-read"` (the export was read by eye): `confidence: "T1-low"`, `signature_source: "T1-low"`, a `[SRC:...]` citation and `ast_node_type: null`.
-
-For a `public-api` skill it writes no entry for an export the inventory marks `public: false`, off the package's public surface (step 3 §5's `init` or `add` marked it, and one of the inventory's `warnings` names each such export), and SKILL.md and `references/` leave it out too. When the runner gave no surface the rule could read, nothing is marked: every export has its entry, and an inventory warning says why.
-
-Its `unsigned` lists the functions whose signature nobody read, which extract.md §5's `patch` left: read each one's parameters and return type from the source at its `source_line`, send them through that `patch` call as extract.md §5 says, and run the command above again, which rewrites the map.
-
-**Then add what the inventory does not hold**, in one call, leaving out a list that is empty and the call when both are: the T2 and T3 entries (a docs-only skill's exports, from the inventory's `t3_items`), each with the fields above, and the file entries below.
-
-```bash
-uv run {extractionInventoryHelper} provenance --inventory "{extraction_inventory}" --target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json" --add-entries <<'SKF_JSON'
-{"entries": [{"export_name": "...", "export_type": "...", "params": null, "return_type": null, "source_file": "...", "source_line": null, "confidence": "T3", "extraction_method": "...", "ast_node_type": null, "signature_source": "T3"}], "file_entries": [{"file_name": "...", "file_type": "...", "source_file": "...", "content_hash": "...", "confidence": "...", "extraction_method": "..."}]}
-SKF_JSON
-```
-
-The helper appends them and skips an entry whose `export_name` and `source_file` the map already holds (its `duplicates`): T2 and T3 content never replaces an inventory export's entry. Send no entry for an export the inventory marks `public: false`: the helper skips one and lists it in its `not_public`. If either call exits non-zero, fix what its `message` names and run it again; when it fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `provenance-map.json`: "Cannot write the provenance map: {the helper's message}. Check permissions and disk space."
-
-`{renderMetadataStatsHelper}` (§4) checks these pairings on every T1 or T1-low entry, and the `signature_source` of an entry read by eye at any other confidence too (T2, T3 or none): the distribution bins every entry by its `signature_source`, so a `source-read` entry that claims `"T1"` is a violation whatever its `confidence`. Besides the two values above it accepts only the stack-map values `ast_bridge` (pairs with T1), `source_reading` (pairs with T1-low and a `signature_source` other than T1), `qmd_bridge` and `compose-from-skill` (no pairing); any other `extraction_method` on a T1 or T1-low entry is a violation.
-
-**File entries:** one `file_entries[]` row, sent in the `--add-entries` call above, per tracked non-code file when any of these inventories are non-empty:
-
-- `scripts_inventory` → `file_type: "script"`, `extraction_method: "file-copy"`, stored in `{skill_package}/scripts/` by step 7
-- `assets_inventory` → `file_type: "asset"`, `extraction_method: "file-copy"`, stored in `{skill_package}/assets/` by step 7
-- `promoted_docs` (the inventory's, from step 3 §2a) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **not** copied into the skill package by step 7. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by §2a.
-
-Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_name, file_type, source_file, content_hash, confidence, extraction_method}`. See `{skillSectionsData}` for full schema and the canonical list of `file_type` values.
+§1c staged the provenance map before §2 assembled SKILL.md.
 
 ### 7. Build evidence-report.md Content
 
@@ -225,7 +237,7 @@ Compilation audit trail: generation date, forge tier, source info, tool versions
 
 **Frontmatter, pinned fields:** emit YAML frontmatter at the top of `evidence-report.md` with at minimum `skill_name`, `generated`, `forge_tier`, and `t2_future_count`. Take `t2_future_count` from `{inventory_counts}.t2_future` (§1): the T2 annotations step 4 classified `T2-future`, counted by the helper. **Emit `t2_future_count: 0` when no T2-future annotations exist**: omission is indistinguishable from "no data" for downstream consumers and would silently flip the skf-test-skill §2b/§5b migration-section gate into Case 2/3 for a Case-1 skill. This frontmatter is the authoritative detection contract: `migration-section-rules.md` Case Rules parse it deterministically rather than grepping prose.
 
-**Auto-Decisions section (render from the run sink):** render the `## Auto-Decisions` section into `evidence-report.md` from `{run_dir}/headless-decisions.jsonl`, the run's one decision trail: one row per line, in file order, in the table format below. Every decision the run took without asking is there, written the moment it was taken (step 1 tier-override, step 3 tag-choice, step 3's deferred authoritative files, step 3 review-gate, step 3 and step 3c zero-exports, step 3d component-extraction gates, step 5 manual-carry-forward), however much of the run context compacted since. No gate records a decision after this step. When the file is missing or empty, emit the section with the single line `No auto-decisions: the workflow ran interactively, or no gate had to resolve on its own.`
+**Auto-Decisions section (render from the run sink):** render the `## Auto-Decisions` section into `evidence-report.md` from `{run_dir}/headless-decisions.jsonl`, the run's one decision trail: one row per line, in file order, in the table format below. Every decision the run took without asking is there, written the moment it was taken (step 1 tier-override, step 3 tag-choice, step 3's deferred authoritative files, step 3 review-gate, step 3 and step 3c zero-exports, step 3d component-extraction gates, step 5 manual-carry-forward), however much of the run context compacted since. No gate records a decision after this step. `{run_dir}` is bound here (§1 halted otherwise), so a file that is missing or empty means no gate recorded a decision: emit the section with the single line `No auto-decisions: the workflow ran interactively, or no gate had to resolve on its own.`
 
 ```
 ## Auto-Decisions

@@ -242,12 +242,12 @@ Each reference file includes:
 |---|---|---|---|---|
 | `"script"` | `scripts_inventory` | yes → `scripts/` | `"file-copy"` | Runnable scripts (CLI tools, validation scripts, etc.) bundled into the skill for execution. |
 | `"asset"` | `assets_inventory` | yes → `assets/` | `"file-copy"` | Data files (templates, JSON schemas, config fixtures) bundled for reference. |
-| `"doc"` | `promoted_docs` (from step 3 §2a) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill — its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
+| `"doc"` | `promoted_docs` (from step 3 §2b) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill: its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
 
 When `file_type: "doc"`:
 
 - `source_file` is the relative path from the source root to the authoritative doc.
-- `content_hash` is computed at promotion time (step 3 §2a) and persisted here so update-skill Category D can detect drift via hash comparison.
+- `content_hash` is computed at promotion time (step 3 §2b) and persisted here so update-skill Category D can detect drift via hash comparison.
 - `file_name` convention: use the source-relative path prefixed with `docs/authoritative/` to namespace doc entries away from script/asset filenames in tools that iterate `file_entries[]` by `file_name`. Example: `docs/authoritative/apps/docs/public/llms.txt`. Step-07 does not write this path — it is a synthetic namespace used only within the provenance map.
 - `confidence` is `"T1-low"` (the promotion decision is source-level but the content was not AST-parsed).
 

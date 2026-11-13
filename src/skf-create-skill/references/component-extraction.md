@@ -33,7 +33,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 ## MANDATORY SEQUENCE
 
-**Prerequisite: §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6. Phase 1 lists them with the brief's other files (a promotion adds each to `scope.include`), and no Phase 4 recipe reads a doc, so this file needs no special handling for them. See step 3 §2a for the full flow.
+**Prerequisite: §2b already ran.** Step-03 executes `§2b Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6. Phase 1 lists them with the brief's other files (a promotion adds each to `scope.include`), and no Phase 4 recipe reads a doc, so this file needs no special handling for them. See step 3 §2b for the full flow.
 
 ### Phase 1: Demo/Example Exclusion
 
@@ -51,7 +51,7 @@ Resolve `{detectRegistryHelper}` from `{detectRegistryProbeOrder}`. It lists the
 uv run {detectRegistryHelper} demo --source-root "{source_root}" --brief "{brief_file}" [--pattern "{glob}"] --files-to "{component_scan}/files.txt" --kept-to "{component_scan}/kept.txt"
 ```
 
-With no local tree (`{source_root}` is not a folder: a Quick-tier remote source, or one step 3 §2b could not read into a tree), pipe it the repository's file list, `gh api "repos/{owner}/{repo}/git/trees/{source_ref}?recursive=1" --jq '.tree[] | select(.type == "blob") | .path'`, with `--files-from -` in place of `--source-root`.
+With no local tree (`{source_root}` is not a folder: a Quick-tier remote source, or one step 3 §2a could not read into a tree), pipe it the repository's file list, `gh api "repos/{owner}/{repo}/git/trees/{source_ref}?recursive=1" --jq '.tree[] | select(.type == "blob") | .path'`, with `--files-from -` in place of `--source-root`.
 
 It writes the brief's files to `files.txt` and those no demo pattern matches to `kept.txt`, and prints `patterns[]` (each glob, its `files` count and a `sample`), `excluded`, `directories` and `also_matched[]`: `uv run {detectRegistryHelper} --help` describes them.
 
@@ -119,7 +119,7 @@ uv run {writeSkillBriefHelper} amend --target "{brief_file}" <<'SKF_BRIEF_ANSWER
 SKF_BRIEF_ANSWERS
 ```
 
-It reads the brief again (step 3 §2a may have amended it since step 1 loaded it), sets the fields, appends the entries, keeps the previous brief as `{brief_file}.bak` and writes the new one atomically. On exit 0, display: "**Recorded in the brief:** {`scope.demo_patterns` and/or `scope.registry_path`}, with a `demo-and-registry` amendment for each." When it exits non-zero, or no candidate resolves, warn "The step 3d answers were not saved to the brief ({its stderr}): the next run asks again." and continue.
+It reads the brief again (step 3 §2b may have amended it since step 1 loaded it), sets the fields, appends the entries, keeps the previous brief as `{brief_file}.bak` and writes the new one atomically. On exit 0, display: "**Recorded in the brief:** {`scope.demo_patterns` and/or `scope.registry_path`}, with a `demo-and-registry` amendment for each." When it exits non-zero, or no candidate resolves, warn "The step 3d answers were not saved to the brief ({its stderr}): the next run asks again." and continue.
 
 ### Phase 3: Parse Registry
 
@@ -150,7 +150,7 @@ Display: "**Parsed component catalog: {N} components across {M} categories.**"
 
 Extract props interfaces as the primary API contracts, then link to components.
 
-At Quick tier no recipe runs: read the shapes the steps below name from source, as T1-low. At Forge, Forge+ and Deep tiers, run the component-library recipes over `{scan_list}` in one call. Resolve `{extractPublicApiHelper}` from `{extractPublicApiProbeOrder}`; it writes `{extraction_json}`, which step 3 §2b bound beside the staging folder: step 3 §5's `init` seeds the inventory from it, so it sits outside the scratch folder Phase 6 removes. From `{project-root}`, create its folder (the runner creates none), remove the JSON an earlier run left there and run the runner with `{tier}` the forge tier (when `{scan_list}` is null, pass `--brief "{brief_file}"` in place of `--files-from "{scan_list}"`: the runner then lists the brief's files itself):
+At Quick tier no recipe runs: read the shapes the steps below name from source, as T1-low. At Forge, Forge+ and Deep tiers, run the component-library recipes over `{scan_list}` in one call. Resolve `{extractPublicApiHelper}` from `{extractPublicApiProbeOrder}`; it writes `{extraction_json}`, which step 3 §2a bound beside the staging folder: step 3 §5's `init` seeds the inventory from it, so it sits outside the scratch folder Phase 6 removes. From `{project-root}`, create its folder (the runner creates none), remove the JSON an earlier run left there and run the runner with `{tier}` the forge tier (when `{scan_list}` is null, pass `--brief "{brief_file}"` in place of `--files-from "{scan_list}"`: the runner then lists the brief's files itself):
 
 ```bash
 mkdir -p "{project-root}/_bmad-output/.skf-stage"
@@ -217,7 +217,7 @@ Display: "**Variant consolidation: {unique} unique components across {variant_co
 
 ### Phase 6: Build Component Extraction Results
 
-Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them. Prepare what it sends on top: an entry below for each export read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback), each Props interface's fields as its `params`, and `component_catalog[]`; keep the aggregate counts below in context for step 5's `metadata.json` stats:
+Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them. Prepare what it sends on top: an entry below for each export read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback), each Props interface's fields as its `params`, `component_catalog[]`, and `component_stats`, the aggregate counts below, which step 3 §5's `set` records beside `component_catalog` for step 5's `metadata.json` stats:
 
 **Per-export entry (for Props interfaces — primary API):**
 
@@ -244,7 +244,7 @@ Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them.
 
 - Same as standard extraction format
 
-**Component library aggregate counts:**
+**Component library aggregate counts** (`component_stats`, one object, sent with step 3 §5's `set`):
 
 - `components_registered`: count from registry (or 0)
 - `components_documented`: count of components with linked Props
@@ -253,7 +253,7 @@ Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them.
 - `demo_files_excluded`: count from Phase 1
 - `design_variants`: map of variant name → component count (if variants exist)
 
-**Store `component_catalog[]` in context** — this is consumed by step 5 for the Component Catalog section.
+Step 3 §5's `set` records `component_catalog[]` and `component_stats` in the inventory, where step 5 reads them for the Component Catalog section and the metadata stats.
 
 Remove this step's scratch folder, from `{project-root}` (the `case` guard deletes nothing unless `{component_scan}` is the folder Phase 1 made):
 
@@ -267,4 +267,4 @@ Display: "**Component extraction complete.** Returning to main extraction flow."
 
 After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its normal Gate 2 summary and confirmation.
 
-Do not load `{returnToStep}` — the calling step (step 3) continues from where it delegated.
+Resume step 3 at its §5. If §5 is no longer in context, load `{returnToStep}` and execute from its §5 (Build Extraction Inventory) onward; never re-run its §1 to §4c, whose §2a start clean deletes the `{extraction_json}` Phase 4 wrote.

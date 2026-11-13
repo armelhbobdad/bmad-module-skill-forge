@@ -1,6 +1,6 @@
 # CCC Index Check
 
-Step 3 §2b (deferred ccc discovery on SKF's workspace clone) and step 7 §6b (the index the skill registers) load this file after they run `ccc index`. It waits for a running pass, checks that the source language was indexed, and repairs the index settings when it was not. The caller binds:
+Step 3 §2a (deferred ccc discovery on SKF's workspace clone) and step 7 §6b (the index the skill registers) load this file after they run `ccc index`. It waits for a running pass, checks that the source language was indexed, and repairs the index settings when it was not. The caller binds:
 
 - `{ccc_root}`: the folder the index belongs to. ccc takes no path argument, so every ccc command below runs as `cd "{ccc_root}" && ccc ...`.
 - `{ccc_settings_owner}`: `skf` when `{ccc_root}` is SKF's workspace clone of a remote source, whose `settings.yml` SKF edits only through `{mergeCccExclusionsHelper}`; `user` when `{ccc_root}` is the user's own source folder, whose `settings.yml` SKF never edits.

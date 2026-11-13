@@ -3,7 +3,7 @@
 changes forge-tier.yaml only through skf-forge-tier-rw.py.
 
 Prose pins, each checked against the helper it names:
-- extract.md §2b runs resolve with --update-clone, maps target_ref,
+- extract.md §2a runs resolve with --update-clone, maps target_ref,
   target_version and version onto its flags, binds source_ref,
   source_commit, tag_resolution and workspace_path (and the rest) from keys
   resolve prints, and dispatches on every status and failure reason it
@@ -16,7 +16,7 @@ Prose pins, each checked against the helper it names:
   chosen one as --target-ref reads it; close removes the tree.
 - metadata.json records SKF's clone as source_root, never the tree (the
   remote URL when the workspace path holds another folder, null for a
-  docs-only brief), and step 7 and every HALT after §2b remove the tree: the
+  docs-only brief), and step 7 and every HALT after §2a remove the tree: the
   [U] halt and report.md's HARD HALT contract name the close command. Every
   brief starts clean before the docs-only skip, so a --batch run never
   carries one brief's paths into the next.
@@ -109,22 +109,22 @@ def _module(path: Path, name: str):
     return module
 
 
-def _section_2b() -> str:
-    return _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "**Deferred CCC Discovery")
+def _section_2a() -> str:
+    return _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "**Deferred CCC Discovery")
 
 
 def _resolve_command() -> str:
-    """The fenced resolve command of §2b, its backslash continuations joined."""
-    [fence] = [f for f in _fences(_section_2b()) if " resolve " in f]
+    """The fenced resolve command of §2a, its backslash continuations joined."""
+    [fence] = [f for f in _fences(_section_2a()) if " resolve " in f]
     return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
 
 def _dispatch() -> str:
-    return _slice(_section_2b(), "Dispatch on `{source_resolve_status}`:", "Then run Source Commit Capture")
+    return _slice(_section_2a(), "Dispatch on `{source_resolve_status}`:", "Then run Source Commit Capture")
 
 
 # --------------------------------------------------------------------------
-# extract.md §2b: the resolve call and what it binds
+# extract.md §2a: the resolve call and what it binds
 # --------------------------------------------------------------------------
 
 
@@ -136,21 +136,21 @@ def test_resolve_command_takes_the_brief_fields_and_moves_the_clone():
                  '[--version "{brief.version}" --implicit]', "--update-clone",
                  '[--hygiene-helper "{cccGitHygieneHelper}"]', '--timeout "{tree_timeout}"'):
         assert part in command, part
-    section = _section_2b()
+    section = _section_2a()
     assert ("Pass the first `--version` line when the brief sets `target_version`, else the second when it "
             "sets `version`, never both") in section
     table = _slice(_read(PROTOCOLS), "| The brief sets |", "\n\n")
     for row in ("| `target_ref` (it takes priority) |", "| `target_version` |", "| only `version` |",
                 "| none of them |"):
         assert row in table, row
-    # The field-to-flag mapping is written once, in §2b's command.
+    # The field-to-flag mapping is written once, in §2a's command.
     for flag in ('--target-ref "{brief.target_ref}"', '--version "{brief.target_version}"',
                  '--version "{brief.version}"', '--name "{brief.name}"'):
         assert flag not in _read(PROTOCOLS), flag
 
 
 def test_every_bound_key_is_a_key_resolve_prints(tmp_path):
-    bind = _slice(_section_2b(), "Bind from its JSON", "\n")
+    bind = _slice(_section_2a(), "Bind from its JSON", "\n")
     keys = set(re.findall(r"← `(\w+)`", bind))
     for handoff in ("source_ref", "source_commit", "tag_resolution", "workspace_path"):
         assert f"`{handoff}` ← `{handoff}`" in bind or f"`{{{handoff}}}` ← `{handoff}`" in bind, handoff
@@ -197,23 +197,23 @@ def test_ready_reads_the_tree_and_records_the_clone():
 
 def test_every_brief_starts_clean_before_the_docs_only_skip():
     """A docs-only brief after a remote one must not keep that brief's clone, tree or source_root."""
-    section = _section_2b()
+    section = _section_2a()
     start = _slice(section, "**Start clean:**", "\n")
     assert "for every brief, docs-only included" in start
     assert "set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null" in start
     assert "`{resolved-source-path}` to `{source_root}` (null for a docs-only brief)" in start
     assert "in a `--batch` run one brief's source never carries into the next" in start
-    skip = '**If `source_type: "docs-only"`:** skip the rest of §2b'
+    skip = '**If `source_type: "docs-only"`:** skip the rest of §2a'
     assert section.index("**Start clean:**") < section.index(skip)
-    assert section.index("### 2b. Resolve Source Access") < section.index("**Start clean:**")
-    assert "skip §2b entirely" not in section
+    assert section.index("### 2a. Resolve Source Access") < section.index("**Start clean:**")
+    assert "skip §2a entirely" not in section
 
 
 def test_unavailable_degrades_to_source_reading():
     unavailable = _slice(_dispatch(), "- **`unavailable`**", "\n")
     # A retry starts the fetch again with only a little more time: the first call gets the longest one.
     assert "run the command once more" not in unavailable and "without the retry" not in _dispatch()
-    remote = _slice(_section_2b(), "**Remote source at Forge, Forge+ or Deep tier:**", "\n")
+    remote = _slice(_section_2a(), "**Remote source at Forge, Forge+ or Deep tier:**", "\n")
     assert "a little under the longest timeout your shell tool can be given" in remote
     assert "Give the command that longest shell timeout" in remote
     assert "Degrading to source reading (T1-low) for this run." in unavailable
@@ -367,7 +367,7 @@ def upstream(tmp_path, monkeypatch):
 
 
 def _documented_resolve(brief: dict) -> list[str]:
-    """§2b's command filled in for `brief` as its "Pass ..." sentence says."""
+    """§2a's command filled in for `brief` as its "Pass ..." sentence says."""
     command = _resolve_command()
     keep = {
         "--target-ref": "target_ref" in brief,

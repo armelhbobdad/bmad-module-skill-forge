@@ -76,7 +76,7 @@ To publish the staged skill byte for byte: the deliverables to `{skill_package}`
 
 - Generate only `extraction-rules.yaml` (§2): every other file is promoted as steps 5 to 6 left it in the staging folder, never written again from what context holds
 - All base artifact types must be written (3 deliverables + N reference files + 3 workspace files)
-- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -133,7 +133,7 @@ Pass `--inventory` and `--source-root` when the inventory's `scripts_inventory` 
 
 - **To `{skill_package}`:** `SKILL.md`, `context-snippet.md`, `metadata.json` (with the `doc_sources` step 5a wrote into it) and every file under the staged `references/` (the `references/full-*.md` files step 5b extracted included), plus `scripts/{name}` and `assets/{name}` for each inventory script and asset, copied from `{source_root}`, and, with `--carry-manual`, the earlier build's `scripts/[MANUAL]/` and `assets/[MANUAL]/` files. The package is built beside its target and swapped in, so a reader never sees half of it.
 - **To `{forge_version}`:** `{forge_version}/provenance-map.json`, `{forge_version}/evidence-report.md` and `{forge_version}/extraction-rules.yaml`, one atomic write each, and, with a warning, `{forge_version}/manual-backup/SKILL-<UTC time>.md` (the earlier SKILL.md, a new file each run) when the staged one lacks a hand-written `[MANUAL]` block of it.
-- **Not copied:** a promoted authoritative doc (`file_entries[]` with `file_type: "doc"`, from step 3 §2a) stays at its source path; the provenance map tracks it for drift detection.
+- **Not copied:** a promoted authoritative doc (`file_entries[]` with `file_type: "doc"`, from step 3 §2b) stays at its source path; the provenance map tracks it for drift detection.
 
 Bind `{promotion}` ← its JSON: `files[]` (each promoted file's `path`, `kind`, `bytes` and `sha256`, read back and checked against the staged bytes), `counts`, `ignored` (staged files it did not promote), `manual` (what `--carry-manual` kept: `blocks`, `missing_blocks`, `files`, `backup`) and `warnings`; display each warning. Act on its exit code:
 
@@ -232,13 +232,13 @@ Ensure the source of this skill is indexed by ccc and registered in the `ccc_ind
 
 **Index verification:**
 
-**Working-directory contract:** `ccc init`, `ccc index`, and `ccc status` take **no positional path argument**: each operates on the current working directory, and passing a path makes them exit non-zero with `Got unexpected extra argument`. Run them from `{ccc_root}` (`cd "{ccc_root}" && ccc …`, the same form `extract.md` step 2b and `knowledge/ccc-bridge.md` use), then return to `{project-root}` before the registry update below, which resolves `{forgeTierConfig}` relative to the project.
+**Working-directory contract:** `ccc init`, `ccc index`, and `ccc status` take **no positional path argument**: each operates on the current working directory, and passing a path makes them exit non-zero with `Got unexpected extra argument`. Run them from `{ccc_root}` (`cd "{ccc_root}" && ccc …`, the same form `extract.md` §2a and `knowledge/ccc-bridge.md` use), then return to `{project-root}` before the registry update below, which resolves `{forgeTierConfig}` relative to the project.
 
 **Project root without settings:** check this before running any ccc command. When `{ccc_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index`: `/skf-setup` initializes the project index with the SKF exclusions, and in a project nested inside another git checkout `ccc index` would index the enclosing repository instead. Skip the rest of this section, including the registry update, note that re-running `/skf-setup` enables the index, and continue to §7.
 
 Otherwise, `ccc index` requires the directory to be initialized first:
 
-- `{ccc_settings_owner}` `skf`: resolve `{mergeCccExclusionsHelper}` from `{mergeCccExclusionsProbeOrder}` and, from `{project-root}`, run `uv run {mergeCccExclusionsHelper} --clone-root "{ccc_root}"`. It runs `ccc init -f` in the clone when its `settings.yml` is missing and adds the standard build and dependency exclusions the file lacks, as step 3 §2b does, so it changes nothing once step 3 prepared the clone. When no candidate resolves, the command fails or `settings_ready` is false, log it and skip the rest of this section, including the registry update.
+- `{ccc_settings_owner}` `skf`: resolve `{mergeCccExclusionsHelper}` from `{mergeCccExclusionsProbeOrder}` and, from `{project-root}`, run `uv run {mergeCccExclusionsHelper} --clone-root "{ccc_root}"`. It runs `ccc init -f` in the clone when its `settings.yml` is missing and adds the standard build and dependency exclusions the file lacks, as step 3 §2a does, so it changes nothing once step 3 prepared the clone. When no candidate resolves, the command fails or `settings_ready` is false, log it and skip the rest of this section, including the registry update.
 - `{ccc_settings_owner}` `user`: run `cd "{ccc_root}" && ccc init` (idempotent: a no-op once initialized).
 
 Then run `cd "{ccc_root}" && ccc index` in the foreground with the shell's longest timeout (in an interactive run, an index that can outlast that timeout may run in the background instead, the step waiting for it to exit before it goes on; a headless run keeps it in the foreground), or use the ccc MCP tool; a call the shell stops at that timeout is ccc indexing that failed, which **Error handling** at the end of this section covers. `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. Indexing is a no-op if the source was already indexed during setup, step 2b or step 3.

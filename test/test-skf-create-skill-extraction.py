@@ -27,7 +27,7 @@ These tests keep the steps on the scripts:
   flag, and compile §4 its counts and arms, never a hand count, and its
   condition 2 passes a tier A count over a curated `scope.include`;
 - step 3d's component-library runner writes to the same {extraction_json},
-  which §2b binds and removes for every brief, outside the scratch folder
+  which §2a binds and removes for every brief, outside the scratch folder
   step 3d removes, so §5's `init` seeds a component library's inventory and
   extraction rules from it too, and step 3d acts on its `status`, never its
   exit code (step 5b determinism-1);
@@ -201,8 +201,8 @@ def _binding(text: str, name: str) -> str:
 
 
 def _extraction_json() -> str:
-    """The runner JSON's path, which §2b's start clean binds for §4 and step 3d."""
-    return _binding(_section(EXTRACT, "2b"), "extraction_json")
+    """The runner JSON's path, which §2a's start clean binds for §4 and step 3d."""
+    return _binding(_section(EXTRACT, "2a"), "extraction_json")
 
 
 def _fill(command: str, values: dict[str, str]) -> list[str]:
@@ -287,10 +287,10 @@ def test_section_4_runs_the_protocol_through_the_runner() -> None:
     tiers = re.findall(r"`(Quick|Forge\+?|Deep)`", _read(REFS / "load-brief.md"))
     assert set(tiers) == set(RUNNER_MOD.TIERS), tiers
     assert "resolve `{extractPublicApiHelper}` ← first existing path in `{extractPublicApiProbeOrder}`" in four
-    # the runner's JSON sits beside the staging folder, never in the skill; §2b binds it
+    # the runner's JSON sits beside the staging folder, never in the skill; §2a binds it
     assert _extraction_json() == STAGE + "{skill-name}.extraction.json"
     assert "`{extraction_json}` ←" not in four
-    assert ("it writes `{extraction_json}` (bound in §2b, beside the staging folder step 5 creates, never inside "
+    assert ("it writes `{extraction_json}` (bound in §2a, beside the staging folder step 5 creates, never inside "
             "the skill)") in four
     # the step acts on the JSON, never on the exit code, and points at the one list of fallback cases
     assert ("A JSON at `{extraction_json}` after the call is this call's: read it, in parts when it is large, "
@@ -350,7 +350,7 @@ def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:
     recipe's matches in file and line order, so a CCC ranking orders only the
     files read one at a time. The patterns file says so once, and no file
     that describes the ranking claims more."""
-    integration = _slice(_read(EXTRACT), "**CCC Discovery Integration (Forge+ and Deep with ccc only):**", "### 2a.")
+    integration = _slice(_read(EXTRACT), "**CCC Discovery Integration (Forge+ and Deep with ccc only):**", "### 2b.")
     assert ("§4 and §4b read the files they read one at a time in its order, as the CCC Pre-Ranking Strategy in "
             "`{extractionPatternsData}` says") in integration
     assert ("Display: \"**CCC discovery: {N} files ranked by semantic relevance.** Files read one at a time "
@@ -396,9 +396,9 @@ def test_filtered_list_is_built_by_the_runner_where_a_step_reads_it() -> None:
     assert ("with `--tree-file -` in place of `--source-root`. The filtered file list is its `files_in_scope_list` "
             "(the files a recipe reads) and `files_without_recipes_list` (those in a language no recipe reads)") \
         in by_hand
-    # the auth-files order note stays where test-skf-auth-files-after-clone.py reads it
-    assert "Sections 2b and 2a follow in that order" in two
-    ready = _slice(_section(EXTRACT, "2b"), "- **`ready`**", "\n")
+    # the labels follow the run order, so no order note is left (#1144)
+    assert "Sections 2b and 2a" not in two
+    ready = _slice(_section(EXTRACT, "2a"), "- **`ready`**", "\n")
     assert ("Build the §2 filtered file list again from `{source_root}` when §2 builds one (a `component-library` "
             "brief)") in ready
 
@@ -462,13 +462,13 @@ def test_step_3d_writes_the_runner_json_step_3_seeds_from() -> None:
     the scratch folder Phase 6 removes, so `init` seeds a component library's
     inventory with the runner's exports, counts and extraction rules, and the
     model sends only what it read by eye, the Props fields and the catalog.
-    §2b binds the path and removes it for every brief, so a JSON there is
+    §2a binds the path and removes it for every brief, so a JSON there is
     this run's even when no runner candidate resolves."""
     phase_4 = _phase_4()
     assert "`{extraction_json}` ←" not in phase_4
-    assert "it writes `{extraction_json}`, which step 3 §2b bound beside the staging folder" in phase_4
+    assert "it writes `{extraction_json}`, which step 3 §2a bound beside the staging folder" in phase_4
     assert _extraction_json() == STAGE + "{skill-name}.extraction.json"
-    assert 'rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" ' in _section(EXTRACT, "2b")
+    assert 'rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" ' in _section(EXTRACT, "2a")
     block = _block(phase_4, RUNNER_CALL)
     assert block[:2] == [MKDIR_CALL, RM_EXTRACTION] and block[2].startswith(RUNNER_CALL), block
     call = block[2]
@@ -489,8 +489,30 @@ def test_step_3d_writes_the_runner_json_step_3_seeds_from() -> None:
     assert ("for each function export whose `params` the runner left null (and each Props interface of a component "
             "library)") in five
     six = _slice(text, "### Phase 6:", "## RETURN PROTOCOL")
-    assert "keep the aggregate counts below in context for step 5's `metadata.json` stats" in six
+    # the aggregate counts reach the inventory as component_stats, never context alone (#1144)
+    assert "keep the aggregate counts below in context" not in six and "in context" not in six
+    assert ("`component_stats`, the aggregate counts below, which step 3 §5's `set` records beside "
+            "`component_catalog` for step 5's `metadata.json` stats") in six
+    assert "**Component library aggregate counts** (`component_stats`, one object, sent with step 3 §5's `set`):" in six
+    assert ("a component library's `component_catalog` and `component_stats` (step 3d's Phase 6)"
+            in _section(EXTRACT, "5"))
     assert "- `params`: each field as `{name, type, default, optional, description}`, sent with `patch`" in six
+
+
+def test_step_3d_returns_to_section_5_even_after_a_compaction() -> None:
+    """#1144 architecture-1: the return protocol forbade loading `{returnToStep}`, so a compaction that dropped
+    extract.md left no resume point, and running extract.md from the top deletes the `{extraction_json}` Phase 4
+    wrote at §2a's start clean. Step 3d now resumes at §5, loading extract.md for it when §5 is out of context."""
+    text = _read(COMPONENT)
+    protocol = text[text.index("## RETURN PROTOCOL"):]
+    assert ("Resume step 3 at its §5. If §5 is no longer in context, load `{returnToStep}` and execute from its §5 "
+            "(Build Extraction Inventory) onward; never re-run its §1 to §4c, whose §2a start clean deletes the "
+            "`{extraction_json}` Phase 4 wrote.") in protocol
+    assert "Do not load `{returnToStep}`" not in text
+    assert _frontmatter(text)["returnToStep"] == "extract.md"
+    # §2a's start clean is what deletes the runner JSON, and §5 is the section the protocol names
+    assert '"{extraction_json}"' in _slice(_section(EXTRACT, "2a"), "**Start clean:**", "\n")
+    assert _read(EXTRACT).count("\n### 5. Build Extraction Inventory\n") == 1
 
 
 def test_step_3d_acts_on_the_runner_status() -> None:

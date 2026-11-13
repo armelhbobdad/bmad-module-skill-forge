@@ -13,7 +13,9 @@ file entries with `provenance --add-entries`, then metadata.json with
 `metadata` (every field but those it decides, which it sends on stdin), and
 step 7 writes extraction-rules.yaml with `rules`. A T3 item never overrides
 an export the inventory already holds, and an entry added twice is kept
-once.
+once. Step 3 records the run's source with `set`'s `run`, which `init`
+keeps for the same skill, `summary` prints, and `provenance` and `metadata`
+read when stdin leaves the source or the version out (#1144).
 """
 
 from __future__ import annotations
@@ -639,26 +641,83 @@ def test_provenance_add_entries_needs_the_map(tmp_path):
 COMPILE = REPO / "src" / "skf-create-skill" / "references" / "compile.md"
 
 
+# step 3 §2a's record of the run's source, as its `set` sends it (#1144)
+RUN = {"run_dir": "/proj/_bmad-output/.skf-run/skf-create-skill-a1b2c3d4", "source_ref": "v2.3.0",
+       "source_commit": "89abcdef01234567", "tag_resolution": {"tag": "v2.3.0", "version": "2.3.0"},
+       "source_tree": "/proj/_bmad-output/.skf-trees/demo-89abcdef", "resolved_source_path": "/ws/o/demo",
+       "version": "2.3.1"}
+
+
+def _compile_section(start: str, end: str) -> str:
+    text = COMPILE.read_text(encoding="utf-8")
+    begin = text.index(start)
+    return text[begin:text.index(end, begin + len(start))]
+
+
+def _payloads(section: str) -> list:
+    """The SKF_JSON payload of each fenced bash block of a compile.md section."""
+    return [json.loads(block.split("<<'SKF_JSON'\n")[1].split("\nSKF_JSON")[0])
+            for block in re.findall(r"```bash\n(.*?)```", section, re.S) if "<<'SKF_JSON'" in block]
+
+
 def test_compile_writes_the_map_through_the_helper(tmp_path):
-    """compile.md §6 never types an entry the inventory holds: the helper
+    """compile.md §1c never types an entry the inventory holds: the helper
     writes the staged map, an unsigned function goes back through extract's
     patch, and the T2, T3 and file entries go through --add-entries. Each
-    documented payload is one the helper takes."""
-    text = COMPILE.read_text(encoding="utf-8")
-    six = text[text.index("### 6. Build provenance-map.json Content"):text.index("### 7. ")]
-    write, add = re.findall(r"```bash\n(.*?)```", six, re.S)
+    documented payload is one the helper takes, the header's commit and ref
+    the inventory run's (#1144)."""
+    one_c = _compile_section("### 1c. Stage the Provenance Map", "### 2. Build SKILL.md Content")
+    write, add = re.findall(r"```bash\n(.*?)```", one_c, re.S)
     target = '--target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json"'
     assert target in write and "--add-entries" not in write
     assert target in add and "--add-entries <<'SKF_JSON'" in add
-    assert "never type an entry the inventory holds" in six and "Start `entries[]`" not in six
-    assert "send them through that `patch` call as extract.md §5 says, and run the command above again" in six
-    payloads = [json.loads(block.split("<<'SKF_JSON'\n")[1].split("\nSKF_JSON")[0]) for block in (write, add)]
-    path = _write(tmp_path)
+    assert "never type an entry the inventory holds" in one_c and "Start `entries[]`" not in one_c
+    assert "send them through that `patch` call as extract.md §5 says, and run the command above again" in one_c
+    assert "it takes `source_commit` and `source_ref` from the inventory's `run`, which step 3 §2a recorded" in one_c
+    payloads = _payloads(one_c)
+    assert payloads[0] == {"source_repo": "<source_repo>"}
+    path = _write(tmp_path, {**INVENTORY, "run": RUN})
     map_path = tmp_path / "provenance-map.json"
     _provenance(path, map_path, payloads[0])
+    header = _load(map_path)
+    assert (header["source_commit"], header["source_ref"]) == (RUN["source_commit"], RUN["source_ref"])
     out = _ok(_run("provenance", "--inventory", str(path), "--target", str(map_path), "--add-entries",
                    stdin=json.dumps(payloads[1])))
     assert (out["added"], out["file_entries"]) == (2, 1)
+
+
+def test_compile_stages_the_map_before_it_assembles_skill_md(tmp_path):
+    """#1144 architecture-2: §1c, after §1a creates the staging folder and before §2 assembles SKILL.md, stages
+    the map and sends each function its `unsigned` lists back through `patch`, so SKILL.md gives that function's
+    parameters and return type. §6 is a one-line stub, so every "step 5 §6" citation still resolves, and §4 reads
+    the map §1c staged, with no forward reference."""
+    text = COMPILE.read_text(encoding="utf-8")
+    assert (text.index("### 1a. Create Staging Directory") < text.index("### 1b. Signature Fidelity Rule")
+            < text.index("### 1c. Stage the Provenance Map") < text.index("### 2. Build SKILL.md Content"))
+    assert "All artifacts produced in sections 1c to 7 below are written here:" in text
+    six = _compile_section("### 6. Build provenance-map.json Content", "### 7. ")
+    assert six.strip().splitlines() == ["### 6. Build provenance-map.json Content", "",
+                                        "§1c staged the provenance map before §2 assembled SKILL.md."]
+    four = _compile_section("### 4. Build metadata.json Content", "### 5. ")
+    assert "(§6) first" not in four and "the `entries[]` of the `provenance-map.json` §1c staged" in four
+    frontmatter = text.split("\n---\n", 1)[0]
+    assert "§1c writes the\n# provenance map through its `provenance`" in frontmatter
+    # the unsigned function: listed, patched as extract §5 says, then the call again gives its signature
+    one_c = _compile_section("### 1c. Stage the Provenance Map", "### 2. Build SKILL.md Content")
+    f = {"export_name": "f", "export_type": "function", "source_file": "a.py", "source_line": 4,
+         "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "function_definition",
+         "params": None, "return_type": None}
+    path = _write(tmp_path, {**INVENTORY, "exports": [f], "run": RUN})
+    map_path = tmp_path / "provenance-map.json"
+    header = _payloads(one_c)[0]
+    assert _provenance(path, map_path, header)["unsigned"] == ["f (a.py)"]
+    sent = [{"export_name": "f", "source_file": "a.py", "signature": "def f(x: int) -> str",
+             "params": [{"name": "x", "type": "int", "default": None, "optional": False}], "return_type": "str"}]
+    assert _ok(_run("patch", "--inventory", str(path), stdin=json.dumps(sent)))["patched"] == 1
+    again = _provenance(path, map_path, header)
+    assert again["unsigned"] == []
+    [entry] = _load(map_path)["entries"]
+    assert (entry["params"], entry["return_type"]) == (["x: int"], "str")
 
 
 def test_provenance_refuses_a_missing_inventory(tmp_path):
@@ -1507,14 +1566,21 @@ def test_compile_writes_metadata_through_the_helper(tmp_path):
     # the runner-fallback version, and the stats each shape adds, are the only optional keys §4 documents
     assert ("When step 3 ran the recipes without the runner (extraction-patterns.md's **When the Runner Cannot "
             "Run**), add `ast_grep_version`") in four
-    assert ("For a component library, add `stats_extra`, the fields `{assemblyRulesData}`'s Component Library "
-            "stats block adds; for a reference app, only its `notes`") in four
-    # metadata.json does not exist when §6 writes the map, and the helper owns which exports metadata.json lists
+    assert ("For a component library, add `stats_extra`, the inventory's `component_stats` (the fields "
+            "`{assemblyRulesData}`'s Component Library stats block adds); for a reference app, only its `notes`") \
+        in four
+    # metadata.json does not exist when §1c writes the map, and the helper owns which exports metadata.json lists
     assert "the source fields §4 set in metadata.json" not in text
-    assert "the values §4's `metadata` call sends (`null` for one that is unavailable)" in text
+    # the source fields and the version come from the inventory's run, which §1c's map reads too (#1144)
+    assert "the values §4's `metadata` call sends" not in text
+    assert ("The helper takes `version` (the source version step 3 reconciled, not the brief's default), "
+            "`source_root` (`{resolved-source-path}`), `source_commit` and `source_ref` (a tag, a branch or `HEAD`) "
+            "from the inventory's `run`, which step 3 §2a recorded: send one only to correct it.") in four
+    three = text[text.index("### 3. Build context-snippet.md Content"):text.index("### 4. ")]
+    assert "- **version**: the inventory's `run.version`, the source version step 3 reconciled" in three
     assert "`metadata.json`'s `exports[]`" not in text
     assert "Fill its Tool Versions block from `{tool_versions}` (§4), with `not used` for a null one." in text
-    paths = _metadata_files(tmp_path, {**METADATA_INVENTORY, "extraction_rules": {}, "aggregates": {}})
+    paths = _metadata_files(tmp_path, {**METADATA_INVENTORY, "extraction_rules": {}, "aggregates": {}, "run": RUN})
     staging = tmp_path / "stage"
     staging.mkdir()
     (staging / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
@@ -1538,14 +1604,188 @@ def test_compile_writes_metadata_through_the_helper(tmp_path):
                          timeout=60, check=False)
     assert ran.returncode == 0 and stats_json.is_file(), ran.stderr
     argv, payload = _documented_call(meta_block, values, SCRIPT)
-    assert set(json.loads(payload)) == {"version", "language", "source_root", "source_commit", "source_ref",
-                                        "qmd_version"}
+    assert set(json.loads(payload)) == {"language", "qmd_version"}
     ran = subprocess.run(argv, input=payload, capture_output=True, text=True, encoding="utf-8", timeout=60,
                          check=False)
     assert ran.returncode == 0, ran.stderr
     target = staging / "metadata.json"
     assert _load(target)["description"] == DESCRIPTION
+    written = _load(target)
+    assert (written["version"], written["source_root"], written["source_commit"], written["source_ref"]) == \
+        (RUN["version"], RUN["resolved_source_path"], RUN["source_commit"], RUN["source_ref"])
     check = subprocess.run([sys.executable, str(STATS), (staging / "provenance-map.json").as_posix(),
                             "--check", target.as_posix()], capture_output=True, text=True, encoding="utf-8",
                            timeout=60, check=False)
     assert json.loads(check.stdout)["coherence"] == {"ok": True, "violations": []}, check.stdout
+
+
+# --------------------------------------------------------------------------
+# run: step 3 §2a's record of the run's source, which compile and report read back from disk (#1144)
+# --------------------------------------------------------------------------
+
+DOCS_ONLY_RUN = {"run_dir": RUN["run_dir"], "source_ref": None, "source_commit": None, "tag_resolution": None,
+                 "source_tree": None, "resolved_source_path": None, "version": "1.2.0"}
+
+
+def _set(path: Path, values) -> subprocess.CompletedProcess:
+    return _run("set", "--inventory", str(path), stdin=json.dumps(values))
+
+
+def _init(path: Path, *extra: str, skill: str = "demo", mode: str = "source") -> dict:
+    return _ok(_run("init", "--inventory", str(path), "--skill", skill, "--mode", mode, "--tier", "Forge", *extra))
+
+
+def test_set_records_the_run_and_merges_a_later_one(tmp_path):
+    """A remote source's run holds all seven keys; a later `set` changes only the keys it sends."""
+    path = _write(tmp_path)
+    out = _ok(_set(path, {"run": RUN}))
+    assert out["set"] == ["run"]
+    assert _load(path)["run"] == RUN
+    _ok(_set(path, {"run": {"version": "2.0"}}))
+    assert _load(path)["run"] == {**RUN, "version": "2.0"}
+    # every other field is left as it was
+    assert {k: v for k, v in _load(path).items() if k != "run"} == INVENTORY
+
+
+@pytest.mark.parametrize("run,needle", [
+    ({"tree": "x"}, "run takes only run_dir, source_ref, source_commit, tag_resolution, source_tree, "
+                    "resolved_source_path, version; not tree"),
+    ({"run_dir": 5}, "run.run_dir must be str or null"),
+    ({**RUN, "version": 2.3}, "run.version must be str or null"),
+    ({"tag_resolution": "v2.3.0"}, "run.tag_resolution must be dict or null"),
+    (["/proj/run"], "run must be dict"),
+], ids=["unknown-key", "number-run-dir", "number-version", "string-tag-resolution", "not-an-object"])
+def test_set_refuses_a_run_it_does_not_take(tmp_path, run, needle):
+    """A misspelled key would be stored where no reader looks: the call changes nothing and names the key."""
+    path = _write(tmp_path, {**INVENTORY, "run": RUN})
+    before = path.read_bytes()
+    proc = _set(path, {"run": run, "top_exports": ["parse"]})
+    assert proc.returncode == 1 and needle in json.loads(proc.stderr)["message"]
+    assert path.read_bytes() == before
+
+
+def test_set_replaces_the_component_stats_whole(tmp_path):
+    """Step 3d's six aggregate counts, which compile §4 sends as stats_extra: a later `set` replaces them."""
+    path = _write(tmp_path)
+    stats = {"components_registered": 12, "components_documented": 10, "props_interfaces_extracted": 11,
+             "components_unique": 12, "demo_files_excluded": 4, "design_variants": {"radix": 12}}
+    _ok(_set(path, {"component_stats": stats, "component_catalog": [{"id": "button"}]}))
+    assert _load(path)["component_stats"] == stats
+    _ok(_set(path, {"component_stats": {"components_registered": 13}}))
+    assert _load(path)["component_stats"] == {"components_registered": 13}
+    proc = _set(path, {"component_stats": [stats]})
+    assert proc.returncode == 1 and "component_stats must be dict" in json.loads(proc.stderr)["message"]
+
+
+def test_init_keeps_the_run_of_the_same_skill_and_nothing_else(tmp_path):
+    """§3's and §5's `init` start the inventory again after §2a recorded the run: the new inventory keeps that
+    run and is otherwise what `init` writes from scratch."""
+    runner = _write(tmp_path, RUNNER_JSON, "demo.extraction.json")
+    path = _write(tmp_path, {**INVENTORY, "run": RUN, "component_stats": {"components_registered": 1}})
+    _init(path, "--extraction", str(runner))
+    fresh = tmp_path / "fresh.inventory.json"
+    _init(fresh, "--extraction", str(runner))
+    data = _load(path)
+    assert data.pop("run") == RUN
+    assert data == _load(fresh)
+
+
+@pytest.mark.parametrize("previous", [
+    json.dumps({**INVENTORY, "skill_name": "other", "run": RUN}),
+    "{not json",
+    None,
+], ids=["another-skill", "not-json", "no-file"])
+def test_init_keeps_no_run_from_another_inventory(tmp_path, previous):
+    path = tmp_path / "demo.inventory.json"
+    if previous is not None:
+        path.write_text(previous, encoding="utf-8")
+    _init(path)
+    assert "run" not in _load(path)
+    assert _ok(_run("summary", "--inventory", str(path)))["run"] is None
+
+
+def test_a_docs_only_run_records_its_version_and_no_source(tmp_path):
+    """A docs-only brief records the run from §2a's skip line, every source field null, and §3's `init` keeps it."""
+    path = tmp_path / "demo.inventory.json"
+    _init(path, mode="docs-only")
+    _ok(_set(path, {"run": DOCS_ONLY_RUN}))
+    _init(path, mode="docs-only")
+    assert _load(path)["run"] == DOCS_ONLY_RUN
+
+
+def test_summary_prints_the_run(tmp_path):
+    """Compile §1 and report §5 bind a lost `{run_dir}` (and compile a lost `{source_tree}`) from it."""
+    out = _ok(_run("summary", "--inventory", str(_write(tmp_path, {**INVENTORY, "run": RUN}))))
+    assert out["run"] == RUN
+    out = _ok(_run("summary", "--inventory", str(_write(tmp_path, name="bare.inventory.json"))))
+    assert "run" in out and out["run"] is None
+
+
+def test_provenance_takes_the_source_from_the_run(tmp_path):
+    """A compacted run keeps its commit and ref: the header reads them from the run when stdin leaves them out,
+    and a key stdin gives wins."""
+    path = _write(tmp_path, {**INVENTORY, "run": RUN})
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target, {"source_repo": "https://github.com/o/demo"})
+    header = _load(target)
+    assert (header["source_repo"], header["source_commit"], header["source_ref"]) == \
+        ("https://github.com/o/demo", RUN["source_commit"], RUN["source_ref"])
+    _provenance(path, target, {"source_repo": "r", "source_commit": "abc", "source_ref": None})
+    assert (_load(target)["source_commit"], _load(target)["source_ref"]) == ("abc", None)
+    # a docs-only run records a null commit, which the header takes as it is
+    docs = _write(tmp_path, {**INVENTORY, "run": DOCS_ONLY_RUN}, "docs.inventory.json")
+    _provenance(docs, target, {"source_repo": "https://docs.example.com"})
+    assert (_load(target)["source_commit"], _load(target)["source_ref"]) == (None, None)
+
+
+def test_provenance_still_needs_a_commit_neither_stdin_nor_the_run_gives(tmp_path):
+    path = _write(tmp_path)
+    target = tmp_path / "provenance-map.json"
+    proc = _run("provenance", "--inventory", str(path), "--target", str(target),
+                stdin=json.dumps({"source_repo": "r"}))
+    assert proc.returncode == 1 and "needs source_commit" in json.loads(proc.stderr)["message"]
+    assert not target.exists()
+
+
+def test_metadata_takes_the_source_and_the_version_from_the_run(tmp_path):
+    """Compile §4 sends only what it decides: the version step 3 reconciled, the source root, commit and ref come
+    from the run; a key stdin gives wins."""
+    paths = _metadata_files(tmp_path, {**METADATA_INVENTORY, "run": RUN})
+    out = _ok(_metadata(paths, {"language": "python", "qmd_version": None}))
+    written = _load(paths["target"])
+    assert (written["version"], written["source_root"], written["source_commit"], written["source_ref"]) == \
+        (RUN["version"], RUN["resolved_source_path"], RUN["source_commit"], RUN["source_ref"])
+    assert out["commit_short"] == RUN["source_commit"][:8]
+    _ok(_metadata(paths, {**DECIDED, "source_commit": "abc"}))
+    written = _load(paths["target"])
+    assert (written["version"], written["source_root"], written["source_commit"], written["source_ref"]) == \
+        (DECIDED["version"], DECIDED["source_root"], "abc", DECIDED["source_ref"])
+
+
+@pytest.mark.parametrize("run,source", [
+    (DOCS_ONLY_RUN, ("1.2.0", None, None, None)),
+    ({**RUN, "source_commit": None}, (RUN["version"], RUN["resolved_source_path"], None, RUN["source_ref"])),
+], ids=["docs-only", "no-commit"])
+def test_metadata_takes_a_null_source_field_from_the_run(tmp_path, run, source):
+    """A docs-only run records every source field null, and a run whose commit Source Commit Capture could not
+    read a null source_commit: compile §4 still sends only language and qmd_version, and metadata writes those
+    nulls."""
+    paths = _metadata_files(tmp_path, {**METADATA_INVENTORY, "run": run})
+    out = _ok(_metadata(paths, {"language": "python", "qmd_version": None}))
+    written = _load(paths["target"])
+    assert (written["version"], written["source_root"], written["source_commit"], written["source_ref"]) == source
+    assert out["commit_short"] == "unknown"
+
+
+@pytest.mark.parametrize("run,decided,needle", [
+    (None, {k: v for k, v in DECIDED.items() if k != "source_commit"}, "metadata needs source_commit"),
+    (None, {"language": "python", "qmd_version": None},
+     "metadata needs version, source_root, source_commit, source_ref"),
+    ({**RUN, "version": None}, {"language": "python", "qmd_version": None}, "metadata needs version (null when"),
+], ids=["no-run-no-commit", "no-run-nothing", "run-without-version"])
+def test_metadata_needs_what_neither_stdin_nor_the_run_gives(tmp_path, run, decided, needle):
+    inventory = METADATA_INVENTORY if run is None else {**METADATA_INVENTORY, "run": run}
+    paths = _metadata_files(tmp_path, inventory)
+    proc = _metadata(paths, decided)
+    assert proc.returncode == 1 and needle in json.loads(proc.stderr)["message"]
+    assert not paths["target"].exists()

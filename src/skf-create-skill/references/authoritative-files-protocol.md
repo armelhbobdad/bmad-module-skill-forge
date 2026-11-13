@@ -2,13 +2,13 @@
 
 ## Overview
 
-Loaded on demand when step 3's `### 2a. Discovered Authoritative Files Protocol` sub-step runs, after `### 2b. Resolve Source Access` has resolved the source to a local tree.
+Loaded on demand when step 3's `### 2b. Discovered Authoritative Files Protocol` sub-step runs, after `### 2a. Resolve Source Access` has resolved the source to a local tree.
 
 **Skip this protocol entirely if `source_type: "docs-only"`** — there is no source tree to scan.
 
-**Skip it too when `source_root` is still a remote URL** (a Quick-tier remote source, which §2b never clones, or a remote source §2b could not read into a tree): step 3 §2a's remote source guard skips the scan with a notice, because the helper below walks a local directory and refuses a URL.
+**Skip it too when `source_root` is still a remote URL** (a Quick-tier remote source, which §2a never clones, or a remote source §2a could not read into a tree): step 3 §2b's remote source guard skips the scan with a notice, because the helper below walks a local directory and refuses a URL.
 
-Once §2b has resolved source access, scan the resolved source tree (the local source, or the private tree §2b read a remote one into) for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary: information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
+Once §2a has resolved source access, scan the resolved source tree (the local source, or the private tree §2a read a remote one into) for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary: information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
 
 This protocol detects such files, prompts the user, and records the decision in the brief so future runs (re-create, update, audit) honor it.
 
@@ -23,7 +23,7 @@ This protocol detects such files, prompts the user, and records the decision in 
        [--preview-lines 20]
    ```
 
-   `{source_root}` is the local tree §2b resolved: the local source, or the private tree of a remote one, and `{brief_path}` the `skill-brief.yaml` step 1 loaded. The helper emits one envelope with three buckets:
+   `{source_root}` is the local tree §2a resolved: the local source, or the private tree of a remote one, and `{brief_path}` the `skill-brief.yaml` step 1 loaded. The helper emits one envelope with three buckets:
 
    ```json
    {
@@ -103,11 +103,11 @@ This protocol detects such files, prompts the user, and records the decision in 
 
    - **[S] Skip:**
      1. Leave `scope.include` and `scope.exclude` as they are.
-     2. **Write the decision** with no `include` and an amendment with `action: "skipped"`, `reason`: the user's reason, else "user declined promotion at create-skill §2a".
+     2. **Write the decision** with no `include` and an amendment with `action: "skipped"`, `reason`: the user's reason, else "user declined promotion at create-skill §2b".
      3. Display: "**Skipped `{path}`**: decision recorded in amendments."
 
    - **[U] Update:**
-     1. When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints: the scan read the tree §2b made, and nothing reads it after this halt.
+     1. When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints: the scan read the tree §2a made, and nothing reads it after this halt.
      2. **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
 
 6. **Summary.** After all candidates are resolved (or none were found), display a one-line summary:
@@ -117,4 +117,4 @@ This protocol detects such files, prompts the user, and records the decision in 
 
 **Record for evidence report:** `authoritative_files_scan: {candidates: N, promoted: P, skipped: S, deferred: D, pre_decided: A, decisions: [{path, action, heuristic, reason}]}`. Step 3 §5 writes it and `promoted_docs[]` into the extraction inventory, and step 5 writes it into `evidence-report.md`.
 
-When step 3 §2a's remote source guard skipped the scan, the record is `authoritative_files_scan: {not_scanned: "remote source not cloned"}` instead (its own key, apart from the `skipped` count of candidates above), and step 6 lists that skip under the evidence report's Remaining Warnings.
+When step 3 §2b's remote source guard skipped the scan, the record is `authoritative_files_scan: {not_scanned: "remote source not cloned"}` instead (its own key, apart from the `skipped` count of candidates above), and step 6 lists that skip under the evidence report's Remaining Warnings.

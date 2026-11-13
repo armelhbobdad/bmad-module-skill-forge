@@ -15,6 +15,11 @@ emitEnvelopeProbeOrder:
 resolveCustomizationProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
   - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
+# §5 reads a lost `{run_dir}` back from the extraction inventory's `run`
+# through its `summary`.
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -101,7 +106,17 @@ To use this skill immediately, add the context snippet to your CLAUDE.md:
 
 Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its HALT line says, and writes its result file there once step 7 has created `{forge_version}`.
 
-**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
+**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it.
+
+**Find the run folder.** When `{run_dir}` is not bound, resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and bind `{run_dir}` ← the `run.run_dir` this prints, from `{project-root}` (never `{source_tree}`: step 7 removed the tree):
+
+```bash
+uv run {extractionInventoryHelper} summary --inventory "{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json"
+```
+
+When `{run_dir}` is still not bound (no path resolves, the call fails, or its `run` records no `run_dir`), write no result contract: display "No result contract for `{name}`: its run folder is lost, so its decisions cannot be read." and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty. The post-completion hook below then skips under its "No `emit` succeeded" case, and there is no run folder to remove.
+
+Otherwise first read the run sink, from `{project-root}`:
 
 ```bash
 grep -c . "{run_dir}/headless-decisions.jsonl" 2>/dev/null; grep -c '"gate":"zero-exports"' "{run_dir}/headless-decisions.jsonl" 2>/dev/null
@@ -134,12 +149,12 @@ When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's resul
 
 The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}", and when it exited 127 (the shell found no such command) end that line with "; on_complete is a shell command in this workflow, not an instruction", then go on. When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing file or an earlier compile's: skip the hook and display the line for its case:
 
-- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): "on_complete skipped for `{name}`: no result contract was written ({the reason})".
+- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, `emit` failed twice, or the run folder is lost): "on_complete skipped for `{name}`: no result contract was written ({the reason})".
 - `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a `result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "on_complete skipped for `{name}`: `create-skill-result-latest.json` was not written".
 
 When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
-**Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`); under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
+**Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`), unless it is lost; under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
 
 ### 6. Chain to the Next Step
 

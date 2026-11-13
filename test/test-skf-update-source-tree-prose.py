@@ -4668,7 +4668,7 @@ def test_the_documented_resolver_call_classifies_the_mirror(tmp_path, capsys):
     one_b = _slice(detect, "### 1b. Discovered Authoritative Files Protocol", "### 1c.")
     call = _fence(one_b, "uv run {resolveAuthoritativeFilesHelper} resolve")
     assert '--provenance-map "{provenance_map_path}"' in call
-    for token in ("**`already_tracked[]`:**", "**`already_in_scope[]`:**", "with no prompt, as create-skill §2a does",
+    for token in ("**`already_tracked[]`:**", "**`already_in_scope[]`:**", "with no prompt, as create-skill §2b does",
                   "**`pre_decided[]` with `prior_action: \"promoted\"`:**", "**`unresolved[]`:**",
                   "`amend` skips a deferral the brief already holds", "as the helper reported them",
                   "Never walk, match or hash these files by hand"):
@@ -7632,7 +7632,7 @@ def test_the_result_contract_points_at_the_schema():
 LEAN_PURPOSES = {
     ("### 1b.", "**Skip this section entirely if:**"):
         "**Purpose:** a project can add authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` "
-        "and the like) after the skill was created; surface each with create-skill §2a's [P]/[S]/[U] prompt.",
+        "and the like) after the skill was created; surface each with create-skill §2b's [P]/[S]/[U] prompt.",
     ("### 1c.", "**Skip this section entirely if:**"):
         "**Purpose:** catch new code globs outside the brief's `scope.include` after an upstream restructure "
         "(rebrand, package restructure, major-version rewrite).",

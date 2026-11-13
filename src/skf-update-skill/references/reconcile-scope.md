@@ -65,14 +65,14 @@ The halt leaves `{run_dir}` in place, with the decisions the gates below recorde
 
 ### 1b. Discovered Authoritative Files Protocol (Mirror)
 
-**Purpose:** a project can add authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like) after the skill was created; surface each with create-skill §2a's [P]/[S]/[U] prompt.
+**Purpose:** a project can add authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like) after the skill was created; surface each with create-skill §2b's [P]/[S]/[U] prompt.
 
 **Skip this section entirely if:**
 
 - `metadata.json.source_type == "docs-only"` (no source tree to scan), OR
 - `{brief_path}` does not exist (a skill built without a brief, such as a quick skill): there is no scope or amendment to match a document against, and no brief to amend. Display `"Authoritative files mirror: skipped (no skill brief)."`
 
-**Procedure (the helper and buckets of create-skill §2a):**
+**Procedure (the helper and buckets of create-skill §2b):**
 
 1. **Scan, classify and hash in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` and, from `{project-root}`, run:
 
@@ -83,16 +83,16 @@ The halt leaves `{run_dir}` in place, with the decisions the gates below recorde
        [--provenance-map "{provenance_map_path}"]
    ```
 
-   Pass `--provenance-map` whenever load-baseline.md §4 found one. It finds the files create-skill §2a looks for (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like), sorts each into a bucket below, and hashes and previews each one a decision needs. Never walk, match or hash these files by hand. On exit 1 (a source root, brief or provenance map it cannot read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:authoritative-files"`, `reason: "<its stderr>"`), showing its stderr.
+   Pass `--provenance-map` whenever load-baseline.md §4 found one. It finds the files create-skill §2b looks for (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like), sorts each into a bucket below, and hashes and previews each one a decision needs. Never walk, match or hash these files by hand. On exit 1 (a source root, brief or provenance map it cannot read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:authoritative-files"`, `reason: "<its stderr>"`), showing its stderr.
 
 2. **Apply each bucket:**
    - **`already_tracked[]`:** the provenance map names the file (`entries[]` or `file_entries[]`), so detect-changes.md §2 detects its drift. No action here.
-   - **`already_in_scope[]`:** the brief's scope already takes the file (a `scope.include` glob matches it, or its latest amendment promoted it), but the map has no row for it. Add the helper's `{path, heuristic, size_bytes, line_count, content_hash}` to `promoted_docs_new[]` (the list [P] Promote below fills), with no prompt, as create-skill §2a does. Display: `"In scope: {path} scheduled for file_entries write."`
+   - **`already_in_scope[]`:** the brief's scope already takes the file (a `scope.include` glob matches it, or its latest amendment promoted it), but the map has no row for it. Add the helper's `{path, heuristic, size_bytes, line_count, content_hash}` to `promoted_docs_new[]` (the list [P] Promote below fills), with no prompt, as create-skill §2b does. Display: `"In scope: {path} scheduled for file_entries write."`
    - **`pre_decided[]` with `prior_action: "promoted"`:** a prior run promoted it, but its `file_entries[]` row is missing (e.g. provenance-map was regenerated from source without re-reading amendments). Add it to `promoted_docs_new[]` with the helper's hash, size and line count so step 5's `apply` writes a new `file_entries[]` row. No user prompt: the decision was already made. Display: `"Honoring prior amendment: promoted {path} scheduled for file_entries write."`
    - **`pre_decided[]` with `prior_action: "skipped"`:** a person declined promotion before. Honor the skip silently. No prompt, no action.
    - **`unresolved[]`:** no one has decided the file yet (a `prior_action` of `deferred-headless` marks one a headless run met and left for a person, the legacy `skipped` amendment with reason `headless: no user to prompt` included): continue to the prompt.
 
-3. **Prompt.** For each `unresolved[]` candidate, present the same prompt as create-skill §2a, with the helper's `path`, `line_count`, `size_bytes`, `heuristic` and `preview` as it reported them (never recomputed):
+3. **Prompt.** For each `unresolved[]` candidate, present the same prompt as create-skill §2b, with the helper's `path`, `line_count`, `size_bytes`, `heuristic` and `preview` as it reported them (never recomputed):
 
    ```
    **New authoritative file discovered since skill creation**

@@ -640,7 +640,7 @@ class TestWriteBack:
         and writes atomically (test-skf-write-skill-brief.py runs amend)."""
         phase_2b = _phase("2b")
         assert 'uv run {writeSkillBriefHelper} amend --target "{brief_file}" <<\'SKF_BRIEF_ANSWERS\'' in phase_2b
-        assert "step 3 §2a may have amended it" in phase_2b and "`{brief_file}.bak`" in phase_2b
+        assert "step 3 §2b may have amended it" in phase_2b and "`{brief_file}.bak`" in phase_2b
         text = _text()
         assert "atomicWriteHelper" not in text and "{amended brief YAML}" not in text
         assert "{brief_path}.bak" not in text

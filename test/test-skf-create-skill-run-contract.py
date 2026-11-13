@@ -16,7 +16,7 @@
   nothing fetched halts before compile (docs-unreachable).
 - Under --batch a HARD HALT ends only its brief, and batch-mode.md's halts
   before the first brief carry their own phase (#585, #594).
-- Every stage that can halt after step 3 §2b states in its own Rules that
+- Every stage that can halt after step 3 §2a states in its own Rules that
   the halt closes the private source tree and, under --batch, returns to
   batch-mode.md §3, and binds both helpers it needs for that, so a halt after
   a compaction that dropped SKILL.md still ends only its brief; step 1 and
@@ -42,6 +42,12 @@
   source's version through the extractor's quick mode, so a release-time
   placeholder such as 0.0.0-development keeps the brief's version (v4.0.0
   quality gate run 2, determinism-2).
+- Step 3 §2a records the run's source and run folder in the extraction
+  inventory right after it resolves the source, docs-only briefs included;
+  compile §1 binds a lost `{run_dir}` and `{source_tree}` back from it and
+  halts with staging-unreadable when the run folder is lost, and report §5
+  binds a lost `{run_dir}` back, so a lost folder is an error, never zero
+  decisions (#1144).
 """
 
 from __future__ import annotations
@@ -73,7 +79,7 @@ EMIT_HALT_RESULT = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-creat
 HALT_RE = re.compile(r"\*\*HARD HALT\*\* \(exit code (\d), `([^`]+)`, phase `([a-z-]+)`")
 PHASES = {"load-brief", "extract", "component-extraction", "fetch-docs", "compile", "doc-sources", "auto-shard",
           "validate", "generate-artifacts", "batch-mode"}
-# The stages whose HARD HALTs can fire once step 3 §2b has bound the private
+# The stages whose HARD HALTs can fire once step 3 §2a has bound the private
 # source tree. load-brief.md halts before it, batch-mode.md is the loop the
 # halts return to, and extract.md runs the authoritative-files protocol under
 # its own Rules.
@@ -196,7 +202,7 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     assert halting - {"batch-mode.md", "load-brief.md", "authoritative-files-protocol.md"} == set(TREE_HALT_STAGES)
     for name in TREE_HALT_STAGES:
         rules = [line for line in _rules(REFS / name).splitlines()
-                 if line.startswith("- A HARD HALT, once step 3 §2b has bound `{source_tree}`")]
+                 if line.startswith("- A HARD HALT, once step 3 §2a has bound `{source_tree}`")]
         assert len(rules) == 1, name
         for token in ('first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` '
                       "(resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints",
@@ -263,7 +269,7 @@ def test_the_report_step_binds_the_emitter_and_the_hook_itself():
     assert hook.index(hook_call) < hook.index("When `{onCompleteCommand}` is non-empty")
     # One wording for the incomplete install, wherever the step names it.
     assert "resolved no path" not in report and "no `{emitEnvelopeHelper}`" not in report
-    assert "(no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice)" in five
+    assert "(no path in `{emitEnvelopeProbeOrder}` exists, `emit` failed twice, or the run folder is lost)" in five
 
 
 def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
@@ -404,7 +410,7 @@ def test_every_headless_gate_is_recorded_and_declared():
     assert "**GATE [default: HALT]**: headless, ask nothing: **HARD HALT** (exit code 2, `brief-missing`" in several
     overview = _section(skill, "## Overview", "## Conventions")
     assert "it stops for the user in step 1 when no brief is named and several exist" in overview
-    assert "for each authoritative AI documentation file the brief's scope leaves out (step 3 §2a)" in overview
+    assert "for each authoritative AI documentation file the brief's scope leaves out (step 3 §2b)" in overview
     assert "at step 3c when a source brief extracted no export" in overview
     footnote = next(line for line in skill.splitlines() if line.startswith("*Sub-steps under"))
     assert "a branch inside step 3" in footnote and "alternative main step" not in footnote
@@ -507,7 +513,8 @@ def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():
     # the -latest copy
     assert ("When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing "
             "file or an earlier compile's: skip the hook and display the line for its case:\n\n") in five
-    assert ('- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): '
+    assert ('- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, `emit` failed twice, or the run '
+            'folder is lost): '
             '"on_complete skipped for `{name}`: no result contract was written ({the reason})".\n') in five
     assert ("- `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a "
             "`result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "
@@ -708,6 +715,164 @@ def test_step_7_promotes_instead_of_rewriting():
     assert ('rm -rf "{project-root}/_bmad-output/.skf-stage/{skill-name}" && mkdir -p '
             '"{project-root}/_bmad-output/.skf-stage/{skill-name}/references"') in compile_1a
     assert "step 7 promotes this folder byte for byte" in compile_1a
+
+
+# --------------------------------------------------------------------------
+# The run record: step 3 §2a writes it, compile §1 and report §5 read it back (#1144)
+# --------------------------------------------------------------------------
+
+INVENTORY_HELPER = REPO / "src" / "shared" / "scripts" / "skf-extraction-inventory.py"
+INVENTORY_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py",
+                   "{project-root}/src/shared/scripts/skf-extraction-inventory.py"]
+RUN_KEYS = ["run_dir", "source_ref", "source_commit", "tag_resolution", "source_tree", "resolved_source_path",
+            "version"]
+
+
+def _helper_call(line: str, values: dict) -> list[str]:
+    """A documented `uv run {extractionInventoryHelper} ...` line, its placeholders filled, as argv for this
+    interpreter; a heredoc's `<<` and an optional `[--flag ...]` group are dropped."""
+    for placeholder, value in values.items():
+        line = line.replace(placeholder, value)
+    line = re.sub(r" \[[^\]]*\]", "", line.split(" <<")[0])
+    words = shlex.split(line)
+    assert words[:3] == ["uv", "run", "{extractionInventoryHelper}"], words
+    return [sys.executable, str(INVENTORY_HELPER), *words[3:]]
+
+
+def _run_helper(argv: list[str], stdin: str = "") -> dict:
+    proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+RECORD_THE_RUN = "**Record the run** in the extraction inventory"
+
+
+def _record_the_run(two_a: str) -> str:
+    """§2a's **Record the run** paragraph and its fence (the docs-only skip line names it first)."""
+    return _section(two_a, RECORD_THE_RUN, "**Deferred CCC Discovery")
+
+
+@pytest.mark.parametrize("mode", ["source", "docs-only"])
+def test_step_3_records_the_run_right_after_it_resolves_the_source(tmp_path, mode):
+    """#1144 enhancement-2: §2a records the run's source identity, the reconciled version and the run folder in
+    the extraction inventory right after its dispatch, Source Commit Capture and Version Reconciliation; a
+    docs-only brief records it from its skip line. The documented fence runs on a temp inventory, §3's and §5's
+    `init` keep the run it recorded, and compile §1's `summary` call reads it back."""
+    extract = _read(REFS / "extract.md")
+    two_a = _section(extract, "### 2a. Resolve Source Access", "### 2b.")
+    assert (two_a.index("Dispatch on `{source_resolve_status}`:")
+            < two_a.index("Then run Source Commit Capture and Version Reconciliation")
+            < two_a.index(RECORD_THE_RUN) < two_a.index("**Deferred CCC Discovery"))
+    assert two_a.count(RECORD_THE_RUN) == 1
+    skip = next(line for line in two_a.splitlines() if line.startswith('**If `source_type: "docs-only"`:**'))
+    assert ("skip the rest of §2a but **Record the run** below, with every source field `null` and `version` the "
+            "brief's `target_version`, else its `version`") in skip
+    record = _record_the_run(two_a)
+    assert ("resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` (halt "
+            "as §5 does when neither exists)") in record
+    assert "§3's and §5's `init` keep this `run` when they start the inventory again." in record
+    assert _frontmatter(REFS / "extract.md")["extractionInventoryProbeOrder"] == INVENTORY_PROBE
+    [fence] = re.findall(r"```bash\n(.*?)```", record, re.S)
+    mkdir_line, init_line, set_line, payload, end = fence.strip("\n").split("\n")
+    assert end == "SKF_INVENTORY" and set_line.endswith(" <<'SKF_INVENTORY'")
+    assert list(json.loads(payload)["run"]) == RUN_KEYS
+    # on a project's first run nothing has created the stage folder, and the helper creates none
+    assert mkdir_line == 'mkdir -p "{project-root}/_bmad-output/.skf-stage"'
+    assert "create the folder the inventory sits in" in record
+    run_dir = (tmp_path / ".skf-run" / "skf-create-skill-a1b2c3d4").as_posix()
+    stage = Path(shlex.split(mkdir_line.replace("{project-root}", tmp_path.as_posix()))[2])
+    inventory = stage / "demo.inventory.json"
+    values = {"{extraction_inventory}": inventory.as_posix(), "{name}": "demo", "{tier}": "Forge",
+              "{source|docs-only|component-library}": mode, "{source|component-library}": "source",
+              "{run_dir}": run_dir}
+    if mode == "source":
+        expected = {"run_dir": run_dir, "source_ref": "v2.3.0", "source_commit": "89abcdef01234567",
+                    "tag_resolution": {"tag": "v2.3.0"}, "source_tree": (tmp_path / "tree").as_posix(),
+                    "resolved_source_path": (tmp_path / "ws").as_posix(), "version": "2.3.1"}
+    else:
+        expected = {key: None for key in RUN_KEYS} | {"run_dir": run_dir, "version": "1.2.0"}
+    filled = payload.replace('"tag_resolution": null', '"tag_resolution": ' + json.dumps(expected["tag_resolution"]))
+    for key in ("source_ref", "source_commit", "source_tree", "resolved_source_path", "version"):
+        placeholder = {"resolved_source_path": "resolved-source-path"}.get(key, key)
+        filled = filled.replace(f'"<{placeholder}>"', json.dumps(expected[key]))
+    for placeholder, value in values.items():
+        filled = filled.replace(placeholder, value)
+    without_folder = subprocess.run(_helper_call(init_line, values), capture_output=True, text=True,
+                                    encoding="utf-8", timeout=60)
+    assert without_folder.returncode == 1 and not stage.exists(), without_folder.stderr
+    stage.mkdir(parents=True)  # the fence's mkdir line
+    _run_helper(_helper_call(init_line, values))
+    _run_helper(_helper_call(set_line, values), filled)
+    # §3 (docs-only) or §5 starts the inventory again: the run stays
+    if mode == "source":
+        five = _section(extract, "### 5. Build Extraction Inventory", "### 6.")
+        again = next(line for line in five.splitlines() if line.startswith("uv run {extractionInventoryHelper} init "))
+    else:
+        three = _section(extract, "### 3. Check for Docs-Only Mode", "### 4.")
+        again = next(line for line in three.splitlines() if line.startswith("uv run {extractionInventoryHelper} init "))
+    _run_helper(_helper_call(again, values))
+    # compile §1's summary call gives the run back
+    compile_one = _section(_read(REFS / "compile.md"), "### 1. Load Data Files", "### 1a.")
+    [summary] = re.findall(r'`(uv run \{extractionInventoryHelper\} summary --inventory "\{extraction_inventory\}")`',
+                           compile_one)
+    assert _run_helper(_helper_call(summary, values))["run"] == expected
+
+
+def test_compile_binds_the_run_back_and_halts_when_the_run_folder_is_lost(tmp_path):
+    """#1144: compile §1 binds `{run_dir}` and `{source_tree}` from the inventory's run when a compaction lost them;
+    when no run folder can be found it halts with staging-unreadable (exit 4), emitted with nothing to stage in,
+    before anything is promoted, instead of writing "No auto-decisions" for a sink it cannot read."""
+    compile_md = _read(REFS / "compile.md")
+    one = _section(compile_md, "### 1. Load Data Files", "### 1a.")
+    assert ("Bind `{run_dir}` ← its `run.run_dir` when `{run_dir}` is not bound, and `{source_tree}` ← its "
+            "`run.source_tree` when `{source_tree}` is not bound") in one
+    assert one.index("bind `{inventory_counts}` ← its `counts`") < one.index("Bind `{run_dir}` ← its `run.run_dir`")
+    assert "`warnings` and `run` (a component library's `component_catalog` and `component_stats` too)" in one
+    [halt] = [line for line in one.splitlines() if "**HARD HALT**" in line]
+    assert halt.startswith("When `{run_dir}` is still not bound, **HARD HALT** (exit code 4, `staging-unreadable`, "
+                           "phase `compile`; emit with nothing to stage in, as load-brief.md §0 does, with no "
+                           "`--run-dir`)")
+    assert ('"Cannot compile: the run folder is lost (`{run_dir}` is not bound and the extraction inventory records '
+            "none), so this run's decisions cannot be read. Re-run create-skill.\"") in halt
+    assert _exit_codes()["staging-unreadable"] == 4
+    [fence] = re.findall(r"```bash\n(.*?)```", one, re.S)
+    command, rest = fence.split(" <<'SKF_JSON'\n")
+    assert command == "uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --target stderr"
+    payload = rest.split("\nSKF_JSON")[0].replace("<that message, one line>", "Cannot compile: the run folder is lost.")
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-create-skill", "--target",
+                           "stderr"], input=payload, capture_output=True, text=True, encoding="utf-8", timeout=30,
+                          cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    line = next(text for text in proc.stderr.splitlines() if text.startswith("SKF_CREATE_SKILL_RESULT_JSON: "))
+    envelope = json.loads(line.split(": ", 1)[1])
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["phase"]) == (4, "staging-unreadable", "compile")
+    # §7: "No auto-decisions" now means a bound run folder whose sink is empty
+    seven = _section(compile_md, "### 7. Build evidence-report.md Content", "### 8.")
+    assert ("`{run_dir}` is bound here (§1 halted otherwise), so a file that is missing or empty means no gate "
+            "recorded a decision: emit the section with the single line `No auto-decisions:") in seven
+    assert "When the file is missing or empty, emit the section" not in seven
+
+
+def test_report_binds_a_lost_run_folder_back_or_writes_no_contract():
+    """#1144: report §5 binds a lost `{run_dir}` from the inventory's run before it reads the sink, never
+    `{source_tree}` (step 7 removed the tree); a run folder it still cannot find gets no result contract, the
+    hook's "No `emit` succeeded" case and no `rm -rf`, never a count of 0 decisions."""
+    assert _frontmatter(REFS / "report.md")["extractionInventoryProbeOrder"] == INVENTORY_PROBE
+    five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
+    find = _section(five, "**Find the run folder.**", "Otherwise first read the run sink")
+    assert ("When `{run_dir}` is not bound, resolve `{extractionInventoryHelper}` ← first existing path in "
+            "`{extractionInventoryProbeOrder}` and bind `{run_dir}` ← the `run.run_dir` this prints, from "
+            "`{project-root}` (never `{source_tree}`: step 7 removed the tree)") in find
+    assert ('uv run {extractionInventoryHelper} summary --inventory '
+            '"{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json"') in find
+    assert five.index("**Find the run folder.**") < five.index('grep -c . "{run_dir}/headless-decisions.jsonl"')
+    assert ("write no result contract: display \"No result contract for `{name}`: its run folder is lost, so its "
+            "decisions cannot be read.\" and, in a headless run that is not `--batch`, bind "
+            "`{result_envelope_line}` empty") in find
+    assert 'The post-completion hook below then skips under its "No `emit` succeeded" case' in find
+    remove = _section(five, "**Remove the run folder.**", "\n")
+    assert 'delete `{run_dir}` (`rm -rf "{run_dir}"`), unless it is lost;' in remove
 
 
 # --------------------------------------------------------------------------

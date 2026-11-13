@@ -2,11 +2,11 @@
 
 ## Shell Path Quoting
 
-Every shell snippet in this document and in step 3 §2b uses `{...}` placeholders for paths. **Always wrap path interpolations in double quotes** when emitting the actual command: `uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"`, `cd "{remote_clone_path}"`, `cd "{project-root}"`. Home folders on macOS often contain spaces, which break unquoted shell, and WSL2 and Windows paths do too, so the quoting convention applies on every platform.
+Every shell snippet in this document and in step 3 §2a uses `{...}` placeholders for paths. **Always wrap path interpolations in double quotes** when emitting the actual command: `uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"`, `cd "{remote_clone_path}"`, `cd "{project-root}"`. Home folders on macOS often contain spaces, which break unquoted shell, and WSL2 and Windows paths do too, so the quoting convention applies on every platform.
 
 ## Tag Resolution
 
-Tag resolution maps a declared version in the brief onto a concrete git ref, so the skill is built from code matching its declared version. Three signals can drive it, in priority order: an explicit `brief.target_ref` (a ref the user states verbatim, highest priority), an **explicit** `brief.target_version` (deliberate user intent), or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). They apply only to a remote source read at Forge tier or above: step 3 §2b hands them to the `resolve` subcommand of `{sourceTreeHelper}` as flags (its command shows which), and resolve lists the remote's tags and does the matching. A Quick-tier remote source reads `HEAD`.
+Tag resolution maps a declared version in the brief onto a concrete git ref, so the skill is built from code matching its declared version. Three signals can drive it, in priority order: an explicit `brief.target_ref` (a ref the user states verbatim, highest priority), an **explicit** `brief.target_version` (deliberate user intent), or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). They apply only to a remote source read at Forge tier or above: step 3 §2a hands them to the `resolve` subcommand of `{sourceTreeHelper}` as flags (its command shows which), and resolve lists the remote's tags and does the matching. A Quick-tier remote source reads `HEAD`.
 
 | The brief sets | What resolve reads |
 |---|---|
@@ -62,7 +62,7 @@ When resolve prints `ambiguous`, it read nothing, and `tag_resolution.candidates
 - Ask: "Multiple tags match version {tag_resolution.requested}: {candidates}. Which one should I use?", adding "or should I fall back to HEAD?" for an implicit version, and "Setting `target_ref` in the brief skips this question next time." Wait for the selection.
 - **GATE [default: first candidate]**: under `{headless_mode}`, take the first candidate, log "headless: tag {tag} chosen from {candidates} for version {tag_resolution.requested}", and record the auto-decision per the Workflow Rules (step `extract`, gate `tag-choice`, decision `{tag}`): stage `{"step": "extract", "gate": "tag-choice", "decision": "{tag}", "rationale": "headless mode: first matching tag in priority order", "timestamp": "{ISO}"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
-Step 3 §2b then runs resolve again with the chosen tag (or `HEAD`) as `--target-ref`.
+Step 3 §2a then runs resolve again with the chosen tag (or `HEAD`) as `--target-ref`.
 
 ### Local Source Warning
 
@@ -80,13 +80,13 @@ Implicit resolution via `brief.version` is **not applied to local sources** — 
 
 **Note:** Quick-tier remote sources are never read into a tree. Quick tier accesses remote files via the `gh_bridge.read_file` path described in step 3 section 4.
 
-A remote source (a GitHub URL, an `owner/repo` shorthand or another git URL) read at Forge, Forge+ or Deep tier goes through one `resolve` call of `{sourceTreeHelper}` (step 3 §2b). It reads the commit Tag Resolution picks into a private tree of this run's own, which no other run can move, and with `--update-clone` moves SKF's workspace clone to the same commit in the same call, under the clone's `.skf-workspace.lock` and after running `{cccGitHygieneHelper}` there, never forcing a checkout (the `resolve` section of `skf-source-tree.py` has the details). The tree is removed with the helper's `close` subcommand at the end of step 7, or before any HALT after step 3 §2b.
+A remote source (a GitHub URL, an `owner/repo` shorthand or another git URL) read at Forge, Forge+ or Deep tier goes through one `resolve` call of `{sourceTreeHelper}` (step 3 §2a). It reads the commit Tag Resolution picks into a private tree of this run's own, which no other run can move, and with `--update-clone` moves SKF's workspace clone to the same commit in the same call, under the clone's `.skf-workspace.lock` and after running `{cccGitHygieneHelper}` there, never forcing a checkout (the `resolve` section of `skf-source-tree.py` has the details). The tree is removed with the helper's `close` subcommand at the end of step 7, or before any HALT after step 3 §2a.
 
 **Compute workspace path:** SKF's workspace clone of a repository is `{workspace_root}/repos/{host}/{owner}/{repo}/`, where `{workspace_root}` is the environment variable `SKF_WORKSPACE` when set, otherwise `~/.skf/workspace/` (where `~` is the user's home directory on all platforms). resolve prints it as `workspace_path`.
 
 **Scope filtering:** the tree is a full checkout (no sparse-checkout), so apply `include_patterns` and `exclude_patterns` from the brief as **file-level filters** when building the extraction file list. Always-included root files (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`, `setup.py`, `setup.cfg`, `VERSION`) are exempt from pattern filtering.
 
-**When no tree can be read** (resolve prints `unavailable`, or does not finish), step 3 §2b warns the user and degrades this run to source reading (T1-low), with the Quick tier extraction strategy.
+**When no tree can be read** (resolve prints `unavailable`, or does not finish), step 3 §2a warns the user and degrades this run to source reading (T1-low), with the Quick tier extraction strategy.
 
 ---
 
@@ -97,7 +97,7 @@ A remote source (a GitHub URL, an `owner/repo` shorthand or another git URL) rea
 After the source path is accessible, capture the current commit hash for provenance tracking:
 
 - **Local path:** `git -C "{source_root}" rev-parse HEAD` — if the path is a git repo
-- **Remote source at Forge tier or above:** the `source_commit` resolve printed in step 3 §2b, the commit the tree holds
+- **Remote source at Forge tier or above:** the `source_commit` resolve printed in step 3 §2a, the commit the tree holds
 - **Quick tier (remote, no clone):** `gh api repos/{owner}/{repo}/commits/{source_ref} --jq '.sha'`
 
 Store the result as `source_commit` in context. If capture fails (not a git repo, API unavailable), set `source_commit: null` — this is not an error.
@@ -120,7 +120,7 @@ After the source path is accessible (local path from step 1, or the private tree
 uv run {extractPublicApiHelper} --mode quick --language "{brief.language}" --source-root "{source_root}" --resolve-version --package-name "{brief.name}"
 ```
 
-**A remote source with no local tree** (Quick tier, or one §2b could not read into a tree): first stage the version file, picked from the repository's file listing by the order above, with `{githubFetchHelper}` (resolve it ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py` and `{project-root}/src/shared/scripts/skf-github-fetch.py`), then run the call above with `--source-root "{run_dir}/files"` and `--manifest-file "<version file>"` in place of `--package-name`, since that folder holds the one file staged:
+**A remote source with no local tree** (Quick tier, or one §2a could not read into a tree): first stage the version file, picked from the repository's file listing by the order above, with `{githubFetchHelper}` (resolve it ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py` and `{project-root}/src/shared/scripts/skf-github-fetch.py`), then run the call above with `--source-root "{run_dir}/files"` and `--manifest-file "<version file>"` in place of `--package-name`, since that folder holds the one file staged:
 
 ```bash
 gh api "repos/{owner}/{repo}/git/trees/{source_ref}?recursive=1" --jq '.tree[] | select(.type == "blob") | .path' | uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{source_ref}" --tree-file - --dest "{run_dir}/files" "<version file>"

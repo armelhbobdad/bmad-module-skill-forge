@@ -1,8 +1,8 @@
 """create-skill scans for authoritative files in the tree it resolved.
 
-extract.md §2a runs skf-resolve-authoritative-files.py, which walks a local
-directory and refuses anything else. §2b reads a remote source into a private
-tree at the resolved commit, so §2a runs after §2b, and a remote source that
+extract.md §2b runs skf-resolve-authoritative-files.py, which walks a local
+directory and refuses anything else. §2a reads a remote source into a private
+tree at the resolved commit, so §2b runs after §2a, and a remote source that
 was never read into a tree (Quick tier, or a read that failed) skips the scan
 with a notice instead of handing the helper a URL. The skip reaches the
 evidence report that step 7 writes, under a key of its own, and each brief
@@ -50,23 +50,27 @@ def _step_3_sections() -> list[str]:
 
 
 def _scan_section() -> str:
-    return _section(_read(EXTRACT), "### 2a. Discovered Authoritative Files Protocol", "### 2c.")
+    return _section(_read(EXTRACT), "### 2b. Discovered Authoritative Files Protocol", "### 2c.")
 
 
 def test_scan_runs_after_source_resolution() -> None:
     sections = _step_3_sections()
-    assert sections.index("2") < sections.index("2b") < sections.index("2a") < sections.index("2c")
+    assert sections.index("2") < sections.index("2a") < sections.index("2b") < sections.index("2c")
 
 
-def test_scope_filters_announce_the_order() -> None:
-    scope = _section(_read(EXTRACT), "### 2. Apply Scope Filters", "### 2b.")
-    assert "Sections 2b and 2a follow in that order" in scope
+def test_the_labels_follow_the_run_order() -> None:
+    """#1144 leanness-2: the labels run in the order the sections run, so §2 spends no line on the order."""
+    assert _step_3_sections() == ["1", "2", "2a", "2b", "2c", "3", "4", "4b", "4c", "5", "6", "7"]
+    text = _read(EXTRACT)
+    assert "### 2a. Resolve Source Access" in text and "### 2b. Discovered Authoritative Files Protocol" in text
+    scope = _section(text, "### 2. Apply Scope Filters", "### 2a.")
+    assert "Sections 2b and 2a" not in text and "follow in that order" not in scope
 
 
 def test_scan_walks_the_tree_source_resolution_left() -> None:
     scan = _scan_section()
-    assert "**Runs after §2b, not before it.**" in scan
-    assert "`{source_root}` now names the local source itself, or the private tree §2b read a remote source into" in scan
+    assert "**Runs after §2a, not before it.**" in scan
+    assert "`{source_root}` now names the local source itself, or the private tree §2a read a remote source into" in scan
     assert "which no other run can move" in scan
     assert ".skf-workspace.lock" not in scan, "no step holds the workspace lock across tool calls"
 
@@ -74,9 +78,9 @@ def test_scan_walks_the_tree_source_resolution_left() -> None:
 def test_remote_source_guard_skips_with_a_notice() -> None:
     scan = _scan_section()
     guard = next(p for p in scan.split("\n\n") if p.startswith("**Remote source guard:**"))
-    assert "if `source_root` is still a remote URL after §2b" in guard
-    assert "a Quick-tier remote source, which §2b never clones" in guard
-    assert "a remote source §2b could not read into a tree" in guard
+    assert "if `source_root` is still a remote URL after §2a" in guard
+    assert "a Quick-tier remote source, which §2a never clones" in guard
+    assert "a remote source §2a could not read into a tree" in guard
     assert "Skip the scan and continue to §2c" in guard
     assert f"record `{SKIP_RECORD}` for the evidence report" in guard
     assert 'display "**Authoritative files scan skipped:** `{source_repo}` was not cloned' in guard
@@ -88,7 +92,7 @@ def test_guard_runs_before_the_protocol_is_loaded() -> None:
 
 
 def test_each_brief_starts_with_no_scan_record() -> None:
-    """A --batch run comes back through §2a for the next brief in the same context."""
+    """A --batch run comes back through §2b for the next brief in the same context."""
     scan = _scan_section()
     reset = scan.index(
         "**Start clean:** set `authoritative_files_scan` to null and `promoted_docs[]` to empty"
@@ -111,15 +115,16 @@ def test_protocol_opening_follows_source_access() -> None:
     protocol = _read(PROTOCOL)
     overview = _section(protocol, "## Overview", "## Procedure")
     assert "Before resolving source access" not in protocol
-    assert "after `### 2b. Resolve Source Access` has resolved the source to a local tree" in overview
-    assert "Once §2b has resolved source access, scan the resolved source tree" in overview
+    assert ("Loaded on demand when step 3's `### 2b. Discovered Authoritative Files Protocol` sub-step runs, after "
+            "`### 2a. Resolve Source Access` has resolved the source to a local tree") in overview
+    assert "Once §2a has resolved source access, scan the resolved source tree" in overview
     assert "**Skip it too when `source_root` is still a remote URL**" in overview
 
 
 def test_protocol_helper_gets_the_resolved_tree() -> None:
     procedure = _section(_read(PROTOCOL), "## Procedure", "**Record for evidence report:**")
     assert '--source-root "{source_root}"' in procedure
-    assert "`{source_root}` is the local tree §2b resolved" in procedure
+    assert "`{source_root}` is the local tree §2a resolved" in procedure
 
 
 def test_update_halt_removes_the_private_tree() -> None:

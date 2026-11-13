@@ -610,9 +610,9 @@ def test_hygiene_probe_order_declared(loader, users):
 
 
 def _resolve_command() -> str:
-    """extract.md §2b's fenced resolve command, its backslash continuations joined."""
-    section = _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "**Deferred CCC Discovery")
-    [fence] = [f for f in _fences(section) if "resolve" in f]
+    """extract.md §2a's fenced resolve command, its backslash continuations joined."""
+    section = _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "**Deferred CCC Discovery")
+    [fence] = [f for f in _fences(section) if " resolve " in f]
     return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
 
@@ -653,7 +653,7 @@ def test_no_ephemeral_clone_is_left():
 def test_only_the_ccc_steps_name_the_workspace_clone():
     """`{remote_clone_path}` is SKF's clone, which another run can move: only ccc indexes it."""
     allowed = {
-        "extract.md": _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "### 2a."),
+        "extract.md": _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "### 2b."),
         "generate-artifacts.md": _generate_6b(),
         "source-resolution-protocols.md": _slice(_read(SOURCE_RESOLUTION), "## Shell Path Quoting",
                                                  "## Tag Resolution"),
@@ -663,7 +663,7 @@ def test_only_the_ccc_steps_name_the_workspace_clone():
         for line in text.splitlines():
             if "remote_clone_path" in line:
                 assert line in allowed.get(path.name, ""), (path.relative_to(REPO_ROOT), line[:100])
-    # extraction reads the tree §2b resolved: the runner itself, a branch without it through its list
+    # extraction reads the tree §2a resolved: the runner itself, a branch without it through its list
     extraction = _slice(_read(EXTRACT), "### 4. Execute Tier-Dependent Extraction", "### 4b.")
     assert "whose recipe runner reads `{source_root}` itself" in extraction
     assert "reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not" in extraction

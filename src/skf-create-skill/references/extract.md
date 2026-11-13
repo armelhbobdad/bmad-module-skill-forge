@@ -13,7 +13,7 @@ entryPointsByHandData: 'references/entry-points-by-hand.md'
 detectScriptsAssetsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
   - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
-# §2a: the authoritative-files scan, classification, previews and hashes in
+# §2b: the authoritative-files scan, classification, previews and hashes in
 # one call.
 resolveAuthoritativeFilesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-authoritative-files.py'
@@ -25,18 +25,18 @@ resolveAuthoritativeFilesProbeOrder:
 cccGitHygieneProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
   - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
-# §2b reads a remote source into a private tree through it, and step 7 and
-# every HALT after §2b remove the tree; without it §2b reads the source by
+# §2a reads a remote source into a private tree through it, and step 7 and
+# every HALT after §2a remove the tree; without it §2a reads the source by
 # eye.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
-# §2b's deferred ccc discovery prepares the clone's settings.yml; skipped
+# §2a's deferred ccc discovery prepares the clone's settings.yml; skipped
 # without it.
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
-# §2b's Version Reconciliation (--mode quick) and §4's recipe runner (--mode
+# §2a's Version Reconciliation (--mode quick) and §4's recipe runner (--mode
 # full); without it §4 follows the protocol's fallback.
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
@@ -45,12 +45,13 @@ extractPublicApiProbeOrder:
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
-# §3 and §5 write the inventory through it (`init`, `patch`, `add`, `set`);
-# steps 3c and 4 append with its `add`, and step 7 writes the rules with it.
+# §2a records the run in the inventory through it (`init`, `set`), §3 and §5
+# write the inventory (`init`, `patch`, `add`, `set`); steps 3c and 4 append
+# with its `add`, and step 7 writes the rules with it.
 extractionInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
   - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
-# §2a's protocol records each decision in the brief through its `amend`.
+# §2b's protocol records each decision in the brief through its `amend`.
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
@@ -71,9 +72,9 @@ To extract all public exports, function signatures, type definitions, and co-imp
 ## Rules
 
 - Focus only on extracting exports, signatures, types from source code — do not compile SKILL.md
-- Write only beside the staging folder (the recipe runner's JSON, §4, the detector's JSON, §4c, and the extraction inventory, §5), and the brief only through §2a's protocol
+- Write only beside the staging folder (the recipe runner's JSON, §4, the detector's JSON, §4c, and the extraction inventory, §2a and §5), and the brief only through §2b's protocol
 - Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
-- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -91,13 +92,11 @@ From the brief, apply scope and pattern filters:
 
 At Forge tier and above the recipe runner (§4) applies these globs to the source tree itself: its `files_in_scope_list` and `files_without_recipes_list` are the filtered file list, and `files_in_scope` its count. Where a step reads the list without the runner (at Quick tier, for a `component-library` brief (§2c), and in a §4 branch that extracts without the runner), resolve `{extractPublicApiHelper}` as §4 does and build it from the source tree resolved in step 1 by step 1 of `{entryPointsByHandData}`. When a call of that file fails as its step 4 says, **HARD HALT** (exit code 4, `write-failed`, phase `extract`, or exit code 3, `helper-missing`, when no path resolves; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot list or count the public API: {its `error:` line}. Fix the brief, or re-install SKF, then re-run create-skill."
 
-Sections 2b and 2a follow in that order: §2b resolves the source to a local tree, and §2a scans that tree for authoritative files.
+### 2a. Resolve Source Access
 
-### 2b. Resolve Source Access
+**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next. Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, `{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json` and `{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, and run `rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" "{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`: the run record below, §4 (or step 3d), §4c, §5 and step 3c write this run's, so §5 never seeds from an earlier run's runner JSON and step 5 never reads an earlier run's Language Guide.
 
-**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next. Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, `{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json` and `{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, and run `rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" "{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`: §4 (or step 3d), §4c, §5 and step 3c write this run's, so §5 never seeds from an earlier run's runner JSON and step 5 never reads an earlier run's Language Guide.
-
-**If `source_type: "docs-only"`:** skip the rest of §2b: there is no source to resolve. Proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, reading the source into a tree, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
+**If `source_type: "docs-only"`:** skip the rest of §2a but **Record the run** below, with every source field `null` and `version` the brief's `target_version`, else its `version`: there is no source to resolve. Then proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, reading the source into a tree, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
 
 Load `{sourceResolutionData}` completely. It says which brief field picks the ref and how to choose between several matching tags, and it holds the tag warnings, the Local Source Warning, Source Commit Capture and Version Reconciliation.
 
@@ -122,13 +121,23 @@ Bind from its JSON `source_ref` ← `source_ref`, `source_commit` ← `source_co
 
 Dispatch on `{source_resolve_status}`:
 
-- **`ready`** (exit 0): bind `{source_root}` ← `{source_tree}`. Every later read of the source reads this tree: the §2 file list, the §2a scan, extraction, step 6's citation check and step 7's script and asset copies. Build the §2 filtered file list again from `{source_root}` when §2 builds one (a `component-library` brief), since step 1 listed the remote's default branch, which need not hold `source_commit`. Bind `{resolved-source-path}` ← `{workspace_clone}`, or ← `{source_repo}` when `{workspace_clone}` is null (the folder at `{workspace_path}` is not SKF's clone of the repository): it is the `source_root` metadata.json records (`{sourceResolutionData}` "Source Commit Capture"). When `{clone_status}` is `advanced` or `ok`, SKF's clone now holds `source_commit`: bind `{remote_clone_path}` ← `{workspace_clone}`, the folder the deferred ccc discovery below and step 7 §6b index. Otherwise leave it null and display "SKF's clone of `{source_repo}` at `{workspace_path}` was not moved ({clone_skip_reason}), so this run skips ccc discovery and the ccc index registration. Extraction reads this run's own tree." Then report the outcome of `tag_resolution` as `{sourceResolutionData}` "Tag Resolution" says.
+- **`ready`** (exit 0): bind `{source_root}` ← `{source_tree}`. Every later read of the source reads this tree: the §2 file list, the §2b scan, extraction, step 6's citation check and step 7's script and asset copies. Build the §2 filtered file list again from `{source_root}` when §2 builds one (a `component-library` brief), since step 1 listed the remote's default branch, which need not hold `source_commit`. Bind `{resolved-source-path}` ← `{workspace_clone}`, or ← `{source_repo}` when `{workspace_clone}` is null (the folder at `{workspace_path}` is not SKF's clone of the repository): it is the `source_root` metadata.json records (`{sourceResolutionData}` "Source Commit Capture"). When `{clone_status}` is `advanced` or `ok`, SKF's clone now holds `source_commit`: bind `{remote_clone_path}` ← `{workspace_clone}`, the folder the deferred ccc discovery below and step 7 §6b index. Otherwise leave it null and display "SKF's clone of `{source_repo}` at `{workspace_path}` was not moved ({clone_skip_reason}), so this run skips ccc discovery and the ccc index registration. Extraction reads this run's own tree." Then report the outcome of `tag_resolution` as `{sourceResolutionData}` "Tag Resolution" says.
 - **`ambiguous`** (exit 0): several tags match, and nothing was read. Make the choice in `{sourceResolutionData}` "Several Matching Tags", run the command again with `--target-ref "{chosen tag}"` (`HEAD` for the default branch) in place of `--version`, `--name`, `--implicit` and any `--target-ref` from the brief, and dispatch on that result.
 - **`skipped`** (exit 0): the helper does not read `{source_repo}` as a remote repository (`skip_reason` is `not-remote`), so treat it as a local source, above.
 - **`unavailable`** (exit 3): no commit could be read, and no tree was left behind (`{source_resolve_reason}` is `invalid-ref`, `git-unavailable`, `upstream-unreachable`, `ref-not-found`, `fetch-failed`, `checkout-failed`, `tree-folder-failed` or `timed-out`). ⚠️ Warn the user explicitly: "Could not read `{source_repo}`: {source_resolve_message}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and update `source_repo` in your brief to the local path." Keep `{source_root}` the remote URL, bind `source_ref` ← `source_ref` when it is not null and `HEAD` otherwise, and extract with the Quick tier strategy in §4. Note the degradation reason in context for the evidence report.
 - **No candidate resolves, or the command exits 1 or 2, or prints no JSON:** continue as for `unavailable`, with `{source_resolve_message}` = "skf-source-tree.py did not finish: {the first stderr line; 'the shell stopped it before it printed a result' when your shell tool's timeout ended it; or 'it is missing; re-install SKF'}". A later run removes a tree a stopped run left behind once it is seven days old.
 
 Then run Source Commit Capture and Version Reconciliation from `{sourceResolutionData}` on `{source_root}`.
+
+**Record the run** in the extraction inventory, so steps 5 and 8 read this run's source and run folder from disk, not from what context still holds: resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` (halt as §5 does when neither exists) and, from `{project-root}`, create the folder the inventory sits in (on a project's first run nothing has created it, and the helper creates none), start the inventory with `init`, then set its `run`. Pass the `--mode` §3 or §5 passes (`docs-only` for a docs-only brief, `component-library` for a component library, else `source`). Fill each `<...>` from the bindings above: `source_ref`, `source_commit`, `tag_resolution` (the object `resolve` printed, unquoted, in place of the `null`), `{source_tree}`, `{resolved-source-path}` and `version`, the working version Version Reconciliation set; write `null`, unquoted, for one that is null or unavailable. §3's and §5's `init` keep this `run` when they start the inventory again. When a call fails twice, halt as §5 says.
+
+```bash
+mkdir -p "{project-root}/_bmad-output/.skf-stage"
+uv run {extractionInventoryHelper} init --inventory "{extraction_inventory}" --skill "{name}" --mode {source|docs-only|component-library} --tier "{tier}"
+uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" <<'SKF_INVENTORY'
+{"run": {"run_dir": "{run_dir}", "source_ref": "<source_ref>", "source_commit": "<source_commit>", "tag_resolution": null, "source_tree": "<source_tree>", "resolved_source_path": "<resolved-source-path>", "version": "<version>"}}
+SKF_INVENTORY
+```
 
 **Deferred CCC Discovery (Forge+ and Deep, remote sources only):**
 
@@ -165,15 +174,15 @@ If `{ccc_discovery}` is in context and non-empty (populated by step 2b or deferr
 
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
 
-### 2a. Discovered Authoritative Files Protocol
+### 2b. Discovered Authoritative Files Protocol
 
-**Runs after §2b, not before it.** The scan walks a local tree, so it waits for §2b to resolve one: `{source_root}` now names the local source itself, or the private tree §2b read a remote source into, which no other run can move.
+**Runs after §2a, not before it.** The scan walks a local tree, so it waits for §2a to resolve one: `{source_root}` now names the local source itself, or the private tree §2a read a remote source into, which no other run can move.
 
 **Start clean:** set `authoritative_files_scan` to null and `promoted_docs[]` to empty before either skip below, so that in a `--batch` run one brief's scan never carries into the next.
 
 **Skip this section entirely if `source_type: "docs-only"`:** there is no source tree to scan.
 
-**Remote source guard:** if `source_root` is still a remote URL after §2b, there is no local tree to walk, and the helper refuses a source root that is not a directory. That happens for a Quick-tier remote source, which §2b never clones, and for a remote source §2b could not read into a tree, which it falls back to reading like Quick tier. Skip the scan and continue to §2c: record `authoritative_files_scan: {not_scanned: "remote source not cloned"}` for the evidence report and display "**Authoritative files scan skipped:** `{source_repo}` was not cloned in this run, so authoritative AI documentation files (`llms.txt`, `AGENTS.md` and the like) outside the brief's scope were not looked for. A run with a local tree (a local checkout, or a remote source cloned at Forge tier or higher) scans them."
+**Remote source guard:** if `source_root` is still a remote URL after §2a, there is no local tree to walk, and the helper refuses a source root that is not a directory. That happens for a Quick-tier remote source, which §2a never clones, and for a remote source §2a could not read into a tree, which it falls back to reading like Quick tier. Skip the scan and continue to §2c: record `authoritative_files_scan: {not_scanned: "remote source not cloned"}` for the evidence report and display "**Authoritative files scan skipped:** `{source_repo}` was not cloned in this run, so authoritative AI documentation files (`llms.txt`, `AGENTS.md` and the like) outside the brief's scope were not looked for. A run with a local tree (a local checkout, or a remote source cloned at Forge tier or higher) scans them."
 
 Load `{authoritativeFilesProtocol}` and execute it: it scans the source tree for authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like) the brief's scope filters left out, and records each decision in the brief at once, so re-runs replay it.
 
@@ -193,15 +202,15 @@ Start the empty inventory with §5's `init` (resolve `{extractionInventoryHelper
 uv run {extractionInventoryHelper} init --inventory "{extraction_inventory}" --skill "{name}" --mode docs-only --tier "{tier}"
 ```
 
-It writes `extraction_mode: "docs-only"` with no export and no `top_exports`: steps 3b and 4 skip their per-export work on it, and step 3c merges its T3 items into it. When it fails twice, halt as §5 says. Auto-proceed through Gate 2 (section 6): display the empty inventory and note that the doc-fetcher step produces the T3 content.
+It writes `extraction_mode: "docs-only"` with no export and no `top_exports`, keeping the `run` §2a recorded: steps 3b and 4 skip their per-export work on it, and step 3c merges its T3 items into it. When it fails twice, halt as §5 says. Auto-proceed through Gate 2 (section 6): display the empty inventory and note that the doc-fetcher step produces the T3 content.
 
 **If `source_type: "source"` (default):** Continue with extraction below.
 
 ### 4. Execute Tier-Dependent Extraction
 
-Source resolution, version reconciliation, and CCC discovery were completed in section 2b. Run the Strategy for the current tier from `{extractionPatternsData}` (loaded in §1): source reading at Quick tier (and for a remote source §2b could not read into a tree), and at Forge, Forge+ and Deep the **AST Extraction Protocol** there, whose recipe runner reads `{source_root}` itself. A branch that extracts without the runner (source reading, or the protocol's fallback) reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not. Label each export by the tool that produced it, as that file's Confidence sections say.
+Source resolution, version reconciliation, and CCC discovery were completed in section 2a. Run the Strategy for the current tier from `{extractionPatternsData}` (loaded in §1): source reading at Quick tier (and for a remote source §2a could not read into a tree), and at Forge, Forge+ and Deep the **AST Extraction Protocol** there, whose recipe runner reads `{source_root}` itself. A branch that extracts without the runner (source reading, or the protocol's fallback) reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not. Label each export by the tool that produced it, as that file's Confidence sections say.
 
-**The recipe runner (Forge, Forge+ and Deep):** resolve `{extractPublicApiHelper}` ← first existing path in `{extractPublicApiProbeOrder}`; it writes `{extraction_json}` (bound in §2b, beside the staging folder step 5 creates, never inside the skill). From `{project-root}`, create that folder (the runner creates no folder) and remove the JSON an earlier run left there, then call the runner with the longest timeout your shell tool takes, since a large tree takes minutes:
+**The recipe runner (Forge, Forge+ and Deep):** resolve `{extractPublicApiHelper}` ← first existing path in `{extractPublicApiProbeOrder}`; it writes `{extraction_json}` (bound in §2a, beside the staging folder step 5 creates, never inside the skill). From `{project-root}`, create that folder (the runner creates no folder) and remove the JSON an earlier run left there, then call the runner with the longest timeout your shell tool takes, since a large tree takes minutes:
 
 ```bash
 mkdir -p "{project-root}/_bmad-output/.skf-stage"
@@ -253,7 +262,7 @@ After extraction, validate the collected exports against the package's actual pu
 
 ### 4c. Detect and Inventory Scripts/Assets
 
-The brief's `scripts_intent` and `assets_intent` are each `"detect"` (also when absent), `"none"` or free text describing the files wanted. The detector takes only `detect` or `none`: pass `none` for `"none"`, else `detect`. Resolve `{detectScriptsAssetsHelper}` ← first existing path in `{detectScriptsAssetsProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot detect scripts and assets: skf-detect-scripts-assets.py is missing. Re-install SKF, then re-run create-skill." The detector implements the heuristics of `{extractionPatternsTracingData}`, and `--brief` keeps it to the files the brief's `scope.include` and `scope.exclude` take, by the scope test update-skill uses for the same files. From `{project-root}`, write its JSON to `{detected_json}` (bound in §2b), which §5's `init` reads:
+The brief's `scripts_intent` and `assets_intent` are each `"detect"` (also when absent), `"none"` or free text describing the files wanted. The detector takes only `detect` or `none`: pass `none` for `"none"`, else `detect`. Resolve `{detectScriptsAssetsHelper}` ← first existing path in `{detectScriptsAssetsProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot detect scripts and assets: skf-detect-scripts-assets.py is missing. Re-install SKF, then re-run create-skill." The detector implements the heuristics of `{extractionPatternsTracingData}`, and `--brief` keeps it to the files the brief's `scope.include` and `scope.exclude` take, by the scope test update-skill uses for the same files. From `{project-root}`, write its JSON to `{detected_json}` (bound in §2a), which §5's `init` reads:
 
 ```bash
 mkdir -p "{project-root}/_bmad-output/.skf-stage"
@@ -272,9 +281,9 @@ It writes `scripts_inventory[]` and `assets_inventory[]` (each entry with `name`
 
 ### 5. Build Extraction Inventory
 
-`{extraction_inventory}` (bound in §2b, beside the staging folder, never inside the skill) is the run's extraction record: steps 3b to 7 read it, and steps 3c and 4 add to it, instead of a copy held in context. `{extractionInventoryHelper}` writes it, each call atomically: the runner's and the detector's records go in as those tools wrote them, and you send only what you produced. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot write the extraction inventory: skf-extraction-inventory.py is missing. Re-install SKF, then re-run create-skill." Run each call below from `{project-root}`.
+`{extraction_inventory}` (bound in §2a, beside the staging folder, never inside the skill) is the run's extraction record: steps 3b to 7 read it, and steps 3c and 4 add to it, instead of a copy held in context. `{extractionInventoryHelper}` writes it, each call atomically: the runner's and the detector's records go in as those tools wrote them, and you send only what you produced. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot write the extraction inventory: skf-extraction-inventory.py is missing. Re-install SKF, then re-run create-skill." Run each call below from `{project-root}`.
 
-**Start the inventory** with `init`, which replaces any file at `{extraction_inventory}`:
+**Start the inventory** with `init`, which replaces any file at `{extraction_inventory}`, keeping only the `run` §2a recorded there:
 
 ```bash
 uv run {extractionInventoryHelper} init --inventory "{extraction_inventory}" --skill "{name}" --mode {source|component-library} --tier "{tier}" [--extraction "{extraction_json}"] [--detected "{detected_json}"]
@@ -286,8 +295,8 @@ Pass `--mode component-library` for a component library (§2c), else `source`. P
 
 - **Signatures** (`patch`): for each function export whose `params` the runner left null (and each Props interface of a component library), the full signature, the parameters (each as `{"name", "type", "default", "optional"}`, as the runner records them) and the return type you read from the source at its `source_line`. It sets only those three fields, matches each entry on `export_name` and `source_file`, and lists in `unmatched` and `ambiguous` the entries it could not place: correct those and send them again. An export marked `public: false` needs no signature: it is not documented.
 - **Exports read by eye** (`add --field exports`): each export §4 or §4b read by eye (an extraction gap, a `file_issues` file, a file an `errors[]` item lists in `unread`, a language no recipe reads, or every export when the runner did not run), with its `export_name`, `export_type`, `signature`, `params`, `return_type`, `source_file` (relative to `{source_root}`, with `/` separators, as the runner writes its files, so §4b's public surface can match it), `source_line` and `[SRC:...]` citation. The helper marks it `public` by §4b's public surface, as `init` marks the runner's, and labels it T1-low (`source-read`, with `ast_node_type` and `ast_recipe` null) unless the entry carries its own labels, as a `find_code` match of the protocol's fallback does (T1, `ast-grep`, the `kind` its recipe or pattern declares, and the pattern as its `ast_recipe`). A component library (§2c) sends here only the exports step 3d read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback); it sends each Props interface's fields with `patch` as `params`, and `component_catalog` with `set`.
-- **Warnings you raise** (`add --field warnings`): a list of strings, such as a degradation reason (§2b, §4), the runner's failure (§4), the detector's failure (§4c) or a file you could not read.
-- **The rest** (`set`), in one JSON object: `top_exports`, the 10 to 20 public API function names by prominence (import frequency or documentation position), none marked `public: false`, which step 3b's targeted temporal fetch reads; `co_imports` (Forge tier and above), the libraries commonly imported alongside the exports, with integration point suggestions; `promoted_docs` and `authoritative_files_scan`, §2a's records; `intent_mapping` for a free-text intent (§4c); a component library's `component_catalog`; and, when the runner did not run, `files_scanned` (§2's filtered file count) and the `counts` and `arms` §4b recorded. `counts` and `arms` merge into what is there, so after the runner send only a count you changed.
+- **Warnings you raise** (`add --field warnings`): a list of strings, such as a degradation reason (§2a, §4), the runner's failure (§4), the detector's failure (§4c) or a file you could not read.
+- **The rest** (`set`), in one JSON object: `top_exports`, the 10 to 20 public API function names by prominence (import frequency or documentation position), none marked `public: false`, which step 3b's targeted temporal fetch reads; `co_imports` (Forge tier and above), the libraries commonly imported alongside the exports, with integration point suggestions; `promoted_docs` and `authoritative_files_scan`, §2b's records; `intent_mapping` for a free-text intent (§4c); a component library's `component_catalog` and `component_stats` (step 3d's Phase 6); and, when the runner did not run, `files_scanned` (§2's filtered file count) and the `counts` and `arms` §4b recorded. `counts` and `arms` merge into what is there, so after the runner send only a count you changed.
 
 ```bash
 uv run {extractionInventoryHelper} patch --inventory "{extraction_inventory}" <<'SKF_INVENTORY'
