@@ -243,8 +243,8 @@ The test report includes a score breakdown table showing each category's raw sco
 |---|---|---|---|
 | Export Coverage | 92% | 45% | 41.4% |
 | Signature Accuracy | 85% | 25% | 21.25% |
-| Type Coverage | 100% | 20% | 20.0% |
-| Coherence | not scored (naive mode) | 0% | 0% |
+| Type Coverage | 100% | 20% | 20% |
+| Coherence | N/A | 0% | 0% |
 | External Validation | 78% | 10% | 7.8% |
 | **Total** | | **100%** | **90.45%** |
 
