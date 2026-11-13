@@ -333,4 +333,4 @@ Then remove the run folder init.md §6b created: no later step reads it.
 rm -rf "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
 ```
 
-Then load and execute `{nextStepFile}` (the local health-check step, which hands over to the `{healthCheckFile}` §4c found), with no menu before it: the run is finished, and the health check is informational. The test report at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report. In `{headless_mode}`, `{result_envelope_line}` (§6b) is bound, and the health check displays it as the run's last line.
+Then load and execute `{nextStepFile}` (the local health-check step, which hands over to the `{healthCheckFile}` §4c found), with no menu before it: the run is finished, and the health check is informational. The test report at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, External Validation, Completeness Score, and Gap Report. In `{headless_mode}`, `{result_envelope_line}` (§6b) is bound, and the health check displays it as the run's last line.

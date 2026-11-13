@@ -861,10 +861,11 @@ def test_campaign_path_settings_name_their_defaults_and_the_start_check():
                   "exit code 2 (`invalid-input`), naming the setting and the path; `campaign status` does not check "
                   "them."):
         assert token in templates, token
-    assert ("Audit Skill, Verify Stack and Campaign stop at the start of a run when the path names no readable file, "
-            "naming the setting and the path. Test Skill does the same in its first step, once it has found the skill "
-            "and before it creates the report. Test Skill and Verify Stack also stop when the copy lacks a section "
-            "heading their steps fill in.") in _read(WORKFLOWS)
+    assert ("Audit Skill and Campaign stop at the start of a run when the path names no readable file, naming the "
+            "setting and the path. Test Skill and Verify Stack do the same in their first step, before they create "
+            "the report: Test Skill once it has found the skill, Verify Stack once it has its input documents and the "
+            "skills. Test Skill and Verify Stack also stop when the copy lacks a section heading their steps fill "
+            "in.") in _read(WORKFLOWS)
 
 
 # --------------------------------------------------------------------------
