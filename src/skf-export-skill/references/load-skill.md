@@ -38,6 +38,8 @@ python3 {manifestOpsHelper} {skills_output_folder} read
 
 On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run."
 
+**With `--version`**, resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}` now, before the skill-selection prompt below, as On Activation resolves every other helper before any prompt: step 3 §9b runs it. When neither exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`): "`skf-atomic-write.py` is missing. Nothing was changed. Re-install SKF."
+
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
 - **Headless guard:** if no explicit skill and no `--all` were passed and `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`, phase `load-skill §1`): a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`.
@@ -63,7 +65,6 @@ Store the resolved selection as `skill_batch` — a list of one or more skill na
 - `--dry-run` flag: Check if provided. Default: `false`
 - `--version` flag: Check if provided, and bind `{requested_version}` ← its value, else null. It names an earlier version of the one skill to make active again: §2 resolves that version, and step 3 §9b points the `active` link at it before the manifest records it. When `{requested_version}` is set:
   - With `--all`, or when `len(skill_batch) > 1`, HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**`--version` restores one skill at a time.** Name one skill with `--version <v>`, without `--all`, then re-run."
-  - Otherwise resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}`, which step 3 §9b runs. When neither exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`): "`skf-atomic-write.py` is missing. Nothing was changed. Re-install SKF."
 
 **Context File Resolution:**
 

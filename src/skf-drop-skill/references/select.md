@@ -8,10 +8,6 @@ skillInventoryProbeOrder:
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # {dirSizesHelper}: the §9b size of the folders in scope.
 dirSizesHelper: 'scripts/dir-sizes.py'
-# {atomicWriteHelper}: the §7 recovery that points `active` at the version to keep.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 # {emitEnvelopeHelper}: the §1 halt envelope, the §8 decision record and the §10 dry-run preview.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -184,7 +180,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 
-      In (a), `<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` and `on_disk` are true and whose `status` is not `"deprecated"` (the rows are newest first); with no such entry, show `<version to keep>` as written. `{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry when neither exists.
+      In (a), `<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` and `on_disk` are true and whose `status` is not `"deprecated"` (the rows are newest first); with no such entry, show `<version to keep>` as written.
 
       HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the §1 halt envelope. Do not proceed.
 

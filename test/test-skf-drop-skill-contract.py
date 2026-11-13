@@ -1052,8 +1052,8 @@ def test_the_guard_refusal_names_a_recovery_that_works():
             "that version, exports it and archives `{version}`, then return here to drop `{version}`") in guard
     assert ("`<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` "
             "and `on_disk` are true and whose `status` is not `\"deprecated\"`") in guard
-    assert ("`{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry "
-            "when neither exists.") in guard
+    # The recovery runs no command of select.md's own, so it binds no helper for it (lane review finding 3).
+    assert "atomicWrite" not in _read(SELECT)
     safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
     assert ("`@Ferris EX <name> --version <version to keep>`, which points the skill's `active` link at it, exports "
             "it and archives the old one") in safety

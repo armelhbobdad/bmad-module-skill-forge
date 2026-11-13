@@ -260,11 +260,16 @@ def test_export_version_runs_from_the_contract_to_the_flip():
     parsing = _between(load, "**Flag Parsing:**", "**Context File Resolution:**")
     [bullet] = [line for line in parsing.splitlines() if line.startswith("- `--version` flag:")]
     assert "bind `{requested_version}` ← its value, else null" in bullet
-    for token in ('With `--all`, or when `len(skill_batch) > 1`, HALT (exit code 3, `halt_reason: '
-                  '"resolution-failure"`, phase `load-skill §1`)',
-                  "resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}`",
+    assert ('With `--all`, or when `len(skill_batch) > 1`, HALT (exit code 3, `halt_reason: '
+            '"resolution-failure"`, phase `load-skill §1`)') in parsing
+    # The flip helper is found before the skill-selection prompt, as On Activation finds every other helper
+    # before any prompt (lane review finding 8).
+    early = _between(load, "**Read the export manifest**", "**Skill Path Discovery")
+    for token in ("**With `--version`**, resolve `{atomicWriteHelper}` ← the first existing path in "
+                  "`{atomicWriteProbeOrder}` now, before the skill-selection prompt below",
                   'HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`)'):
-        assert token in parsing, token
+        assert token in early, token
+    assert "{atomicWriteHelper}" not in parsing
     resolve = _between(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
     [call] = [line for line in resolve.splitlines() if line.startswith("uv run {skillInventoryHelper} resolve ")]
     assert call.endswith('--forge-data-folder "{forge_data_folder}" [--version {requested_version}]')
