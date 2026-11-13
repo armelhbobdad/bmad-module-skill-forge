@@ -5,3 +5,4 @@ summary: |
 migration: |
   If your `test_report_template_path` copy lacks the `<!-- Populated by` comment under one of its six section headings, copy that comment from the bundled `templates/test-report-template.md` under the heading, or Test Skill stops before any stage runs.
 issues: [1110]
+prs: [1207]

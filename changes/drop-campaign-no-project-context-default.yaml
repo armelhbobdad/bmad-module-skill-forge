@@ -5,3 +5,4 @@ summary: |
 migration: |
   To keep loading those files in Drop Skill or Campaign, add the entry `"file:{project-root}/**/project-context.md"` to the `persistent_facts` list under the `[workflow]` line of `_bmad/custom/skf-drop-skill.toml` or `_bmad/custom/skf-campaign.toml`, or the line `persistent_facts = ["file:{project-root}/**/project-context.md"]` when that file has no such list: a second `persistent_facts` line in one table is a TOML error, and the run then ignores the whole file. An old `!file:{project-root}/**/project-context.md` entry that only dropped the default now drops nothing and can be removed.
 issues: [1107]
+prs: [1207]

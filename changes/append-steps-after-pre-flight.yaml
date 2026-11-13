@@ -3,3 +3,4 @@ scope: skf-export-skill, skf-verify-stack
 summary: |
   Export Skill and Verify Stack now run your `activation_steps_append` entries at the end of start-up, after its own checks and just before the first stage loads, as their `customize.toml` says. They used to run them earlier, so a run that then stopped at start-up on a missing helper, an unwritable skills folder or a missing result emitter had already run them. The first stage's own checks, such as Verify Stack's write probe of its output folder, still run after them.
 issues: [1111]
+prs: [1207]

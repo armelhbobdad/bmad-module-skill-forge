@@ -5,3 +5,4 @@ summary: |
 migration: |
   If your Stack Skill `on_complete` command refuses arguments it does not know, call it from a script that ignores its arguments or reads `--result-path`.
 issues: [1109]
+prs: [1207]
