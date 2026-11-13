@@ -25,6 +25,15 @@ skf-provenance-gap-dispatch.py then parses back for update-skill. The
 these tests check that update-skill reads back every path it prints, that
 it prints nothing when there is nothing outside the scope, and that step 6
 runs it and keeps no hand-filled row.
+
+#1130: step 4's Semantic Drift tables, step 5a's Documentation Drift
+section, step 1c's Constituent Freshness table and step 6's Provenance table
+were typed by hand from saved JSON (or the report's frontmatter), with no
+cell escaping, so a `|` in a URL, a reason or a path broke the table, and
+step 4 wrote five tables, empty ones too. The `semantic`, `doc-drift`,
+`constituents` and `provenance` commands print them, and these tests check
+each against the matrix of its spec, run each stage's command as written on
+saved files and check each stage keeps no hand-filled row.
 """
 
 from __future__ import annotations
@@ -38,6 +47,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 AUDIT = REPO / "src" / "skf-audit-skill"
@@ -45,6 +55,11 @@ SCRIPT = AUDIT / "scripts" / "render-drift-tables.py"
 STRUCTURAL = AUDIT / "references" / "structural-diff.md"
 SEVERITY = AUDIT / "references" / "severity-classify.md"
 REPORT = AUDIT / "references" / "report.md"
+INIT = AUDIT / "references" / "init.md"
+SEMANTIC = AUDIT / "references" / "semantic-diff.md"
+DOC_DRIFT = AUDIT / "references" / "doc-drift.md"
+COMPOSE = AUDIT / "references" / "constituent-freshness.md"
+TIERS = REPO / "src" / "knowledge" / "progressive-capability.md"
 TEMPLATE = AUDIT / "assets" / "drift-report-template.md"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 DIFF = SCRIPTS / "skf-structural-diff.py"
@@ -559,6 +574,11 @@ def test_a_usage_error_exits_2():
     assert _run("structural").returncode == 2
     assert _run("outside-scope").returncode == 2
     assert _run("render", "x.json").returncode == 2
+    assert _run("semantic").returncode == 2
+    assert _run("constituents").returncode == 2
+    # doc-drift needs the run's timestamp and provenance the stage data folder.
+    assert _run("doc-drift", "doc-drift.json").returncode == 2
+    assert _run("provenance", "report.md").returncode == 2
 
 
 def test_help_lists_each_tables_columns():
@@ -566,13 +586,41 @@ def test_help_lists_each_tables_columns():
     assert proc.returncode == 0
     for columns in ("Export | Type | Signature | Location | Confidence", "Export | From | To | Confidence",
                     "Export | Removed At | Added At", "File | Change | Detail",
-                    "# | Finding | Type | Detail | Location |", "Path | Evidence"):
+                    "# | Finding | Type | Detail | Location |", "Path | Evidence",
+                    "Convention | Before | After |", "Export | Original Dependencies |",
+                    "Change | Description | Affected Exports |", "Pattern | Documented In Skill |",
+                    "URL | Old Hash | New Hash | Detected At", "Constituent | Compose-time Hash |",
+                    "Field | Value"):
         assert columns in proc.stdout, columns
+    for command in ("semantic FINDINGS", "doc-drift DOC_DRIFT --detected-at WHEN", "constituents FRESHNESS",
+                    "provenance REPORT --stage-data DIR"):
+        assert command in proc.stdout, command
 
 
 def test_the_header_declares_python_3_11():
     head = _read(SCRIPT).split('"""', 1)[0]
     assert '# requires-python = ">=3.11"' in head and "# /// script" in head
+    # provenance reads the report's frontmatter with yaml.safe_load.
+    assert '# dependencies = ["pyyaml"]' in head
+    assert re.search(r"^import yaml$", _read(SCRIPT), re.M)
+
+
+def test_the_embedded_examples_hold():
+    """The frontmatter reader, the flag and commit helpers and the semantic
+    renderer each carry an example, and every example holds."""
+    import doctest
+
+    examples = {test.name.rsplit(".", 1)[-1] for test in doctest.DocTestFinder().find(render) if test.examples}
+    assert {"read_frontmatter", "flag", "short_commit", "render_semantic"} <= examples, examples
+    assert doctest.testmod(render, verbose=False).failed == 0
+
+
+def test_the_docstring_names_what_each_stage_keeps():
+    """The model keeps only the lines no saved file holds, stage by stage."""
+    flow = _flow(render.__doc__)
+    assert ("The model keeps only what the files do not hold: each section's heading, the Comparison and Method "
+            "lines of steps 1c and 3, step 4's Method and QMD Collection lines, step 1c's Semantic Drift skip and "
+            "step 6's Confidence Legend.") in flow
 
 
 # --------------------------------------------------------------------------
@@ -720,7 +768,7 @@ def test_update_skill_reads_back_every_path_the_report_prints(tmp_path):
     forge_version = tmp_path / "forge" / "demo" / "1.0.0"
     snapshot = _snapshot(tmp_path, OUTSIDE)
     _write_json(forge_version / "extraction-snapshot.json", snapshot)
-    words = shlex.split(_fenced(_read(REPORT), "{renderDriftTablesScript}"))
+    words = shlex.split(_fenced(_read(REPORT), "{renderDriftTablesScript} outside-scope"))
     assert words[:4] == ["uv", "run", "{renderDriftTablesScript}", "outside-scope"]
     proc = _run(*[w.replace("{forge_version}", forge_version.as_posix()) for w in words[3:]])
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -752,6 +800,502 @@ def test_the_report_renders_the_out_of_scope_table_with_one_call():
     for gone in ("### Out-of-Scope New Public API", "| Path | Evidence |", "{outside_scope[].path}",
                  "Write one table row per item"):
         assert gone not in text, gone
-    # The report template still says where the subsection goes.
-    remediation = _slice(_read(TEMPLATE), "## Remediation Suggestions", "---")
-    assert "Out-of-Scope New Public API" in remediation
+    # #1129: report.md's block says where the subsection goes, and the template
+    # holds no Remediation Suggestions heading for the stage to write again.
+    assert "## Remediation Suggestions" not in _read(TEMPLATE)
+    block = _slice(text, "## Remediation Suggestions\n", "### Workflow Recommendation")
+    assert block.count(OUTSIDE_SCOPE_SLOT) == 1
+
+
+# --------------------------------------------------------------------------
+# #1130: semantic, step 4's Semantic Drift tables
+# --------------------------------------------------------------------------
+
+
+def _semantic(category: str, name: str, **extra) -> dict:
+    """A row of semantic-findings.json, as step 4 §4 saves it."""
+    return {"type": "semantic", "category": category, "name": name, "detail": f"{name} changed",
+            "file": "src/users.py", "line": 42, "confidence": "T2", **extra}
+
+
+def _headings(out: str) -> list[str]:
+    return [m.group(0) for m in re.finditer(r"^### .+$", out, re.M)]
+
+
+def _cells(row: str) -> list[str]:
+    """A table row's cells, split on the pipes no backslash escapes."""
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", row.strip())[1:-1]]
+
+
+def test_semantic_prints_only_the_categories_with_rows():
+    """Two convention rows: one table, its Before and After filled, and no
+    empty table for the other categories (leanness-3)."""
+    rows = [_semantic("convention", "error handling", before="returns None on a miss", after="raises LookupError",
+                      exports=["find_user"]),
+            _semantic("convention", "logging", before="print()", after="logger.info()", exports=["run", "stop"],
+                      line=7)]
+    out = render.render_semantic(rows)
+    assert _headings(out) == ["### Changed Conventions (2)", "### Summary"]
+    assert _rows(_section(out, "### Changed Conventions (2)")) == [
+        "| error handling | returns None on a miss | raises LookupError | `find_user` | `src/users.py:42` | T2 |",
+        "| logging | print() | logger.info() | `run`, `stop` | `src/users.py:7` | T2 |"]
+    assert _rows(_section(out, "### Summary")) == ["| Changed conventions | 2 |", "| **Total Semantic Items** | 2 |"]
+    for gone in ("New Patterns", "Dependency Shifts", "Architectural Changes", "Deprecated Patterns"):
+        assert gone not in out, gone
+
+
+def test_semantic_rows_fill_each_categorys_columns():
+    """Each table in the mapping's order, whatever order the rows were saved
+    in, with the columns b92dfac8's templates had and the optional fields
+    filling them."""
+    rows = [
+        _semantic("deprecated_pattern", "callbacks", detail="async/await everywhere", skill_reference="SKILL.md#usage"),
+        _semantic("dependency", "fetch_user", detail="requests replaced by httpx", before="requests", after="httpx"),
+        _semantic("architecture", "service layer", detail="handlers call services", exports=["Handler"]),
+        _semantic("convention", "errors", before="None", after="raises"),
+    ]
+    out = render.render_semantic(rows)
+    assert _headings(out) == ["### Changed Conventions (1)", "### Dependency Shifts (1)",
+                              "### Architectural Changes (1)", "### Deprecated Patterns (1)", "### Summary"]
+    for heading, (_, _, header) in zip(_headings(out), render.SEMANTIC_CATEGORIES):
+        assert _section(out, heading).strip().splitlines()[0] == "| " + " | ".join(header) + " |", heading
+    # A row without an optional field reads n/a there.
+    assert _rows(_section(out, "### Changed Conventions (1)")) == [
+        "| errors | None | raises | n/a | `src/users.py:42` | T2 |"]
+    assert _rows(_section(out, "### Dependency Shifts (1)")) == [
+        "| `fetch_user` | requests | httpx | requests replaced by httpx | `src/users.py:42` | T2 |"]
+    assert _rows(_section(out, "### Architectural Changes (1)")) == [
+        "| service layer | handlers call services | `Handler` | `src/users.py:42` | T2 |"]
+    assert _rows(_section(out, "### Deprecated Patterns (1)")) == [
+        "| callbacks | SKILL.md#usage | async/await everywhere | `src/users.py:42` | T2 |"]
+    assert _rows(_section(out, "### Summary")) == [
+        "| Changed conventions | 1 |", "| Dependency shifts | 1 |", "| Architectural changes | 1 |",
+        "| Deprecated patterns | 1 |", "| **Total Semantic Items** | 4 |"]
+
+
+def test_the_design_note_row_renders_as_the_spec_shows():
+    row = {"type": "semantic", "category": "convention", "name": "error handling",
+           "detail": "raises instead of returning None", "before": "returns None on a miss",
+           "after": "raises LookupError", "exports": ["find_user"], "file": "src/users.py", "line": 42,
+           "confidence": "T2"}
+    out = render.render_semantic([row])
+    assert _rows(_section(out, "### Changed Conventions (1)")) == [
+        "| error handling | returns None on a miss | raises LookupError | `find_user` | `src/users.py:42` | T2 |"]
+
+
+def test_a_pipe_in_a_semantic_cell_keeps_the_columns():
+    rows = [_semantic("convention", "a | b", before="x | y", after="z", exports=["f|g"]),
+            _semantic("dependency", "h|i", before="p | q", after="r"),
+            _semantic("deprecated_pattern", "j", skill_reference="SKILL.md | Usage")]
+    out = render.render_semantic(rows)
+    widths = {heading: [len(_cells(row)) for row in _rows(_section(out, heading))] for heading in _headings(out)}
+    assert widths == {"### Changed Conventions (1)": [6], "### Dependency Shifts (1)": [6],
+                      "### Deprecated Patterns (1)": [5], "### Summary": [2, 2, 2, 2]}
+    assert _cells(_rows(_section(out, "### Changed Conventions (1)"))[0])[:4] == [
+        "a \\| b", "x \\| y", "z", "`f\\|g`"]
+    assert _cells(_rows(_section(out, "### Dependency Shifts (1)"))[0])[0] == "`h\\|i`"
+
+
+def test_semantic_with_no_row_prints_the_summary_with_total_0(tmp_path):
+    path = _write_json(tmp_path / "semantic-findings.json", [])
+    proc = _run("semantic", str(path))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _headings(proc.stdout) == ["### Summary"]
+    assert proc.stdout.splitlines()[0] == ("No semantic drift: the current source still supports every claim this "
+                                           "step checked.")
+    assert _rows(_section(proc.stdout, "### Summary")) == ["| **Total Semantic Items** | 0 |"]
+
+
+@pytest.mark.parametrize("rows,needle", [
+    ([_semantic("convention", "a"), _semantic("pattern", "b")],
+     "row 1: category 'pattern' is not one of convention, dependency, architecture, deprecated_pattern"),
+    ([_semantic("conventions", "a")], "row 0: category 'conventions' is not one of"),
+    ([_semantic("convention", "a"), {"type": "changed", "category": "convention"}], "row 1: not a semantic finding"),
+    ([_semantic("convention", "a"), "src/a.py"], "row 1: not a semantic finding"),
+    ({"findings": []}, "not a semantic findings file"),
+], ids=["new-patterns", "misspelled", "not-semantic", "not-an-object", "not-an-array"])
+def test_semantic_refuses_a_row_it_cannot_place(tmp_path, rows, needle):
+    path = _write_json(tmp_path / "semantic-findings.json", rows)
+    proc = _run("semantic", str(path))
+    assert proc.returncode == 1
+    out = json.loads(proc.stdout)
+    assert out["status"] == "error" and out["error"].startswith(f"{path}: ") and needle in out["error"], out
+
+
+# --------------------------------------------------------------------------
+# #1130: doc-drift, step 5a's Documentation Drift section
+# --------------------------------------------------------------------------
+
+
+DOC_DRIFT_RESULT = {
+    "changed": [{"url": "https://docs.x/api.md", "old_hash": "sha256:aa", "new_hash": "sha256:bb"}],
+    "unchanged": [{"url": "https://docs.x/ok.md"}],
+    "fetch_failed": [{"url": "https://docs.x/gone.md", "old_hash": "sha256:cc", "reason": "HTTP 404"}],
+    "skipped_null_hash": [{"url": "https://docs.x/new.md"}],
+    "stats": {"total_tracked": 4, "changed": 1, "unchanged": 1, "fetch_failed": 1, "skipped_null_hash": 1},
+}
+
+
+def test_doc_drift_rows_follow_the_one_row_rule():
+    """The rule doc-drift.md stated (#600), now the renderer's: each changed
+    entry, then each fetch_failed one, then each skipped_null_hash one; an
+    unchanged entry gets no row. Detected At is the run's timestamp."""
+    out = render.render_doc_drift(DOC_DRIFT_RESULT, "20260101-000000")
+    lines = out.splitlines()
+    assert lines[0] == "| URL | Old Hash | New Hash | Detected At |"
+    assert _rows(out) == [
+        "| `https://docs.x/api.md` | `sha256:aa` | `sha256:bb` | 20260101-000000 |",
+        "| `https://docs.x/gone.md` | `sha256:cc` | _(fetch failed: HTTP 404)_ | 20260101-000000 |",
+        "| `https://docs.x/new.md` | _(not recorded)_ | n/a | n/a |"]
+    assert lines[-1] == "**1 of 4 tracked documentation source(s) have changed since compile.**"
+    assert "ok.md" not in out
+    # The counts come from stats, never from the rows.
+    counted = {**DOC_DRIFT_RESULT, "stats": {**DOC_DRIFT_RESULT["stats"], "changed": 3, "total_tracked": 9}}
+    assert render.render_doc_drift(counted, "x").splitlines()[-1] == (
+        "**3 of 9 tracked documentation source(s) have changed since compile.**")
+
+
+def test_a_pipe_in_a_url_or_a_reason_keeps_the_columns():
+    data = {"changed": [{"url": "https://x/a|b.md", "old_hash": "sha256:1", "new_hash": "sha256:2"}],
+            "unchanged": [],
+            "fetch_failed": [{"url": "https://x/c|d.md", "old_hash": "sha256:3", "reason": "HTTP 502 | bad_gateway"}],
+            "skipped_null_hash": [],
+            "stats": {"total_tracked": 2, "changed": 1, "unchanged": 0, "fetch_failed": 1, "skipped_null_hash": 0}}
+    rows = _rows(render.render_doc_drift(data, "20260101-000000"))
+    assert [len(_cells(row)) for row in rows] == [4, 4]
+    assert _cells(rows[0])[0] == "`https://x/a\\|b.md`"
+    assert _cells(rows[1]) == ["`https://x/c\\|d.md`", "`sha256:3`", "_(fetch failed: HTTP 502 \\| bad\\_gateway)_",
+                               "20260101-000000"]
+    clean = {**data, "changed": [], "stats": {**data["stats"], "changed": 0, "unchanged": 1}}
+    assert ("**Could not be fetched:** `https://x/c\\|d.md` (HTTP 502 \\| bad\\_gateway)."
+            in render.render_doc_drift(clean, "x"))
+
+
+def test_doc_drift_with_no_change_prints_the_no_drift_line_and_names_the_rest():
+    data = {"changed": [], "unchanged": [{"url": "https://docs.x/ok.md"}],
+            "fetch_failed": [{"url": "https://docs.x/gone.md", "old_hash": "sha256:cc", "reason": "timed out"}],
+            "skipped_null_hash": [],
+            "stats": {"total_tracked": 2, "changed": 0, "unchanged": 1, "fetch_failed": 1, "skipped_null_hash": 0}}
+    out = render.render_doc_drift(data, "20260101-000000")
+    assert "|" not in out and "20260101-000000" not in out
+    assert out.strip().split("\n\n") == [
+        "No documentation drift detected. 1 of 2 tracked documentation source(s) match their compile-time hashes.",
+        "**Could not be fetched:** `https://docs.x/gone.md` (timed out)."]
+    unhashed = {**data, "fetch_failed": [], "skipped_null_hash": [{"url": "https://docs.x/new.md"}],
+                "stats": {**data["stats"], "fetch_failed": 0, "skipped_null_hash": 1}}
+    assert render.render_doc_drift(unhashed, "x").strip().split("\n\n")[1:] == [
+        "**No compile-time hash recorded:** `https://docs.x/new.md`."]
+    matched = {**data, "fetch_failed": [], "stats": {**data["stats"], "fetch_failed": 0, "total_tracked": 1}}
+    assert render.render_doc_drift(matched, "x").strip() == (
+        "No documentation drift detected. 1 of 1 tracked documentation source(s) match their compile-time hashes.")
+
+
+# --------------------------------------------------------------------------
+# #1130: constituents, step 1c's Constituent Freshness table
+# --------------------------------------------------------------------------
+
+
+FRESHNESS = {
+    "drifted": [{"skill_name": "lib-moved-on", "skill_path": "skills/lib-moved-on/", "stored_hash": "sha256:11",
+                 "current_hash": "sha256:22"}],
+    "fresh": [{"skill_name": "lib-fresh"}, {"skill_name": "lib-also-fresh"}],
+    "missing": [{"skill_name": "lib-gone", "skill_path": "skills/lib-gone/", "stored_hash": "sha256:33",
+                 "reason": "metadata-not-found"}],
+    "skipped_null_hash": [{"skill_name": "lib-cascade"}],
+    "stats": {"total": 5, "drifted": 1, "fresh": 2, "missing": 1, "skipped_null_hash": 1},
+}
+
+
+def test_constituents_count_from_stats_and_print_both_lines():
+    out = render.render_constituents(FRESHNESS)
+    assert out.splitlines()[0] == "### Constituent Freshness (drifted 1, missing 1, fresh 2)"
+    assert _rows(out) == ["| `lib-moved-on` | `sha256:11` | `sha256:22` |"]
+    assert out.rstrip().split("\n\n")[-2:] == ["**Missing constituents:** `lib-gone` (metadata-not-found).",
+                                               "**Not compared (no compose-time hash):** `lib-cascade`."]
+    counted = {**FRESHNESS, "stats": {**FRESHNESS["stats"], "fresh": 7}}
+    assert render.render_constituents(counted).splitlines()[0] == (
+        "### Constituent Freshness (drifted 1, missing 1, fresh 7)")
+    fresh = {"drifted": [], "fresh": [{"skill_name": "a"}], "missing": [], "skipped_null_hash": [],
+             "stats": {"total": 1, "drifted": 0, "fresh": 1, "missing": 0, "skipped_null_hash": 0}}
+    assert render.render_constituents(fresh).rstrip().split("\n\n") == [
+        "### Constituent Freshness (drifted 0, missing 0, fresh 1)", "None.", "**Missing constituents:** none.",
+        "**Not compared (no compose-time hash):** none."]
+
+
+def test_a_missing_constituent_with_no_name_reads_its_path():
+    """skf-hash-content.py files a record with no skill_name as missing
+    (incomplete-record), its skill_path kept when it has one."""
+    data = {**FRESHNESS, "missing": [
+        {"skill_name": None, "skill_path": "skills/lib-x/", "stored_hash": None, "reason": "incomplete-record"},
+        {"skill_name": None, "skill_path": None, "stored_hash": None, "reason": "incomplete-record"}]}
+    assert ("**Missing constituents:** `skills/lib-x/` (incomplete-record), (none) (incomplete-record)."
+            in render.render_constituents(data))
+
+
+@pytest.mark.parametrize("args,content,needle", [
+    (("semantic",), b"{}", "not a semantic findings file"),
+    (("semantic",), None, "no such file"),
+    (("doc-drift", "--detected-at", "x"), b'{"changed": []}', "not a doc drift result"),
+    (("doc-drift", "--detected-at", "x"), b"", "the doc drift result is not JSON"),
+    (("constituents",), b'{"drifted": []}', "not a constituent freshness result"),
+    (("constituents",), b"{not json", "is not JSON"),
+], ids=["semantic-object", "semantic-missing", "doc-drift-partial", "doc-drift-empty", "constituents-partial",
+        "constituents-not-json"])
+def test_the_new_commands_exit_1_with_a_json_error(tmp_path, args, content, needle):
+    source = tmp_path / "input.json"
+    if content is not None:
+        source.write_bytes(content)
+    proc = _run(args[0], str(source), *args[1:])
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["status"] == "error" and out["error"].startswith(f"{source}: ") and needle in out["error"], out
+
+
+# --------------------------------------------------------------------------
+# #1130: provenance, step 6's Provenance table
+# --------------------------------------------------------------------------
+
+
+COMMIT_A = "0123456789abcdef0123456789abcdef01234567"
+COMMIT_B = "fedcba9876543210fedcba9876543210fedcba98"
+PROVENANCE_FIELDS = ["Audit Date", "Audited By", "Forge Tier", "Tools Used", "Source Path", "Skill Path",
+                     "Audited Version", "Provenance Map", "Provenance Age", "AST fallback files", "Applied Transforms",
+                     "Baseline Ref / Commit", "Audit Ref / Commit", "Upstream Latest", "Upstream Moved", "Stage Data"]
+FRONT = {"workflowType": "audit-skill", "stepsCompleted": ["init", "re-index", "structural-diff"],
+         "date": "2026-01-02", "skill_name": "demo", "skill_path": "skills/demo/1.0.0/demo", "source_path": "/src/demo",
+         "forge_tier": "Forge+", "audited_version": "1.0.0", "audited_version_reason": "active link",
+         "manifest_version": None, "provenance_map": "forge/demo/1.0.0/provenance-map.json",
+         "provenance_generated_at": "2025-12-01T00:00:00Z", "provenance_age_days": 32, "baseline_ref": "v1.0.0",
+         "baseline_commit": COMMIT_A, "audit_ref": "v1.0.0", "audit_ref_source": "baseline", "audit_commit": COMMIT_A,
+         "latest_tag": "v1.1.0", "remote_head": COMMIT_B, "upstream_fetch": "ok", "upstream_moved": True,
+         "upstream_ref": "v1.1.0", "source_tree": None, "ast_fallback_files": ["src/odd.py"],
+         "applied_transforms": [{"transform": "quote_style", "count": 3}, {"transform": "hash_prefix", "count": 1}]}
+
+
+def _report(path: Path, front: dict, crlf: bool = False, bom: bool = False) -> Path:
+    """A drift report whose frontmatter holds `front`."""
+    text = "---\n" + yaml.safe_dump(front, sort_keys=False) + "---\n\n# Drift Report: demo\n"
+    if crlf:
+        text = text.replace("\n", "\r\n")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes((b"\xef\xbb\xbf" if bom else b"") + text.encode("utf-8"))
+    return path
+
+
+def _provenance_rows(out: str) -> dict:
+    return dict(re.findall(r"^\| \*\*(.+?)\*\* \| (.+) \|$", out, re.M))
+
+
+def test_provenance_reads_each_row_from_its_keys(tmp_path):
+    """A report saved with CRLF line ends and a BOM: every row comes from its
+    keys, in report §3's order, and a commit shows 7 characters."""
+    path = _report(tmp_path / "drift-report-20260101-000000.md", FRONT, crlf=True, bom=True)
+    proc = _run("provenance", str(path), "--stage-data", "forge/demo/1.0.0/.skf-audit/20260101-000000")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout.splitlines()[:2] == ["| Field | Value |", "|-------|-------|"]
+    rows = _provenance_rows(proc.stdout)
+    assert list(rows) == PROVENANCE_FIELDS
+    assert rows == {
+        "Audit Date": "2026-01-02",
+        "Audited By": "Ferris (Audit mode)",
+        "Forge Tier": "Forge+",
+        "Tools Used": "ast-grep, ccc",
+        "Source Path": "`/src/demo`",
+        "Skill Path": "`skills/demo/1.0.0/demo`",
+        "Audited Version": "`1.0.0` (active link)",
+        "Provenance Map": "`forge/demo/1.0.0/provenance-map.json`",
+        "Provenance Age": "32 days (generated 2025-12-01T00:00:00Z)",
+        "AST fallback files": "`src/odd.py`",
+        "Applied Transforms": "`quote_style` ×3, `hash_prefix` ×1",
+        "Baseline Ref / Commit": "`v1.0.0` @ `0123456`",
+        "Audit Ref / Commit": "`v1.0.0` @ `0123456` (baseline)",
+        "Upstream Latest": "`v1.1.0` (fetch: ok)",
+        "Upstream Moved": "true: to `v1.1.0`",
+        "Stage Data": "`forge/demo/1.0.0/.skf-audit/20260101-000000/`: the JSON this run saved and classified (the "
+                      "structural diff, the constituents' freshness or the documents' comparison, the findings and "
+                      "their classification)",
+    }
+    assert COMMIT_A not in proc.stdout and COMMIT_B[:8] not in proc.stdout
+
+
+def test_provenance_adds_each_tail_when_its_value_is_set(tmp_path):
+    front = {**FRONT, "source_tree": "/run/tree-1", "manifest_version": "0.9.0", "latest_tag": None,
+             "upstream_moved": "false", "upstream_ref": None, "forge_tier": "Quick", "ast_fallback_files": [],
+             "applied_transforms": [], "audit_commit": "(unknown)"}
+    rows = _provenance_rows(render.render_provenance(front, "d"))
+    assert rows["Source Path"] == "`/src/demo`; read from the private tree `/run/tree-1`"
+    assert rows["Audited Version"] == "`1.0.0` (active link); the export manifest names `0.9.0`"
+    assert rows["Upstream Latest"] == "`fedcba9` (fetch: ok)"
+    assert rows["Upstream Moved"] == "false"
+    # Quick tier runs no tool and never reads a file by eye after a failed ast-grep.
+    assert (rows["Tools Used"], rows["AST fallback files"], rows["Applied Transforms"]) == ("none", "n/a", "none")
+    # Only a commit is cut: init's "(unknown)" reads as written.
+    assert rows["Audit Ref / Commit"] == "`v1.0.0` @ `(unknown)` (baseline)"
+    assert rows["Stage Data"].startswith("`d/`: ")
+    forge = _provenance_rows(render.render_provenance({**FRONT, "forge_tier": "Forge", "ast_fallback_files": []}, "d"))
+    assert (forge["Tools Used"], forge["AST fallback files"]) == ("ast-grep", "none")
+
+
+def test_provenance_reads_n_a_for_a_value_the_run_does_not_have():
+    rows = _provenance_rows(render.render_provenance({key: None for key in FRONT}, "d"))
+    assert list(rows) == PROVENANCE_FIELDS
+    for field in ("Audit Date", "Forge Tier", "Tools Used", "Source Path", "Skill Path", "Audited Version",
+                  "Provenance Map", "Provenance Age", "AST fallback files", "Applied Transforms", "Upstream Moved"):
+        assert rows[field] == "n/a", field
+    assert rows["Baseline Ref / Commit"] == "n/a @ n/a"
+    assert rows["Upstream Latest"] == "`(not fetched)` (fetch: n/a)"
+
+
+def test_a_pipe_in_a_provenance_value_keeps_the_columns():
+    out = render.render_provenance({**FRONT, "source_path": "/src/a|b", "upstream_fetch": "failed:x | y"}, "d")
+    assert all(len(_cells(row)) == 2 for row in _rows(out)), out
+    assert _provenance_rows(out)["Source Path"] == "`/src/a\\|b`"
+
+
+def test_unquoted_refs_commits_and_dates_read_as_written(tmp_path):
+    """The model writes the frontmatter: an unquoted ref such as 1.10, a
+    commit of digits or a timestamp stays the text it wrote, and init's
+    upstream_fetch values read back when double-quoted."""
+    path = tmp_path / "drift-report.md"
+    path.write_text("---\nskill_name: demo\ndate: 2026-01-02\nforge_tier: Forge\naudited_version: 1.10\n"
+                    "provenance_generated_at: 2025-12-01T00:00:00Z\nprovenance_age_days: 32\nbaseline_ref: 1.10\n"
+                    "baseline_commit: 0123456\naudit_ref: 1.10\naudit_commit: 0123456\naudit_ref_source: baseline\n"
+                    "upstream_fetch: \"failed:fatal: 'origin' does not appear to be a git repository\"\n"
+                    "upstream_moved: true\nupstream_ref: 2.10\napplied_transforms:\n"
+                    "  - {transform: quote_style, count: 3}\n---\n\n# Drift Report: demo\n", encoding="utf-8")
+    proc = _run("provenance", str(path), "--stage-data", "d")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    rows = _provenance_rows(proc.stdout)
+    assert rows["Audit Date"] == "2026-01-02"
+    assert rows["Audited Version"] == "`1.10`"
+    assert rows["Provenance Age"] == "32 days (generated 2025-12-01T00:00:00Z)"
+    assert rows["Applied Transforms"] == "`quote_style` ×3"
+    assert rows["Baseline Ref / Commit"] == "`1.10` @ `0123456`"
+    assert rows["Audit Ref / Commit"] == "`1.10` @ `0123456` (baseline)"
+    assert rows["Upstream Latest"] == ("`(not fetched)` (fetch: failed:fatal: 'origin' does not appear to be a git "
+                                       "repository)")
+    assert rows["Upstream Moved"] == "true: to `2.10`"
+    # Unquoted, the same value is not YAML, and the error says how to write it.
+    path.write_text("---\nskill_name: demo\nupstream_fetch: skipped: docs-only skill\n---\n", encoding="utf-8")
+    proc = _run("provenance", str(path), "--stage-data", "d")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "write a value that holds `: ` or a quote as a double-quoted string" in json.loads(proc.stdout)["error"]
+    # init §6, the writer, says so first, and the line it shows reads back as written.
+    record = _flow(_slice(_read(INIT), "- Record the run context in the frontmatter", "\n- Set `stepsCompleted"))
+    assert ("Write a value that holds `: `, such as the `skipped: ...` and `failed:...` values of `upstream_fetch`, "
+            "as a double-quoted string with each `\\` and `\"` in it escaped") in record
+    example = re.search(r"\(`(upstream_fetch: \"[^`]+\")`\)", record).group(1)
+    path.write_text(f"---\nskill_name: demo\n{example}\n---\n", encoding="utf-8")
+    proc = _run("provenance", str(path), "--stage-data", "d")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _provenance_rows(proc.stdout)["Upstream Latest"] == "`(not fetched)` (fetch: skipped: docs-only skill)"
+
+
+def test_the_tools_follow_the_tier_table():
+    """Tools Used names what knowledge/progressive-capability.md says each tier requires."""
+    table = _slice(_read(TIERS), "## Tier Definitions", "### Example 1")
+    rows = re.findall(r"^\| (Quick|Forge\+?|Deep) \| ([^|]+?) \|", table, re.M)
+    required = {}
+    for tier, needs in rows:
+        needs = re.sub(r"\s+available$", "", needs.strip())
+        required[tier] = () if needs == "No tools required" else tuple(t.strip() for t in needs.split("+"))
+    assert required == render.TIER_TOOLS
+
+
+@pytest.mark.parametrize("content,needle", [
+    (b"# Drift Report\n", "no frontmatter"),
+    (b"---\nskill_name: [unclosed\n---\n", "not valid YAML"),
+    (b"---\n- a\n---\n", "not a YAML mapping"),
+    (None, "no such file"),
+], ids=["no-frontmatter", "bad-yaml", "a-list", "missing"])
+def test_provenance_without_frontmatter_exits_1(tmp_path, content, needle):
+    path = tmp_path / "drift-report.md"
+    if content is not None:
+        path.write_bytes(content)
+    proc = _run("provenance", str(path), "--stage-data", "d")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["status"] == "error" and out["error"].startswith(f"{path}: ") and needle in out["error"], out
+
+
+# --------------------------------------------------------------------------
+# #1130: the stages render these sections with one call each
+# --------------------------------------------------------------------------
+
+
+SLOT = "{what the command printed, unchanged}"
+# command: (stage file, section start, section end, the fenced call, the fallback, the paste slot)
+STAGE_COMMANDS = {
+    "semantic": (SEMANTIC, "### 4. Compile Semantic Drift Section", "### 5.",
+                 'uv run {renderDriftTablesScript} semantic "{auditDataFolder}/semantic-findings.json"',
+                 "Semantic tables not rendered: {error}", SLOT),
+    "doc-drift": (DOC_DRIFT, "### 3. Append to Drift Report", "### 4.",
+                  'uv run {renderDriftTablesScript} doc-drift "{auditDataFolder}/doc-drift.json" '
+                  '--detected-at "{timestamp}"',
+                  "Documentation drift table not rendered: {error}", SLOT),
+    "constituents": (COMPOSE, "### 2. Compile the Structural Drift Section", "### 3.",
+                     'uv run {renderDriftTablesScript} constituents "{auditDataFolder}/constituent-freshness.json"',
+                     "Constituent freshness not rendered: {error}", SLOT),
+    "provenance": (REPORT, "### 3. Add Provenance Section", "### 4.",
+                   'uv run {renderDriftTablesScript} provenance "{outputFile}" --stage-data "{auditDataFolder}"',
+                   "Provenance table not rendered: {error}", "{what the provenance command printed, unchanged}"),
+}
+
+
+@pytest.mark.parametrize("command", list(STAGE_COMMANDS))
+def test_each_new_section_is_rendered_with_one_call(command):
+    path, start, end, call, fallback, slot = STAGE_COMMANDS[command]
+    assert "renderDriftTablesScript: 'scripts/render-drift-tables.py'" in _frontmatter(path)
+    body = _slice(_read(path), start, end)
+    assert _fenced(body, "{renderDriftTablesScript}") == call
+    # The output is pasted once, in the section's markdown fence, which keeps no heading of the renderer's.
+    fences = re.findall(r"^```markdown\n(.*?)^```", body, re.M | re.S)
+    assert sum(fence.count(slot) for fence in fences) == 1, fences
+    assert not any(re.search(r"^### ", fence, re.M) for fence in fences), fences
+    flow = _flow(body)
+    assert ("When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not "
+            f"read: write `{fallback}` in place of its output and go on") in flow
+    assert "by hand" in flow and "(`--help` lists" in flow
+
+
+def test_the_new_sections_keep_no_hand_filled_row():
+    for path in (SEMANTIC, DOC_DRIFT, COMPOSE):
+        text = _read(path)
+        rows = [line for line in text.splitlines() if line.lstrip().startswith("|")]
+        assert not rows, (path.name, rows)
+        assert "{count}" not in text and "{stats." not in text, path.name
+    provenance = _slice(_read(REPORT), "### 3. Add Provenance Section", "### 4.")
+    assert "| **" not in provenance and "{tool_list" not in provenance
+    # The row rules live in the renderer now.
+    assert "Rows, in this order" not in _read(DOC_DRIFT)
+    assert "for each `missing[]` entry" not in _read(COMPOSE)
+
+
+def test_the_new_stage_commands_render_the_saved_files(tmp_path):
+    """Each stage's command, run as written on a stage data folder that holds
+    what the steps saved, prints what the renderer makes of those files."""
+    forge_version = tmp_path / "forge" / "demo" / "1.0.0"
+    data = forge_version / ".skf-audit" / "20260101-000000"
+    semantic = [_semantic("dependency", "fetch_user", before="requests", after="httpx")]
+    _write_json(data / "semantic-findings.json", semantic)
+    _write_json(data / "doc-drift.json", DOC_DRIFT_RESULT)
+    _write_json(data / "constituent-freshness.json", FRESHNESS)
+    report = _report(forge_version / "drift-report-20260101-000000.md", FRONT)
+    values = {"{auditDataFolder}": data.as_posix(), "{timestamp}": "20260101-000000",
+              "{outputFile}": report.as_posix()}
+    expected = {"semantic": render.render_semantic(semantic),
+                "doc-drift": render.render_doc_drift(DOC_DRIFT_RESULT, "20260101-000000"),
+                "constituents": render.render_constituents(FRESHNESS),
+                "provenance": render.render_provenance(FRONT, data.as_posix())}
+    for command, (path, start, end, *_) in STAGE_COMMANDS.items():
+        words = shlex.split(_fenced(_slice(_read(path), start, end), "{renderDriftTablesScript}"))
+        assert words[:4] == ["uv", "run", "{renderDriftTablesScript}", command]
+        args = []
+        for word in words[3:]:
+            for name, value in values.items():
+                word = word.replace(name, value)
+            assert "{" not in word, word
+            args.append(word)
+        proc = _run(*args)
+        assert proc.returncode == 0, (command, proc.stdout + proc.stderr)
+        assert proc.stdout.splitlines() == expected[command].splitlines(), command

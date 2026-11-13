@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Scope reconciliation now reads the newest drift report whose audit finished, so a partial report that a halted or stopped Audit Skill run left no longer hides the last finished one and its new public API outside the scope. A version folder that holds only unfinished drift reports now reads as having no report, and reconciliation is skipped.
+issues: [1129]
+prs: [1210]

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-audit-skill
+summary: |
+  The Version preservation note in Audit Skill's drift report no longer sends readers to other skills' step files for its guarantee: one pointer named a section Update Skill does not have, and another an Export Skill file that never mentions `archived`. The note now states the guarantee itself: Update Skill keeps the audited version, writes the new one in a folder of its own beside it and repoints the `active` link at it, and the next export marks the prior version's manifest entry `status: archived`, its files kept for rollback. The New public API note no longer cites an Update Skill section either, so the drift report depends on no other skill's numbering.
+issues: [1133]
+prs: [1210]

@@ -1,7 +1,6 @@
 ---
 workflowType: 'audit-skill'
 stepsCompleted: []
-lastStep: ''
 date: ''
 user_name: ''
 skill_name: ''
@@ -14,6 +13,10 @@ audited_version: ''
 audited_version_reason: ''
 manifest_version: ''
 docs_only_skill: ''
+scope_type: ''
+is_stack_skill: ''
+legacy_stack_provenance: ''
+compose_mode_stack: ''
 provenance_map: ''
 provenance_generated_at: ''
 provenance_age_days: ''
@@ -32,7 +35,6 @@ ast_fallback_files: []
 applied_transforms: []
 drift_score: ''
 nextWorkflow: ''
-previousWorkflow: 'create-skill'
 ---
 
 # Drift Report: {skill_name}
@@ -52,43 +54,3 @@ previousWorkflow: 'create-skill'
 | MEDIUM    |       |
 | LOW       |       |
 | **Total** |       |
-
----
-
-## Structural Drift
-
-<!-- Appended by structural-diff, or for a compose-mode stack by constituent-freshness -->
-<!-- Constituent Freshness (compose-mode stacks): drifted, missing and not-compared constituents; each drifted (HIGH) or missing (MEDIUM) one is a finding -->
-<!-- Provenance label differences (not drift): informational table, rendered only when label_changes[] is non-empty and excluded from Total Drift Items -->
-<!-- Off the public surface (not drift): a note under the Summary naming a public-api skill's new exports off its public surface (not_public[]), rendered only when summary.not_public is above 0 and excluded from Total Drift Items -->
-
----
-
-## Semantic Drift
-
-<!-- Appended by semantic-diff (Deep tier only) -->
-
----
-
-## Severity Classification
-
-<!-- Appended by severity-classify -->
-
----
-
-## Documentation Drift
-
-<!-- Appended by doc-drift -->
-
----
-
-## Remediation Suggestions
-
-<!-- Appended by report -->
-<!-- Out-of-Scope New Public API: one row per file outside the skill's scope whose public API a package entry point exports (the snapshot's outside_scope), which update-skill's scope reconciliation reads; left out when there is none -->
-
----
-
-## Provenance
-
-<!-- Appended by report -->

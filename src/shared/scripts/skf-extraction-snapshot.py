@@ -20,6 +20,9 @@ CLI:
       [--provenance-map <map>] [--extraction <runner.json>] \\
       [--details <by-eye.json>]... [--scope-type <type>] \\
       -o <extraction-snapshot.json>
+  uv run skf-extraction-snapshot.py relocation-candidates \\
+      --diff <structural-diff.json> --source-root <dir> \\
+      --scan-list <scan-files.json> [--ccc] -o <candidates.json>
   uv run skf-extraction-snapshot.py relocate <extraction-snapshot.json> \\
       --diff <structural-diff.json> --extraction <runner.json>
 
@@ -133,7 +136,21 @@ build
   still declares it (the runner leaves out a Python or Rust underscore
   name such as `__version__`, and a module), which would otherwise read as
   removed. A baseline gap gives the line that declares the name, `entry`
-  null and, when the entry has one, its `export_type`. It is checked only
+  null and, when the entry has one, its `export_type`. A baseline gap
+  whose `export_type` is `module` or `package` (in any case), found at
+  line 1 of the file that is that module or package (the verifier's
+  `_module_name` gives its name for the file: `pipelines` for
+  `pkg/pipelines/__init__.py`, `utils` for `src/utils/index.ts`), is no
+  gap: it joins the exports, with its name, its `export_type` as `type`,
+  its file, line 1 and its file's `source_library`, the signature
+  `module` and the file's path without its extension or a final
+  `__init__` (Python) or `index` (TS/JS), dotted for Python (`module
+  pkg.pipelines`) and with forward slashes for TS/JS (`module
+  src/utils`), T1-low, `source-read` and `ast_node_type` null; the
+  counts and its file's `exports` count it, and --scope-type public-api
+  marks it as it marks the rest. A gap of those types found anywhere
+  else (a declaration on another line, or in another module's file)
+  stays a gap. It is checked only
   for an entry whose file is `extracted` or `read-by-eye`, whose name is
   not dotted, and that the snapshot holds neither under its name nor under
   its `reexported_as` target at that file. The selection and the
@@ -160,6 +177,29 @@ build
   "files_by_status", "counts", "public_surface"} on stdout: what step 2
   acts on, so it never opens the runner's JSON.
 
+relocation-candidates
+
+  Step 3's relocation search: the files under --source-root that may hold
+  a name of the diff's `removed[]` (each `name` string, once, sorted).
+  Without --ccc, one `git -C <source-root> grep --no-full-name -z -l -w
+  -F -f -` with the names on stdin lists the files of the work tree that
+  hold one as a word (git's exit 1 is no match). With --ccc, one `ccc
+  search --json --limit 5 <name>` per name, run in --source-root, and each
+  result's `file_path` rebased from ccc's index root onto --source-root
+  (a path outside it is dropped): the nearest folder at or above
+  --source-root whose `.cocoindex_code/settings.yml` is a file, as ccc
+  itself finds it.
+  The paths, relative to --source-root with forward slashes, once each
+  and sorted, less the files --scan-list names (step 2 extracted those),
+  are written to -o as a JSON list, the runner's --files-from. With no
+  removed name it writes [] and searches nothing. Prints {"status": "ok",
+  "output", "names": N, "candidates": N, "searched_with": "git grep" |
+  "ccc"}. Errors: an input it cannot read, no `git` or `ccc` to run (an
+  error that starts `cannot run git` or `cannot run ccc`), a search that
+  fails (a git exit other than 0 or 1, a ccc result whose `success` is
+  not true, no `.cocoindex_code/settings.yml` at or above --source-root)
+  or an output it cannot write; nothing is written then.
+
 relocate
 
   Step 3's relocation check: --extraction is the runner's JSON over the
@@ -173,8 +213,9 @@ relocate
 
 Exit codes: 0 the file was written (or relocate found nothing to add); 2
 an input that cannot be read or parsed, a helper beside this script that
-cannot be loaded, or an output that cannot be written ({"status":
-"error", "error"} on stdout), or a usage error (argparse, on stderr).
+cannot be loaded, a relocation search that cannot run or fails, or an
+output that cannot be written ({"status": "error", "error"} on stdout),
+or a usage error (argparse, on stderr).
 """
 
 from __future__ import annotations
@@ -182,6 +223,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import shutil
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -194,6 +237,16 @@ BASELINE_GAP_STATUSES = ("extracted", "read-by-eye")
 AST_GREP_UNAVAILABLE = "all files (ast-grep unavailable)"
 # The scope type whose exports are marked by the public-surface rule.
 PUBLIC_API = "public-api"
+# A baseline gap of these export types joins the exports, read from its path.
+MODULE_TYPES = ("module", "package")
+PYTHON_SUFFIXES = (".py",)
+TSJS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+# The file that marks a ccc index root, and how many results one name takes.
+CCC_INDEX = ".cocoindex_code"
+CCC_SETTINGS = "settings.yml"
+CCC_LIMIT = 5
+# Seconds one relocation search may take.
+SEARCH_TIMEOUT = 600
 EXIT_ERROR = 2
 
 
@@ -234,8 +287,9 @@ def _provenance():
 
 def _verifier():
     """skf-verify-provenance-completeness.py, for its baseline gaps
-    (`baseline_gaps`, by its declaration rule `declared_line`)."""
-    return _sibling("skf-verify-provenance-completeness.py", "baseline_gaps", "declared_line")
+    (`baseline_gaps`, by its declaration rule `declared_line`) and the
+    module a file is (`_module_name`)."""
+    return _sibling("skf-verify-provenance-completeness.py", "baseline_gaps", "declared_line", "_module_name")
 
 
 def _public_api(scope_type: str | None) -> bool:
@@ -401,6 +455,44 @@ def _baseline_gaps(provenance: dict, source_root: Path, statuses: dict[str, str]
     return _verifier().baseline_gaps(provenance, source_root, held, files, listed)
 
 
+def _module_type(gap: dict) -> bool:
+    """True for a `module` or `package` baseline gap found at line 1 of the
+    file that is that module or package (the verifier's `_module_name`):
+    the record the build writes for it. Any other gap of those types was
+    found at a declaration and stays a gap."""
+    kind, file = gap.get("export_type"), gap.get("file")
+    return (isinstance(kind, str) and kind.strip().lower() in MODULE_TYPES and gap.get("line") == 1
+            and isinstance(file, str) and _verifier()._module_name(tuple(file.split("/"))) == gap.get("name"))
+
+
+def _module_signature(file: str) -> str:
+    """`module` and the file's path without its extension or a final
+    `__init__` (Python) or `index` (TS/JS), dotted for Python."""
+    parts = file.split("/")
+    stem, dot, suffix = parts[-1].rpartition(".")
+    suffix = f".{suffix.lower()}" if dot else ""
+    parts[-1] = stem if dot else parts[-1]
+    python = suffix in PYTHON_SUFFIXES
+    package = "__init__" if python else "index" if suffix in TSJS_SUFFIXES else None
+    if package is not None and parts[-1] == package and len(parts) > 1:
+        parts.pop()
+    return "module " + (".".join(parts) if python else "/".join(parts))
+
+
+def _module_export(gap: dict) -> dict:
+    """The snapshot export for a `module` or `package` baseline gap."""
+    return {
+        "name": gap["name"],
+        "type": gap["export_type"],
+        "signature": _module_signature(gap["file"]),
+        "file": gap["file"],
+        "line": 1,
+        "confidence": "T1-low",
+        "extraction_method": "source-read",
+        "ast_node_type": None,
+    }
+
+
 def _ordered(exports) -> list[dict]:
     return sorted(exports, key=lambda e: (e["file"], e["line"] if isinstance(e["line"], int) else 0, e["name"]))
 
@@ -486,7 +578,6 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
                       "fallback": ran and runner_said in TO_READ, "exports": per_file[rel]})
 
     ordered = _ordered(exports.values())
-    surface_state = _mark_public(ordered, runner, scope_type)
     for record in ordered:
         library = libraries.get(record["file"])
         if library is not None:
@@ -502,13 +593,24 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
     if provenance is not None:
         baseline, unchecked = _baseline_gaps(provenance, source_root, {f["file"]: f["status"] for f in files},
                                              ordered, {(g["name"], g["file"]) for g in gaps})
-        gaps += baseline
+        modules = [_module_export(g) for g in baseline if _module_type(g)]
+        gaps += [g for g in baseline if not _module_type(g)]
+        if modules:
+            for record in modules:
+                library = libraries.get(record["file"])
+                if library is not None:
+                    record["source_library"] = library
+            ordered = _ordered(ordered + modules)
+            per_file = Counter(e["file"] for e in ordered)
+            for entry in files:
+                entry["exports"] = per_file[entry["file"]]
         if unchecked:
             warnings.append(f"{len(unchecked)} map entr{'y' if len(unchecked) == 1 else 'ies'} the snapshot "
                             f"lacks that no rule can check (in a file neither Python nor TS/JS, a file the "
                             f"declaration lookup does not read, or a dotted module name), so step 3 may report "
                             f"{'it' if len(unchecked) == 1 else 'them'} removed: "
                             + ", ".join(f"{u['name']} ({u['file']})" for u in unchecked))
+    surface_state = _mark_public(ordered, runner, scope_type)
     return {
         "extraction_date": date,
         "confidence_tier": tier,
@@ -532,6 +634,104 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
         "relocations": [],
         "warnings": warnings,
     }
+
+
+# --------------------------------------------------------------------------
+# The relocation search
+# --------------------------------------------------------------------------
+
+
+def removed_names(diff: dict) -> list[str]:
+    """The diff's `removed[]` names, once each and sorted (a name with a
+    line break, which no export has, would be two search patterns)."""
+    return sorted({item["name"] for item in diff.get("removed") or []
+                   if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].strip()
+                   and not any(brk in item["name"] for brk in "\r\n")})
+
+
+def _git_grep(names: list[str], root: Path) -> list[str]:
+    """The files of the work tree at `root` that hold one of `names` as a
+    word, relative to `root`: one `git grep` with the names on stdin."""
+    try:
+        result = subprocess.run(["git", "-C", str(root), "grep", "--no-full-name", "-z", "-l", "-w", "-F", "-f", "-"],
+                                input="".join(f"{name}\n" for name in names).encode("utf-8"),
+                                capture_output=True, check=False, timeout=SEARCH_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise SnapshotError(f"git grep failed in {root}: no answer in {SEARCH_TIMEOUT}s") from exc
+    except OSError as exc:
+        raise SnapshotError(f"cannot run git: {exc}") from exc
+    if result.returncode not in (0, 1):
+        detail = result.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise SnapshotError(f"git grep failed in {root} (exit {result.returncode})"
+                            + (f": {detail[0]}" if detail else ""))
+    return [path for path in result.stdout.decode("utf-8", "replace").split("\0") if path]
+
+
+def _ccc_index(root: Path) -> Path:
+    """The nearest folder at or above `root` that holds a ccc index: its
+    `.cocoindex_code/settings.yml` is a file, the marker ccc's own project
+    lookup walks up for (`~/.cocoindex_code`, ccc's user settings, holds
+    none)."""
+    for folder in (root, *root.parents):
+        if (folder / CCC_INDEX / CCC_SETTINGS).is_file():
+            return folder
+    raise SnapshotError(f"ccc search failed: no {CCC_INDEX} index at or above {root}")
+
+
+def _ccc_search(name: str, root: Path) -> list[dict]:
+    """The results of `ccc search --json` for one name, run in `root`."""
+    exe = shutil.which("ccc")
+    if exe is None:
+        raise SnapshotError("cannot run ccc: no ccc executable on PATH")
+    try:
+        result = subprocess.run([exe, "search", "--json", "--limit", str(CCC_LIMIT), name], cwd=str(root),
+                                capture_output=True, check=False, timeout=SEARCH_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise SnapshotError(f"ccc search failed for {name}: no answer in {SEARCH_TIMEOUT}s") from exc
+    except OSError as exc:
+        raise SnapshotError(f"cannot run ccc: {exc}") from exc
+    try:
+        data = json.loads(result.stdout.decode("utf-8", "replace"))
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or data.get("success") is not True:
+        detail = data.get("message") if isinstance(data, dict) else None
+        detail = detail or (result.stderr.decode("utf-8", "replace").strip().splitlines() or [None])[0]
+        raise SnapshotError(f"ccc search failed for {name} (exit {result.returncode})"
+                            + (f": {detail}" if detail else ""))
+    return [r for r in data.get("results") or [] if isinstance(r, dict)]
+
+
+def _rebased(path: str, prefix: tuple[str, ...]) -> str | None:
+    """A path relative to the index root, relative to the source root that
+    `prefix` (its folders below the index root) names; None outside it."""
+    parts = [part for part in _posix(path).split("/") if part not in ("", ".")]
+    if ".." in parts or path.startswith(("/", "\\")) or parts[:len(prefix)] != list(prefix):
+        return None
+    rest = parts[len(prefix):]
+    return "/".join(rest) if rest else None
+
+
+def relocation_candidates(diff: dict, root: Path, scan_list: list[str], ccc: bool) -> tuple[list[str], int]:
+    """(candidates, names): the files under `root` that may hold a removed
+    name of `diff`, outside `scan_list`, and how many names were searched."""
+    names = removed_names(diff)
+    if not names:
+        return [], 0
+    if ccc:
+        index = _ccc_index(root)
+        prefix = root.relative_to(index).parts
+        found = []
+        for name in names:
+            for result in _ccc_search(name, root):
+                path = result.get("file_path")
+                rebased = _rebased(path, prefix) if isinstance(path, str) else None
+                if rebased is not None:
+                    found.append(rebased)
+    else:
+        found = _git_grep(names, root)
+    scanned = {_posix(f) for f in scan_list}
+    return sorted({_posix(f) for f in found} - scanned), len(names)
 
 
 def relocate(snapshot: dict, diff: dict, runner: dict) -> list[dict]:
@@ -603,6 +803,20 @@ def _cmd_build(args: argparse.Namespace) -> dict:
             "public_surface": snapshot["public_surface"]}
 
 
+def _cmd_relocation_candidates(args: argparse.Namespace) -> dict:
+    diff = _read_object(Path(args.diff), "structural diff")
+    scan_list = _read_json(Path(args.scan_list), "scan list")
+    if not isinstance(scan_list, list) or not all(isinstance(f, str) for f in scan_list):
+        raise SnapshotError(f"scan list {args.scan_list} must be a JSON list of paths")
+    root = Path(args.source_root)
+    if not root.is_dir():
+        raise SnapshotError(f"source root not found: {args.source_root}")
+    candidates, names = relocation_candidates(diff, root.resolve(), scan_list, args.ccc)
+    _write(Path(args.output), candidates)
+    return {"status": "ok", "output": args.output, "names": names, "candidates": len(candidates),
+            "searched_with": "ccc" if args.ccc else "git grep"}
+
+
 def _cmd_relocate(args: argparse.Namespace) -> dict:
     path = Path(args.snapshot)
     snapshot = _read_object(path, "snapshot")
@@ -641,6 +855,15 @@ def _build_parser() -> argparse.ArgumentParser:
                            "rule; any other marks nothing")
     snap.add_argument("-o", "--output", required=True, help="the snapshot to write")
     snap.set_defaults(func=_cmd_build)
+    find = sub.add_parser("relocation-candidates",
+                          help="list the files outside the scan list that may hold a removed name")
+    find.add_argument("--diff", required=True, help="the structural diff whose removed[] names to search for")
+    find.add_argument("--source-root", required=True, help="the source tree to search")
+    find.add_argument("--scan-list", required=True, help="the scan list step 2 wrote: its files are left out")
+    find.add_argument("--ccc", action="store_true",
+                      help="search each name with `ccc search` instead of one `git grep`")
+    find.add_argument("-o", "--output", required=True, help="the JSON list of candidate files to write")
+    find.set_defaults(func=_cmd_relocation_candidates)
     move = sub.add_parser("relocate", help="add the exports the runner found under removed names elsewhere")
     move.add_argument("snapshot", help="extraction-snapshot.json, rewritten in place")
     move.add_argument("--diff", required=True, help="the structural diff whose removed[] names to look for")

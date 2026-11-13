@@ -723,7 +723,9 @@ def test_audit_reads_a_private_tree_and_moves_no_clone():
             assert gone not in _read(path), (path.name, gone)
     upstream = _slice(_read(AUDIT_CHECKOUT), "**Gate handling:**", "**GATE [default: C]**")
     assert 'uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"' in upstream
-    assert "never writes to the clone (the call passes no `--update-clone`)" in upstream
+    assert "--update-clone" not in upstream
+    rules = _slice(_read(AUDIT_CHECKOUT), "## Rules", "## MANDATORY SEQUENCE")
+    assert "SKF's clone at `{source_root}` keeps the commit it holds, and this step takes no lock" in rules
 
 
 def test_tier_degradation_mentions_hygiene():

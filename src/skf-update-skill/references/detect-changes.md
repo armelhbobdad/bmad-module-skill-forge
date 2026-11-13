@@ -200,7 +200,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
 **Procedure:**
 
-1. **Discover, parse, and reconcile in one call.** The helper handles drift-report discovery (glob, timestamp-DESC sort, latest wins), Out-of-Scope section extraction (both `## Out-of-Scope Observations` and `### Out-of-Scope New Public API` under `## Remediation Suggestions` heading shapes), candidate parsing (bullet and table markdown formats), and amendment reconciliation against `brief.scope.amendments[]`:
+1. **Discover, parse, and reconcile in one call.** The helper handles drift-report discovery (glob, timestamp-DESC sort, latest finished report wins: one whose frontmatter `stepsCompleted` lists `report`, so the partial report a halted or stopped audit leaves never hides the last finished one), Out-of-Scope section extraction (both `## Out-of-Scope Observations` and `### Out-of-Scope New Public API` under `## Remediation Suggestions` heading shapes), candidate parsing (bullet and table markdown formats), and amendment reconciliation against `brief.scope.amendments[]`:
 
    ```bash
    uv run {provenanceGapDispatchHelper} dispatch \
@@ -236,7 +236,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
 2. **Dispatch on `status`:**
 
-   - **`no-report`** — no drift report under `{forge_data_folder}/{skill_name}/{baseline_version}/`. **Skip §1c entirely** — proceed to step 6's summary line (omit). §2.2's post-detection deletion-ratio trigger still catches major restructures.
+   - **`no-report`**: no finished drift report under `{forge_data_folder}/{skill_name}/{baseline_version}/` (a report a halted audit left counts as none). **Skip §1c entirely**: proceed to step 6's summary line (omit). §2.2's post-detection deletion-ratio trigger still catches major restructures.
    - **`no-candidates`** — report exists but the Out-of-Scope section is absent or empty. Proceed to step 6's summary line with `"no out-of-scope observations in drift report."`
    - **`candidates-found`** — iterate `classified[]`:
      - `status: "already-in-scope"` → skip silently (`prior_action: "promoted"`).

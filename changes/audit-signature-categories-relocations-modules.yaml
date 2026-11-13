@@ -1,0 +1,6 @@
+type: changed
+scope: skf-audit-skill
+summary: |
+  A changed signature now gets the same category and severity on every run of the same diff, because Severity Classify settles it from the changed fields. A change of spacing only grades LOW, a removed or retyped parameter or a changed return type CRITICAL, a new required parameter or a changed default HIGH and a new optional parameter MEDIUM; only a change no field settles, such as a changed kind, reordered parameters, a parameter renamed where no caller passes it by name or a signature it cannot read, is left to judgment. That judgment, and a removed and an added export of one ambiguous name judged to be one move, are now flags on the command that writes the findings (`--set-category`, `--pair-move`), never hand edits of `findings.json`, and the command's summary line lists, by index, each finding left to judge. The relocation check lists the files that may hold a removed export in one helper call (`relocation-candidates`) instead of a search per name and a candidates file written by hand. The snapshot build now records a module or package entry the recipe runner leaves out as an export itself, where before a by-eye reader had to turn its file path into a dotted name.
+issues: [1131]
+prs: [1210]

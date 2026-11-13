@@ -189,6 +189,7 @@ def test_provenance_gap_dispatch(brief, tmp_path):
     kind, path = brief
     forge = tmp_path / "forge"
     _write(forge / "my-skill" / "1.0.0" / "drift-report-A.md",
+           "---\nstepsCompleted: ['init', 'report']\n---\n"
            "# Report\n\n## Out-of-Scope Observations\n- `src/new.py` - 1 export\n")
     proc = _run(GAP_DISPATCH, "dispatch", "--skill-name", "my-skill", "--baseline-version", "1.0.0",
                 "--forge-data-folder", str(forge), "--brief", str(path))

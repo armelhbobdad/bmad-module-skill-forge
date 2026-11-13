@@ -59,7 +59,8 @@ persistent_facts = [
 #     context, stepsCompleted, drift_score and nextWorkflow there, and step 6
 #     builds the Provenance table from them;
 #   - the `## Audit Summary` section with its severity count table, which
-#     step 6 fills in. The stages write every drift section themselves.
+#     step 6 fills in. The stages write every drift section themselves,
+#     heading included, so a copy holds none of their headings.
 # On Activation step 4 halts the run (`template-missing`, exit 3) before the
 # first question when the path names no readable file.
 
