@@ -10,8 +10,11 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
-# §2: this skill's renderer of the Out-of-Scope New Public API table, from the skill root.
+# §2 and §3: this skill's renderer of the Out-of-Scope New Public API and the
+# Provenance tables, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
+# §1b: this skill's builder of the result payload and its route, from the skill root.
+resultContextScript: 'scripts/build-result-context.py'
 # The customization helper the Result Contract's post-audit hook runs.
 resolveCustomizationProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
@@ -57,6 +60,16 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
   - If `fetch_failed > 0`: "{fetch_failed} doc URL(s) could not be reached during audit."
   - If the file does not exist, step 5a skipped the check: no mention in the summary (its Documentation Drift section already says why)
 
+### 1b. Build the Result Context
+
+Build the result payload and the route it hands on from the drift report's frontmatter and the classification step 5 saved, never by hand: `{resultContextScript}` (it resolves relative to the skill root) reads both, works out `next_workflow` and writes the payload the Result Contract hands the emitter. When On Activation step 3 kept a `{customization_resolver_unavailable}` reason, first write it to `{run_dir}/resolver-unavailable.txt` with a file write, never `echo` (the reason can hold quotes, backticks or `$( )`), and pass that file's text. From `{project-root}`, run:
+
+```bash
+uv run {resultContextScript} --report "{outputFile}" --classification "{auditDataFolder}/severity.json" [--resolver-unavailable "$(cat "{run_dir}/resolver-unavailable.txt")"] --output "{run_dir}/result-context.json"
+```
+
+Bind `{next_workflow}` ← its JSON's `next_workflow` (`update-skill`, or null). Exit 2: correct the command and run it again. On exit 1, its `error` names the value or the file it could not read: fix that value in {outputFile}'s frontmatter, or that file, and run the command once more. If it exits 1 again, HALT with **exit 4**, `halt_reason: "write-failed"`, phase `report:result-contract`: the run's result payload could not be built.
+
 ### 2. Generate Remediation Suggestions
 
 For each classified drift finding (`findings[]` of `{auditDataFolder}/severity.json`; one remediation may cover a rollup row of step 5's tables), write one concrete remediation derived from the finding itself: **what** to change in the audited **SKILL.md** (or its `references/`), not the source code; **where** (the section plus the source `{file}:{line}` the finding cites); and **why**. Set effort (`low`/`medium`/`high`) by how much of the skill doc the change touches. A reviewer should be able to act on each row without re-deriving the finding.
@@ -98,8 +111,8 @@ Append to {outputFile}:
 
 ### Workflow Recommendation
 
-{IF any CRITICAL or HIGH findings:}
-**Recommended:** Run `[US] Update Skill` workflow to apply priority remediations automatically.
+{IF {next_workflow} is update-skill:}
+**Recommended:** Run `[US] Update Skill`{ to apply the Priority Actions above, when that table has rows}.
 
 {IF the frontmatter's `upstream_moved` is true:}
 **Upstream moved.** The skill is built from `{baseline_ref}` and upstream is now at `{upstream_ref}`{; this audit read `{upstream_ref}`, when `audit_ref_source` is `checkout-latest`; this audit read the baseline, otherwise}. Run `[US] Update Skill` with `--target-ref {upstream_ref}`, so the update compares the ref upstream moved to rather than the one the skill is pinned to.
@@ -119,29 +132,18 @@ Append to {outputFile}:
 
 ### 3. Add Provenance Section
 
-Build the section from the frontmatter of {outputFile}, where step 1 §6, step 2 §5 and step 3 §6 recorded each value as it was known, not from values held in the conversation. Append to {outputFile}:
+Render the section's table from the frontmatter of {outputFile}, where step 1 §6, step 2 §5 and step 3 §6 recorded each value as it was known, never from values held in the conversation or by hand. From `{project-root}`, run:
+
+```bash
+uv run {renderDriftTablesScript} provenance "{outputFile}" --stage-data "{auditDataFolder}"
+```
+
+It prints the Field and Value table (`--help` lists its rows). Append to {outputFile}:
 
 ```markdown
 ## Provenance
 
-| Field | Value |
-|-------|-------|
-| **Audit Date** | {date} |
-| **Audited By** | Ferris (Audit mode) |
-| **Forge Tier** | {forge_tier} |
-| **Tools Used** | {tool_list based on forge_tier} |
-| **Source Path** | {source_path}{; read from the private tree `{source_tree}`, when set} |
-| **Skill Path** | {skill_path} |
-| **Audited Version** | `{audited_version}` ({audited_version_reason}){; the export manifest names `{manifest_version}`, when set} |
-| **Provenance Map** | {provenance_map} |
-| **Provenance Age** | {provenance_age_days} days (generated {provenance_generated_at}) |
-| **AST fallback files** | {`ast_fallback_files`, or none; n/a at Quick} |
-| **Applied Transforms** | {each `applied_transforms` entry as `{transform}` ×{count}, or none} |
-| **Baseline Ref / Commit** | `{baseline_ref}` @ `{baseline_commit_short}` |
-| **Audit Ref / Commit** | `{audit_ref}` @ `{audit_commit_short}` ({audit_ref_source}) |
-| **Upstream Latest** | `{latest_tag or remote_head or "(not fetched)"}` (fetch: {upstream_fetch}) |
-| **Upstream Moved** | {upstream_moved}{: to `{upstream_ref}`, when true} |
-| **Stage Data** | `{auditDataFolder}/`: the JSON this run saved and classified (the structural diff, the constituents' freshness or the documents' comparison, the findings and their classification) |
+{what the provenance command printed, unchanged}
 
 **Confidence Legend:**
 - **T1:** an ast-grep match (`extraction_method: ast-grep`) at any tier: high reliability, structural truth
@@ -151,12 +153,14 @@ Build the section from the frontmatter of {outputFile}, where step 1 §6, step 2
 - **T3:** external documentation reference: variable reliability, secondary source
 ```
 
+When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Provenance table not rendered: {error}` in place of its output and go on.
+
 ### 4. Update Report Frontmatter
 
 Update {outputFile} frontmatter:
 - Append `'report'` to `stepsCompleted`
 - Set `drift_score` to the score from step 5's classification helper
-- Set `nextWorkflow` to `'update-skill'` when the saved classification's `by_severity.CRITICAL` or `by_severity.HIGH` is above 0, or when the frontmatter's `upstream_moved` is true, otherwise leave it empty
+- Set `nextWorkflow` to `{next_workflow}`, the route §1b bound (empty when it is null)
 
 If finalizing the report fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`, phase `report:write`, `"path": "{outputFile}"`, and no `report_path` in the payload.
 
@@ -175,35 +179,13 @@ This summary reads as final but is **not** the terminal step — proceed to §6.
 
 **Remove the private source tree first.** When `{source_tree}` is set (the [C] of `upstream-checkout.md` read the source there), no later step reads the source: resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} close --tree "{source_tree}"`. Go on whatever it prints. On `left` or `refused`, a command that fails or prints no JSON, or no candidate, record `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "source_tree_not_removed: {source_tree}"` (a later SKF run removes it once it is seven days old). Then set `{source_tree}` to null.
 
-The shared emitter writes the result contract (per `shared/references/output-contract-schema.md`, which resolves relative to the SKF module root: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development) and prints the `SKF_AUDIT_RESULT_JSON` envelope; this step stages their content, every value from the drift report's frontmatter and the classification step 5 saved. Write `{run_dir}/result-context.json`:
-
-```json
-{
-  "status": "success",
-  "skill_name": "{skill_name}",
-  "drift_score": "<drift_score>",
-  "report_path": "{outputFile}",
-  "next_workflow": <next_workflow>,
-  "audit_ref": "<audit_ref>",
-  "upstream_moved": <upstream_moved>,
-  "upstream_ref": <upstream_ref>,
-  "result_contract": {
-    "skill": "skf-audit-skill",
-    "status": "success",
-    "outputs": [{"type": "report", "path": "{outputFile}"}],
-    "summary": {"drift_count": <total_findings>, "severity": "<drift_score>", "next_workflow": <next_workflow>,
-                "audit_ref": "<audit_ref>", "upstream_moved": <upstream_moved>, "upstream_ref": <upstream_ref>}
-  }
-}
-```
-
-When On Activation step 3 fell back to the bundled `customize.toml`, add `"customization_resolver_unavailable": "<the reason>"`, the one-line reason On Activation kept with each `"` and `\` escaped: the emitter turns it into a warning. `<drift_score>` and `<total_findings>` are the `drift_score` and `total_findings` of `{auditDataFolder}/severity.json`: `drift_count` (the saved classification's `total_findings`: one per finding, never a label difference) and `severity` (its `drift_score`: CLEAN/MINOR/SIGNIFICANT/CRITICAL). `<next_workflow>` is `"update-skill"` exactly when §4 set the frontmatter's `nextWorkflow` (CRITICAL or HIGH findings, or `upstream_moved` true), else JSON `null`. `audit_ref`, `upstream_moved` and `upstream_ref` are the frontmatter's, resolved at step 1 §5b and, when upstream moved, by `upstream-checkout.md` (`audit_ref` is `baseline_ref` when the audit stayed on the baseline, `upstream_ref` when the operator chose `[C]`): `<upstream_moved>` is JSON `true` when upstream moved, `false` when the check found it unchanged and `null` when the check was skipped or failed, and `<upstream_ref>` is the ref upstream moved to, as a JSON string, when `upstream_moved` is true, else `null`. Then run, in every mode:
+The shared emitter writes the result contract (per `shared/references/output-contract-schema.md`, which resolves relative to the SKF module root: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development) and prints the `SKF_AUDIT_RESULT_JSON` envelope from `{run_dir}/result-context.json`, the payload §1b built from the drift report's frontmatter and the classification step 5 saved. Run, in every mode:
 
 ```bash
 uv run {emitEnvelopeHelper} emit --workflow skf-audit-skill --run-dir "{run_dir}" --result-dir "{forge_version}" < "{run_dir}/result-context.json"
 ```
 
-It writes `{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name) and its `audit-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_AUDIT_RESULT_JSON` line), stamps the timestamp, `run_id`, `headless_decisions` and `warnings` into both, and prints the `SKF_AUDIT_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads `drift_score`, `report_path`, `next_workflow`, `upstream_moved` and `upstream_ref` from the final message. A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HALT with **exit 4**, `halt_reason: "write-failed"`, phase `report:result-contract`: the run's result contract could not be written.
+It writes `{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name) and its `audit-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_AUDIT_RESULT_JSON` line), stamps the timestamp, `run_id`, `headless_decisions` and `warnings` into both, and prints the `SKF_AUDIT_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads `drift_score`, `report_path`, `next_workflow`, `upstream_moved` and `upstream_ref` from the final message. A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, fix the value the message on its stderr names (in {outputFile}'s frontmatter, or the saved classification), run §1b again, then run the emitter once more; if it fails again, HALT with **exit 4**, `halt_reason: "write-failed"`, phase `report:result-contract`: the run's result contract could not be written.
 
 **Hard-halt envelope (headless only).** Every hard halt prints its envelope through the emitter on **stderr** with `status: "error"` and the `exit_code` / `halt_reason` for its failure class, as each step's **Halt envelope** paragraph shows: it is the only failure signal a wrapping pipeline receives. `drift_score` carries its last known value (`null` if classification never ran); `report_path` is `null` when the report write failed.
 

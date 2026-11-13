@@ -1759,8 +1759,9 @@ def test_audit_section_documents_upstream_the_baseline_and_label_differences():
     assert "Code-mode stacks are audited library by library" in section
     report = _read(SRC / "skf-audit-skill" / "references" / "report.md")
     assert "The skill matches the source at `{audit_ref}`" in report
+    context = " ".join(_read(SRC / "skf-audit-skill" / "scripts" / "build-result-context.py").split())
     assert "`audit_ref` is `baseline_ref` when the audit stayed on the baseline, `upstream_ref` when the operator " \
-           "chose `[C]`" in report
+           "chose `[C]`" in context
     output = _paragraph(section, "**Output:**")
     assert "`@Ferris US <name> --target-ref <upstream_ref>`" in output and "whatever the drift score" in output
     assert "CLEAN means the skill matches the source at the ref the audit read: the ref it was built from, or the " \

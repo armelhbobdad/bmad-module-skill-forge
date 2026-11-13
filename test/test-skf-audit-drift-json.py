@@ -69,6 +69,12 @@ the file it names, and step 4 halts (`template-missing`, exit 3) before the
 run folder and the first question when it names no readable file, so a bad
 override no longer has an undefined outcome in step 1.
 
+#1130: step 4 runs its claim checks in the main thread and saves one row set,
+optional fields included, that render-drift-tables.py prints and step 5
+classifies, with no New Patterns table; steps 1c and 5a and report §3 print
+their sections from the saved files; and build-result-context.py states the
+route rule once, so every route check here runs its next_workflow().
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -114,6 +120,7 @@ SNAPSHOT = SCRIPTS / "skf-extraction-snapshot.py"
 DETECT_DOCS = SCRIPTS / "skf-detect-docs.py"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 RENDER = AUDIT / "scripts" / "render-drift-tables.py"
+RESULT_CONTEXT = AUDIT / "scripts" / "build-result-context.py"
 COMPARE_FILE_HASHES = SCRIPTS / "skf-compare-file-hashes.py"
 AUDIT_SCHEMA = SCRIPTS / "schemas" / "skf-audit-result-envelope.v1.json"
 # The script each prose placeholder names, for running a prose command.
@@ -148,8 +155,8 @@ NORMALIZE_CMD = "uv run {loadProvenanceHelper} normalize {provenanceMap}"
 RESOLVE_CMD = ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} '
                '--forge-data-folder "{forge_data_folder}"')
 BINDING_RE = re.compile(r"`(\{[A-Za-z_]+\})` ← `([a-z_.]+)`")
-SEMANTIC_RE = re.compile(r"(New Patterns|Changed Conventions|Dependency Shifts|Architectural Changes|"
-                         r"Deprecated Patterns) `([a-z_]+)`")
+# A table and its category in semantic-diff.md §4's mapping.
+SEMANTIC_RE = re.compile(r"([A-Z][a-z]+ [A-Z][a-z]+) `([a-z_]+)`")
 # The run context the drift report's frontmatter carries, by the step that writes it.
 RUN_CONTEXT = {
     INIT: ("audited_version", "audited_version_reason", "manifest_version", "docs_only_skill", "scope_type",
@@ -187,9 +194,16 @@ PROVENANCE_ROWS = {
     "Upstream Moved": ("upstream_moved", "upstream_ref"),
 }
 
-spec = importlib.util.spec_from_file_location("skf_severity_for_audit", CLASSIFY)
-classify_mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(classify_mod)
+def _module(name: str, path: Path):
+    module_spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
+
+
+classify_mod = _module("skf_severity_for_audit", CLASSIFY)
+render_mod = _module("skf_render_drift_tables_for_audit", RENDER)
+result_context_mod = _module("skf_audit_result_context_for_audit", RESULT_CONTEXT)
 
 
 def _read(path: Path) -> str:
@@ -261,9 +275,9 @@ def _load(path: Path):
 
 
 def _next_workflow(result: dict) -> str | None:
-    """report.md §4's rule for nextWorkflow (test_report_counts_come_from_the_saved_classification pins it)."""
-    counts = result["by_severity"]
-    return "update-skill" if counts["CRITICAL"] > 0 or counts["HIGH"] > 0 else None
+    """The route step 6 §1b's build-result-context.py works out, for a run
+    whose upstream check found nothing (these fixtures have no upstream)."""
+    return result_context_mod.next_workflow(result["by_severity"], None)
 
 
 def _entry(name: str, file: str, line: int, **extra) -> dict:
@@ -488,21 +502,47 @@ def test_every_pair_the_prose_maps_is_graded():
              if "category_choices" not in f}
     for pair in fixed:
         assert pair in classify_mod.PAIRS, pair
-    semantic_text = _flow(_slice(_read(SEMANTIC), "Save the same rows to", "### 5."))
-    semantic = SEMANTIC_RE.findall(semantic_text)
-    assert len(semantic) == 5, semantic
+    # #1130 leanness-3: §4's mapping is the one home of the category list,
+    # and the renderer prints its tables in that order.
+    mapping = _flow(_slice(_read(SEMANTIC), "`category` is its table's:", "`name` is"))
+    semantic = SEMANTIC_RE.findall(mapping)
+    assert semantic == [(heading, category) for category, heading, _ in render_mod.SEMANTIC_CATEGORIES], semantic
     for _, category in semantic:
         assert ("semantic", category) in classify_mod.PAIRS, category
-    headings = re.findall(r"^### ([A-Z][A-Za-z ]+?) \(\{count\}\)$", _read(SEMANTIC), re.M)
-    assert len(headings) == 5, headings
-    for heading in headings:
-        assert any(heading.startswith(name) for name, _ in semantic), heading
 
 
 def test_the_semantic_rows_are_saved_as_findings():
     section = _flow(_slice(_read(SEMANTIC), "### 4. Compile Semantic Drift Section", "### 5."))
-    assert "Save the same rows to `{auditDataFolder}/semantic-findings.json`: step 5 classifies this file" in section
-    assert '`{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`' in section
+    assert ("First save the rows to `{auditDataFolder}/semantic-findings.json`, `[]` when there is none: step 5 "
+            "classifies this file, and the command below renders the tables from it.") in section
+    assert ('`{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`, plus `before` and '
+            '`after` (strings), `exports` (an array of export names) and `skill_reference` (a string) when the row '
+            'has them') in section
+    # The rows are saved before the command renders them from the file.
+    assert section.index("First save the rows") < section.index("{renderDriftTablesScript} semantic")
+
+
+def test_semantic_diff_runs_in_the_main_thread_and_types_no_table():
+    """#1130 architecture-2: Pattern 3 is main-thread work (tool-resolution.md),
+    and §3 compares what items 2 and 3 read, so no worker runs them. New
+    Patterns is cut: the step checks the skill's claims, one row per claim the
+    source no longer supports. §3 is one paragraph, and no table is typed."""
+    text = _read(SEMANTIC)
+    for gone in ("subprocess", "New Patterns", "New patterns", "| {", "{count}", "Save the same rows to",
+                 "**Detect:**"):
+        assert gone not in text, gone
+    assert "Pattern" not in _slice(text, "## Rules", "## MANDATORY SEQUENCE")
+    lead = _flow(_slice(text, "### 2. Query Original Knowledge Context", "1. Read the `qmd_collections`"))
+    assert ("Run items 1 to 4 in the main thread (Pattern 3, data operations): only the main thread can end this "
+            "step or choose its route, and §3 compares what items 2 and 3 read.") in lead
+    compare = _slice(text, "### 3. Compare Knowledge Context", "### 4.")
+    body = compare.split("\n", 1)[1].strip()
+    assert "\n" not in body, body
+    for token in ("Each claim of item 2, checked against the current source under `{source_root}` (item 3), that the "
+                  "source no longer supports is one row: in the category §4's mapping names", "with the current "
+                  "source file:line (a claim with no source line is not recorded) and `{confidence}`",
+                  "Only categories with rows are shown."):
+        assert token in body, token
 
 
 def test_constituent_findings_map_as_the_rules_say():
@@ -533,9 +573,10 @@ def test_report_counts_come_from_the_saved_classification():
     text = _flow(_read(REPORT))
     assert "`{auditDataFolder}/severity.json`, the classification step 5 saved" in text
     assert "`total_items` for **Total**" in text
-    assert "`drift_count` (the saved classification's `total_findings`" in text
-    assert ("Set `nextWorkflow` to `'update-skill'` when the saved classification's `by_severity.CRITICAL` "
-            "or `by_severity.HIGH` is above 0") in text
+    # #1130: §1b's script reads the saved classification and works out the
+    # route, and §4 writes the route §1b bound.
+    assert '--classification "{auditDataFolder}/severity.json"' in text
+    assert "Set `nextWorkflow` to `{next_workflow}`, the route §1b bound (empty when it is null)" in text
 
 
 @pytest.mark.parametrize("path", sorted(REFS.glob("*.md")), ids=lambda p: p.name)
@@ -768,12 +809,29 @@ def test_saved_script_asset_and_semantic_files_are_findings(tmp_path):
         "stats": {"added": 1, "removed": 0, "changed": 0, "unchanged": 2}})
     _write_json(audit.data / "semantic-findings.json", [
         {"type": "semantic", "category": "convention", "name": "error handling", "detail": "now raises",
-         "file": "a.py", "line": 4, "confidence": "T2"}])
+         "before": "returns None", "after": "raises KeyError", "exports": ["get"], "file": "a.py", "line": 4,
+         "confidence": "T2"},
+        {"type": "semantic", "category": "dependency", "name": "get", "detail": "requests replaced by httpx",
+         "before": "requests", "after": "httpx", "file": "a.py", "line": 1, "confidence": "T2"}])
     findings = audit.project()
-    assert audit.sources == {"diff": 0, "file_drift": 1, "semantic": 1}
-    assert [(f["type"], f["category"]) for f in findings] == [("added", "file"), ("semantic", "convention")]
+    assert audit.sources == {"diff": 0, "file_drift": 1, "semantic": 2}
+    assert [(f["type"], f["category"]) for f in findings] == [("added", "file"), ("semantic", "convention"),
+                                                             ("semantic", "dependency")]
+    # #1130: the optional fields reach the classification as written, and
+    # each row grades by its category's rule.
     result = audit.classify()
-    assert (result["drift_score"], result["by_severity"]["MEDIUM"]) == ("SIGNIFICANT", 2)
+    graded = {f["category"]: f for f in result["findings"]}
+    assert (graded["convention"]["before"], graded["convention"]["exports"]) == ("returns None", ["get"])
+    assert graded["dependency"]["after"] == "httpx"
+    assert graded["convention"]["rule"] == "Changed internal implementation patterns documented in skill conventions"
+    assert graded["dependency"]["rule"] == "Implementation changes behind a stable public API"
+    assert (result["drift_score"], result["by_severity"]["MEDIUM"]) == ("SIGNIFICANT", 3)
+    # Step 4's command renders the same saved rows.
+    tables = audit.render(SEMANTIC)
+    assert "### Changed Conventions (1)" in tables and "### Dependency Shifts (1)" in tables
+    assert "| error handling | returns None | raises KeyError | `get` | `a.py:4` | T2 |" in tables
+    assert "| `get` | requests | httpx | requests replaced by httpx | `a.py:1` | T2 |" in tables
+    assert "| **Total Semantic Items** | 2 |" in tables
 
 
 def test_a_stack_diff_groups_by_library(tmp_path):
@@ -905,7 +963,9 @@ def test_the_constituent_check_lives_in_the_compose_stage():
     assert _fenced_line(compose, "compare-constituent-hashes") == CONSTITUENT_CMD
     assert 'mkdir -p "{auditDataFolder}"' in compose
     assert "compareConstituentHashesProbeOrder" in _frontmatter(COMPOSE)
-    assert "### Constituent Freshness (drifted {stats.drifted}" in compose
+    # #1130: the renderer prints the table, its counts from stats.
+    assert _fenced_line(compose, "{renderDriftTablesScript}") == (
+        'uv run {renderDriftTablesScript} constituents "{auditDataFolder}/constituent-freshness.json"')
     assert "**Status:** Skipped: a compose-mode stack has no source tree to compare" in compose
     # #1129: the stage that writes the table says what grades each row, not the template.
     compare = _flow(_slice(compose, "### 1. Compare the Constituents' Hashes", "### 2."))
@@ -935,6 +995,9 @@ def test_a_drifted_constituent_alone_grades_high(tmp_path):
     freshness = _load(audit.data / "constituent-freshness.json")
     assert [d["skill_name"] for d in freshness["drifted"]] == ["lib-moved-on"]
     assert freshness["skipped_null_hash"] == [{"skill_name": "lib-cascade"}]
+    tables = audit.render(COMPOSE)
+    assert tables.splitlines()[0] == "### Constituent Freshness (drifted 1, missing 0, fresh 1)"
+    assert "| `lib-moved-on` | " in tables and "**Not compared (no compose-time hash):** `lib-cascade`." in tables
     findings = audit.project("--constituents")
     assert audit.sources == {"constituents": 1}
     assert [(f["type"], f["category"], f["name"]) for f in findings] == [
@@ -961,6 +1024,7 @@ def test_a_missing_constituent_grades_below_a_drifted_one(tmp_path):
     assert audit.run(COMPOSE, "compare-constituent-hashes").returncode == 0
     freshness = _load(audit.data / "constituent-freshness.json")
     assert [m["reason"] for m in freshness["missing"]] == ["metadata-not-found"]
+    assert "**Missing constituents:** `lib-gone` (metadata-not-found)." in audit.render(COMPOSE)
     classified = audit.classify(audit.project("--constituents"))
     assert classified["by_severity"] == {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 1, "LOW": 0}
     assert _next_workflow(classified) is None
@@ -1280,16 +1344,42 @@ def test_each_slot_is_written_by_its_step(path, slots):
         assert f"`{slot}`" in writer, slot
 
 
-def test_the_provenance_table_reads_the_frontmatter():
-    section = _slice(_read(REPORT), "### 3. Add Provenance Section", "**Confidence Legend:**")
-    assert "Build the section from the frontmatter of {outputFile}" in section
-    rows = dict(re.findall(r"^\| \*\*(.+?)\*\* \| (.+) \|$", section, re.M))
+def _provenance(tmp_path: Path, front: dict) -> dict:
+    """Report §3's command, run as written on a report with this frontmatter: its rows."""
+    report = tmp_path / "drift-report-20260101-000000.md"
+    report.write_bytes(("---\n" + yaml.safe_dump(front, sort_keys=False) + "---\n\n# Drift Report\n").encode("utf-8"))
+    section = _slice(_read(REPORT), "### 3. Add Provenance Section", "### 4.")
+    values = {"{outputFile}": str(report), "{auditDataFolder}": str(tmp_path / "stage")}
+    result = _run_prose(_fenced_line(section, "{renderDriftTablesScript}"), values)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return dict(re.findall(r"^\| \*\*(.+?)\*\* \| (.+) \|$", result.stdout, re.M))
+
+
+def test_the_provenance_table_reads_the_frontmatter(tmp_path):
+    """#1130: report §3 renders the table from the frontmatter with one call,
+    and a distinct value of each key a row shows lands in that row."""
+    section = _flow(_slice(_read(REPORT), "### 3. Add Provenance Section", "**Confidence Legend:**"))
+    assert "Render the section's table from the frontmatter of {outputFile}" in section
     keys = set(_frontmatter(TEMPLATE))
+    shown = sorted({field for fields in PROVENANCE_ROWS.values() for field in fields})
+    assert set(shown) <= keys, set(shown) - keys
+    front = {**_frontmatter(TEMPLATE), **{key: f"value{n:02d}" for n, key in enumerate(shown)}}
+    front.update(baseline_commit="a1b2c3d" + "0" * 33, audit_commit="d4e5f6a" + "1" * 33,
+                 remote_head="c0ffee1" + "2" * 33, upstream_moved=True, provenance_age_days=41,
+                 ast_fallback_files=["value-ast.py"], applied_transforms=[{"transform": "value-transform", "count": 2}])
+    expected = {key: str(value) for key, value in front.items()}
+    expected.update(baseline_commit="a1b2c3d", audit_commit="d4e5f6a", remote_head="c0ffee1", upstream_moved="true",
+                    ast_fallback_files="value-ast.py", applied_transforms="`value-transform` ×2")
+    rows = _provenance(tmp_path, front)
+    # latest_tag wins over remote_head, so remote_head shows in a run that found no tag.
+    no_tag = _provenance(tmp_path, {**front, "latest_tag": None})
     for row, fields in PROVENANCE_ROWS.items():
         assert row in rows, row
         for field in fields:
-            assert field in keys, field
-            assert field in rows[row], (row, field)
+            cell = no_tag[row] if field == "remote_head" else rows[row]
+            assert expected[field] in cell, (row, field, cell)
+    assert "a1b2c3d0" not in rows["Baseline Ref / Commit"]
+    assert rows["Stage Data"].startswith(render_mod.code(str(tmp_path / "stage") + "/") + ": the JSON this run saved")
 
 
 def test_no_step_keeps_a_value_no_stage_reads():
@@ -1366,7 +1456,8 @@ def test_a_missing_registry_takes_the_direct_content_fallback():
     the section and §5 moves on."""
     text = _read(SEMANTIC)
     section = _flow(_slice(text, "### 2. Query Original Knowledge Context", "### 3."))
-    assert "Run item 1 in the main thread, because only the main thread can end this step" in section
+    assert ("Run items 1 to 4 in the main thread (Pattern 3, data operations): only the main thread can end this "
+            "step") in section
     missing = _slice(section, "**Registry entry missing.**", "**Registry entry present but")
     assert "Whatever tier the skill was compiled at, a Deep-tier audit still checks its claims" in missing
     assert ("bind `{collection_label}` ← `none (no QMD extraction collection is registered for {skill_name})` "
@@ -1384,15 +1475,14 @@ def test_a_missing_registry_takes_the_direct_content_fallback():
     assert ("Bind `{claims_source}` ← `read from its SKILL.md and references/*.md in direct-content fallback "
             "mode` and `{confidence}` ← `T1-low-fallback`") in fallback
     compiled = _slice(text, "### 4. Compile Semantic Drift Section", "### 5.")
-    header = _flow(_slice(compiled, "## Semantic Drift", "### New Patterns"))
+    header = _flow(_slice(compiled, "## Semantic Drift", "{what the command printed, unchanged}"))
     assert ("**Method:** the skill's claims ({claims_source}) checked against the current source (Deep tier) "
             "**QMD Collection:** {collection_label}") in header
-    rows = [line for line in compiled.splitlines() if line.startswith("| {")]
-    assert len(rows) == 5 and all(row.endswith("| {confidence} |") for row in rows), rows
+    # #1130: every saved row carries the run's label, which the renderer prints.
+    assert "and `confidence` `{confidence}`." in _flow(compiled)
     assert "| T2 |" not in text
     # The one skip left is §1's, below Deep tier.
     assert text.count("**Status:** Skipped") == 1
-    assert "| Architectural changes | {count} |" in text
 
 
 # --------------------------------------------------------------------------
@@ -1563,6 +1653,14 @@ def test_a_docs_only_skill_is_graded_by_its_documents(tmp_path, changed, unreach
     stats = _load(audit.data / "doc-drift.json")["stats"]
     assert (stats["total_tracked"], stats["changed"], stats["fetch_failed"], stats["skipped_null_hash"]) == (
         2, len(changed), len(unreachable), len(unhashed))
+    # #1130: step 5a §3's command prints the section from the saved comparison.
+    audit.values["{timestamp}"] = TIMESTAMP
+    section = audit.render(DOC_DRIFT)
+    if changed:
+        assert section.splitlines()[-1] == "**1 of 2 tracked documentation source(s) have changed since compile.**"
+        assert f"| {TIMESTAMP} |" in section
+    else:
+        assert section.startswith(f"No documentation drift detected. {stats['unchanged']} of 2 tracked")
     rules = _flow(_slice(_read(DOC_DRIFT), "**Once the comparison is saved, a docs-only skill**", "### 3."))
     if score is None:
         assert stats["changed"] + stats["unchanged"] == 0

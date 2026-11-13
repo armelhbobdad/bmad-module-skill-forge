@@ -36,6 +36,10 @@ it binds the audit-ref values and goes back to init.md §6 under
 resumeStepFile, and every citation of its [C] outside SKILL.md names it.
 #593 (audit part, BMad Builder determinism-3): report.md's payload holds one
 placeholder per value, never a quoted `a | b` a literal fill would emit.
+#1130: build-result-context.py builds that payload and works out
+next_workflow, so report.md types no payload and states no route rule, and
+the envelope tests here build the payload with the script
+(test-skf-audit-result-context.py tests it).
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -43,6 +47,7 @@ passing vacuously.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import shlex
@@ -77,6 +82,7 @@ DRIFT = SCRIPTS / "skf-check-workspace-drift.py"
 TREE = SCRIPTS / "skf-source-tree.py"
 CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
+RESULT_CONTEXT = AUDIT / "scripts" / "build-result-context.py"
 URL = "https://github.com/acme/lib"
 
 HALT_STAGES = [INIT, CHECKOUT, RE_INDEX, STRUCTURAL, COMPOSE, SEVERITY, DOC_DRIFT, REPORT]
@@ -273,11 +279,19 @@ def test_the_result_carries_the_upstream_signal():
     assert props["upstream_ref"]["type"] == ["string", "null"]
     assert {"upstream_moved", "upstream_ref"} <= set(_schema()["required"])
     contract = _flow(_read(HEADLESS)[_read(HEADLESS).index("## Result Contract (Headless)"):])
-    assert ('`next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist or when `upstream_moved` is '
-            "true") in contract
+    assert ("`next_workflow` is the route step 6's `scripts/build-result-context.py` works out, as the schema "
+            "describes the field") in contract
+    # #1130: the script states the route rule once, and the schema's description says the same.
+    module_spec = importlib.util.spec_from_file_location("skf_audit_result_context_for_envelope", RESULT_CONTEXT)
+    result_context = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(result_context)
+    clean = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    assert result_context.next_workflow(clean, True) == "update-skill"
+    assert result_context.next_workflow(clean, None) is None
+    described = props["next_workflow"]["description"]
+    assert "a CRITICAL or HIGH finding" in described and "upstream_moved is true" in described
     report = _flow(_read(REPORT))
-    assert ("Set `nextWorkflow` to `'update-skill'` when the saved classification's `by_severity.CRITICAL` or "
-            "`by_severity.HIGH` is above 0, or when the frontmatter's `upstream_moved` is true") in report
+    assert "Set `nextWorkflow` to `{next_workflow}`, the route §1b bound (empty when it is null)" in report
     assert "Skill is current with source code" not in report
     assert "{IF the frontmatter's `upstream_moved` is true:}" in report
     assert "Run `[US] Update Skill` with `--target-ref {upstream_ref}`" in report
@@ -512,8 +526,8 @@ def test_the_hook_failure_is_shown_and_the_resolver_fallback_is_a_warning():
     report = _flow(_read(REPORT))
     assert "on_complete_failed" not in report
     assert "When the hook fails, tell the user it failed and why, and go on" in report
-    assert ('When On Activation step 3 fell back to the bundled `customize.toml`, add '
-            '`"customization_resolver_unavailable": "<the reason>"`') in report
+    assert ("When On Activation step 3 kept a `{customization_resolver_unavailable}` reason, first write it to "
+            "`{run_dir}/resolver-unavailable.txt` with a file write, never `echo`") in report
     activation = _flow(_slice(_read(SKILL), "## On Activation", "5. Load, read the full file"))
     assert "keep the reason as `{customization_resolver_unavailable}`" in activation
     assert "the run folder step 4 below creates" in activation
@@ -716,48 +730,49 @@ def test_a_halt_before_the_run_folder_prints_a_valid_envelope(reason, phase):
     assert (envelope["exit_code"], envelope["halt_reason"], envelope["error"]["phase"]) == (3, reason, phase)
 
 
-def _result_context(drift_score: str, upstream_moved, upstream_ref) -> dict:
-    """report.md's payload, filled as its rules say."""
-    route = "update-skill" if drift_score in ("CRITICAL",) or upstream_moved is True else None
-    summary = {"drift_count": 0, "severity": drift_score, "next_workflow": route, "audit_ref": "v1.1.0",
-               "upstream_moved": upstream_moved, "upstream_ref": upstream_ref}
-    return {"status": "success", "skill_name": "demo", "drift_score": drift_score,
-            "report_path": "/f/demo/1.0.0/drift-report-20260101-000000.md", "next_workflow": route,
-            "audit_ref": "v1.1.0", "upstream_moved": upstream_moved, "upstream_ref": upstream_ref,
-            "result_contract": {"skill": "skf-audit-skill", "status": "success",
-                                "outputs": [{"type": "report", "path": "/f/demo/1.0.0/drift-report.md"}],
-                                "summary": summary}}
-
-
-def test_the_report_payload_holds_the_envelope_fields():
-    block = _slice(_read(REPORT), "Write `{run_dir}/result-context.json`:", "Then run, in every mode")
-    for field in ("status", "skill_name", "drift_score", "report_path", "next_workflow", "audit_ref",
-                  "upstream_moved", "upstream_ref", "result_contract"):
-        assert f'"{field}":' in block, field
-    assert _fenced(_read(REPORT), " emit --workflow") == (
+def test_the_result_contract_emits_the_payload_step_1b_built():
+    """#1130: build-result-context.py writes the payload from the report's
+    frontmatter and the saved classification, so the Result Contract types no
+    JSON and states no value rule: it emits that file, and after a refusal it
+    fixes the value the emitter names and builds the payload again."""
+    report = _read(REPORT)
+    contract = _slice(report, "### Result Contract", "**Hard-halt envelope")
+    assert "```json" not in contract
+    for gone in ("Write `{run_dir}/result-context.json`", "<next_workflow>", "<upstream_moved>", "<drift_score>",
+                 "<total_findings>"):
+        assert gone not in report, gone
+    flow = _flow(contract)
+    assert ("prints the `SKF_AUDIT_RESULT_JSON` envelope from `{run_dir}/result-context.json`, the payload §1b "
+            "built from the drift report's frontmatter and the classification step 5 saved") in flow
+    assert _fenced(report, " emit --workflow") == (
         'uv run {emitEnvelopeHelper} emit --workflow skf-audit-skill --run-dir "{run_dir}" '
         '--result-dir "{forge_version}" < "{run_dir}/result-context.json"')
-
-
-def test_the_report_payload_holds_one_placeholder_per_value():
-    """BMad Builder determinism-3: a quoted alternative such as
-    `"<update-skill>" | null` reads as the string "null" when filled
-    literally, where the schema wants JSON null. Each value has one
-    placeholder, and the paragraph after the fence says when it is null."""
-    block = _slice(_read(REPORT), "Write `{run_dir}/result-context.json`:", "Then run, in every mode")
-    fence = _slice(block, "```json", "\n```\n")
-    assert " | " not in fence, fence
-    for field in ("next_workflow", "upstream_moved", "upstream_ref"):
-        assert fence.count(f'"{field}": <{field}>') == 2, field
-    flow = _flow(block)
-    assert ("`<next_workflow>` is `\"update-skill\"` exactly when §4 set the frontmatter's `nextWorkflow` "
-            "(CRITICAL or HIGH findings, or `upstream_moved` true), else JSON `null`") in flow
-    assert ("`<upstream_moved>` is JSON `true` when upstream moved, `false` when the check found it unchanged and "
-            "`null` when the check was skipped or failed") in flow
-    assert ("`<upstream_ref>` is the ref upstream moved to, as a JSON string, when `upstream_moved` is true, "
-            "else `null`") in flow
+    assert ("If the emitter exits non-zero, fix the value the message on its stderr names (in {outputFile}'s "
+            "frontmatter, or the saved classification), run §1b again, then run the emitter once more") in flow
     # The emitter-built line keeps the module's a|b sketch: no one fills it in.
     assert '"next_workflow":"update-skill|null"' in _read(HEADLESS)
+
+
+def _result_context(tmp_path: Path, drift_score: str, upstream_moved, upstream_ref) -> Path:
+    """The payload build-result-context.py writes for a report with these upstream values."""
+    version = tmp_path / "forge" / "demo" / "1.0.0"
+    report = version / "drift-report-20260101-000000.md"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    front = {"skill_name": "demo", "audit_ref": "v1.1.0", "upstream_moved": upstream_moved,
+             "upstream_ref": upstream_ref}
+    report.write_bytes(("---\n" + yaml.safe_dump(front, sort_keys=False) + "---\n\n# Drift Report\n").encode("utf-8"))
+    critical = 1 if drift_score == "CRITICAL" else 0
+    severity = version / ".skf-audit" / "20260101-000000" / "severity.json"
+    severity.parent.mkdir(parents=True, exist_ok=True)
+    severity.write_bytes(json.dumps({"drift_score": drift_score, "total_findings": critical, "total_items": critical,
+                                     "by_severity": {"CRITICAL": critical, "HIGH": 0, "MEDIUM": 0, "LOW": 0},
+                                     "findings": []}).encode("utf-8"))
+    out = tmp_path / "result-context.json"
+    proc = subprocess.run([sys.executable, str(RESULT_CONTEXT), "--report", str(report), "--classification",
+                           str(severity), "--output", str(out)], capture_output=True, text=True, encoding="utf-8",
+                          check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return out
 
 
 @pytest.mark.parametrize("drift_score,moved,ref", [("CLEAN", True, "v1.1.0"), ("CLEAN", False, None),
@@ -777,8 +792,8 @@ def test_the_emitter_writes_the_result_and_a_valid_envelope(tmp_path, drift_scor
     assert record.returncode == 0, record.stderr
     proc = subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-audit-skill", "--run-dir",
                            str(run_dir), "--result-dir", str(version)],
-                          input=json.dumps(_result_context(drift_score, moved, ref)), capture_output=True,
-                          text=True, encoding="utf-8", check=False)
+                          input=_result_context(tmp_path, drift_score, moved, ref).read_text(encoding="utf-8"),
+                          capture_output=True, text=True, encoding="utf-8", check=False)
     assert proc.returncode == 0, proc.stderr
     prefix, _, line = proc.stdout.strip().partition(": ")
     assert prefix == "SKF_AUDIT_RESULT_JSON"

@@ -6,6 +6,8 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 compareConstituentHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# §2: this skill's renderer of the Constituent Freshness table, from the skill root.
+renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -65,7 +67,13 @@ If the stage data folder or the file cannot be written, HALT with **exit 4**, `h
 
 ### 2. Compile the Structural Drift Section
 
-Append to {outputFile}, taking every count from `stats` (no recount):
+Render the Constituent Freshness table from the saved comparison, never by hand: it takes every count from `stats`. `{renderDriftTablesScript}` resolves relative to the skill root; from `{project-root}`, run:
+
+```bash
+uv run {renderDriftTablesScript} constituents "{auditDataFolder}/constituent-freshness.json"
+```
+
+It prints the table and its Missing constituents and Not compared lines (`--help` lists them). Append to {outputFile}:
 
 ```markdown
 ## Structural Drift
@@ -73,19 +81,14 @@ Append to {outputFile}, taking every count from `stats` (no recount):
 **Comparison:** each constituent skill now vs when the stack was composed ({provenance_generated_at})
 **Method:** metadata hash comparison: a compose-mode stack has no source tree to re-index
 
-### Constituent Freshness (drifted {stats.drifted}, missing {stats.missing}, fresh {stats.fresh})
-
-| Constituent | Compose-time Hash | Current Hash |
-|-------------|-------------------|--------------|
-| {skill_name} | `{stored_hash}` | `{current_hash}` |
-
-**Missing constituents:** {skill_name} ({reason}) for each `missing[]` entry, or none.
-**Not compared (no compose-time hash):** {skill_name} for each `skipped_null_hash[]` entry, or none.
+{what the command printed, unchanged}
 
 ## Semantic Drift
 
 **Status:** Skipped: a compose-mode stack has no source tree to compare
 ```
+
+When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Constituent freshness not rendered: {error}` in place of its output and go on, since step 5 classifies the saved comparison, not this table.
 
 ### 3. Update Report and Auto-Proceed
 

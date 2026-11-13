@@ -8,6 +8,10 @@ The step file was step-doc-drift.md (#600, BMad Builder architecture-9): its
 siblings are named by their content, so it is doc-drift.md, and every file,
 SKILL.md's Stages row and chain sentence included, points at that name. The
 old file is gone.
+
+#1130: render-drift-tables.py `doc-drift` prints the section from the saved
+comparison (test-skf-render-drift-tables.py tests its rows), so the step
+keeps no Build Drift Findings section and no row rule of its own.
 """
 
 from __future__ import annotations
@@ -114,7 +118,6 @@ class TestStepFileStructure:
         [
             "Check for doc_sources",
             "Fetch and Hash Each Tracked Doc",
-            "Build Drift Findings",
             "Append to Drift Report",
             "Store Context and Auto-Proceed",
         ],
@@ -345,15 +348,16 @@ class TestStepContentContract:
                 in flat)
 
     def test_one_row_rule(self, text: str) -> None:
-        """One rule says which entries get a row (#600): it no longer says
-        both 'ALL entries' and 'only drifted entries'."""
-        assert "Include rows for ALL entries" not in text
-        assert "only drifted entries appear" not in text
+        """One rule says which entries get a row (#600), and since #1130 the
+        renderer holds it (test_doc_drift_rows_follow_the_one_row_rule): the
+        step keeps no row rule and no hand-built findings section."""
+        for gone in ("Include rows for ALL entries", "only drifted entries appear", "Rows, in this order",
+                     "Build Drift Findings", "{ISO-8601 timestamp}"):
+            assert gone not in text, gone
         flat = re.sub(r"\s+", " ", text)
-        assert ("Rows, in this order: each `changed` entry with its old and new hash; each `fetch_failed` "
-                "entry, with `_(fetch failed: {reason})_` as its New Hash; each `skipped_null_hash` entry, "
-                "with `_(not recorded)_` as its Old Hash and `n/a` in the last two columns. An unchanged "
-                "entry gets no row, and only the `changed` rows count as drift.") in flat
+        assert ('uv run {renderDriftTablesScript} doc-drift "{auditDataFolder}/doc-drift.json" '
+                '--detected-at "{timestamp}"') in flat
+        assert "it takes the four buckets and every count from the JSON's `stats`" in flat
 
     def test_the_comparison_is_saved_for_step_5(self, text: str) -> None:
         assert ('uv run {compareDocHashesHelper} compare-hashes "{resolved_skill_package}/metadata.json" '
@@ -376,9 +380,9 @@ class TestStepContentContract:
         ), "step must document the sha256:{hexdigest} hash convention"
 
     def test_the_saved_stats_hold_every_count(self, text: str) -> None:
-        store = text.split("### 5. Store Context and Auto-Proceed", 1)[1]
+        store = text.split("### 4. Store Context and Auto-Proceed", 1)[1]
         stats = re.search(r"`stats` \(([^)]*)\)", store)
-        assert stats, "§5 must name the counts step 6 reads from `stats`"
+        assert stats, "§4 must name the counts step 6 reads from `stats`"
         for field in ("total_tracked", "changed", "unchanged", "fetch_failed", "skipped_null_hash"):
             assert f"`{field}`" in stats.group(1), f"`stats` must hold: {field}"
         assert "skipped_entirely" not in text

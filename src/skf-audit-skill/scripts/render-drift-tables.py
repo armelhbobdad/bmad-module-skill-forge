@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml"]
 # ///
 """SKF render drift tables: the drift report's per-item tables, from the JSON
 audit-skill saved.
 
-Step 3 (references/structural-diff.md section 5) and step 5
-(references/severity-classify.md section 3) each append a section of
-tables to the drift report, and step 6 (references/report.md section 2)
-its Out-of-Scope New Public API table. Every cell of those tables is a
-field of the JSON an earlier step saved, so this script prints them,
-rather than the model copying hundreds of rows by hand, where a row can be
-dropped or mis-matched. The model keeps only what the JSON does not hold:
-the section heading and step 3's Comparison and Method lines.
+Step 1c (references/constituent-freshness.md section 2), step 3
+(references/structural-diff.md section 5), step 4
+(references/semantic-diff.md section 4), step 5
+(references/severity-classify.md section 3) and step 5a
+(references/doc-drift.md section 3) each append a section of tables to the
+drift report, and step 6 (references/report.md sections 2 and 3) its
+Out-of-Scope New Public API and Provenance tables. Every cell of those
+tables is a field of the JSON an earlier step saved, or of the report's
+frontmatter, so this script prints them, rather than the model copying
+hundreds of rows by hand, where a row can be dropped or mis-matched and a
+`|` in a value breaks the table. The model keeps only what the files do not
+hold: each section's heading, the Comparison and Method lines of steps 1c
+and 3, step 4's Method and QMD Collection lines, step 1c's Semantic Drift
+skip and step 6's Confidence Legend.
 
 structural DIFF [--file-drift FILE]
   DIFF is the skf-structural-diff.py result step 3 section 1 saved
@@ -82,6 +88,74 @@ outside-scope SNAPSHOT
   update-skill's scope reconciliation, and never rolls up: the snapshot
   already groups the names by file.
 
+semantic FINDINGS
+  FINDINGS is the semantic-findings.json step 4 section 4 saved (`[]` when
+  the source still supports every claim). Prints one table per category
+  that has rows, in this order:
+    ### Changed Conventions (N) Convention | Before | After |
+                                Affected Exports | Evidence | Confidence
+    ### Dependency Shifts (N)   Export | Original Dependencies |
+                                Current Dependencies | Change | Evidence |
+                                Confidence
+    ### Architectural Changes (N)
+                                Change | Description | Affected Exports |
+                                Evidence | Confidence
+    ### Deprecated Patterns (N) Pattern | Documented In Skill |
+                                Current Status | Evidence | Confidence
+    ### Summary                 each category shown and **Total Semantic
+                                Items**, their sum
+  A row's table is its `category` (convention, dependency, architecture or
+  deprecated_pattern). The first cell is its `name`; Before and After, and
+  the two dependency columns, its `before` and `after`; Affected Exports
+  its `exports`; Documented In Skill its `skill_reference`; Change,
+  Description and Current Status its `detail`; Evidence its `file`:`line`.
+  With no row it prints a no-drift line and the Summary, whose Total is 0.
+  A row that is not a semantic finding, or whose category is none of the
+  four, exits 1 with the row's index.
+
+doc-drift DOC_DRIFT --detected-at WHEN
+  DOC_DRIFT is the skf-detect-docs.py compare-hashes result step 5a section
+  2 saved (doc-drift.json). When stats.changed is above 0, prints
+                                URL | Old Hash | New Hash | Detected At,
+                                each changed entry, then each fetch_failed
+                                one (New Hash `_(fetch failed: <reason>)_`),
+                                then each skipped_null_hash one (Old Hash
+                                `_(not recorded)_`, the last two cells n/a),
+                                Detected At reading WHEN (the run's
+                                timestamp)
+  and the **<changed> of <total_tracked> tracked documentation source(s)
+  have changed since compile.** line. Otherwise a no-drift line counting
+  stats.unchanged of stats.total_tracked, then a **Could not be fetched:**
+  line naming each fetch_failed URL with its reason and a **No compile-time
+  hash recorded:** line naming each skipped_null_hash URL, each only when
+  it names one. Every count comes from stats.
+
+constituents FRESHNESS
+  FRESHNESS is the skf-hash-content.py compare-constituent-hashes result
+  step 1c section 1 saved (constituent-freshness.json). Prints
+    ### Constituent Freshness (drifted N, missing N, fresh N)
+                                Constituent | Compose-time Hash |
+                                Current Hash, one row per drifted[] entry
+  then the **Missing constituents:** line (each missing[] entry's name,
+  else its path, with its reason, or none) and the **Not compared (no compose-time hash):** line
+  (each skipped_null_hash[] entry, or none). The counts come from stats.
+
+provenance REPORT --stage-data DIR
+  REPORT is the drift report, whose frontmatter holds the run context
+  steps 1 to 3 wrote (read with yaml's safe loader, a value other than
+  true, false or null kept as written, so a ref such as 1.10 stays 1.10; a
+  BOM and CRLF line ends are fine). Prints step 6 section 3's Field | Value table, a row each for
+  Audit Date, Audited By, Forge Tier, Tools Used (the tier's tools, as
+  knowledge/progressive-capability.md lists them), Source Path (and the
+  private tree, when source_tree is set), Skill Path, Audited Version (and
+  the export manifest's version, when manifest_version is set),
+  Provenance Map, Provenance Age, AST fallback files (none when empty, n/a
+  at Quick tier), Applied Transforms (`<transform>` ×<count>, or none),
+  Baseline Ref / Commit, Audit Ref / Commit, Upstream Latest, Upstream
+  Moved (and the ref, when true) and Stage Data (DIR/). A commit shows its
+  first 7 characters, and a value the frontmatter leaves null or empty
+  reads n/a.
+
 Rollup (structural and severity, mechanical):
   10 or more rows of one table that share a file roll up into one row, so a
   deleted or a new file reads as one row. Removed rows go one level on: 10
@@ -112,9 +186,9 @@ Output: the markdown on stdout, UTF-8.
 Exit codes:
   0  the tables were printed (for outside-scope, also when there was
      nothing to print)
-  1  DIFF, CLASSIFICATION or SNAPSHOT is missing, is not JSON or is not
-     what the command reads ({"status": "error", "error"} on stdout, the
-     error starting with the input's path)
+  1  the input file is missing, is not JSON (REPORT: has no frontmatter)
+     or is not what the command reads ({"status": "error", "error"} on
+     stdout, the error starting with the input's path)
   2  usage error (argparse, usage on stderr)
 """
 
@@ -123,8 +197,11 @@ from __future__ import annotations
 import argparse
 import json
 import posixpath
+import re
 import sys
 from pathlib import Path
+
+import yaml
 
 # Rows of one table that share a file or a directory roll up from this many on.
 ROLLUP_MIN = 10
@@ -137,6 +214,30 @@ NONE = "(none)"
 NA = "n/a"
 # Characters a plain table cell escapes, so text renders as written.
 _MARKDOWN = "\\`*_[]<>|"
+# Step 4's semantic categories, in the order semantic-diff.md section 4 maps
+# them: (category, table heading, table columns).
+SEMANTIC_CATEGORIES = (
+    ("convention", "Changed Conventions",
+     ("Convention", "Before", "After", "Affected Exports", "Evidence", "Confidence")),
+    ("dependency", "Dependency Shifts",
+     ("Export", "Original Dependencies", "Current Dependencies", "Change", "Evidence", "Confidence")),
+    ("architecture", "Architectural Changes",
+     ("Change", "Description", "Affected Exports", "Evidence", "Confidence")),
+    ("deprecated_pattern", "Deprecated Patterns",
+     ("Pattern", "Documented In Skill", "Current Status", "Evidence", "Confidence")),
+)
+# The tools each forge tier runs: the Tier Definitions table of
+# knowledge/progressive-capability.md.
+TIER_TOOLS = {
+    "Quick": (),
+    "Forge": ("ast-grep",),
+    "Forge+": ("ast-grep", "ccc"),
+    "Deep": ("ast-grep", "gh", "qmd"),
+}
+# A commit shows this many characters, as skf-check-workspace-drift.py's short().
+SHORT_COMMIT = 7
+_COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}")
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n(.*?)^---[ \t]*$", re.M | re.S)
 
 
 class RenderError(Exception):
@@ -305,6 +406,69 @@ def load_json(path: Path, what: str):
         raise RenderError(f"{path}: cannot read {what}: {exc}") from None
     except json.JSONDecodeError as exc:
         raise RenderError(f"{path}: {what} is not JSON: {exc}") from None
+
+
+def load_text(path: Path, what: str) -> str:
+    """A UTF-8 file's text, a leading BOM dropped."""
+    try:
+        return path.read_bytes().decode("utf-8-sig")
+    except FileNotFoundError:
+        raise RenderError(f"{path}: no such file ({what})") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RenderError(f"{path}: cannot read {what}: {exc}") from None
+
+
+class _TextLoader(yaml.SafeLoader):
+    """yaml.SafeLoader reading only true, false and null as typed values, so
+    an unquoted ref such as 1.10, a commit such as 0123456 or a timestamp
+    stays as written."""
+
+
+_TextLoader.yaml_implicit_resolvers = {
+    first: [(tag, regexp) for tag, regexp in resolvers
+            if tag in ("tag:yaml.org,2002:bool", "tag:yaml.org,2002:null")]
+    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def read_frontmatter(text: str) -> dict:
+    """The leading `---` block of a markdown file, read with yaml's safe
+    loader, every value but true, false and null kept as the text written.
+
+    A BOM and CRLF line ends read as plain text would. Raises RenderError
+    when the text has no such block, or the block is not a YAML mapping.
+
+    >>> read_frontmatter("\\ufeff---\\r\\nskill_name: demo\\r\\nupstream_moved: true\\r\\n---\\r\\n# Report")
+    {'skill_name': 'demo', 'upstream_moved': True}
+    >>> read_frontmatter("---\\naudit_ref: 1.10\\nbaseline_commit: 0123456\\nupstream_ref: null\\n---\\n")
+    {'audit_ref': '1.10', 'baseline_commit': '0123456', 'upstream_ref': None}
+    """
+    match = _FRONTMATTER_RE.match(text.lstrip("﻿").replace("\r\n", "\n"))
+    if not match:
+        raise RenderError("no frontmatter: expected a leading `---` block")
+    try:
+        data = yaml.load(match.group(1), Loader=_TextLoader)
+    except yaml.YAMLError as exc:
+        raise RenderError("the frontmatter is not valid YAML (write a value that holds `: ` or a quote as a "
+                          f"double-quoted string): {exc}") from None
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise RenderError("the frontmatter is not a YAML mapping")
+    return data
+
+
+def flag(value) -> bool | None:
+    """A frontmatter true or false (a YAML bool, or the word as text), else None.
+
+    >>> flag(True), flag("false"), flag(" True "), flag(""), flag(None), flag("yes")
+    (True, False, True, None, None, None)
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    return None
 
 
 def _records(data: dict, key: str) -> list[dict]:
@@ -623,6 +787,219 @@ def render_outside_scope(snapshot) -> str:
 
 
 # --------------------------------------------------------------------------
+# semantic
+# --------------------------------------------------------------------------
+
+
+def _exports(value) -> str:
+    """Export names as code spans, `n/a` for none."""
+    names = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    names = [n for n in names if isinstance(n, str) and n]
+    return ", ".join(code(n) for n in names) if names else NA
+
+
+def _semantic_cells(category: str, row: dict) -> list[str]:
+    evidence, confidence = where(row.get("file"), row.get("line")), text(row.get("confidence"))
+    if category == "convention":
+        return [text(row.get("name")), text(row.get("before")), text(row.get("after")), _exports(row.get("exports")),
+                evidence, confidence]
+    if category == "dependency":
+        return [code(row.get("name")), text(row.get("before")), text(row.get("after")), text(row.get("detail")),
+                evidence, confidence]
+    if category == "architecture":
+        return [text(row.get("name")), text(row.get("detail")), _exports(row.get("exports")), evidence, confidence]
+    return [text(row.get("name")), text(row.get("skill_reference")), text(row.get("detail")), evidence, confidence]
+
+
+def render_semantic(findings) -> str:
+    """The Semantic Drift tables of step 4's semantic-findings.json: one per
+    category that has rows, then the Summary.
+
+    >>> render_semantic([]).splitlines()[-1]
+    '| **Total Semantic Items** | 0 |'
+    """
+    if not isinstance(findings, list):
+        raise RenderError("not a semantic findings file: expected an array of objects whose type is semantic "
+                          "(the semantic-findings.json step 4 saves)")
+    known = [category for category, _, _ in SEMANTIC_CATEGORIES]
+    by_category: dict[str, list[dict]] = {category: [] for category in known}
+    for index, row in enumerate(findings):
+        if not isinstance(row, dict) or _norm(row.get("type")) != "semantic":
+            raise RenderError(f"row {index}: not a semantic finding (an object whose type is semantic)")
+        category = _norm(row.get("category"))
+        if category not in by_category:
+            raise RenderError(f"row {index}: category {row.get('category')!r} is not one of {', '.join(known)}")
+        by_category[category].append(row)
+    parts, summary = [], []
+    for category, heading, header in SEMANTIC_CATEGORIES:
+        rows = by_category[category]
+        if rows:
+            parts.append(f"### {heading} ({len(rows)})\n\n"
+                         + _table(header, [_semantic_cells(category, row) for row in rows]))
+            summary.append([heading.capitalize(), str(len(rows))])
+    if not parts:
+        parts.append("No semantic drift: the current source still supports every claim this step checked.")
+    summary.append(["**Total Semantic Items**", str(len(findings))])
+    parts.append("### Summary\n\n" + _table(("Category", "Count"), summary))
+    return "\n\n".join(parts) + "\n"
+
+
+# --------------------------------------------------------------------------
+# doc-drift
+# --------------------------------------------------------------------------
+
+
+def render_doc_drift(data, detected_at) -> str:
+    """The Documentation Drift section of a skf-detect-docs.py compare-hashes
+    result, its heading left out; `detected_at` fills the Detected At column."""
+    if not isinstance(data, dict) or not isinstance(data.get("stats"), dict) \
+            or not all(isinstance(data.get(k), list) for k in ("changed", "unchanged", "fetch_failed")):
+        raise RenderError("not a doc drift result: expected an object with stats and changed, unchanged and "
+                          "fetch_failed lists (the output of skf-detect-docs.py compare-hashes)")
+    stats = data["stats"]
+    changed, total = _count(stats, "changed"), _count(stats, "total_tracked")
+    failed, unhashed = _records(data, "fetch_failed"), _records(data, "skipped_null_hash")
+    if changed > 0:
+        when = text(detected_at)
+        rows = [[code(r.get("url")), code(r.get("old_hash")), code(r.get("new_hash")), when]
+                for r in _records(data, "changed")]
+        rows += [[code(r.get("url")), code(r.get("old_hash")), f"_(fetch failed: {text(r.get('reason'))})_", when]
+                 for r in failed]
+        rows += [[code(r.get("url")), "_(not recorded)_", NA, NA] for r in unhashed]
+        return (_table(("URL", "Old Hash", "New Hash", "Detected At"), rows)
+                + f"\n\n**{changed} of {total} tracked documentation source(s) have changed since compile.**\n")
+    parts = [f"No documentation drift detected. {_count(stats, 'unchanged')} of {total} tracked documentation "
+             "source(s) match their compile-time hashes."]
+    if failed:
+        parts.append("**Could not be fetched:** "
+                     + ", ".join(f"{code(r.get('url'))} ({text(r.get('reason'))})" for r in failed) + ".")
+    if unhashed:
+        parts.append("**No compile-time hash recorded:** " + ", ".join(code(r.get("url")) for r in unhashed) + ".")
+    return "\n\n".join(parts) + "\n"
+
+
+# --------------------------------------------------------------------------
+# constituents
+# --------------------------------------------------------------------------
+
+
+def render_constituents(data) -> str:
+    """The Constituent Freshness table of a skf-hash-content.py
+    compare-constituent-hashes result, and its two lines."""
+    if not isinstance(data, dict) or not isinstance(data.get("stats"), dict) \
+            or not all(isinstance(data.get(k), list) for k in ("drifted", "missing")):
+        raise RenderError("not a constituent freshness result: expected an object with stats and drifted and "
+                          "missing lists (the output of skf-hash-content.py compare-constituent-hashes)")
+    stats = data["stats"]
+    heading = (f"### Constituent Freshness (drifted {_count(stats, 'drifted')}, missing {_count(stats, 'missing')}, "
+               f"fresh {_count(stats, 'fresh')})")
+    rows = [[code(r.get("skill_name")), code(r.get("stored_hash")), code(r.get("current_hash"))]
+            for r in _records(data, "drifted")]
+    missing = ", ".join(f"{code(r.get('skill_name') or r.get('skill_path'))} ({text(r.get('reason'))})"
+                        for r in _records(data, "missing")) or "none"
+    unhashed = ", ".join(code(r.get("skill_name")) for r in _records(data, "skipped_null_hash")) or "none"
+    return (heading + "\n\n" + _table(("Constituent", "Compose-time Hash", "Current Hash"), rows)
+            + f"\n\n**Missing constituents:** {missing}.\n\n**Not compared (no compose-time hash):** {unhashed}.\n")
+
+
+# --------------------------------------------------------------------------
+# provenance
+# --------------------------------------------------------------------------
+
+
+def _set(value) -> bool:
+    return value is not None and value != "" and value != []
+
+
+def _or_na(value, cell=code) -> str:
+    """cell(value), or `n/a` for a value the run does not have."""
+    return cell(value) if _set(value) else NA
+
+
+def short_commit(value):
+    """A commit's first SHORT_COMMIT characters; any other value as it is.
+
+    >>> short_commit("0123456789abcdef0123456789abcdef01234567"), short_commit("(unknown)"), short_commit(None)
+    ('0123456', '(unknown)', None)
+    """
+    if isinstance(value, str) and _COMMIT_RE.fullmatch(value):
+        return value[:SHORT_COMMIT]
+    return value
+
+
+def tier_tools(tier) -> str:
+    """The tools a forge tier runs, `none` at Quick, `n/a` for no known tier."""
+    for name, tools in TIER_TOOLS.items():
+        if isinstance(tier, str) and tier.strip().casefold() == name.casefold():
+            return ", ".join(text(t) for t in tools) or "none"
+    return NA
+
+
+def _list_cell(value, item) -> str:
+    """A list's items, `none` when it is empty, `n/a` when the run has none."""
+    if value is None:
+        return NA
+    if isinstance(value, list):
+        return ", ".join(item(v) for v in value) or "none"
+    return text(value) if value != "" else "none"
+
+
+def _transform(entry) -> str:
+    if isinstance(entry, dict):
+        count = entry.get("count")
+        return f"{code(entry.get('transform'))} ×{text(count) if count is not None else NA}"
+    return code(entry)
+
+
+def render_provenance(front: dict, stage_data: str) -> str:
+    """Step 6's Provenance table of the drift report's frontmatter; `stage_data`
+    is the run's stage data folder."""
+    source = _or_na(front.get("source_path"))
+    if _set(front.get("source_tree")):
+        source += f"; read from the private tree {code(front['source_tree'])}"
+    version = _or_na(front.get("audited_version"))
+    if _set(front.get("audited_version_reason")):
+        version += f" ({text(front['audited_version_reason'])})"
+    if _set(front.get("manifest_version")):
+        version += f"; the export manifest names {code(front['manifest_version'])}"
+    age, generated = front.get("provenance_age_days"), front.get("provenance_generated_at")
+    age_cell = f"{text(age)} days" if _set(age) else NA
+    if _set(generated):
+        age_cell += f" (generated {text(generated)})"
+    quick = isinstance(front.get("forge_tier"), str) and front["forge_tier"].strip().casefold() == "quick"
+    fallback = NA if quick else _list_cell(front.get("ast_fallback_files"), code)
+    latest = front.get("latest_tag") if _set(front.get("latest_tag")) else short_commit(front.get("remote_head"))
+    moved = flag(front.get("upstream_moved"))
+    moved_cell = NA if moved is None else str(moved).lower()
+    if moved and _set(front.get("upstream_ref")):
+        moved_cell += f": to {code(front['upstream_ref'])}"
+    folder = stage_data.rstrip("/\\") + "/"
+    rows = [
+        ("Audit Date", text(front.get("date"))),
+        ("Audited By", "Ferris (Audit mode)"),
+        ("Forge Tier", text(front.get("forge_tier"))),
+        ("Tools Used", tier_tools(front.get("forge_tier"))),
+        ("Source Path", source),
+        ("Skill Path", _or_na(front.get("skill_path"))),
+        ("Audited Version", version),
+        ("Provenance Map", _or_na(front.get("provenance_map"))),
+        ("Provenance Age", age_cell),
+        ("AST fallback files", fallback),
+        ("Applied Transforms", _list_cell(front.get("applied_transforms"), _transform)),
+        ("Baseline Ref / Commit", f"{_or_na(front.get('baseline_ref'))} @ "
+                                  f"{_or_na(short_commit(front.get('baseline_commit')))}"),
+        ("Audit Ref / Commit", f"{_or_na(front.get('audit_ref'))} @ {_or_na(short_commit(front.get('audit_commit')))} "
+                               f"({text(front.get('audit_ref_source'))})"),
+        ("Upstream Latest", f"{code(latest if _set(latest) else '(not fetched)')} "
+                            f"(fetch: {text(front.get('upstream_fetch'))})"),
+        ("Upstream Moved", moved_cell),
+        ("Stage Data", f"{code(folder)}: the JSON this run saved and classified (the structural diff, the "
+                       "constituents' freshness or the documents' comparison, the findings and their classification)"),
+    ]
+    return _table(("Field", "Value"), [[f"**{name}**", value] for name, value in rows]) + "\n"
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -661,6 +1038,27 @@ def _outside_scope(args) -> str:
     return _named(path, render_outside_scope, load_json(path, "the extraction snapshot"))
 
 
+def _semantic(args) -> str:
+    path = Path(args.findings)
+    return _named(path, render_semantic, load_json(path, "the semantic findings"))
+
+
+def _doc_drift(args) -> str:
+    path = Path(args.doc_drift)
+    return _named(path, render_doc_drift, load_json(path, "the doc drift result"), args.detected_at)
+
+
+def _constituents(args) -> str:
+    path = Path(args.freshness)
+    return _named(path, render_constituents, load_json(path, "the constituent freshness result"))
+
+
+def _provenance(args) -> str:
+    path = Path(args.report)
+    front = _named(path, read_frontmatter, load_text(path, "the drift report"))
+    return render_provenance(front, args.stage_data)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="render-drift-tables.py",
@@ -682,6 +1080,24 @@ def _build_parser() -> argparse.ArgumentParser:
     outside.add_argument("snapshot", help="extraction-snapshot.json, the snapshot step 2 wrote (nothing is printed "
                                           "when its outside_scope is empty)")
     outside.set_defaults(func=_outside_scope)
+    semantic = sub.add_parser("semantic", help="Print step 4's Semantic Drift tables from semantic-findings.json")
+    semantic.add_argument("findings", help="semantic-findings.json, the rows step 4 saved")
+    semantic.set_defaults(func=_semantic)
+    doc_drift = sub.add_parser("doc-drift", help="Print step 5a's Documentation Drift section from doc-drift.json")
+    doc_drift.add_argument("doc_drift", metavar="doc-drift",
+                           help="doc-drift.json, the skf-detect-docs.py compare-hashes result step 5a saved")
+    doc_drift.add_argument("--detected-at", required=True, help="the run's timestamp, for the Detected At column")
+    doc_drift.set_defaults(func=_doc_drift)
+    constituents = sub.add_parser("constituents",
+                                  help="Print step 1c's Constituent Freshness table from constituent-freshness.json")
+    constituents.add_argument("freshness", help="constituent-freshness.json, the skf-hash-content.py "
+                                                "compare-constituent-hashes result step 1c saved")
+    constituents.set_defaults(func=_constituents)
+    provenance = sub.add_parser("provenance", help="Print step 6's Provenance table from the drift report's "
+                                                   "frontmatter")
+    provenance.add_argument("report", help="the drift report, whose frontmatter holds the run context")
+    provenance.add_argument("--stage-data", required=True, help="the run's stage data folder, for the Stage Data row")
+    provenance.set_defaults(func=_provenance)
     return parser
 
 

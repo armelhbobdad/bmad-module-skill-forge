@@ -11,6 +11,8 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 compareDocHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
+# §3: this skill's renderer of the Documentation Drift section, from the skill root.
+renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -96,39 +98,25 @@ It fetches each URL whose `content_hash` is set and compares the hashes. A `null
 - **`stats.changed` + `stats.unchanged` is 0:** no document was compared (each one failed to fetch or has no recorded hash), and a CLEAN score would vouch for documents nobody read. HALT with **exit 3**, `halt_reason: "source-unreadable"`, phase `doc-drift:compare`, `"path": "{resolved_skill_package}/metadata.json"`: "**No documentation source of `{skill_name}` could be compared.** {each `fetch_failed` URL with its `reason`, then each `skipped_null_hash` URL with `no hash recorded`}. Re-run once the documents can be reached, or re-create the skill with `[CS] Create Skill` to record their hashes."
 - **Otherwise,** record each of `stats.fetch_failed` and `stats.skipped_null_hash` that is not 0 as a warning, so the envelope shows the score leaves those documents out: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "doc_fetch_failed: {fetch_failed}"` and `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "doc_not_hashed: {skipped_null_hash}"`.
 
-### 3. Build Drift Findings
+### 3. Append to Drift Report
 
-Take the four buckets (`changed[]`, `unchanged[]`, `fetch_failed[]`, `skipped_null_hash[]`) and every count from the saved JSON's `stats`: never recount.
+Render the section from the saved comparison, never by hand: it takes the four buckets and every count from the JSON's `stats`. `{renderDriftTablesScript}` resolves relative to the skill root; from `{project-root}`, run:
 
-### 4. Append to Drift Report
+```bash
+uv run {renderDriftTablesScript} doc-drift "{auditDataFolder}/doc-drift.json" --detected-at "{timestamp}"
+```
 
-Append the `## Documentation Drift` section to {outputFile}.
-
-**When drift detected:**
+It prints the section's table or its no-drift line, and its notes (`--help` lists them). Append to {outputFile}:
 
 ```markdown
 ## Documentation Drift
 
-| URL | Old Hash | New Hash | Detected At |
-|-----|----------|----------|-------------|
-| {url} | `{old_hash}` | `{new_hash}` | {ISO-8601 timestamp} |
-
-**{changed} of {total_tracked} tracked documentation source(s) have changed since compile.**
+{what the command printed, unchanged}
 ```
 
-Rows, in this order: each `changed` entry with its old and new hash; each `fetch_failed` entry, with `_(fetch failed: {reason})_` as its New Hash; each `skipped_null_hash` entry, with `_(not recorded)_` as its Old Hash and `n/a` in the last two columns. An unchanged entry gets no row, and only the `changed` rows count as drift.
+When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Documentation drift table not rendered: {error}` in place of its output and go on, since step 6 reads the saved `stats`, not this table.
 
-**When no drift detected:**
-
-```markdown
-## Documentation Drift
-
-No documentation drift detected. All {total_tracked} tracked documentation source(s) match their compile-time hashes.
-```
-
-If some entries were `fetch_failed` or `skipped_null_hash`, append a note after the main message listing those entries.
-
-### 5. Store Context and Auto-Proceed
+### 4. Store Context and Auto-Proceed
 
 Step 6 reads the counts from the saved JSON's `stats` (`total_tracked`, `changed`, `unchanged`, `fetch_failed`, `skipped_null_hash`), so keep the file: no file tells step 6 this check was skipped. Append `'doc-drift'` to `stepsCompleted` in {outputFile}'s frontmatter.
 
