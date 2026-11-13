@@ -67,7 +67,8 @@ WORKFLOWS = sorted(STEPS)
 
 # #770: SKF's helper runs core's resolver, so a core before 6.11.0, which rejects --project-root, still applies
 # the overrides when it would read this project; the step binds the helper on one line before the fence.
-# #1106: `--facts`, last, has the helper apply each `!` entry and expand each glob of persistent_facts.
+# #1106: `--facts`, the last argument, has the helper apply each `!` entry and expand each glob of persistent_facts
+# (Setup's fence then redirects stderr to a file, #1119).
 HELPER = "skf-resolve-customization.py"
 COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
            "--project-root {project-root} --key workflow --facts")

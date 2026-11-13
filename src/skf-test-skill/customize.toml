@@ -59,8 +59,9 @@ persistent_facts = [
 #   - the six `## ...` section headings, each with the `<!-- Populated by`
 #     comment under it, since each stage replaces its own placeholder.
 # Step 1 (init.md §6c) halts the run (`input-invalid`) on a copy that is
-# missing or lacks one of them, before any stage writes, and the report check
-# halts it (`report-anchor-missing`) on a report a stage left without them.
+# missing or lacks one of them, once it has found the skill and before it
+# creates the report, and the report check halts it (`report-anchor-missing`)
+# on a report a stage left without them.
 
 test_report_template_path = "templates/test-report-template.md"
 

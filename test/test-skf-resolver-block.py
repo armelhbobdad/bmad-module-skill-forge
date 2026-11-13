@@ -13,7 +13,8 @@ FACTS_POINTER):
 
 - the `uv run {resolveCustomizationHelper} ... --project-root
   {project-root} ... --facts` command, alone in its fence, after the line
-  that binds the helper (BINDING);
+  that binds the helper (BINDING); Setup's alone adds a stderr redirect
+  after `--facts` (STDERR_FILES), which the tests that run the fence cut off;
 - the merge sentence that names the override layers from the project root,
   the one-line `[activation/warn] customization_resolver_unavailable:
   <reason>` warning and how the reason is worded;
@@ -128,6 +129,12 @@ def _step(skill: str) -> str:
     text = _skill_md(skill)
     begin = text.index(start)
     return text[begin:text.index(end, begin + len(start))]
+
+
+def _fence(skill: str) -> str:
+    """The step's resolver command as argv text: the shell redirect STDERR_FILES names (#1119) cut off."""
+    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    return command.removesuffix(STDERR_FILES.get(skill, ""))
 
 
 # The command up to its key, which the two stage calls share; they take no --facts.
@@ -325,7 +332,7 @@ def test_the_fence_hands_the_activation_one_file_per_project_context(tmp_path, s
     for folder in ("docs", "_bmad-output/.skf-run/x/source-1"):
         (root / folder).mkdir(parents=True)
         (root / folder / "project-context.md").write_bytes(b"rule\n")
-    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    command = _fence(skill)
     words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
              .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(command)]
     assert words[:2] == ["uv", "run"]
@@ -355,7 +362,7 @@ def test_the_opt_in_the_comment_shows_loads_each_project_context(tmp_path, skill
     (root / "_bmad" / "custom" / f"{skill}.toml").write_bytes(team.encode("utf-8"))
     (root / "docs").mkdir()
     (root / "docs" / "project-context.md").write_bytes(b"rule\n")
-    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    command = _fence(skill)
     words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
              .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(command)]
     env = {k: v for k, v in os.environ.items() if not k.startswith("SKF_TEST_")}
@@ -380,7 +387,7 @@ def _resolve(root: Path, skill: str, team: str | None = None) -> dict:
     if team is not None:
         override.parent.mkdir(parents=True, exist_ok=True)
         override.write_bytes(team.encode("utf-8"))
-    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    command = _fence(skill)
     words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
              .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(command)]
     done = subprocess.run([sys.executable, *words[2:]], capture_output=True, cwd=root, timeout=120,
@@ -594,7 +601,7 @@ def test_the_command_reads_a_team_override_under_a_python3_without_tomllib(tmp_p
         skill_root = root / "_bmad" / "skf" / skill
         skill_root.mkdir(parents=True)
         shutil.copyfile(SRC / skill / "customize.toml", skill_root / "customize.toml")
-    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    command = _fence(skill)
     words = [w.replace("{resolveCustomizationHelper}", HELPER.as_posix()).replace("{project-root}", root.as_posix())
              .replace("{skill-root}", skill_root.as_posix()) for w in shlex.split(command)]
     assert words[:3] == ["uv", "run", HELPER.as_posix()] and words[-3:] == ["--key", key, "--facts"]
