@@ -1053,6 +1053,42 @@ def test_the_redirect_examples_parse_as_their_kind():
         assert parse(example)["kind"] in ("github", "package"), example
 
 
+def test_several_targets_point_at_batch_mode():
+    """#1175 enhancement-5: an input that names several packages or URLs is pointed at --batch, never told it looks
+    like a description; a headless run halts with the redirect's first sentence as its reason."""
+    route = _step("### 2. Route by Kind", "### 3. ")
+    several, otherwise = [line for line in route.splitlines() if line.startswith("  - **`unparsed`**")]
+    [redirects] = [line for line in route.splitlines() if line.startswith("- **`other-host`**, **`local-path`**")]
+    assert "show the redirect for its kind, then, in interactive mode, wait for new input and go back to §1b" \
+        in redirects
+    assert several.startswith("  - **`unparsed`** with `targets` set: ")
+    assert otherwise.startswith("  - **`unparsed`** otherwise: ")
+    parse = _resolver().parse_target
+    for example in ("lodash axios zod", "lodash, axios, zod"):
+        assert f"`{example}`" in several, example
+        parsed = parse(example)
+        assert (parsed["kind"], parsed["targets"]) == ("unparsed", ["lodash", "axios", "zod"]), example
+    redirect = route[route.index(several):route.index(otherwise)]
+    for needle in ('"**Quick Skill compiles one target per run.** Your input names {the number of `targets`} targets '
+                   '({the `targets`, comma-separated}).', "run Quick Skill with `--batch <file>`",
+                   "Or name the one target to start with.\""):
+        assert needle in redirect, needle
+    description = route[route.index(otherwise):route.index("**GATE [default: HALT]**")]
+    assert "looks like a description" not in redirect and "looks like a description" in description
+    prose = re.findall(r'"((?:I want|build me) [^"]+)"', description)
+    assert len(prose) == 2
+    for sentence in prose:
+        assert parse(sentence)["targets"] is None, sentence
+    [gate] = [line for line in route.splitlines() if line.startswith("**GATE [default: HALT]**")]
+    assert "emit the redirect for the kind (for `unparsed`, the one `targets` selects)" in gate
+    halt = _filled(_staged(gate, "halt.json"))
+    assert (halt["reason"], halt["details"]) == ("<the redirect's first sentence>", {"kind": "<kind>"})
+    assert "  targets:" in _resolver().__doc__
+    when = _paragraph(_section(_read(DOCS), "### Quick Skill (QS)", "**Agent:**"), "**When to Use:**")
+    assert ("Quick Skill compiles one target per run, so an input that names several packages or URLs, such as "
+            "`lodash axios zod`, is pointed at `--batch <file>`.") in when
+
+
 def test_the_fallthrough_branch_holds_only_the_web_search():
     """#599: the resolver owns the target shapes and the registry chain, so the step never
     works them out by hand; the fallthrough branch keeps the judgment the script leaves out,
@@ -1221,12 +1257,67 @@ def test_the_tag_check_reads_the_github_probe_listing():
         assert needle in unavailable, needle
 
 
+def _options(text: str) -> dict:
+    """Each `- **IF ...**` and `- **GATE [default: ...]**` bullet of `text`, at any indent, by its label."""
+    found = {}
+    for line in text.splitlines():
+        m = re.match(r"\s*- \*\*(IF [^*]+|GATE \[default: [A-Z]+\])\*\*", line)
+        if m:
+            assert m.group(1) not in found, m.group(1)
+            found[m.group(1)] = line
+    return found
+
+
+def test_the_missing_tag_gate_offers_the_nearest_tags():
+    """#1175 enhancement-3: a pinned version no tag names offers the probe's nearest tags, the default branch or a
+    cancel in an interactive run; a headless run, and a listing no probe could read, still halt with exit 3."""
+    check = _step("### 3a. Verify Target Version Tag", "### 4. ")
+    gate = _section(check, '- **`status: "ok"` with `match` null**', '- **`status: "unavailable"`')
+    assert ('{the probe\'s `nearest`, else its `tags`, one numbered line each, or "(none: the repo has no tags)"}'
+            in gate)
+    assert ("Select: [1] to [n] Build from that tag · [D] Drop the version and build from {`source_ref` when set, "
+            "else the default branch} · [X] Cancel and exit") in gate
+    assert "With no tag listed, offer only [D] and [X]." in gate
+    options = _options(gate)
+    assert list(options) == ["IF 1 to n", "IF D", "IF X", "GATE [default: HALT]"]
+    assert "set `source_ref` ← that tag" in options["IF 1 to n"] and "clear `target_version`" in options["IF 1 to n"]
+    assert "clear `target_version` and keep `source_ref` (a `/tree/` URL's ref, else unset)" in options["IF D"]
+    for option in ("IF 1 to n", "IF D"):
+        assert "Proceed to §4." in options[option] and "HALT" not in options[option], option
+    assert "HARD HALT with **exit code 6 (user-cancelled)**" in options["IF X"]
+    cancel = _filled(_staged(options["IF X"], "halt.json"))
+    assert (cancel["phase"], cancel["halt_reason"], cancel["skill_package"]) == ("resolve-target", "user-cancelled",
+                                                                                 None)
+    headless = options["GATE [default: HALT]"]
+    for needle in ("in headless mode, show the message without its Select line",
+                   '"Re-run with one of these tags, or omit the version to auto-detect from the default branch."',
+                   "HARD HALT with **exit code 3 (resolution-failure)**"):
+        assert needle in headless, needle
+    halt = _filled(_staged(headless, "halt.json"))
+    assert halt["reason"] == "Tag {target_version} not found in {owner}/{repo}."
+    assert halt["details"] == {"requested_version": "{target_version}", "available_tags": []}
+    [unavailable] = [line for line in check.splitlines() if line.startswith('- **`status: "unavailable"`')]
+    assert "Select:" not in unavailable and "HARD HALT with **exit code 3 (resolution-failure)**" in unavailable
+    assert ("A listing no probe could read halts in interactive mode too: only a listing that lacks the tag offers "
+            "the choice.") in check
+    assert "do not re-prompt" not in check
+    [gates] = [line for line in _read(INVOCATION_CONTRACT).splitlines() if line.startswith("| **Gates** |")]
+    assert "missing version tag [n/D/X] (headless halts with exit 3)" in gates
+    [row1] = [line for line in _read(SKILL).splitlines() if line.startswith("| 1 | Resolve Target |")]
+    assert row1.endswith("| Conditional (no target, an ambiguous one, or a missing tag) |")
+    when = _paragraph(_section(_read(DOCS), "### Quick Skill (QS)", "**Agent:**"), "**When to Use:**")
+    assert ("an interactive run lists the nearest tags and offers to build from one of them, to drop the version and "
+            "build from the default branch, or to cancel; a headless run stops with exit `3` "
+            "(`resolution-failure`)") in when
+
+
 def test_the_new_step_1_halts_name_their_codes():
     """#1173: the halt sites, not a Raised by column, say what each step 1 halt raises."""
     check = _step("### 3a. Verify Target Version Tag", "### 4. ")
     tag_halts = [(code, reason) for name, code, reason, segment in _halt_sites()
                  if name == "resolve-target.md" and segment in check]
-    assert tag_halts == [(3, "resolution-failure"), (3, "resolution-failure")]
+    # #1175: a missing tag offers the nearest tags; its [X] cancels, and a headless run still halts with exit 3.
+    assert tag_halts == [(6, "user-cancelled"), (3, "resolution-failure"), (3, "resolution-failure")]
     registry = _step("### 3. Registry Resolution", "### 3a. ")
     gate = registry[registry.index("**Ambiguous-name gate**"):registry.index("**If all methods fail")]
     [cancel] = [line for line in gate.splitlines() if line.startswith("- **IF X**")]
@@ -1329,8 +1420,9 @@ def test_the_scan_finds_every_hard_halt():
     # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
     # ecosystem-check.md lost its two, which no input reached until agentskills.io has a registry API (#1173).
     # compile.md gained the halts for a metadata renderer that is missing or fails twice (#1174).
+    # resolve-target.md gained the [X] cancel of the missing-tag gate (#1175).
     assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 3, "finalize.md": 1,
-                        "quick-extract.md": 5, "resolve-target.md": 12, "write-and-validate.md": 7}
+                        "quick-extract.md": 5, "resolve-target.md": 13, "write-and-validate.md": 7}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES) - {"ecosystem-check.md"}
 
 
@@ -1368,13 +1460,13 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(39), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(40), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT runs the emitter, and its payload builds the envelope it names, except the runtime
     halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder). #1173: a site that
     names no command of its own stages `{run_dir}/halt.json` for the standard command its file's Rules state."""
     sites = _halt_sites()
-    assert len(sites) == 39
+    assert len(sites) == 40
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -2016,6 +2108,37 @@ def test_batch_start_halts_on_the_reason_the_helper_names():
     assert "or no path in `{quickBatchProbeOrder}` exists (an incomplete install)" in start
 
 
+def test_a_bad_batch_line_is_refused_at_start(tmp_path, capsys):
+    """#1175 enhancement-4: a line with a word that is no modifier refuses the batch at §1, with exit 2 and before
+    any target runs, instead of taking the line whole as a target that fails when the batch reaches it."""
+    batch = _read(BATCH_MODE)
+    grammar = _section(batch, "## Input format", "## Execution")
+    for needle in ("A word that starts with `#` after the target opens a comment that runs to the end of the line.",
+                   "Any other word after the target refuses the whole batch at §1: no target runs, and the helper's "
+                   "message names the first five such lines, counts the rest and gives the fix."):
+        assert needle in grammar, needle
+    assert "taken whole as the target" not in grammar
+    start = _section(batch, "### 1. Start the Batch", "### 2. ")
+    [branch] = [line for line in start.splitlines() if line.startswith("- **`input-invalid`**")]
+    assert "(a batch file it cannot read, a line with a word that is no modifier, or a run folder that holds " \
+           "another batch)" in branch
+    assert "HARD HALT with **exit code 2 (input-invalid)**" in branch
+    assert _filled(_staged(branch, "halt.json"))["phase"] == "batch-mode"
+    helper = _load(SCRIPTS / "skf-quick-batch.py", "skf_quick_batch_for_quick_contract")
+    file = tmp_path / "targets.txt"
+    file.write_text("lodash scope=src/ # the core\nzod lang=javascript\n", encoding="utf-8")
+    assert helper.main(["start", str(file), "--run-dir", str(tmp_path / "run")]) == 1
+    refusal = json.loads(capsys.readouterr().err)
+    assert _schema()["$defs"]["skf-envelope"]["const"]["exit_codes"][refusal["halt_reason"]] == 2
+    assert "line 2: `lang=javascript` after the target `zod`" in refusal["message"]
+    assert not (tmp_path / "run").exists()
+    paragraph = _paragraph(_read(DOCS), "**Batch mode (`--batch <file>`).**")
+    for needle in ("`#` comments (a whole line, or the rest of a line after its target)",
+                   "A batch refused before its first target, such as one whose file has a word that is no modifier "
+                   "after a line's target, writes no summary and exits `2`"):
+        assert needle in paragraph, needle
+
+
 def test_a_failing_batch_helper_call_halts_the_batch():
     """#903: a failing next, a second failing record and a failing summarize each end the batch with exit 4 and a
     batch-mode halt line, as Create Skill's batch does, instead of no halt line or the same target over again."""
@@ -2518,6 +2641,113 @@ def test_finalize_relays_the_flip_helpers_message():
     assert "non-link in place" not in segment
 
 
+def test_the_active_pointer_gate_keeps_another_generators_build():
+    """#1175 enhancement-1: step 5 binds the version `active` names, and finalize asks before it moves `active` off
+    another workflow's build; a headless run keeps it, records `finalize.active-pointer` and reports
+    `kept-prior-active`."""
+    assert "`{prior_active_version}` ← `write_check.marked_active_version`" in _read(WRITE_AND_VALIDATE)
+    flip = _section(_read(FINALIZE), "### 1. Create Active Pointer", "### 2. ")
+    order = [flip.index(needle) for needle in ("**If `{overrides.no_active_pointer}` is true**",
+                                               "When step 5 §1 bound `{prior_active_version}` and it is neither "
+                                               "`{version}` nor `active`",
+                                               "Select: [F] Point it at this quick skill · [K] Keep it",
+                                               "**Resolve `{atomicWriteHelper}`**")]
+    assert order == sorted(order), "--no-active-pointer, then the gate, then the helper"
+    for needle in ("bind `{prior_generator}` ← `generated_by` and `{prior_tier}` ← `confidence_tier` of "
+                   "`{skill_group}/{prior_active_version}/{repo_name}/metadata.json` (each null when absent)",
+                   "When `{prior_generator}` is not `quick-skill`",
+                   "**`{skill_group}/active` points at the `{prior_generator}` build of v{prior_active_version} "
+                   "({prior_tier}).**",
+                   'say "an SKF build" in place of "the `{prior_generator}` build" when `{prior_generator}` is null',
+                   # The package is written by now, so the universal cancel's "No files were written" would be false.
+                   "The package is already written, so `cancel`, `exit` or `:q` at this question keeps the pointer as "
+                   "**IF K** does."):
+        assert needle in flip, needle
+    options = _options(flip)
+    assert list(options) == ["IF F", "IF K", "GATE [default: K]"]
+    assert "go on to the flip below" in options["IF F"]
+    for needle in ('log "Active pointer: kept on v{prior_active_version}."', "set `{active_pointer}` to "
+                   "`kept-prior-active`", "with the active-pointer line omitted from the completion summary and the "
+                   "outputs payload"):
+        assert needle in options["IF K"], needle
+    headless = options["GATE [default: K]"]
+    assert "if `{headless_mode}` is true, keep it as **IF K** does and record the decision" in headless
+    decision = _filled(_staged(headless, "decision.json"))
+    assert (decision["gate"], decision["default_action"], decision["taken_action"]) == ("finalize.active-pointer",
+                                                                                      "K", "K")
+    assert set(decision["evidence"]) == {"prior_active_version", "prior_generator"}
+    schema = _schema()
+    assert "kept-prior-active" in schema["properties"]["summary"]["properties"]["active_pointer"]["enum"]
+    gates = schema["properties"]["headless_decisions"]["items"]["properties"]["gate"]["enum"]
+    assert "finalize.active-pointer" in gates
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    context = json.loads(_success_payload(section).replace('"active_pointer": "symlink"',
+                                                           '"active_pointer": "kept-prior-active"'))
+    del context["outputs"]["active_pointer"]
+    emitter = _emitter()
+    envelope = emitter.build_envelope(schema, context, halt=False, decisions=[decision], warnings=[], stamps={
+        "timestamp": "2026-11-13T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert emitter.contract_errors(schema, envelope) == []
+    assert envelope["summary"]["active_pointer"] == "kept-prior-active"
+    summary = _section(_read(FINALIZE), "### 2. Display Completion Summary", "### 3. ")
+    assert "- `{skill_group}/active` -> `{version}` (omit this line when §1 flipped no pointer)" in summary
+    # test-skill and export-skill read the version `active` names, so the summary says which one that is.
+    assert ("{If §1 set `{active_pointer}` to `kept-prior-active`, add:} **Active:** still points at "
+            "v{prior_active_version}, the version test-skill and export-skill read; re-run Quick Skill and answer F "
+            "to move it to v{version}.") in summary
+    [row6] = [line for line in _read(SKILL).splitlines() if line.startswith("| 6 | Finalize |")]
+    assert row6 == "| 6 | Finalize | references/finalize.md | Conditional (`active` on another workflow's build) |"
+    [row] = [line for line in _read(INVOCATION_CONTRACT).splitlines() if line.startswith("| **Gates** |")]
+    assert row.endswith("; step 6: active pointer [F/K] (when `active` names another workflow's build; headless "
+                        "keeps it) |")
+    [no] = [line for line in _overwrite().splitlines() if line.startswith("**GATE [default: N]**")]
+    assert ("to keep it, give the quick skill another version (`@Ferris QS <package>@<version>`): when `active` names "
+            "another workflow's build, that run moves it only if you answer F, and a headless run keeps it.") in no
+    safety = next(line for line in _section(_read(DOCS), "### Quick Skill (QS)", "**Agent:**").splitlines()
+                  if line.startswith("**Safety:**"))
+    for needle in ("(`[F]`) or keep it (`[K]`)", "a headless run keeps it", "`finalize.active-pointer`",
+                   "`kept-prior-active`"):
+        assert needle in safety, needle
+
+
+@pytest.mark.parametrize("generator, asks", [("create-skill", True), ("quick-skill", False)])
+def test_the_active_pointer_question_reads_the_build_active_names(tmp_path, generator, asks):
+    """#1175: the write check names the version `active` points at, and the metadata.json finalize §1 reads beside
+    it names its generator: a Create Skill build there is asked about, a quick skill is moved as before."""
+    skills = tmp_path / "skills"
+    built = skills / "cognee" / "2.0.0" / "cognee"
+    built.mkdir(parents=True)
+    (built / "metadata.json").write_text(json.dumps({"generated_by": generator, "confidence_tier": "Forge"}),
+                                         encoding="utf-8")
+    atomic = _load(SCRIPTS / "skf-atomic-write.py", "skf_atomic_write_for_active_gate")
+    atomic._create_symlink_or_junction("2.0.0", skills / "cognee" / "active")
+    inventory = _load(SCRIPTS / "skf-skill-inventory.py", "skf_skill_inventory_for_active_gate")
+    check = inventory.write_check(skills, "cognee", "1.0.0", None)
+    assert (check["verdict"], check["marked_active_version"]) == ("ok", "2.0.0")
+    flip = _section(_read(FINALIZE), "### 1. Create Active Pointer", "### 2. ")
+    [path] = re.findall(r"of `(\{skill_group\}/\{prior_active_version\}/\{repo_name\}/metadata\.json)`", flip)
+    path = path.replace("{skill_group}", (skills / "cognee").as_posix()).replace("{repo_name}", "cognee")
+    metadata = json.loads(Path(path.replace("{prior_active_version}", check["marked_active_version"]))
+                          .read_text(encoding="utf-8"))
+    assert (metadata["generated_by"] != "quick-skill") == asks
+    assert metadata["confidence_tier"] == "Forge"
+
+
+def test_the_active_pointer_question_skips_a_real_active_folder(tmp_path):
+    """#1175 review: a real `active/` folder holding a marked package is reported as "active", not a version, so
+    finalize §1 asks nothing about it and the flip refuses it with exit 7, as before the question existed."""
+    package = tmp_path / "skills" / "cognee" / "active" / "cognee"
+    package.mkdir(parents=True)
+    (package / "metadata.json").write_text(json.dumps({"generated_by": "create-skill"}), encoding="utf-8")
+    inventory = _load(SCRIPTS / "skf-skill-inventory.py", "skf_skill_inventory_for_real_active")
+    check = inventory.write_check(tmp_path / "skills", "cognee", "1.0.0", None)
+    assert (check["verdict"], check["marked_active_version"]) == ("ok", "active")
+    flip = _section(_read(FINALIZE), "### 1. Create Active Pointer", "### 2. ")
+    assert ("When step 5 §1 bound `{prior_active_version}` and it is neither `{version}` nor `active` (a real folder "
+            "there, which the flip below refuses), bind") in flip
+    assert "When a real folder is at `{skill_group}/active`" in flip
+
+
 def test_skill_md_keeps_one_home_per_rule():
     text = _read(SKILL)
     for stale in ("runs as today", "in parallel (one batched tool-call message", "From preferences:",
@@ -2626,8 +2856,8 @@ def test_a_headless_run_hands_its_envelope_line_to_the_health_check():
 STANDARD_COMMAND_HOMES = {
     EMIT_COMMAND: {"SKILL.md": 1, "batch-mode.md": 1, "compile.md": 1, "quick-extract.md": 1, "resolve-target.md": 1,
                    "write-and-validate.md": 1},
-    RECORD_COMMAND: {"SKILL.md": 1, "compile.md": 1, "quick-extract.md": 1, "resolve-target.md": 1,
-                     "write-and-validate.md": 1},
+    RECORD_COMMAND: {"SKILL.md": 1, "compile.md": 1, "finalize.md": 1, "quick-extract.md": 1,
+                     "resolve-target.md": 1, "write-and-validate.md": 1},
 }
 RULES_STAGES = ("compile.md", "quick-extract.md", "resolve-target.md", "write-and-validate.md")
 

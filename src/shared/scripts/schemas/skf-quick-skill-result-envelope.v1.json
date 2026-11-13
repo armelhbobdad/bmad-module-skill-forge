@@ -173,8 +173,8 @@
         },
         "active_pointer": {
           "type": "string",
-          "enum": ["symlink", "junction", "skipped-no-active-pointer", "skipped-helper-missing"],
-          "description": "The kind of {skill_group}/active pointer step 6 flipped, or why it flipped none."
+          "enum": ["symlink", "junction", "skipped-no-active-pointer", "skipped-helper-missing", "kept-prior-active"],
+          "description": "The kind of {skill_group}/active pointer step 6 flipped, or why it flipped none: kept-prior-active when active named another workflow's build and the run kept it there (the user's K, or a headless run's default)."
         },
         "validation_issues": {
           "type": "object",
@@ -229,7 +229,8 @@
               "quick-extract.repo-shape",
               "quick-extract.zero-exports",
               "compile.review",
-              "write-and-validate.overwrite"
+              "write-and-validate.overwrite",
+              "finalize.active-pointer"
             ],
             "description": "The gate that resolved without a person, named after its step and the gate the step file labels. `ecosystem-check.ecosystem-match` is reserved: step 2 records it only once agentskills.io has a registry API."
           },

@@ -1,0 +1,5 @@
+type: changed
+scope: skf-quick-skill
+summary: |
+  Quick Skill now recognizes an input that names several packages or GitHub URLs, such as `lodash axios zod` or `lodash, axios, zod`: it says it compiles one target per run and points you at `--batch <file>`, instead of saying the input looks like a description. A headless run stops on such an input with exit code `3` (`resolution-failure`) and the reason "Quick Skill compiles one target per run." `skf-resolve-package.py parse-target` gains the `targets` key, which lists the targets of such an input and is null for any other.
+issues: [1175]

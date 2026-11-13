@@ -42,7 +42,7 @@ Recognised per-line modifiers:
 | `language=<lang>` | Sets `language_hint` for this target: the same effect as `--language-hint` on a single-target run. |
 | `scope=<path>` | Sets `scope_hint` for this target: the same effect as `--scope-hint` on a single-target run. |
 
-The target stays whole, its version included (`cognee@0.5.0`, `requests==2.31.0`): step 1 §1b reads the version as it reads a single target's. A modifier key may be in any letter case; its value must not be empty, and each modifier may appear once. A line with any other word after its target is taken whole as the target, so step 1 cannot parse it and that target fails while the rest of the batch runs.
+The target stays whole, its version included (`cognee@0.5.0`, `requests==2.31.0`): step 1 §1b reads the version as it reads a single target's. A modifier key may be in any letter case; its value must not be empty, and each modifier may appear once. A word that starts with `#` after the target opens a comment that runs to the end of the line. Any other word after the target refuses the whole batch at §1: no target runs, and the helper's message names the first five such lines, counts the rest and gives the fix.
 
 ## Execution
 
@@ -56,7 +56,7 @@ uv run {quickBatchHelper} start "{batch_file}" --run-dir "{batch_dir}" [--fail-f
 
 Pass `--fail-fast` when it was given. The helper parses the file and writes the batch file `{batch_dir}/batch.jsonl`, status running and every target pending; run again on the same file, after a compaction for example, it changes nothing. If it exits non-zero, the `halt_reason` of its stderr JSON names the halt; no target runs and no batch summary is written (`references/halt-contract.md`):
 
-- **`input-invalid`** (a batch file it cannot read, or a run folder that holds another batch), or no path in `{quickBatchProbeOrder}` exists (an incomplete install): HARD HALT with **exit code 2 (input-invalid)**: display "**The batch cannot start:** {its `message`, or: skf-quick-batch.py is missing, re-install SKF}", stage `{"phase": "batch-mode", "halt_reason": "input-invalid", "reason": "The batch cannot start: <that message>", "skill_package": null, "details": {"batch_file": "{batch_file}"}}` as `{batch_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{batch_dir}" --target stderr < "{batch_dir}/halt.json"`.
+- **`input-invalid`** (a batch file it cannot read, a line with a word that is no modifier, or a run folder that holds another batch), or no path in `{quickBatchProbeOrder}` exists (an incomplete install): HARD HALT with **exit code 2 (input-invalid)**: display "**The batch cannot start:** {its `message`, or: skf-quick-batch.py is missing, re-install SKF}", stage `{"phase": "batch-mode", "halt_reason": "input-invalid", "reason": "The batch cannot start: <that message>", "skill_package": null, "details": {"batch_file": "{batch_file}"}}` as `{batch_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{batch_dir}" --target stderr < "{batch_dir}/halt.json"`.
 - **`write-failure`** (the batch run folder cannot be written, so it cannot hold `halt.json` either): HARD HALT with **exit code 4 (write-failure)**: display "**The batch cannot start:** {its `message`}" and emit with nothing to stage in:
 
   ```bash

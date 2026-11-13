@@ -37,12 +37,12 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Resolve Target | references/resolve-target.md | Conditional (no target, or an ambiguous one) |
+| 1 | Resolve Target | references/resolve-target.md | Conditional (no target, an ambiguous one, or a missing tag) |
 | 2 | Ecosystem Check | references/ecosystem-check.md | Yes |
 | 3 | Quick Extract | references/quick-extract.md | Conditional (an unusual repo shape, zero exports) |
 | 4 | Compile | references/compile.md | No (review) |
 | 5 | Write & Validate | references/write-and-validate.md | Conditional (the skill folder exists) |
-| 6 | Finalize | references/finalize.md | Yes |
+| 6 | Finalize | references/finalize.md | Conditional (`active` on another workflow's build) |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract

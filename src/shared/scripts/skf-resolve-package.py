@@ -65,6 +65,13 @@ the kind has none):
                    `vercel/next.js` is `next-js`)
   host:            other-host: the host name, in lower case
   path:            local-path: the path as given
+  targets:         unparsed: the words of an input that names several
+                   targets, in the order given, when it splits on commas
+                   and whitespace into two or more words, each a package
+                   or github target, and none a word of prose
+                   (PROSE_WORDS, any letter case): `lodash axios zod` or
+                   `lodash, axios, zod`. Quick Skill compiles one target
+                   per run, so its step 1 points such an input at --batch
 
   Shapes, in the order they are tried:
     local-path     starts with `.`, `/`, `\\`, `~`, a drive letter or
@@ -176,6 +183,14 @@ EXIT_CODES = {"ok": 0, "fallthrough": 1, "ambiguous": 3}
 COMMANDS = ("parse-target", "resolve")
 LANGUAGE_REGISTRIES = {"javascript": "npm", "typescript": "npm", "js": "npm", "ts": "npm",
                        "python": "pypi", "py": "pypi", "rust": "crates"}
+# Words that mark a description rather than a list of targets: every word of
+# "I want a skill that helps with onboarding" parses as a package name, so an
+# input holding one of these (in any letter case) is never read as several
+# targets.
+PROSE_WORDS = frozenset(
+    "a an the and or but of for to in on at by with from about into i me my we us our you your it its this that "
+    "these those which what how is are be can could should would will want need please skill skills workflow "
+    "workflows agent agents".split())
 # PyPI project_urls labels that name the repository, in the order they are
 # read, as PEP 753 normalizes them; the homepage comes last.
 PYPI_SOURCE_LABELS = ("source", "sourcecode", "repository", "github")
@@ -383,12 +398,30 @@ def _registry_page(host: str, path: str) -> Optional[tuple[str, str, Optional[st
 
 def parse_target(text: str, local_first: bool = False) -> dict:
     """Split a quick-skill target into its kind and parts (see the module docstring)."""
+    out = _parse_shape(text, local_first)
+    if out["kind"] == "unparsed":
+        out["targets"] = _several_targets(out["input"])
+    return out
+
+
+def _several_targets(raw: str) -> Optional[list[str]]:
+    """The words of an unparsed input that names two or more package or github targets, else None."""
+    words = [word for word in re.split(r"[\s,]+", raw) if word]
+    if len(words) < 2 or any(word.lower() in PROSE_WORDS for word in words):
+        return None
+    if all(_parse_shape(word)["kind"] in ("package", "github") for word in words):
+        return words
+    return None
+
+
+def _parse_shape(text: str, local_first: bool = False) -> dict:
+    """parse_target's result, `targets` left null."""
     raw = (text or "").strip()
     if len(raw) >= 2 and raw[0] in _PAIRS and raw[-1] == _PAIRS[raw[0]]:
         raw = raw[1:-1].strip()
     out = {"kind": "unparsed", "input": raw, "target_version": None, "dist_tag": None, "owner": None,
            "repo": None, "url": None, "ref": None, "subdir": None, "package_name": None, "registry": None,
-           "skill_name": None, "host": None, "path": None}
+           "skill_name": None, "host": None, "path": None, "targets": None}
     if raw and local_first and _on_disk(raw):
         out.update(kind="local-path", path=raw[7:] if raw[:7].lower() == "file://" else raw)
         return out

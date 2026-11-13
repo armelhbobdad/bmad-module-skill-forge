@@ -115,7 +115,7 @@ class TestParseGithubUrl:
 
 
 NONE = dict.fromkeys(("target_version", "dist_tag", "owner", "repo", "url", "ref", "subdir", "package_name",
-                      "registry", "skill_name", "host", "path"))
+                      "registry", "skill_name", "host", "path", "targets"))
 
 
 def _parsed(kind: str, **fields) -> dict:
@@ -244,6 +244,37 @@ class TestParseTarget:
     )
     def test_anything_else_is_unparsed(self, raw):
         assert mod.parse_target(raw) == _parsed("unparsed") | {"input": raw.strip()}
+
+    @pytest.mark.parametrize("raw, targets", [
+        ("lodash axios zod", ["lodash", "axios", "zod"]),
+        ("lodash, axios, zod", ["lodash", "axios", "zod"]),
+        ("lodash,axios", ["lodash", "axios"]),
+        ("vercel/next.js lodash@4.17.21", ["vercel/next.js", "lodash@4.17.21"]),
+    ], ids=["spaces", "commas-and-spaces", "a-comma", "a-repository-and-a-pin"])
+    def test_an_input_that_names_several_targets_lists_them(self, raw, targets):
+        """#1175: Quick Skill compiles one target per run, so step 1 points such an input at --batch."""
+        assert mod.parse_target(raw) == _parsed("unparsed", targets=targets) | {"input": raw}
+
+    @pytest.mark.parametrize("raw", [
+        "I want a skill that helps with onboarding",
+        "build me a brainstorming workflow",
+        "Lodash And Axios",
+        "a sentence",
+        "lodash,",
+        "lodash ./x",
+        "lodash https://gitlab.com/o/r",
+        "lodash requests>=2.31",
+        "lodash",
+        "lodash@4.17.21",
+        "https://github.com/o/r",
+        "https://www.npmjs.com/package/lodash",
+        "https://gitlab.com/o/r",
+        "./x",
+        "",
+    ])
+    def test_any_other_input_lists_no_targets(self, raw):
+        """A word of prose, one word, a word that is no package or github target, or any other kind: null."""
+        assert mod.parse_target(raw)["targets"] is None
 
     @pytest.mark.parametrize(
         "raw, inner",

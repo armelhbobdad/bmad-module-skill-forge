@@ -77,7 +77,10 @@ When the parser's `target_version` is not `null`, store it as `target_version` i
 
   - **`other-host`**: "**Quick Skill reads GitHub repositories only.** `{url}` is on `{host}`. Paste the project's GitHub URL if it has one, or clone it and run `/skf-brief-skill` on the local clone, then `/skf-create-skill`."
   - **`local-path`**: "**Quick Skill reads GitHub repositories, not local folders.** To make a skill from `{path}`, run `/skf-brief-skill` with that path, then `/skf-create-skill`. Or paste the GitHub URL of its repository."
-  - **`unparsed`**: the user typed something like "I want a skill that helps with onboarding" or "build me a brainstorming workflow", or text that is no package name or URL. Redirect with a sibling-skill suggestion:
+  - **`unparsed`** with `targets` set: the user typed several package names or GitHub URLs, such as `lodash axios zod` or `lodash, axios, zod`, and `targets` lists them. Point at batch mode:
+
+    "**Quick Skill compiles one target per run.** Your input names {the number of `targets`} targets ({the `targets`, comma-separated}). To compile them all, put one per line in a file and run Quick Skill with `--batch <file>`: every target then runs headless, with no review gate. Or name the one target to start with."
+  - **`unparsed`** otherwise: the user typed something like "I want a skill that helps with onboarding" or "build me a brainstorming workflow", or text that is no package name or URL. Redirect with a sibling-skill suggestion:
 
     "**This input looks like a description, not a package or URL.** Quick Skill needs a package name (e.g. `lodash`, `@vercel/og`, `requests==2.31.0`) or a GitHub URL (e.g. `https://github.com/lodash/lodash`).
 
@@ -88,7 +91,7 @@ When the parser's `target_version` is not `null`, store it as `target_version` i
 
     Otherwise, paste the package name or GitHub URL of the library you want to wrap, and quick-skill will resolve it."
 
-**GATE [default: HALT]**: in headless mode, after the web search above when the input qualifies for it, emit the redirect for the kind and HARD HALT with **exit code 3 (resolution-failure)**: stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "<the redirect's first sentence>", "skill_package": null, "details": {"kind": "<kind>"}}` as `{run_dir}/halt.json`.
+**GATE [default: HALT]**: in headless mode, after the web search above when the input qualifies for it, emit the redirect for the kind (for `unparsed`, the one `targets` selects) and HARD HALT with **exit code 3 (resolution-failure)**: stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "<the redirect's first sentence>", "skill_package": null, "details": {"kind": "<kind>"}}` as `{run_dir}/halt.json`.
 
 ### 3. Registry Resolution
 
@@ -149,21 +152,26 @@ uv run {githubProbe} tags --repo {owner}/{repo} --version {target_version} --nam
 ```
 
 - **`status: "ok"` with `match` set**: set `source_ref` ← `match`, which replaces a `/tree/` URL's ref. Step 3's ref-aware source reading uses this value to fetch from the tagged commit. Proceed to §4.
-- **`status: "ok"` with `match` null**: the listing lacks the tag. HARD HALT with **exit code 3 (resolution-failure)**:
+- **`status: "ok"` with `match` null**: the listing lacks the tag. Offer the tags it holds:
 
   "**Tag `{target_version}` not found in `{owner}/{repo}`.**
 
   The version was parsed from your target but no tag of the resolved repository names it. Quick-skill cannot extract from a version with no commit pointer: the result would be sourced from the default branch but labelled `{target_version}` in metadata.
 
   Tags near this version:
-  {the probe's `nearest`, else its `tags`, or "(none: the repo has no tags)"}
+  {the probe's `nearest`, else its `tags`, one numbered line each, or "(none: the repo has no tags)"}
 
-  Re-run with one of these tags, or omit the version to auto-detect from the default branch."
+  Select: [1] to [n] Build from that tag · [D] Drop the version and build from {`source_ref` when set, else the default branch} · [X] Cancel and exit"
 
-  Stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "Tag {target_version} not found in {owner}/{repo}.", "skill_package": null, "details": {"requested_version": "{target_version}", "available_tags": [<the tags shown>]}}` as `{run_dir}/halt.json`.
+  With no tag listed, offer only [D] and [X].
+
+  - **IF 1 to n**: set `source_ref` ← that tag, which replaces a `/tree/` URL's ref, and clear `target_version`: step 3 reads the version from the manifest at that tag. Proceed to §4.
+  - **IF D**: clear `target_version` and keep `source_ref` (a `/tree/` URL's ref, else unset): step 3 reads the version from the manifest on that ref or the default branch. Proceed to §4.
+  - **IF X**: display "Cancelled. No files were written." and HARD HALT with **exit code 6 (user-cancelled)**: stage `{"phase": "resolve-target", "halt_reason": "user-cancelled", "reason": "Cancelled. No files were written.", "skill_package": null}` as `{run_dir}/halt.json`.
+  - **GATE [default: HALT]**: in headless mode, show the message without its Select line, then "Re-run with one of these tags, or omit the version to auto-detect from the default branch.", and HARD HALT with **exit code 3 (resolution-failure)**: stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "Tag {target_version} not found in {owner}/{repo}.", "skill_package": null, "details": {"requested_version": "{target_version}", "available_tags": [<the tags shown>]}}` as `{run_dir}/halt.json`.
 - **`status: "unavailable"`, any other exit, or no `{githubProbe}` candidate**: nothing could read the repository's tags, so the tag may exist. Do not report it missing. HARD HALT with **exit code 3 (resolution-failure)**: "**Could not check tag `{target_version}` in `{owner}/{repo}`.** {the probe's `message` (on stderr after another exit), or with no candidate: SKF's GitHub probe (`skf-github-probe.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF.} Re-run once GitHub can be read, or omit the version to auto-detect from the default branch." Stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "Could not check tag {target_version} in {owner}/{repo}.", "skill_package": null, "details": {"requested_version": "{target_version}", "cause": "<the probe's cause, probe-error after another exit, or github-probe-missing>"}}` as `{run_dir}/halt.json`.
 
-In headless mode, halt at once on either; do not re-prompt.
+A listing no probe could read halts in interactive mode too: only a listing that lacks the tag offers the choice.
 
 ### 4. Detect Language
 

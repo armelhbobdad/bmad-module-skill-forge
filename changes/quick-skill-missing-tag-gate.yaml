@@ -1,0 +1,5 @@
+type: added
+scope: skf-quick-skill
+summary: |
+  When the repository has no tag for the version you pinned (`@Ferris QS cognee@9.9.9`), an interactive Quick Skill run now lists the nearest tags and lets you build from one of them, drop the version and build from the default branch, or cancel (exit code `6`, `user-cancelled`), instead of stopping. A headless or `--batch` run still stops with exit code `3` (`resolution-failure`) and the tags in `error.details.available_tags`, and a run that cannot read the repository's tags at all still stops with exit code `3` in both modes.
+issues: [1175]
