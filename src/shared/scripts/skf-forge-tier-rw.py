@@ -53,8 +53,8 @@ Subcommands:
                 that is not there means no override; one that cannot be
                 read or is not a mapping sets `preferences_error` to why
                 and applies no override. Takes no lock: it writes
-                nothing. Used by skf-brief-skill step 0 §1 and
-                skf-test-skill init.md §4.
+                nothing. Used by skf-brief-skill step 0 §1,
+                skf-test-skill init.md §4 and skf-audit-skill init.md §2.
 
   write-tools   Write a fresh forge-tier.yaml from a JSON context payload
                 on stdin, or, with --detect-from, from the outputs a

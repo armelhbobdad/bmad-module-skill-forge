@@ -682,7 +682,8 @@ def test_step_two_shows_its_analysis_once_in_the_summary():
                    "**Detected language:** {the detector's language} ({confidence}, {detection_source})",
                    "**Extraction warnings:**", "- Target version: {target_version} (user-specified)",
                    "- Detected version: {the §4b version", "differs from your target version ({target_version})",
-                   "{bulleted list of the §4.3 exports, each name once}", "each with its one-line description"):
+                   ("{bulleted list of the §4.3 exports, each name once (for Java, Kotlin and Swift, once per "
+                    "file that declares it, as `export_count` counts them)}"), "each with its one-line description"):
         assert needle in summary, needle
     # The detected version shows on every run; only the target version line hangs on a pin.
     assert (summary.index("- Detected version:") < summary.index("{If `target_version` was provided in step 01:}")

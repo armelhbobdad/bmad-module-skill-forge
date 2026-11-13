@@ -604,7 +604,7 @@ SAVED_HELPER_OUTPUTS = (
     (ANALYZE_TARGET, "{detectWorkspacesHelper} --tree-file \"{run_dir}/tree.json\" --manifest-dir", "workspaces.json",
      1),
     (ANALYZE_TARGET, "{extractPublicApiHelper} --mode entries", "entries.json", 1),
-    (ANALYZE_TARGET, "{extractPublicApiHelper} --mode quick", "extract.json", 1),
+    (ANALYZE_TARGET, "{extractPublicApiHelper} --mode quick", "extract.json", 2),  # entry files, --all-sources
 )
 
 
@@ -1094,7 +1094,8 @@ def test_no_brief_file_cites_the_moved_sections_under_their_old_step():
              if OLD_STEP_RE.search(line)]
     assert not stale, stale
     assert not OLD_STEP_RE.search(FORGE_TIER_RW.read_text(encoding="utf-8"))
-    assert "Used by skf-brief-skill step 0 §1 and" in FORGE_TIER_RW.read_text(encoding="utf-8")
+    assert ("Used by skf-brief-skill step 0 §1,\n                skf-test-skill init.md §4 and skf-audit-skill "
+            "init.md §2.") in FORGE_TIER_RW.read_text(encoding="utf-8")
 
 
 TIERS = ["Quick", "Forge", "Forge+", "Deep"]
@@ -1502,7 +1503,8 @@ def test_step_two_and_the_recommender_show_the_same_export_count(tmp_path):
     `export_count` §5 prints, and step 3 §2c's recommender, reading that file, recommends on the same number."""
     analyze = _read(ANALYZE_TARGET)
     procedure = _section(analyze, "#### 4.1 Procedure \u2014 script-supported languages")
-    [call] = re.findall(r"^ *(uv run \{extractPublicApiHelper\} --mode quick [^\n]*)$", procedure, re.M)
+    [call] = [line for line in re.findall(r"^ *(uv run \{extractPublicApiHelper\} --mode quick [^\n]*)$", procedure,
+                                          re.M) if "--entry-file" in line]
     assert '> "{run_dir}/extract.json"' in call
     source = tmp_path / "source"
     for rel, text in {"package.json": '{"name": "demo", "version": "1.0.0", "dependencies": {"zod": "3"}}\n',

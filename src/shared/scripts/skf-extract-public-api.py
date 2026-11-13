@@ -221,7 +221,14 @@ Output JSON shape (stdout):
                                                    --source-root)
     "export_count": 12,                           (the distinct names of
                                                    `exports`: a name two
-                                                   files export counts once)
+                                                   files export counts once;
+                                                   for java, kotlin and
+                                                   swift, whose public
+                                                   declarations are public
+                                                   in whatever file they
+                                                   sit, every export, as
+                                                   skf-check-unit-records.py
+                                                   from-extract counts them)
     "dependencies": ["requests", "pydantic", ...],
     "dependency_count": 2,                        (the length of
                                                    `dependencies`)
@@ -1577,6 +1584,11 @@ ManifestParser = Callable[[str], dict]
 # cannot list, and record each statement whose names another module gives.
 ExportScanner = Callable[[str, str, list[str], list[dict]], list[dict]]
 
+# The languages whose public declarations are public in whatever file they
+# sit: --all-sources reads every source file of theirs, and each export is
+# one in `export_count` (two packages' `Builder` are two public types).
+ALL_SOURCES_LANGUAGES = ("java", "kotlin", "swift")
+
 LANGUAGE_DISPATCH: dict[str, tuple[ManifestParser, ExportScanner]] = {
     "js": (parse_package_json, scan_exports_js),
     "ts": (parse_package_json, scan_exports_js),
@@ -1649,6 +1661,14 @@ def _literal_version(version: object, warnings: list[str]) -> str | None:
     return version
 
 
+def _export_count(language: str, exports: list[dict]) -> int:
+    """`export_count`: every export for the ALL_SOURCES_LANGUAGES (each
+    scanner lists a name once per file), else the distinct names, a name
+    two entry files export counting once."""
+    names = [e["name"] for e in exports if isinstance(e.get("name"), str) and e["name"]]
+    return len(names) if language in ALL_SOURCES_LANGUAGES else len(set(names))
+
+
 def extract(payload: dict) -> dict:
     """Orchestrate manifest parse + export scan for one logical package."""
     warnings: list[str] = []
@@ -1700,8 +1720,7 @@ def extract(payload: dict) -> dict:
         "version": parsed.get("version"),
         "description": parsed.get("description"),
         "exports": exports,
-        # the number skf-recommend-scope-type.py counts: a name two files export counts once
-        "export_count": len({e["name"] for e in exports if isinstance(e.get("name"), str) and e["name"]}),
+        "export_count": _export_count(language, exports),
         "dependencies": dependencies,
         "dependency_count": len(dependencies),
         "modules": parsed.get("modules", []),
@@ -6157,7 +6176,7 @@ def main(argv: list[str]) -> int:
     if args.all_sources:
         if args.mode != "quick":
             parser.error("--all-sources: quick mode only (--mode quick)")
-        if not args.language or len(args.language) != 1 or args.language[0].lower() not in ("java", "kotlin", "swift"):
+        if not args.language or len(args.language) != 1 or args.language[0].lower() not in ALL_SOURCES_LANGUAGES:
             parser.error("--all-sources takes one --language of java, kotlin or swift: their public declarations "
                          "are public wherever they sit")
         if args.source_root is None:

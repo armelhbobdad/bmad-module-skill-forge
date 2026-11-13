@@ -5021,6 +5021,26 @@ class TestBriefCountsAndFileSets:
         older.write_bytes(json.dumps({k: v for k, v in out.items() if k != "export_count"}).encode("utf-8"))
         assert _recommender_count(older) == 2
 
+    def test_two_packages_builder_are_two_java_exports(self, tmp_path, capsys):
+        """Java, Kotlin and Swift declare a type public in whatever file it sits, so for the languages
+        --all-sources reads every export counts (two packages' `Builder` are two public types), and Analyze
+        Source's unit record, written from the same file by from-extract, holds the same number."""
+        root = _stage(tmp_path / "unit", {
+            "com/a/Builder.java": "package com.a;\npublic class Builder {}\n",
+            "com/b/Builder.java": "package com.b;\npublic class Builder {}\npublic interface Shape {}\n"})
+        code, out = _quick(capsys, "--language", "java", "--source-root", str(root), "--all-sources")
+        assert code == 0 and [e["name"] for e in out["exports"]] == ["Builder", "Builder", "Shape"]
+        assert out["export_count"] == 3
+        extract = tmp_path / "extract.json"
+        extract.write_bytes(json.dumps(out).encode("utf-8"))
+        assert _recommender_count(extract) == 3
+        proc = subprocess.run([sys.executable, str(SCRIPTS / "skf-check-unit-records.py"), "from-extract",
+                               "--extract", str(extract), "--exit-code", "0", "--unit-name", "unit",
+                               "--files-count", "2", "--language", "java", "--dir", str(tmp_path / "records")],
+                              capture_output=True, text=True, encoding="utf-8", timeout=60, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["exports_count"] == out["export_count"]
+
     def test_a_payload_carries_the_counts_too(self):
         out = mod.extract({"language": "rust", "manifest": {"path": "Cargo.toml", "content": CARGO},
                            "entries": [{"path": "src/lib.rs", "content": RUST_LIB}], "mode": "quick"})

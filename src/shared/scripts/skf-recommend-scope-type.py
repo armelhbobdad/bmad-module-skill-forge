@@ -61,9 +61,9 @@ one whose contents were not given. Passing `entry_files` too is an error.
 --extract-file reads the extractor's output (skf-extract-public-api.py
 --mode quick, or any JSON object with an `export_count` or an `exports`
 list) and sets `export_count` to the file's `export_count`, else to the
-number of distinct export names its `exports` lists (the extractor's own
-count), so no caller counts the exports by hand. Passing `export_count`
-too is an error.
+number of distinct export names its `exports` lists (the extractor's count
+for every language but Java, Kotlin and Swift), so no caller counts the
+exports by hand. Passing `export_count` too is an error.
 
 Input (JSON object on stdin or via --json):
   signals       object, required unless source_type is docs-only. Exactly
@@ -443,7 +443,7 @@ def _read_entry_dir(folder: str, tree: object) -> list[dict]:
 def _read_export_count(value: str) -> int:
     """An extractor result's `export_count` when it has one, else the
     number of distinct export names its `exports` list holds (the
-    extractor's own definition of the count)."""
+    extractor's count for every language but Java, Kotlin and Swift)."""
     try:
         with open(value, encoding="utf-8-sig") as fh:
             data = json.load(fh)

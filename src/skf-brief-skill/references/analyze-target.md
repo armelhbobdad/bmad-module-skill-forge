@@ -182,13 +182,20 @@ If `confidence` is `low` (or `unknown` is returned for `language`) and no `langu
 
 Identify the public API surface. **Delegate the parsing to `{extractPublicApiHelper}` whenever the detected language is supported:** it finds the entry files, parses the manifest, reads the exports and finds the version, so none of them is derived in prose.
 
-**Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
+**Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`, `swift`.
 
 Display `Listing the exports...`. This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) based on the detected language, then always §4.3 (the modules and exports §5 shows) and conditionally §4.4 (semantic signals).
 
 #### 4.1 Procedure — script-supported languages
 
-`<source root>` is `{run_dir}/files` for a GitHub source. For a local source, or the `[L]` clone, it is `{source_path}`, whose files need no fetch: leave the `{githubFetchHelper}` lines and step 2's `--repo` and `--ref` out. When §1b picked a workspace, prefix each manifest candidate with `{monorepo_workspace}/` and pass `--scope "{monorepo_workspace}"`.
+`<source root>` is `{run_dir}/files` for a GitHub source. For a local source, or the `[L]` clone, it is `{source_path}`, whose files need no fetch: leave the `{githubFetchHelper}` lines and the extractor's `--repo` and `--ref` out. When §1b picked a workspace, prefix each manifest candidate with `{monorepo_workspace}/` and pass `--scope "{monorepo_workspace}"`.
+
+**Java, Kotlin and Swift** declare a type public in whatever file it sits, so their public surface is every source file, as Analyze Source counts it, not the first few files entries mode lists: they run this fetch and parse in place of steps 1 and 2, then steps 3 and 4. The fetch stages the manifests and the language's source files less the tests (`<extension>` is `java`, `kt` or `swift`), and the parse reads each one the language's scope patterns include (`--all-sources`). `<manifest path>` is the language's manifest at the top of `<source root>`: `pom.xml` for Java, `build.gradle.kts` else `build.gradle` for Kotlin, `Package.swift` for Swift (no `--manifest-file` when it is not there). When §1b picked a workspace, prefix each fetch pattern with `{monorepo_workspace}/` and pass `<source root>/{monorepo_workspace}` as `--source-root`.
+
+```bash
+uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" --exclude "**/src/test/**" --exclude "**/Tests/**" "**/pom.xml" "**/build.gradle.kts" "**/build.gradle" "**/Package.swift" "**/*.<extension>"
+uv run {extractPublicApiHelper} --mode quick --language "<language>" --source-root "<source root>" --manifest-file "<manifest path>" --all-sources --resolve-version [--repo "{owner}/{repo}" --ref "{analysis_ref}"] > "{run_dir}/extract.json"
+```
 
 1. **Find the entry files.** Fetch the manifest candidates (the listing decides which exist), let the extractor find the entry files in the listing by full mode's rules, and fetch the files it lists:
 
@@ -214,7 +221,7 @@ Display `Listing the exports...`. This section runs exactly one of §4.1 (script
 
 #### 4.2 Procedure — fallback (not script-supported)
 
-Languages outside the script coverage (Ruby / C# / Swift / etc.) take this path. The §4.1 fall-through on script error also lands here.
+Languages outside the script coverage (Ruby / C# / PHP / etc.) take this path. The §4.1 fall-through on script error also lands here.
 
 Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. Read the files you inspect from `{run_dir}/files` (fetched with §4.1's fetch line, naming them) or the local folder. Note any obvious entry points, and flag the limitation in the analysis summary so the user knows scoping is on coarser signals. Then stage an extraction with no export, so step 3 reads `{run_dir}/extract.json` on either path: `printf '{"exports": [], "export_count": 0}' > "{run_dir}/extract.json"`.
 
@@ -277,7 +284,7 @@ Present the complete analysis, the counts and notable files read from `{run_dir}
 {bulleted list of the §4.3 modules, each with its one-line description}
 
 **Public Exports/Entry Points ({export_count}):**
-{bulleted list of the §4.3 exports, each name once}
+{bulleted list of the §4.3 exports, each name once (for Java, Kotlin and Swift, once per file that declares it, as `export_count` counts them)}
 
 **Version:** {on a ratify run, the hydrated `version`; otherwise:}
 - Detected version: {the §4b version, or `not detected: defaulting to 1.0.0, which you can change when you confirm the brief` when detection failed or returned a non-semver value}

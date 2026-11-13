@@ -361,7 +361,7 @@ def test_a_version_the_manifest_does_not_state_is_looked_up_by_a_script():
     brief to 1.0.0; the prose fallback reads its release tag from the probe (v4.0.0 quality gate run 1,
     skf-brief-skill determinism-1)."""
     text = _read(ANALYZE_TARGET)
-    [parse] = _blocks(_section(text, "#### 4.1 Procedure"), "--mode quick")
+    [parse] = _blocks(_section(text, "#### 4.1 Procedure"), "--entry-file")
     assert "--resolve-version" in parse
     assert "--resolve-version" in _run("skf-extract-public-api.py", "--help").stdout
     section = _section(text, "### 4b. Detect Source Version")
@@ -519,7 +519,7 @@ def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
     fetch cannot read stays a warning: the exports read before it are kept (no round is run by hand)."""
     section = _section(_read(ANALYZE_TARGET), "#### 4.1 Procedure")
     [find] = _blocks(section, "--mode entries")
-    [parse] = _blocks(section, "--mode quick")
+    [parse] = _blocks(section, "--entry-file")
     assert "never pick an entry file yourself" in section
     assert "follow.txt" not in section and "--follow-file" not in section and "rounds" not in section
     files = {
@@ -582,6 +582,65 @@ def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
 
 
 @needs_bash
+@pytest.mark.parametrize("source", ["github", "local"])
+def test_java_kotlin_and_swift_count_every_source_file(tmp_path, source):
+    """Java, Kotlin and Swift declare a type public in whatever file it sits, so §4.1 parses every source file
+    but the tests (--all-sources), as Analyze Source counts them, never the first five files entries mode lists:
+    twelve classes and two packages' `Builder` count fourteen, so the public-api rule does not fire on them, and a
+    Swift package is counted by the script, not staged as no export."""
+    section = _section(_read(ANALYZE_TARGET), "#### 4.1 Procedure")
+    [block] = _blocks(section, "--all-sources")
+    assert "`swift`." in _section(_read(ANALYZE_TARGET), "### 4. List Top-Level Modules and Exports")
+    java = {"pom.xml": ("<project><groupId>com.acme</groupId><artifactId>acme</artifactId>"
+                        "<version>2.0.0</version></project>\n"),
+            **{f"src/main/java/com/acme/C{i:02d}.java": f"package com.acme;\npublic class C{i:02d} {{}}\n"
+               for i in range(12)},
+            "src/main/java/com/acme/a/Builder.java": "package com.acme.a;\npublic class Builder {}\n",
+            "src/main/java/com/acme/b/Builder.java": "package com.acme.b;\npublic class Builder {}\n",
+            "src/test/java/com/acme/C00Test.java": "package com.acme;\npublic class C00Test {}\n",
+            "README.md": "# acme\n"}
+    swift = {"Package.swift": "// swift-tools-version:5.9\n",
+             "Sources/Acme/Api.swift": "public struct Api {}\npublic func make() -> Api { Api() }\n",
+             "Sources/Acme/Store.swift": "public protocol Store {}\n",
+             "Tests/AcmeTests/ApiTests.swift": "public final class ApiTests {}\n"}
+    body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
+            "module_count": 1, "mode": "interactive"}
+    for language, extension, manifest, files, count, scope_type in (
+            ("java", "java", "pom.xml", java, 14, "full-library"),
+            ("swift", "swift", "Package.swift", swift, 3, "public-api")):
+        repo = _write_tree(tmp_path / language / "repo", files)
+        run_dir = tmp_path / language / "run"
+        run_dir.mkdir()
+        (run_dir / "tree.json").write_bytes(_probe_listing(sorted(files)).encode("utf-8"))
+        root = run_dir / "files" if source == "github" else repo
+        filled = (block.replace("<extension>", extension).replace("<language>", language)
+                  .replace("<source root>", root.as_posix()).replace("<manifest path>", manifest))
+        if source == "github":
+            filled = re.sub(r" \[(--repo [^\]]*)\]", r" \1", filled)
+            filled = (_fill_github(filled, run_dir, _fetch_shim(tmp_path / language, repo))
+                      .replace("uv run {extractPublicApiHelper}", _extract_shim(tmp_path / language, repo)))
+        else:  # a local source: no fetch line, no --repo or --ref
+            filled = "\n".join(line for line in filled.splitlines() if "{githubFetchHelper}" not in line)
+            filled = (re.sub(r" \[--repo [^\]]*\]", "", filled).replace("{run_dir}", run_dir.as_posix())
+                      .replace("uv run {extractPublicApiHelper}", _script("skf-extract-public-api.py")))
+        assert not re.findall(r"\{[A-Za-z_]+\}|<[a-z ]+>|\[--", filled), filled
+        proc = _bash(filled)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+        assert "Test" not in " ".join(e["name"] for e in out["exports"])
+        assert out["export_count"] == count == len(out["exports"])
+        if language == "java":
+            assert (out["package_name"], out["version"]) == ("acme", "2.0.0")
+        if source == "github":
+            assert not (run_dir / "files" / "src" / "test").exists() and not (run_dir / "files" / "Tests").exists()
+        proc = _run("skf-recommend-scope-type.py", "--tree-file", str(run_dir / "tree.json"),
+                    "--extract-file", str(run_dir / "extract.json"), stdin=json.dumps(body))
+        assert proc.returncode == 0, proc.stderr
+        assert (json.loads(proc.stdout)["scope_type"], json.loads(proc.stdout)["signals"]["export_count"]) == \
+            (scope_type, count)
+
+
+@needs_bash
 def test_the_fallback_path_stages_an_extraction_with_no_export(tmp_path):
     """§4.2 writes over extract.json (a failed extractor run may have left it empty), so step 3 always passes
     --extract-file, and an entries call that found nothing to parse goes there instead of an extractor call
@@ -621,7 +680,7 @@ def test_a_public_repository_is_read_without_gh():
         assert "githubFetchProbeOrder:" in text.split("\n---\n", 1)[0], path.name
         calls += [line.strip() for block in _blocks(text, "{githubFetchHelper}") for line in block.splitlines()
                   if "{githubFetchHelper}" in line]
-    assert len(calls) == 5 and all(call.startswith(prefix) for call in calls), calls
+    assert len(calls) == 6 and all(call.startswith(prefix) for call in calls), calls
     assert f'`{prefix}"{{file}}"`' in _read(VERSION_RESOLUTION)
     listing = _section(_read(ANALYZE_TARGET), "### 1. Resolve Target Location")
     assert '`status: "ok"` with `gh`' not in listing and "**Fetching files.**" in listing
@@ -1189,7 +1248,7 @@ def test_the_tier_a_list_is_the_runners_reexport_targets():
 def test_the_quick_tier_candidates_are_step_twos_reexport_files(tmp_path):
     """#1138 (determinism-7): step 2's documented quick call on a GitHub barrel resolves the files its re-exports
     lead to, the one its named re-export reaches from the listing alone, so Quick tier reads no barrel."""
-    [parse] = _blocks(_section(_read(ANALYZE_TARGET), "#### 4.1 Procedure"), "--mode quick")
+    [parse] = _blocks(_section(_read(ANALYZE_TARGET), "#### 4.1 Procedure"), "--entry-file")
     files = {
         # a version the manifest states: --resolve-version looks up no tag
         "package.json": '{"name": "@acme/foo", "version": "1.0.0", "main": "src/index.ts"}\n',
