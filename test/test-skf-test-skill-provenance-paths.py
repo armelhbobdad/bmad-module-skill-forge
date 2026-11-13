@@ -671,7 +671,7 @@ def test_a_release_never_removes_another_runs_lock(tmp_path):
 
 
 def test_report_renews_the_lock_before_it_writes_the_result_files(tmp_path):
-    contract = _slice(_read(REPORT), "### 4c. Result Contract", "### 5. Finalize Output Document")
+    contract = _slice(_read(REPORT), "### 4c. Result Contract", "### 6. Present Final Report")
     assert RENEW in _fence(contract, RENEW)
     assert contract.index(RENEW) < contract.index("**Publish the report.**") \
         < contract.index("emit --workflow skf-test-skill")
@@ -751,10 +751,10 @@ def test_each_stage_and_each_by_eye_read_renews_the_lock():
     for needle in (by_eye, stage, "Exit 3 (another run took the lock over) HALTs `another-run-active`",
                    "exit 1 or 2, or no JSON, HALTs `helper-failed`", "phase `<step>:run-lock`"):
         assert needle in rule, needle
-    # Both points join the list of renewals, before the discovery subagents' renewal and the command.
-    assert rule.index(by_eye) < rule.index("before report.md §4b.2 spawns its discovery subagents") \
-        < rule.index(RENEW)
-    assert rule.index(stage) < rule.index("before report.md §4b.2 spawns its discovery subagents")
+    # #1189 architecture-7: both points join the list of renewals the plain command serves, and the
+    # discovery subagents' trigger follows that command, with the `--stale-after 180` one.
+    assert rule.index(by_eye) < rule.index(RENEW) < rule.index("before report.md §4b.2 spawns its discovery subagents")
+    assert rule.index(stage) < rule.index(RENEW)
     # The stage clause reaches every stage that runs under the lock: init.md takes it in §6a,
     # report.md §7 releases it before health-check.md loads.
     table = _slice(skill, "## Stages", "## Invocation Contract")
@@ -1807,8 +1807,6 @@ def test_coherence_check_routes_to_one_mode_file():
     assert ("Each §2.1 to §2.7 finding is a row of the naive Structural Findings table that §6 records; with none, "
             "the **Structural Issues** count is 0.") in _flow(_read(COHERENCE_NAIVE))
     assert "**Structural Issues:** {the number of rows}" in _read(REFS.parent / "assets" / "output-section-formats.md")
-    assert ("`coherence-naive.md` and `coherence-contextual.md`, the mode branches coherence-check.md loads"
-            in _read(SKILL_MD))
 
 
 @pytest.mark.parametrize("path, title, keys, sections, categories", COHERENCE_MODE_FILES,
@@ -3016,7 +3014,7 @@ def test_the_source_access_is_written_when_it_is_resolved():
     assert ("and write it at once to the frontmatter of `{report_file}` (init.md §6c created it) as "
             "`analysisConfidence: '{analysis_confidence}'`, again each time a later rule changes it") in protocol
     assert "binds `{report_file}`" in _read(REFS / "init.md")
-    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 5."))
+    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 6."))
     assert "checks that `analysisConfidence` names a source access" in contract
     assert ("except when the `error` names `analysisConfidence`: then write `analysisConfidence: "
             "'{analysis_confidence}'`, the value source-access-protocol.md resolved") in contract
@@ -3179,7 +3177,7 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
         assert rule in loader, rule
     assert ("says a restored name stays only while an include glob matches no file") in _flow(
         _read(PROSE_SCRIPTS["{gapLedgerScript}"]))
-    internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
+    internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "### Provenance-map canonicalization"))
     assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
             "below), which add no name to its sets or to the coverage denominator.") in internal
     assert "never reach it" not in internal
@@ -3294,14 +3292,19 @@ def test_tooling_health_is_tooling_status_only():
 def test_no_scoring_rule_is_overridable_or_restated():
     toml = _read(CUSTOMIZE)
     assert "output_formats_path" not in toml and "scoring_rules_path" not in toml
-    comment = _flow(re.sub(r"(?m)^#\s?", "", toml[toml.index("# Pass threshold"):toml.index("default_threshold = 80")]))
-    assert "forge-auto, forge, forge-quick and campaign runs" in comment
+    comment = _flow(re.sub(r"(?m)^#\s?", "", toml[toml.index("# Pass threshold"):toml.index('default_threshold = ""')]))
+    # #1189 customization-2: the override outranks a pipeline's default, so only forge-auto and campaign,
+    # which pass --threshold, keep their own, and a raised value never turns a PASS into a FAIL.
+    assert "forge-auto and campaign pass `--threshold` themselves, so they keep their own" in comment
+    assert "A value above 80 never turns a PASS into a FAIL" in comment
     assert "a run a cap forced to FAIL stays FAIL at any threshold" in comment
     for path in sorted(TEST_SKILL.rglob("*.md")):
         text = _read(path)
         assert "{scoringRulesPath}" not in text and "{outputFormatsPath}" not in text, path.name
     detect = _flow(_read(DETECT))
-    assert "Tier-Dependent Scoring" not in detect and "set nothing here" in detect
+    assert "Tier-Dependent Scoring" not in detect and "set nothing here" not in detect
+    assert ("At Quick tier, in both modes, the scoring script skips Signature Accuracy and Type Coverage (no AST "
+            "available) and redistributes their weights.") in detect
     assert "Quick-tier weight adjustment" not in _read(COVERAGE)
 
 
@@ -4381,7 +4384,7 @@ def test_every_stage_writes_the_report_it_was_handed(name):
 
 
 def test_the_report_takes_its_public_name_only_once_its_checks_pass():
-    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 5. Finalize Output Document"))
+    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 6. Present Final Report"))
     for check in ("**Enforce step completeness.**", "**Check the report sections.**", "**Find the health check**",
                   "**Renew the run lock**"):
         assert contract.index(check) < contract.index("**Publish the report.**"), check
@@ -4807,3 +4810,135 @@ def test_each_degradation_is_recorded_where_it_is_met(tmp_path, site, path, star
     assert halt.returncode == 0, halt.stderr
     envelope = json.loads(halt.stderr.strip().split(": ", 1)[1])
     assert envelope["warnings"] == [prefix + HOSTILE]
+
+
+# ---------------------------------------------------------------------------
+# #1189: report prose in the document language, and stage prose cut to what the model acts on
+# ---------------------------------------------------------------------------
+
+REPORT_LANGUAGE_CONFIG = ("<!-- Config: communicate in {communication_language}. Test report prose in "
+                          "{document_output_language}. -->")
+REPORT_SECTION_WRITERS = ["detect-mode.md", "coverage-check.md", "coherence-check.md", "external-validators.md",
+                          "step-hard-gate.md", "score.md", "report.md"]
+
+
+def test_every_stage_that_writes_a_report_section_names_the_document_language():
+    """#1189 architecture-4: each stage that writes a section in place of a template heading carries the
+    document-language clause on its Config line, and no other file does."""
+    writers = sorted(path.name for path in REFS.glob("*.md") if "in place of the template's `## " in _read(path))
+    assert writers == sorted(REPORT_SECTION_WRITERS)
+    for path in sorted(REFS.glob("*.md")):
+        text = _read(path)
+        if path.name in REPORT_SECTION_WRITERS:
+            assert text.count(REPORT_LANGUAGE_CONFIG) == 1, path.name
+        else:
+            assert "{document_output_language}" not in text, path.name
+
+
+def test_the_report_step_keeps_no_load_or_sequence_sections():
+    """#1189 leanness-7: the STEP GOAL states the sequence, §4b.5 names the two files its record follows, and
+    sections 2 to 5 are gone without renumbering the sections the skill cites."""
+    text = _read(REPORT)
+    assert re.findall(r"^### (\S+)", text, re.M) == ["1.", "4b.", "4c.", "6.", "6b.", "7."]
+    goal = _flow(_slice(text, "## STEP GOAL:", "**Halt envelope.**"))
+    order = ["§4b records the discovery outcome in the gap ledger",
+             "a run the hard gate blocked comes here straight from step 4c and skips it",
+             "§4c renders the Gap Report from the ledger", "and that the health check is installed",
+             "writes the result contract and runs the on_complete hook", "§6 presents the result",
+             "§6b keeps the headless envelope for the run's last line",
+             "§7 releases the run lock and hands over to the health check"]
+    assert [goal.index(needle) for needle in order] == sorted(goal.index(needle) for needle in order)
+    collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
+    assert collect.endswith("was not scored and skips discovery testing (§4b): continue at §4c. ")
+    record = _flow(_slice(text, "**4b.5 Record the discovery gap.**", "```bash"))
+    assert ("It takes the severity and category of the Gap Severity row §4b names, in `{scoringRulesFile}`, and "
+            "follows the Ledger Record Format and the remediation quality rules of `{outputFormatsFile}`.") in record
+    assert _frontmatter(REPORT)["scoringRulesFile"] == "references/scoring-rules.md"
+    assert _frontmatter(REPORT)["outputFormatsFile"] == "assets/output-section-formats.md"
+    # A §4c slice that ends at §6 holds the whole of §4c and nothing of §6.
+    contract = _slice(text, "### 4c. Result Contract", "### 6.")
+    assert contract.rstrip().endswith("If `{onCompleteCommand}` is empty, this hook is a no-op (no log entry needed).")
+    assert "Present Final Report" not in contract and "**Result:**" not in contract
+
+
+def test_init_section_2_dispatches_on_the_reason_value():
+    """#1189 leanness-10: §2's dispatch is a bullet per reason value, cited by name, so no line reads as the
+    workflow's Step 3 to Step 6."""
+    section = _slice(_read(INIT), "### 2. Validate Skill Exists", "### 3. Validate Frontmatter Compliance")
+    dispatch = section[section.index("then act on `reason`:"):section.index("If no helper candidate resolves")]
+    keys = [bullet.split(": ", 1)[0] for bullet in re.findall(r"^- (.+)$", dispatch, re.M)]
+    assert keys == ["`manifest-and-link`, `manifest` or `link`", "`manifest-lags-link`", "`flat-layout`",
+                    "`missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`", "`newest-on-disk`",
+                    "Any other error, or no JSON"]
+    assert len(re.findall(r"^  - ", dispatch, re.M)) == 3, "the flat-layout case keeps its three sub-bullets"
+    assert not re.search(r"^\d+\. ", dispatch, re.M)
+    assert ('\n- Any other error, or no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:resolve`) with the '
+            "helper's stderr message.") in dispatch
+    flow = _flow(section)
+    for cited in ("When `migrate` exits 1, HALT as the any-other-error case says, with its `error`.",
+                  "take the `flat-layout` case's Otherwise branch", "**Not found** (the `missing` case)",
+                  "(or the `newest-on-disk` case found no version to test)", "In the `newest-on-disk` case, say instead"):
+        assert cited in flow, cited
+    for gone in ("step 3's", "(step 4)", "step 5", "step 6", "If neither:"):
+        assert gone not in section, gone
+
+
+def test_init_3a_resolves_the_frontmatter_validator_in_one_paragraph():
+    """#1189 leanness-9: §3a resolves or HALTs in §5b's form, and the frontmatter comment says so."""
+    text = _read(INIT)
+    section = _slice(text, "**3a. Resolve `{frontmatterScript}`**", "**3b.")
+    assert len(section.strip().split("\n\n")) == 1 and "```" not in section
+    for needle in ("**3a. Resolve `{frontmatterScript}`** ← first existing path in `{frontmatterScriptProbeOrder}`.",
+                   'If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `init:frontmatter`) with: '
+                   '"Error: cannot locate skf-validate-frontmatter.py at',
+                   "Install the SKF module or run from a development checkout with src/ present.\" No test report is "
+                   "written."):
+        assert needle in section, needle
+    assert "manual fallback" not in text.lower()
+    assert ("# Resolve `{frontmatterScript}` to the first existing path; §3a HALTs if\n# neither exists.\n"
+            "frontmatterScriptProbeOrder:") in text
+
+
+def test_the_maintainer_notes_are_cut():
+    """#1189 leanness-12: no line the model reads only tells a maintainer where a rule lives; the Stages table
+    keeps its Auto-proceed column."""
+    gone = {
+        SKILL_MD: ("holds prompt content carved out of SKILL.md", "so stage files don't have to repeat",
+                   "Stash all three", "no conditional at the usage site", "a house-style copy could change"),
+        DETECT: ("do not restate either here", "set nothing here", "Quick-tier adjustment"),
+        MIGRATION: ("Single source of truth", "desync", "Update this", "compile.md"),
+        SOURCE_ACCESS: ("extraction-patterns.md convention",),
+        REPORT: ("This step chains to the local health-check step", "is not the terminal step"),
+    }
+    for path, phrases in gone.items():
+        text = _read(path)
+        for phrase in phrases:
+            assert phrase not in text, (path.name, phrase)
+    skill = _read(SKILL_MD)
+    assert "| # | Step | File | Auto-proceed |" in skill
+    assert "   Apply the scalar fallbacks now:\n" in skill
+    assert "   Stash the bound scalars as workflow-context variables that stage files reference directly.\n" in skill
+    # The not-overridable note stays where a team reads it.
+    assert "# The scoring rules and the output formats are not overridable" in _read(CUSTOMIZE)
+    rules = _flow(_read(MIGRATION))
+    assert "Do not relax the gate otherwise. ## Case Rules" in rules
+    assert ("Create Skill always writes `t2_future_count: N` (0 included). A legacy skill whose `evidence-report.md` "
+            "predates the field lands in Case 4") in rules
+
+
+def test_skill_md_points_each_halt_at_its_stage_envelope():
+    """#1189 architecture-7: the Workflow Rules keep the release command, the plain and the `--stale-after 180`
+    renewals in that order and the verdict-input sentence, and leave the envelope and the report name to the
+    stages."""
+    rules = _slice(_read(SKILL_MD), "## Workflow Rules", "## Stages")
+    assert (f"- Every HALT follows its stage's **Halt envelope** paragraph; once `references/init.md` §6a has taken "
+            f"the run lock, it first releases the lock, whatever the release prints (it never removes another run's "
+            f"lock): from `{{project-root}}`, run `{RELEASE}`.\n") in rules
+    renew_180 = RENEW + " --stale-after 180"
+    verdict = ("The steps read the verdict inputs (`threshold`, `toolingStatus`, `workspaceDrift`, `docsOnly`, "
+               "`analysisConfidence`, `testResult`) from its frontmatter, never from memory")
+    assert "- The report, `{report_file}`, keeps its hidden name until report.md §4c publishes it. " + verdict in rules
+    assert rules.index(RELEASE) < rules.index(f"`{RENEW}`") < rules.index(renew_180) < rules.index(verdict)
+    for gone in ("Every HARD HALT", "A renewal right before a dispatch", "the helper keeps that window in the lock",
+                 "a halted run never leaves a partial report", "with the `--stale-after 180` command below"):
+        assert gone not in rules, gone

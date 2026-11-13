@@ -10,7 +10,7 @@ Scripts compute every score, so this file keeps no copy of their rules:
 - `scripts/aggregate-coherence.py` owns the contextual coherence split between reference validity and integration completeness; coherence-contextual.md §5 decides which integration patterns are complete.
 - `scripts/reconcile-coverage.py` computes Export Coverage on every branch; a docs-only skill takes its `docsOnly` branch, the documentation completeness ratio coverage-check.md §2c names. `scripts/score-signatures.py` computes Signature Accuracy and Type Coverage.
 
-The pass threshold is `{defaultThreshold}`, unless `--threshold` or the pipeline's default overrides it (score.md §1).
+The pass threshold is the one init.md §1b resolves from `--threshold`, a `{defaultThreshold}` override, the pipeline's default and the bundled 80, which score.md §1 reads.
 
 ## Gap Severity
 

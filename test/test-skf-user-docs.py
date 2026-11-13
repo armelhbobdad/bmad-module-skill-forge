@@ -1478,8 +1478,10 @@ def test_forge_auto_says_the_manual_repair_chain_tests_at_the_default_bar():
     """#586: a chain with no alias re-tests at Test Skill's default bar, so keeping 90% takes the offer or a flag."""
     thresholds = _slice(_read(TEST_SKILL / "references" / "init.md"), "### 1b.", "### 2.")
     assert re.search(r"\|\s*`forge-auto`\s*\|\s*90\s*\|", thresholds)
-    assert "If `{pipeline_alias}` is absent" in thresholds and "falls through to `{defaultThreshold}`" in thresholds
-    assert re.search(r"^default_threshold = 80$", _read(TEST_SKILL / "customize.toml"), re.M)
+    # #1189: with no flag and no team override, a chain with no alias falls to the bundled 80.
+    assert ("the table's value for `{pipeline_alias}` when the table lists it (`\"pipeline default ({pipeline_alias} "
+            "→ {N}%)\"`) and `80` (`\"bundled default (80%)\"`)") in thresholds
+    assert re.search(r'^default_threshold = ""$', _read(TEST_SKILL / "customize.toml"), re.M)
     routes = _slice(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "### Repair Routes",
                     "## Anti-Patterns")
     assert "TS, at the recorded threshold" in routes

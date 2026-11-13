@@ -8,6 +8,11 @@ logging in score.md §6, pipeline_alias forwarding in the forger, and
 pipeline-contracts.md documentation.  Also confirms hard-gate independence
 (AC #4): step-hard-gate.md has no threshold-driven logic.
 
+#1189 customization-2: `default_threshold` ships empty and, set by an
+override, outranks a pipeline's default, so the order is CLI, override,
+pipeline table, bundled 80. The matrix tests resolve each case in the order
+init.md §1b's sentence names its layers, so they read the prose the model runs.
+
 The alias gates come from parse-pipeline.py's ALIASES, the table the forger
 runs, not from a prose copy of it.
 """
@@ -20,6 +25,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tomllib
 
 import pytest
 
@@ -60,6 +66,70 @@ def _read(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _flow(text: str) -> str:
+    return re.sub(r"\s+", " ", text)
+
+
+# init.md §1b's one sentence: each layer as it names it, and what the layer gives for a run. A run is a dict
+# of `cli` (the --threshold value), `override` (the bound {defaultThreshold}) and `alias` ({pipeline_alias}).
+PRECEDENCE_LEAD = "`effective_threshold` is the first of "
+LAYERS = {
+    "`--threshold=<N>`": lambda run, table: run.get("cli"),
+    "a bound `{defaultThreshold}`": lambda run, table: run.get("override"),
+    "the table's value for `{pipeline_alias}` when the table lists it": lambda run, table: table.get(run.get("alias")),
+    "`80`": lambda run, table: 80,
+}
+LABELS = ["CLI override ({N}%)", "workflow override ({N}%)", "pipeline default ({pipeline_alias} → {N}%)",
+          "bundled default (80%)"]
+
+
+def _section_1b() -> str:
+    text = _read(INIT_FILE)
+    return text[text.index("### 1b."):text.index("### 2.")]
+
+
+def _precedence_sentence() -> str:
+    section = _flow(_section_1b())
+    assert section.count(PRECEDENCE_LEAD) == 1, "init.md §1b states the precedence in one sentence"
+    start = section.index(PRECEDENCE_LEAD)
+    return section[start:section.index(". ", start) + 1]
+
+
+def _lookup_table() -> dict[str, int]:
+    """init.md §1b's lookup table: pipeline alias -> default threshold."""
+    rows = re.findall(r"^\|\s*`([a-z-]+)`\s*\|\s*(\d+)\s*\|", _section_1b(), re.M)
+    return {alias: int(n) for alias, n in rows}
+
+
+def _ordered_layers() -> list[tuple[str, str]]:
+    """Each layer of the sentence, in its order, with the `threshold_source` label written right after it."""
+    sentence = _precedence_sentence()
+    layers = sorted(LAYERS, key=sentence.index)
+    labels = re.findall(r'`"([^"`]+)"`', sentence)
+    assert len(labels) == len(layers), (labels, sentence)
+    for i, (layer, label) in enumerate(zip(layers, labels)):
+        after = sentence.index(f'`"{label}"`')
+        assert sentence.index(layer) < after, (layer, label)
+        if i + 1 < len(layers):
+            assert after < sentence.index(layers[i + 1]), (label, layers[i + 1])
+    return list(zip(layers, labels))
+
+
+def _resolve(run: dict) -> tuple[int, str]:
+    """The threshold and its source, taking the layers in the order init.md §1b names them."""
+    table = _lookup_table()
+    for layer, label in _ordered_layers():
+        value = LAYERS[layer](run, table)
+        if value is not None:
+            return value, label.replace("{N}", str(value)).replace("{pipeline_alias}", str(run.get("alias")))
+    raise AssertionError("no layer gave a threshold")
+
+
+def _bound_default_threshold(merged_value: str) -> int | None:
+    """SKILL.md On Activation binds `{defaultThreshold}` only from a non-empty value."""
+    return int(merged_value) if str(merged_value).strip() else None
+
+
 # ---------------------------------------------------------------------------
 # init.md §1b — Per-Pipeline Threshold Lookup Table
 # ---------------------------------------------------------------------------
@@ -85,10 +155,14 @@ class TestInitPipelineThresholdSection:
             "§1b must reference {pipeline_alias} variable"
         )
 
-    def test_pipeline_default_threshold_variable_set(self, text: str) -> None:
-        assert "{pipeline_default_threshold}" in text, (
-            "§1b must set {pipeline_default_threshold} variable"
-        )
+    def test_pipeline_default_threshold_variable_is_gone(self) -> None:
+        """#1189 leanness-8: §1b reads the table in its one sentence, with no variable of its own."""
+        for path in sorted(TS_DIR.rglob("*")):
+            if path.is_file() and path.suffix in {".md", ".toml"}:
+                text = _read(path)
+                for gone in ("{pipeline_default_threshold}", "workflow default (", "should be unreachable",
+                             "bundled fallback ("):
+                    assert gone not in text, (path.name, gone)
 
     @pytest.mark.parametrize(
         "alias,threshold",
@@ -109,22 +183,22 @@ class TestInitPipelineThresholdSection:
             r"\|\s*Pipeline Alias\s*\|\s*Default Threshold\s*\|", text
         ), "§1b lookup table must have Pipeline Alias / Default Threshold headers"
 
-    def test_alias_present_and_found_path(self, text: str) -> None:
-        assert re.search(
-            r"present AND found in the table.*pipeline_default_threshold",
-            text,
-            re.DOTALL,
-        ), "§1b must document the path where alias is present and found"
+    def test_alias_found_in_the_table(self) -> None:
+        assert "the table's value for `{pipeline_alias}` when the table lists it" in _precedence_sentence()
+        assert _resolve({"alias": "forge-auto"}) == (90, "pipeline default (forge-auto → 90%)")
 
-    def test_alias_present_but_not_found_path(self, text: str) -> None:
-        assert re.search(
-            r"present but NOT in the table.*remains unset", text, re.DOTALL
-        ), "§1b must document the path where alias is present but not found"
+    @pytest.mark.parametrize("alias", ["maintain", None], ids=["not-in-the-table", "absent"])
+    def test_alias_not_in_the_table_or_absent_falls_to_80(self, alias: str | None) -> None:
+        """An alias the table does not list, or none (a standalone run), takes the bundled 80."""
+        assert alias not in _lookup_table()
+        assert _resolve({"alias": alias}) == (80, "bundled default (80%)")
 
-    def test_alias_absent_path(self, text: str) -> None:
-        assert re.search(
-            r"pipeline_alias.*absent.*remains unset", text, re.DOTALL | re.IGNORECASE
-        ), "§1b must document the path where pipeline_alias is absent"
+    def test_the_bullets_and_steps_are_gone(self) -> None:
+        section = _section_1b()
+        for gone in ("present AND found in the table", "present but NOT in the table", "remains unset",
+                     "falls through to", "precedence: CLI > pipeline default"):
+            assert gone not in section, gone
+        assert not re.search(r"^\d+\. ", section, re.M), "§1b numbers no steps"
 
     def test_section_1b_before_section_2(self, text: str) -> None:
         idx_1b = text.find("### 1b.")
@@ -135,7 +209,7 @@ class TestInitPipelineThresholdSection:
 
     def test_references_score_md(self, text: str) -> None:
         assert re.search(r"score\.md", text), (
-            "§1b must reference score.md as the consumer of pipeline_default_threshold"
+            "§1b must reference score.md as the reader of the resolved threshold"
         )
 
 
@@ -145,35 +219,35 @@ class TestInitPipelineThresholdSection:
 
 
 class TestInitThresholdPrecedence:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(INIT_FILE)
+    """#1189 customization-2: CLI, then an override, then the pipeline table, then the bundled 80."""
 
-    def test_precedence_header_mentions_pipeline_default(self, text: str) -> None:
-        assert re.search(
-            r"CLI\s*>\s*pipeline default\s*>\s*scalar\s*>\s*bundled fallback",
-            text,
-        ), "init.md §1b precedence header must list all four layers in order"
+    def test_the_sentence_names_the_four_layers_in_order(self) -> None:
+        assert _ordered_layers() == list(zip(LAYERS, LABELS))
 
-    def test_layer_1_cli_override(self, text: str) -> None:
-        assert re.search(
-            r"1\.\s+.*--threshold=<N>.*CLI wins", text
-        ), "init.md §1b must document layer 1: CLI override"
+    @pytest.mark.parametrize("run, expected", [
+        ({"cli": 85, "override": 70, "alias": "forge"}, (85, "CLI override (85%)")),
+        ({"override": 70, "alias": "forge"}, (70, "workflow override (70%)")),
+        ({"override": 70, "alias": "forge-auto"}, (70, "workflow override (70%)")),
+        ({"alias": "forge-quick"}, (80, "pipeline default (forge-quick → 80%)")),
+        ({"alias": None}, (80, "bundled default (80%)")),
+        ({"alias": "maintain"}, (80, "bundled default (80%)")),
+    ], ids=["cli-wins", "override-reaches-a-pipeline", "override-outranks-the-table", "pipeline-default",
+            "nothing-set", "nothing-set-maintain"])
+    def test_each_case_resolves_as_the_sentence_orders_it(self, run: dict, expected: tuple[int, str]) -> None:
+        assert _resolve(run) == expected
 
-    def test_layer_2_pipeline_default(self, text: str) -> None:
-        assert re.search(
-            r"2\.\s+.*pipeline_default_threshold.*pipeline default \(\{pipeline_alias\}", text
-        ), "init.md §1b must document layer 2: the pipeline default of the lookup table"
-
-    def test_layer_3_workflow_scalar(self, text: str) -> None:
-        assert re.search(
-            r"3\.\s+.*defaultThreshold.*workflow.*scalar", text, re.DOTALL
-        ), "init.md §1b must document layer 3: workflow default scalar"
-
-    def test_layer_4_bundled_fallback(self, text: str) -> None:
-        assert re.search(
-            r"4\.\s+.*fall back to.*80", text
-        ), "init.md §1b must document layer 4: bundled fallback 80"
+    @pytest.mark.parametrize("alias, expected", [
+        ("forge-auto", (90, "pipeline default (forge-auto → 90%)")),
+        (None, (80, "bundled default (80%)")),
+    ], ids=["pipeline", "standalone"])
+    def test_the_bundled_value_binds_no_override(self, alias: str | None, expected: tuple[int, str]) -> None:
+        """With no override, or when the resolver cannot run and the bundled customize.toml is read alone,
+        the empty `default_threshold` leaves `{defaultThreshold}` unbound: the table decides, else 80."""
+        bundled = tomllib.loads(_read(CUSTOMIZE_TOML))["workflow"]["default_threshold"]
+        assert bundled == ""
+        override = _bound_default_threshold(bundled)
+        assert override is None
+        assert _resolve({"override": override, "alias": alias}) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -201,15 +275,17 @@ class TestInitThresholdSourceLogging:
             "threshold_source for pipeline must include 'pipeline default'"
         )
 
-    def test_workflow_default_source_format(self, text: str) -> None:
-        assert re.search(r'workflow default', text), (
-            "threshold_source for scalar must include 'workflow default'"
+    def test_workflow_override_source_format(self, text: str) -> None:
+        assert '`"workflow override ({N}%)"`' in text, (
+            "threshold_source for the override must read 'workflow override'"
         )
+        assert "workflow default" not in text
 
-    def test_bundled_fallback_source_format(self, text: str) -> None:
-        assert re.search(r'bundled fallback', text), (
-            "threshold_source for fallback must include 'bundled fallback'"
+    def test_bundled_default_source_format(self, text: str) -> None:
+        assert '`"bundled default (80%)"`' in text, (
+            "threshold_source for the last layer must read 'bundled default (80%)'"
         )
+        assert "bundled fallback" not in text, "'fallback' names the threshold fallback alone"
 
     def test_threshold_source_is_written_into_the_report(self, text: str) -> None:
         assert "thresholdSource: '{threshold_source}'" in text, (
@@ -264,8 +340,8 @@ class TestScoreReportOutput:
         assert "uv run {resultContextScript} settle" in score[score.find("### 6. Write the Completeness Score"):]
 
     def test_threshold_source_line_format(self, tmp_path: pathlib.Path) -> None:
-        for source in ("CLI override (90%)", "pipeline default (forge → 85%)", "workflow default (80%)",
-                       "bundled fallback (80%)"):
+        for source in ("CLI override (90%)", "pipeline default (forge → 85%)", "workflow override (70%)",
+                       "bundled default (80%)"):
             assert f"\n**Threshold Source:** {source}\n" in self._section(tmp_path, source), (
                 "the Threshold Source line must give the frontmatter's thresholdSource"
             )
@@ -350,14 +426,12 @@ class TestSkillMdOnActivation:
         )
         assert activation_match, "SKILL.md must have an On Activation section"
         section = re.sub(r"\s+", " ", activation_match.group(1))
-        # The precedence has one home, init.md §1b, and score.md reads its result from the report.
-        assert ("init.md §1b resolves the precedence (CLI, then per-pipeline default, then this scalar) once "
-                "and writes `threshold` and `thresholdSource` into the report frontmatter, which score.md §1 reads"
-                ) in section, (
-            "On Activation §3 {defaultThreshold} description must point at init.md §1b, where the "
-            "precedence is resolved once"
-        )
-        assert "at the usage site in `references/score.md`" not in section
+        # #1189: the binding is bound only from an override, and the precedence has one home, init.md §1b.
+        assert ("- `{defaultThreshold}` ← `workflow.default_threshold` when it is non-empty, which only a team or "
+                "personal override makes it (the bundled value is empty); otherwise leave `{defaultThreshold}` "
+                "unbound.") in section
+        for gone in ("init.md §1b resolves the precedence", "else `80`", "at the usage site in `references/score.md`"):
+            assert gone not in section, gone
 
 
 # ---------------------------------------------------------------------------
@@ -380,15 +454,35 @@ class TestCustomizeTomlPrecedence:
             "customize.toml must reference init.md §1b lookup table"
         )
 
-    def test_full_precedence_chain_in_comment(self, text: str) -> None:
-        assert re.search(
-            r"CLI.*per-pipeline.*scalar.*fallback", text, re.DOTALL
-        ), "customize.toml comment must document full precedence chain"
+    @staticmethod
+    def _comment(text: str) -> str:
+        block = text[text.index("# Pass threshold"):text.index('\ndefault_threshold = ""')]
+        return _flow(re.sub(r"(?m)^#\s?", "", block))
 
-    def test_default_threshold_value_unchanged(self, text: str) -> None:
-        assert re.search(
-            r"^default_threshold\s*=\s*80\s*$", text, re.MULTILINE
-        ), "default_threshold value must remain 80"
+    def test_full_precedence_chain_in_comment(self, text: str) -> None:
+        assert ("Precedence: CLI `--threshold=<N>` > this scalar > per-pipeline defaults > bundled 80."
+                in self._comment(text)), "customize.toml comment must document the order init.md §1b resolves"
+
+    def test_default_threshold_ships_empty(self, text: str) -> None:
+        assert re.search(r'^default_threshold = ""$', text, re.MULTILINE), (
+            "default_threshold ships empty, so only an override binds {defaultThreshold}")
+        assert "Empty (the default) leaves it to the pipeline's default" in self._comment(text)
+
+    def test_a_raised_value_never_turns_a_pass_into_a_fail(self, text: str) -> None:
+        """A threshold above 80 is a target: the threshold fallback passes an uncapped run scoring 80 or more
+        at any threshold, and a capped run fails at every one."""
+        assert ("A value above 80 never turns a PASS into a FAIL: a run scoring 80 or more passes through the "
+                "threshold fallback, and a run a cap forced to FAIL stays FAIL at any threshold.") in self._comment(text)
+        compute = _load_compute_score().compute_score
+
+        def verdict(threshold: int, tooling: str = "ok") -> str:
+            out = compute({"mode": "naive", "tier": "Deep", "threshold": threshold, "toolingStatus": tooling,
+                           "scores": {"exportCoverage": 85, "signatureAccuracy": 85, "typeCoverage": 85,
+                                      "coherence": None, "externalValidation": 85}})
+            return out.get("effectiveResult", out["result"])
+
+        assert verdict(80) == verdict(90) == verdict(100) == "PASS"
+        assert verdict(80, "frontmatter-validator-timeout") == verdict(90, "frontmatter-validator-timeout") == "FAIL"
 
 
 # ---------------------------------------------------------------------------
@@ -602,11 +696,20 @@ class TestCrossFileConsistency:
     def test_score_md_references_init_md_1b(self) -> None:
         score_text = _read(SCORE_FILE)
         assert "init.md §1b" in score_text, (
-            "score.md must reference init.md §1b as the source of pipeline_default_threshold"
+            "score.md must reference init.md §1b as the source of the pass threshold"
         )
 
     def test_init_md_mentions_pipeline_alias_in_the_pipeline_layer(self) -> None:
-        init_text = _read(INIT_FILE)
-        assert re.search(r"2\.\s+.*\{pipeline_alias\}", init_text), (
+        layer, label = _ordered_layers()[2]
+        assert "{pipeline_alias}" in layer and "{pipeline_alias}" in label, (
             "init.md §1b must reference {pipeline_alias} in the pipeline default layer"
         )
+
+    def test_score_md_and_scoring_rules_restate_no_order(self) -> None:
+        """#1189 leanness-8: score.md and scoring-rules.md point at init.md §1b without the old order."""
+        score = _flow(_read(SCORE_FILE))
+        assert "**The pass threshold was resolved once, at init** (init.md §1b), and init.md §6c wrote it" in score
+        assert "CLI > pipeline default" not in score
+        rules = _flow(_read(TS_DIR / "references" / "scoring-rules.md"))
+        assert ("The pass threshold is the one init.md §1b resolves from `--threshold`, a `{defaultThreshold}` "
+                "override, the pipeline's default and the bundled 80, which score.md §1 reads.") in rules

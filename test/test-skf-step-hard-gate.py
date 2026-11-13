@@ -550,7 +550,7 @@ class TestBlockPath:
         # The gate still names the public path in the blocked payload.
         assert _frontmatter(STEP_FILE)["publishedReportFile"] == PUBLISHED
         assert '--report-path "{publishedReportFile}"' in GATE_CMD
-        contract = _slice(_read(REPORT_FILE), "### 4c. Result Contract", "### 5.")
+        contract = _slice(_read(REPORT_FILE), "### 4c. Result Contract", "### 6.")
         publish = _flow(contract[contract.index("**Publish the report.**"):contract.index("**Write the result contract.**")])
         assert move in _fence(contract, move) and "a blocked run's included" in publish
         assert "skip the move" not in publish and "took it at the gate" not in contract
@@ -560,9 +560,9 @@ class TestBlockPath:
 
     def test_report_step_publishes_a_blocked_run(self) -> None:
         text = _read(REPORT_FILE)
-        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 2."))
+        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
         assert "`hardGate: 'blocked'`" in collect and "skips discovery testing (§4b)" in collect
-        contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))
+        contract = _flow(_slice(text, "### 4c. Result Contract", "### 6."))
         assert "A run the hard gate blocked was never scored: its expected set ends at `'hard-gate'`" in contract
         assert "the line that discovery testing did not run" in contract
         for field in ('`status: "error"`', '`verdict: "FAIL"`', "`exit_code` 2",
@@ -600,7 +600,7 @@ class TestBlockPath:
     def test_the_health_check_runs_for_a_blocked_run(self) -> None:
         """§7 dispatches it (or skips it under --no-health-check) and records healthCheckDispatched."""
         text = _read(REPORT_FILE)
-        sequence = _flow(_slice(text, "### 4. The Terminal Sequence", "### 4b."))
+        sequence = _flow(_slice(text, "## STEP GOAL:", "**Halt envelope.**"))
         assert "a blocked one included" in sequence
         assert "§7 releases the run lock and hands over to the health check" in sequence
         section7 = _flow(_slice(text, "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
@@ -1748,7 +1748,7 @@ class TestReportTerminalSequence:
         return _read(REPORT_FILE)
 
     def test_the_expected_set_leaves_report_out(self, text: str) -> None:
-        contract = _slice(text, "### 4c. Result Contract", "### 5.")
+        contract = _slice(text, "### 4c. Result Contract", "### 6.")
         expected = re.findall(r"'([a-z-]+)'", _fence(contract, "'external-validators'"))
         assert expected == ["init", "detect-mode", "coverage-check", "coherence-check", "external-validators",
                             "hard-gate", "score"]
@@ -1897,9 +1897,13 @@ class TestReportTerminalSequence:
         assert counts == expected
         assert (counts == dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 6, "title": 1}) is (case == "bundled")
 
-    def test_the_inconclusive_paragraph_matches_the_order(self, text: str) -> None:
-        final = _flow(_slice(text, "### 5. Finalize Output Document", "### 6."))
-        assert "§4c wrote the result contract with that verdict and §6 presents it" in final
+    def test_the_inconclusive_branch_recommends_manual_review(self, text: str) -> None:
+        """#1189 leanness-7: §6's INCONCLUSIVE branch, after §4c wrote the verdict, is the one home of the
+        recommendation; the §5 that repeated it is gone."""
+        present = _slice(text, "### 6. Present Final Report", "### 6b.")
+        branch = _flow(present[present.index("{IF INCONCLUSIVE:}"):].split("\n\n", 1)[0])
+        assert branch.startswith("{IF INCONCLUSIVE:} **manual-review**") and branch.endswith("Do not export.")
+        assert "### 5." not in text and "INCONCLUSIVE as gate" not in text
         assert "have already been written" not in text
 
     def test_fail_names_update_skill_from_test_report(self, text: str) -> None:
@@ -1914,16 +1918,16 @@ class TestReportTerminalSequence:
                 "Skill or the skill brief.") in follow
 
     def test_counts_come_from_the_ledger(self, text: str) -> None:
-        contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))
+        contract = _flow(_slice(text, "### 4c. Result Contract", "### 6."))
         assert "Bind `{gap_counts}` ← `counts`, `{total_gaps}` ← `total` and `{blocking_gaps}` ← `blocking`" in contract
         # The result contract's gap counts come from the ledger too, through the script.
-        raw = _slice(text, "### 4c. Result Contract", "### 5.")
+        raw = _slice(text, "### 4c. Result Contract", "### 6.")
         assert '--ledger "{ledgerFile}"' in _fence(raw, "uv run {resultContextScript}")
         present = _slice(text, "### 6. Present Final Report", "### 6b.")
         assert "- Critical: {gap_counts.Critical}" in present
 
     def test_no_gap_is_classified_from_the_report_markdown(self, text: str) -> None:
-        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 2."))
+        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
         assert "Do not collect gaps again from the report's sections" in collect
         evidence = _flow(_slice(_read(SCORE_FILE), "#### 4b.1 Generate Evidence Report", "**Evidence report template:**"))
         assert "**Read the gaps from the gap ledger**" in evidence
@@ -2343,12 +2347,12 @@ class TestExitCodes:
         assert "step 4c" in row and "hard-gate-blocked" in row and "step 6 publishes it as a FAIL" in row
 
     def test_every_verdict_exit_leaves_through_the_terminal_sequence(self, section: str) -> None:
-        # report.md §4 owns the sequence; the table names the step each verdict exit leaves through.
+        # report.md's STEP GOAL states the sequence; the table names the step each verdict exit leaves through.
         for code in ("0", "2", "3", "4"):
             row = next(line for line in section.splitlines() if re.match(rf"\|\s*{code}\s*\|", line))
             assert "step 6: `testResult:" in row, code
         assert "(after the result contract is written in §4c)" not in section
-        sequence = _flow(_slice(_read(REPORT_FILE), "### 4. The Terminal Sequence", "### 4b."))
+        sequence = _flow(_slice(_read(REPORT_FILE), "## STEP GOAL:", "**Halt envelope.**"))
         assert "Every run that reaches this step, a blocked one included, ends through one sequence" in sequence
         order = ["§4b records the discovery outcome", "§4c renders the Gap Report",
                  "writes the result contract and runs the on_complete hook", "§6 presents the result",

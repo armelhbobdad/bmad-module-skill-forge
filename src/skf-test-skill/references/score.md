@@ -10,7 +10,7 @@ gapLedgerScript: 'scripts/gap-ledger.py'
 resultContextScript: 'scripts/build-result-context.py'
 ---
 
-<!-- Config: communicate in {communication_language}. -->
+<!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
 
 # Step 5: Score
 
@@ -30,7 +30,7 @@ Display the line it prints, as the run's last line, then stop. If the emitter ex
 
 `{scoringScript}` owns the category weights, their redistribution and every verdict rule; this step sets its flags, hands it the score files and reads its output.
 
-**The pass threshold was resolved once, at init** (init.md §1b, precedence: CLI > pipeline default > scalar > bundled fallback), and init.md §6c wrote it into the report. Read `threshold` and `thresholdSource` from the `{outputFile}` frontmatter and bind `effective_threshold` ← `threshold` as a number (without its `%`) and `threshold_source` ← `thresholdSource`. Never resolve the precedence again here: the frontmatter keeps what a long run's context may lose.
+**The pass threshold was resolved once, at init** (init.md §1b), and init.md §6c wrote it into the report. Read `threshold` and `thresholdSource` from the `{outputFile}` frontmatter and bind `effective_threshold` ← `threshold` as a number (without its `%`) and `threshold_source` ← `thresholdSource`. Never resolve the precedence again here: the frontmatter keeps what a long run's context may lose.
 
 Pass `effective_threshold` into the scoring-input JSON's `threshold` field in §3a. The CLI flag, pipeline default, and the scalar all feed the same downstream field; the script does not need to know which layer supplied the value.
 

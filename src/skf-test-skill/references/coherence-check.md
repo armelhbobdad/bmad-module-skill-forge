@@ -17,7 +17,7 @@ scanSkillMdStructureProbeOrder:
   - '{project-root}/src/shared/scripts/skf-scan-skill-md-structure.py'
 ---
 
-<!-- Config: communicate in {communication_language}. -->
+<!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
 
 # Step 4: Coherence Check
 

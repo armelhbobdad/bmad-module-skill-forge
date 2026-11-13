@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's `default_threshold` now ships empty, and a value a team or personal override sets outranks a pipeline's default, so it now reaches `forge` and `forge-quick` runs, where the per-pipeline table used to win; `forge-auto` and Campaign pass `--threshold` and keep their own. A run takes `--threshold`, else the override, else its pipeline's default, else 80. The report's `thresholdSource` reads `workflow override (N%)` for the override and `bundled default (80%)` when nothing set a threshold, where a standalone run read `workflow default (80%)`. A value above 80 never turns a PASS into a FAIL: the threshold fallback still accepts a run scoring 80% or more that no cap failed.
+issues: [1189]

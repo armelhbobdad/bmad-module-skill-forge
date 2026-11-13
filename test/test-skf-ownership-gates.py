@@ -105,19 +105,19 @@ PROBE_ORDER = (
 # which halts before any prompt when it is missing.
 ACTIVATION_INVENTORY = {"src/skf-export-skill/references/load-skill.md": "src/skf-export-skill/SKILL.md"}
 # The call every migrate site makes, and the halt each takes when it exits 1:
-# Export, Audit and Test name the rung of their own resolve failure (with its
-# number and halt_reason), Update its own blocked halt.
+# Export and Audit name the rung of their own resolve failure (with its number
+# and halt_reason), Test its any-other-error case, Update its own blocked halt.
 MIGRATE_CALL = "{skillInventoryHelper} migrate"
 MIGRATE_HALTS = {
     "src/skf-update-skill/references/init.md": 'The halt procedure takes `status: "blocked"`, `phase: "init:migrate"`',
     "src/skf-export-skill/references/load-skill.md": "When `migrate` exits 1, HALT as item 5 says, with its `error`.",
     "src/skf-audit-skill/references/init.md": "When `migrate` exits 1, HALT as item 6 says, with its `error`.",
-    "src/skf-test-skill/references/init.md": "When `migrate` exits 1, HALT as step 6 says, with its `error`.",
+    "src/skf-test-skill/references/init.md": ("When `migrate` exits 1, HALT as the any-other-error case says, with its "
+                                              "`error`."),
 }
 MIGRATE_HALT_RUNGS = {
     "src/skf-export-skill/references/load-skill.md": (5, "resolution-failure"),
     "src/skf-audit-skill/references/init.md": (6, "skill-not-found"),
-    "src/skf-test-skill/references/init.md": (6, "helper-failed"),
 }
 # The halt maps that name what each exit code or halt_reason covers, and the
 # reason a refused migrate halts with there (#1121 review): a pipeline that
@@ -157,16 +157,16 @@ def _row(text: str, prefix: str) -> str:
 
 
 def _flat_rung(text: str) -> str:
-    """The flat-path fallback rung: from its first line to the next numbered step.
+    """The flat-path fallback rung: from its first line to the next rung.
 
-    Export's rung opens with its `reason` value, as its other rungs do; the
-    other sites open with "If neither".
+    Export's and Test's rungs open with their `reason` value, as their other
+    rungs do (Test's are bullets); the other sites open with "If neither".
     """
     start = re.search(r"(?:If neither|`flat-layout`): fall back to the flat path", text)
     assert start, "the flat-path fallback rung is missing"
     rest = text[start.start():]
-    nxt = re.search(r"\n\d+\. ", rest)
-    assert nxt, "the flat rung must be followed by the next numbered step"
+    nxt = re.search(r"\n(?:\d+\.|-) ", rest)
+    assert nxt, "the flat rung must be followed by the next rung"
     return rest[:nxt.start()]
 
 

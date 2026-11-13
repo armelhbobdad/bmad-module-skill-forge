@@ -275,7 +275,7 @@ def test_the_report_steps_commands_run_as_written(tmp_path, test_result, scored)
     """report.md §4c: build the payload from the hidden report, publish the report, emit the payload.
     The build comes first, so a mis-copied verdict halts while the report keeps its in-progress name."""
     text = REPORT_STEP.read_text(encoding="utf-8")
-    contract = text[text.index("### 4c. Result Contract"):text.index("### 5. Finalize Output Document")]
+    contract = text[text.index("### 4c. Result Contract"):text.index("### 6. Present Final Report")]
     assert (contract.index("uv run {resultContextScript}") < contract.index('mv "{report_file}"')
             < contract.index("emit --workflow skf-test-skill --run-dir"))
     forge_version = tmp_path / "forge" / "demo" / "1.0.0"
@@ -517,7 +517,7 @@ FALLBACK_KEYS = ("thresholdFallback", "originalThreshold", "evidenceReportPath")
 def _settle_report(folder: Path, crlf: bool = False, **front: str) -> Path:
     """The report init.md §6c creates from the template, filled as the stages before score.md leave it."""
     fields = {"skillName": "'demo'", "runId": f"'{RUN_ID}'", "testMode": "'contextual'", "forgeTier": "'Deep'",
-              "hardGate": "'passed'", "threshold": "'80%'", "thresholdSource": "'bundled fallback (80%)'",
+              "hardGate": "'passed'", "threshold": "'80%'", "thresholdSource": "'bundled default (80%)'",
               "analysisConfidence": "'full'", "docsOnly": "false", "toolingStatus": "'ok'",
               "workspaceDrift": "'ok'", **front}
     text = TEMPLATE.read_text(encoding="utf-8")
@@ -617,7 +617,7 @@ def test_settle_writes_the_verdict_fields_the_build_then_accepts(tmp_path, case,
     now = report.read_bytes().decode("utf-8").split("\n")
     assert [line for line in now if line.split(":", 1)[0] not in VERDICT_KEYS + FALLBACK_KEYS] == kept
     assert "stepsCompleted: []" in now and "analysisConfidence: 'full'" in now
-    assert lines["thresholdSource"] == "thresholdSource: 'bundled fallback (80%)'"
+    assert lines["thresholdSource"] == "thresholdSource: 'bundled default (80%)'"
     section = proc.stdout
     assert section.startswith("## Completeness Score\n\n### Score Breakdown\n")
     result = {"PASS": "PASS", "FAIL": "FAIL", "pass-with-drift": "PASS_WITH_DRIFT",
@@ -630,7 +630,7 @@ def test_settle_writes_the_verdict_fields_the_build_then_accepts(tmp_path, case,
         assert f"**Result:** **FAIL**\n**Cap:** {cap}\n" in section
     if case == "fallback":
         assert payload["threshold_fallback"] is True and payload["original_threshold"] == 90
-        source = section.index("**Threshold Source:** bundled fallback (80%)\n")
+        source = section.index("**Threshold Source:** bundled default (80%)\n")
         assert section.index("**Threshold Fallback:** scored 85% against 90% target: accepted at 80% floor. "
                              "Evidence report: f/evidence-report-fallback.md\n") > source
     else:

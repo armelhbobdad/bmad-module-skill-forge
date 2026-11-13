@@ -613,7 +613,7 @@ Settings every workflow has:
 
 Useful settings in specific workflows:
 
-- Test Skill `default_threshold`: the pass score when no flag or pipeline sets one (default 80).
+- Test Skill `default_threshold`: the pass score of every run given no `--threshold` flag, ahead of a pipeline's default (empty by default: the pipeline's default, else 80).
 - Drop Skill `forbid_purge_in_headless`: any non-empty value blocks a headless purge (exit `6`, `headless-purge-forbidden`). The drop mode always comes from `--mode` or the prompt. An override file that fails to parse, the team one or your personal one, stops the customization script: the run warns as above and ignores both override files, which leaves the guard off, so write the value quoted, such as `"true"`. Write it as two lines, `[workflow]` then `forbid_purge_in_headless = "true"`.
 - Rename Skill: pass `--acknowledge-official` to let one headless run rename an `official` skill, and the decision is recorded in `headless_decisions`. `force_source_authority_in_headless = "true"` (or the TOML boolean `true`) in a team or personal override is the standing approval for every headless run. Write it as two lines, `[workflow]` then `force_source_authority_in_headless = "true"`.
 - Refine Architecture `output_folder_path`: where it writes the refined document and the files beside it. Name it as `{project-root}/<folder>`, such as `{project-root}/docs/architecture`: a bare path resolves from the installed skill's folder, which every update deletes. Verify Stack's report always lands in `forge_data_folder`.

@@ -24,7 +24,7 @@ tesslReviewRulesProbeOrder:
 preferencesFile: '{sidecar_path}/preferences.yaml'
 ---
 
-<!-- Config: communicate in {communication_language}. -->
+<!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
 
 # Step 4b: External Validators
 
