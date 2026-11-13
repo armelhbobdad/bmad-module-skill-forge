@@ -473,28 +473,36 @@ def test_the_halt_after_publishing_names_the_latest_copy(tmp_path):
 
 
 def test_a_headless_run_hands_its_line_to_the_health_check():
-    """#1113: §4b binds `{result_envelope_line}` to the emitter's line instead of displaying it, §5's closing
-    message is for interactive runs only, and the relay's fallback for a health check it cannot load displays the
-    bound line after its log line, so a headless run's last line is its envelope either way."""
+    """#1113: §4b keeps the emitter's line instead of displaying it, §5's closing message is for interactive runs
+    only, §5 binds `{result_envelope_line}` to that line after the on_complete instruction, and the relay's fallback
+    for a health check it cannot load displays the bound line after its log line, so a headless run's last line is
+    its envelope either way."""
     report = _read(REFERENCES / "report.md")
     contract = _section(report, "### 4b. Result Contract", "### 5. Finish")
-    bind = ("When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the "
-            "shared health check displays it verbatim as the run's last line (the line the retry below prints when the "
-            "first run printed none).")
-    assert bind in contract
-    assert contract.index("prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout") < contract.index(bind)
+    kept = ("When `{headless_mode}` is true, bind `{verify_stack_result_line}` ← the line and do not display it here: "
+            "§5 hands it to the shared health check, which displays it verbatim as the run's last line (the line the "
+            "retry below prints when the first run printed none).")
+    assert kept in contract
+    assert contract.index("prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout") < contract.index(kept)
     # An emitter that fails twice still halts here, on its own line, and never reaches the health check.
-    assert contract.index(bind) < contract.index(
+    assert contract.index(kept) < contract.index(
         'if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`')
+    # The on_complete instruction can start a headless workflow that binds `{result_envelope_line}` to its own
+    # line, so §4b binds only Verify Stack's own variable.
+    assert "`{result_envelope_line}`" not in contract
     assert "display the line verbatim" not in report and "before chaining to step 7" not in report
     finish = _section(report, "### 5. Finish", "the health-check step is the true terminal step")
     assert finish.startswith('### 5. Finish\n\nWhen `{headless_mode}` is false, display:\n\n"**Feasibility report '
                              'saved to:**')
     assert finish.index("When `{headless_mode}` is false, display:") < finish.index("If `{workflow.on_complete}`")
+    bind = ("When `{headless_mode}` is true, then bind `{result_envelope_line}` ← `{verify_stack_result_line}`: a "
+            "headless workflow the instruction started binds its own result line to `{result_envelope_line}`, so "
+            "binding it only now keeps this run's line the one the health check displays last.")
+    assert finish.index("If `{workflow.on_complete}`") < finish.index(bind) < finish.index("Then load, read the full")
     relay = _read(REFERENCES / "health-check.md")
-    handed = ("In a headless run report.md §4b bound `{result_envelope_line}` to the `SKF_VERIFY_STACK_RESULT_JSON` "
-              "line without displaying it: the shared health check displays that line verbatim as the run's last "
-              "line wherever it stops")
+    handed = ("In a headless run report.md §5, after the on_complete instruction, bound `{result_envelope_line}` to "
+              "the `SKF_VERIFY_STACK_RESULT_JSON` line without displaying it: the shared health check displays that "
+              "line verbatim as the run's last line wherever it stops")
     assert handed in relay
     log = "log exactly `health-check unavailable at {path}`"
     shown = ("then display `{result_envelope_line}` verbatim after it when it is bound and not empty, with no code "
