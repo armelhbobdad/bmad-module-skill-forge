@@ -16,15 +16,23 @@ A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) is revie
 The brief path is the given path when it ends in `skill-brief.yaml`, else `<path>/skill-brief.yaml`. Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then run:
 
 ```bash
-uv run {validateBriefSchemaHelper} <resolved-brief-path>
+uv run {validateBriefSchemaHelper} <resolved-brief-path> > "{run_dir}/ratify-validation.json"
 ```
 
-It returns `{valid, errors[], warnings[], halt_reason, brief}`:
+It writes `{valid, errors[], warnings[], halt_reason, brief}` to `{run_dir}/ratify-validation.json`:
 
 - **`valid: false`**, interactive: display "**Brief at `{path}` is invalid:** {first error message}. Pick a different brief, or supply a repo / docs URL instead." and re-display the step 1 §3.1 prompt: the user may have pointed at the wrong file.
-- **`valid: false`**, headless, with the script's `halt_reason` `brief-missing` (the path is absent or unreadable): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), surface `errors[]` to the operator log, then HALT (exit code 2).
-- **`valid: false`**, headless, with any other `halt_reason` (`brief-malformed` or `brief-invalid`): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), surface `errors[]` to the operator log, then HALT (exit code 2).
-- **`valid: true`**: log any non-empty `warnings[]`, add each to `workflow_warnings[]` as `<field>: <message>`, and continue with the parsed `brief`.
+- **`valid: false`**, headless, with the script's `halt_reason` `brief-missing` (the path is absent or unreadable): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-missing`, surface `errors[]` to the operator log, then HALT (exit code 2).
+- **`valid: false`**, headless, with any other `halt_reason` (`brief-malformed` or `brief-invalid`): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-invalid`, surface `errors[]` to the operator log, then HALT (exit code 2).
+- **`valid: true`**: log any non-empty `warnings[]`, record them all with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/ratify-validation.json"`, and continue with the parsed `brief`.
+
+In a headless run, `valid: true` resolves the skill name: rewrite the halt state with the brief's, so a later halt names the skill:
+
+```bash
+cat > "{run_dir}/halt-state.json" <<'SKF_JSON'
+{"interactive": false, "mode": null, "skill_name": "<brief.name>"}
+SKF_JSON
+```
 
 ## 2. Ratify Menu
 

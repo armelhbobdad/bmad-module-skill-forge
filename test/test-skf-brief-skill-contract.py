@@ -46,6 +46,18 @@ unreadable preferences.yaml is a warning, a missing file halts
 takes the Quick fallback. The steps that read `tools.qmd` or `tools.ccc`
 read the `tools` step 1 bound.
 
+#1134: SKILL.md binds `{emitEnvelopeHelper}` to the shared emitter
+(skf-emit-brief-result-envelope.py stays as its alias) and its Halt
+Contract is a pointer. Each warning is recorded in the run sink as it is
+raised, a helper's saved JSON with `--warnings-file`, text that quotes a
+helper or the user through `{run_dir}/warning.txt`, so no stage keeps a
+`workflow_warnings[]` list or flattens a `{field, message}` warning: the
+emitter does. Each of the twenty halt sites is one `emit-halt --halt-reason`
+command that reads no stdin and takes the mode and the skill name from
+`{run_dir}/halt-state.json`, which step 1 §1 writes and the steps that
+resolve the name rewrite; the success sites run `emit --run-dir`. SKILL.md
+stays under its 2,500-token budget.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -82,7 +94,7 @@ HEALTH_CHECK = REFERENCES / "health-check.md"
 QMD_REGISTRATION = REFERENCES / "qmd-collection-registration.md"
 PORTFOLIO_CHECK = REFERENCES / "portfolio-similarity-check.md"
 CUSTOMIZE = SKILL_DIR / "customize.toml"
-EMITTER = REPO / "src" / "shared" / "scripts" / "skf-emit-brief-result-envelope.py"
+EMITTER = REPO / "src" / "shared" / "scripts" / "skf-emit-result-envelope.py"
 VALIDATE_BRIEF = REPO / "src" / "shared" / "scripts" / "skf-validate-brief-schema.py"
 FORGE_TIER_RW = REPO / "src" / "shared" / "scripts" / "skf-forge-tier-rw.py"
 SCHEMA_PATH = REPO / "src" / "shared" / "scripts" / "schemas" / "skf-brief-result-envelope.v1.json"
@@ -92,14 +104,24 @@ BASH = shutil.which("bash")
 POSIX_BASH = BASH is not None and sys.platform != "win32"
 
 HEREDOC_RE = re.compile(r"<<'(?P<tag>[A-Z_]+)'\n(?P<body>.*?)\n(?P=tag)\n", re.DOTALL)
-# The halt command each halt site names, with its halt_reason beside it.
-HALT_CALL = "`uv run {emitBriefEnvelopeHelper} emit --target stderr`"
+# The halt command each halt site writes, its halt_reason in it; step 1 §1's write probe runs before the run
+# folder exists, so it alone leaves `--run-dir` out.
+HALT_CALL = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr '
+             '--halt-reason <halt_reason>`')
+HALT_CALL_RE = re.compile(r'`uv run \{emitEnvelopeHelper\} emit-halt --workflow skf-brief-skill '
+                          r'(?P<run_dir>--run-dir "\{run_dir\}" )?--target stderr '
+                          r'--halt-reason (?P<reason><halt_reason>|[a-z]+(?:-[a-z]+)*)`')
 # The step files whose halts call the emitter where they stop.
 HALT_SITE_FILES = (GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_DEFINITION, AUTO_BRIEF, AUTO_VALIDATE,
                    WRITE_BRIEF)
 # The [auto] success path: the envelope, the hook, the run folder's removal, the chain.
 AUTO_SUCCESS = "### 3. Envelope, Hook and Chain"
-HALT_LINE_RE = re.compile(r'halt_reason: "(?P<reason>[a-z-]+)".*\bHALT\b.*?exit code (?P<code>\d+)')
+HALT_LINE_RE = re.compile(HALT_CALL_RE.pattern + r".*?\bthen (?:HARD )?HALT\b \(exit code (?P<code>\d+)\)")
+# The two record commands a step writes: fixed text, and text that quotes a helper or the user, from a file.
+RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+RECORD_FILE = f'`{RECORD}--warning "$(cat "{{run_dir}}/warning.txt")"`'
+# The success command of both success sites.
+SUCCESS_CALL = 'uv run {emitEnvelopeHelper} emit --workflow skf-brief-skill --run-dir "{run_dir}" ' "<<'SKF_BRIEF_RESULT'"
 HOOK_CALL = '{onCompleteCommand} --result-path="{brief_path}"'
 SHARED_HEALTH_CHECK = REPO / "src" / "shared" / "health-check.md"
 # The two success sites, each with the section that builds the line.
@@ -139,19 +161,27 @@ def _heredoc(text: str, tag: str) -> tuple[str, str]:
     return text[line_start:match.end("tag") + 1].strip(), match.group("body")
 
 
-def _fill(body: str, *, halt_reason: str | None = None, mode: str | None = None, warnings=()) -> str:
-    """The documented payload with its placeholders filled in, still as text."""
-    body = body.replace('<"auto" or null>', json.dumps(mode))
-    body = body.replace("[<workflow_warnings[] as JSON strings>]", json.dumps(list(warnings)))
-    body = body.replace('"<halt_reason>"', json.dumps(halt_reason))
+def _fill(body: str) -> str:
+    """The documented success payload with its placeholders filled in, still as text."""
     body = body.replace('"<scope.type>"', '"public-api"').replace('"{scope_type}"', '"public-api"')
-    body = re.sub(r'"<[^"<>]*>"', '"demo"', body)  # "<skill name>", "<brief_path from §3>" ...
+    body = re.sub(r'"<[^"<>]*>"', '"demo"', body)  # "<name>", "<brief_path from §3>" ...
     return re.sub(r'"\{[a-z_]+\}"', '"demo"', body)  # "{skill_name}", "{brief_path}" ...
 
 
-def _emit(payload: str, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(EMITTER), "emit", *args], input=payload, capture_output=True,
-                          text=True, encoding="utf-8", timeout=30, check=False)
+def _argv(command: str, run_dir: Path | None = None) -> list[str]:
+    """A documented `uv run {emitEnvelopeHelper} ...` command, up to any heredoc, as the argv that runs it here."""
+    command = command.strip().strip("`").split(" <<", 1)[0]
+    assert command.startswith("uv run {emitEnvelopeHelper} "), command
+    if run_dir is not None:
+        command = command.replace("{run_dir}", run_dir.as_posix())
+    rest = command[len("uv run {emitEnvelopeHelper} "):]
+    assert "{" not in rest, command
+    return [sys.executable, str(EMITTER), *shlex.split(rest)]
+
+
+def _run(argv: list[str], stdin: str = "") -> subprocess.CompletedProcess:
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=30,
+                          check=False)
 
 
 def _envelope(line: str) -> dict:
@@ -162,14 +192,36 @@ def _envelope(line: str) -> dict:
     return envelope
 
 
-def _as_line(warning: dict) -> str:
-    """A {field, message} helper warning as the documented workflow_warnings[] line."""
-    return OBJECT_WARNING.replace("<field>", warning["field"]).replace("<message>", warning["message"])
+def _run_folder(tmp_path: Path, state: dict | None, warnings=()) -> Path:
+    """A run folder as step 1 §1 creates it, holding a halt state and the warnings the run recorded."""
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-brief-skill-abc12345"
+    run_dir.mkdir(parents=True)
+    if state is not None:
+        (run_dir / "halt-state.json").write_bytes(json.dumps(state).encode("utf-8"))
+    for warning in warnings:
+        done = _run([sys.executable, str(EMITTER), "record", "--run-dir", str(run_dir), "--warning", warning])
+        assert done.returncode == 0, done.stderr
+    return run_dir
+
+
+def _halt_command(reason: str) -> str:
+    """The Halt Contract's command for one halt_reason."""
+    [command] = [m.group(0) for m in HALT_CALL_RE.finditer(_section(_read(SKILL_MD), "## Halt Contract"))]
+    return command.replace("<halt_reason>", reason)
+
+
+def _halt(reason: str, run_dir: Path | None) -> dict:
+    """Run the documented halt command with stdin left holding junk, and return the line it printed on stderr."""
+    proc = _run(_argv(_halt_command(reason), run_dir), stdin="{not read")
+    assert proc.returncode == 0 and proc.stdout == "", proc.stderr
+    [line] = proc.stderr.splitlines()
+    return _envelope(line)
 
 
 @pytest.fixture(scope="module")
-def validator_warning(tmp_path_factory) -> dict:
-    """The warning skf-validate-brief-schema.py returns for a docs-only brief with source_authority official."""
+def validator_output(tmp_path_factory) -> tuple[bytes, dict]:
+    """skf-validate-brief-schema.py's stdout for a docs-only brief with source_authority official, and its one
+    {field, message} warning."""
     brief = {
         "name": "demo", "version": "1.0.0", "source_type": "docs-only", "source_authority": "official",
         "source_repo": "https://example.com/docs", "doc_urls": [{"url": "https://example.com/docs"}],
@@ -178,14 +230,14 @@ def validator_warning(tmp_path_factory) -> dict:
     }
     path = tmp_path_factory.mktemp("brief") / "skill-brief.yaml"
     path.write_bytes(json.dumps(brief).encode("utf-8"))  # JSON is YAML
-    proc = subprocess.run([sys.executable, str(VALIDATE_BRIEF), str(path)], capture_output=True, text=True,
-                          encoding="utf-8", timeout=60, check=False)
+    proc = subprocess.run([sys.executable, str(VALIDATE_BRIEF), str(path)], capture_output=True, timeout=60,
+                          check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     result = json.loads(proc.stdout)
     assert result["valid"] is True
     [warning] = result["warnings"]
     assert sorted(warning) == ["field", "message"]
-    return warning
+    return proc.stdout, warning
 
 
 # --------------------------------------------------------------------------
@@ -215,7 +267,7 @@ def test_documented_halt_reasons_and_exit_codes_match_the_schema():
 
 
 # --------------------------------------------------------------------------
-# SKILL.md resolves the emitter at activation and states the halt command
+# SKILL.md resolves the emitter at activation and points at the halt command
 # --------------------------------------------------------------------------
 
 
@@ -227,7 +279,7 @@ def _activation_steps() -> dict[int, str]:
 
 def test_activation_resolves_the_emitter_before_the_first_stage_loads():
     steps = _activation_steps()
-    [resolve] = [n for n, body in steps.items() if "`{emitBriefEnvelopeHelper}` ←" in body]
+    [resolve] = [n for n, body in steps.items() if "`{emitEnvelopeHelper}` ←" in body]
     [first_stage] = [n for n, body in steps.items() if "`references/gather-intent.md`" in body]
     assert resolve < first_stage
     for path in ("_bmad/skf/shared/scripts/", "src/shared/scripts/"):
@@ -241,58 +293,79 @@ def test_activation_resolves_the_emitter_before_the_first_stage_loads():
 def test_no_step_file_resolves_the_emitter_again():
     for path in HALT_SITE_FILES:
         text = _read(path)
-        assert "emitBriefEnvelopeProbeOrder" not in text, path.name
+        assert "emitBriefEnvelopeProbeOrder" not in text and "emitEnvelopeProbeOrder" not in text, path.name
         assert "Error Envelope (Canonical)" not in text, path.name
-        assert "**Resolve `{emitBriefEnvelopeHelper}`**" not in text, path.name
+        assert "**Resolve `{emitEnvelopeHelper}`**" not in text, path.name
 
 
-def test_halt_contract_is_one_unindented_block():
-    """A heredoc ends only at a delimiter line with no indent, so the block sits outside any list."""
-    contract = _section(_read(SKILL_MD), "## Halt Contract")
-    command, body = _heredoc(contract, "SKF_BRIEF_HALT")
-    assert command == "uv run {emitBriefEnvelopeHelper} emit --target stderr <<'SKF_BRIEF_HALT'"
-    assert "\nSKF_BRIEF_HALT\n" in contract
-    assert "{headless_mode}" in contract and "{auto_mode}" in contract
-    assert "`unknown`" in contract, "the placeholder for a halt before the name is resolved"
+def test_the_halt_contract_is_a_pointer():
+    """#1134 (architecture-6): SKILL.md states the one command a halt runs and points at the Result Contract,
+    which says what the emitter fills in; it holds no payload, no warning list and no fallback rules."""
+    skill = _read(SKILL_MD)
+    contract = " ".join(_section(skill, "## Halt Contract").split())
+    assert HALT_CALL in contract and "except an interactive `[X]` cancel" in contract
+    assert "`references/invocation-contract.md` (Result Contract) says what the emitter fills in" in contract
+    assert "<<" not in contract and "```" not in contract and "unknown" not in contract
+    for gone in ("{emitBriefEnvelopeHelper}", "workflow_warnings", OBJECT_WARNING, "SKF_BRIEF_HALT"):
+        assert gone not in skill, gone
+    result = " ".join(_section(_read(CONTRACT), "## Result Contract (Headless)").split())
+    for needle in ("the halt runs the `emit-halt --halt-reason` command written at it", "The emitter reads no stdin",
+                   "`skill_name` from `{run_dir}/halt-state.json`", 'gives `skill_name` `"unknown"` before then',
+                   "folds in the warnings the run recorded", "prints nothing for an interactive run",
+                   "it displays its message alone", "runs the command without `--run-dir`, in a headless or `[auto]` "
+                   "run only", "`skf-emit-result-envelope.py`; `skf-emit-brief-result-envelope.py` stays as its "
+                   "alias"):
+        assert needle in result, needle
+    assert OBJECT_WARNING not in result and "recorded in its run sink" in result
+
+
+def test_skill_md_stays_under_its_token_budget():
+    """#1134 (leanness-9): the prepass budget for SKILL.md, 2,500 tokens, on its chars/4 fallback."""
+    assert len(_read(SKILL_MD)) // 4 < 2500
 
 
 @pytest.mark.parametrize("mode", [pytest.param("auto", id="auto"), pytest.param(None, id="not-auto")])
 @pytest.mark.parametrize("reason", [pytest.param(r, id=r) for r in SETTINGS["exit_codes"]])
-def test_halt_contract_payload_emits_every_halt_reason(reason, mode):
-    _, body = _heredoc(_section(_read(SKILL_MD), "## Halt Contract"), "SKF_BRIEF_HALT")
-    proc = _emit(_fill(body, halt_reason=reason, mode=mode, warnings=[QUOTED_WARNING]), "--target", "stderr")
-    assert proc.returncode == 0, proc.stderr
-    assert proc.stdout == ""
-    envelope = _envelope(proc.stderr.strip())
-    assert envelope["status"] == "error" and envelope["halt_reason"] == reason
+def test_the_halt_command_emits_every_halt_reason_from_the_run_folder(tmp_path, reason, mode):
+    """The command alone gives the whole line: the mode and the name from the halt state, the warnings from the
+    sink, the exit code from the reason; stdin is never read."""
+    run_dir = _run_folder(tmp_path, {"interactive": False, "mode": mode, "skill_name": "demo"}, [QUOTED_WARNING])
+    envelope = _halt(reason, run_dir)
+    assert (envelope["status"], envelope["halt_reason"]) == ("error", reason)
     assert envelope["exit_code"] == SETTINGS["exit_codes"][reason]
     assert envelope["mode"] == mode and envelope["skill_name"] == "demo"
     assert envelope["warnings"] == [QUOTED_WARNING]
 
 
-def test_halt_contract_payload_without_warnings_leaves_the_list_out():
-    _, body = _heredoc(_section(_read(SKILL_MD), "## Halt Contract"), "SKF_BRIEF_HALT")
-    proc = _emit(_fill(body, halt_reason="forge-tier-missing"), "--target", "stderr")
-    assert proc.returncode == 0, proc.stderr
-    assert "warnings" not in _envelope(proc.stderr.strip())
+def test_a_halt_before_the_name_says_unknown_and_lists_no_warning(tmp_path):
+    run_dir = _run_folder(tmp_path, {"interactive": False, "mode": "auto"})
+    envelope = _halt("forge-tier-missing", run_dir)
+    assert (envelope["skill_name"], envelope["mode"], envelope["exit_code"]) == ("unknown", "auto", 3)
+    assert "warnings" not in envelope
 
 
-@pytest.mark.skipif(not POSIX_BASH, reason="runs the documented block in a POSIX bash")
-def test_documented_halt_block_passes_a_quoted_warning_through_bash(validator_warning):
-    """The quoted heredoc hands a warning with a single quote, or with backticks, to the helper unchanged."""
-    warnings = [QUOTED_WARNING, _as_line(validator_warning)]
-    assert "`" in warnings[1], "an unquoted heredoc would run the backticked words as commands"
-    contract = _section(_read(SKILL_MD), "## Halt Contract")
-    [block] = [b for b in re.findall(r"```bash\n(.*?)```", contract, re.DOTALL) if "SKF_BRIEF_HALT" in b]
-    heredoc = HEREDOC_RE.search(block)
-    filled = _fill(heredoc.group("body"), halt_reason="target-inaccessible", warnings=warnings)
-    block = block[:heredoc.start("body")] + filled + block[heredoc.end("body"):]
-    block = block.replace("uv run {emitBriefEnvelopeHelper}", f'"{sys.executable}" "{EMITTER}"')
-    proc = subprocess.run([BASH, "-c", block], capture_output=True, text=True, encoding="utf-8", timeout=30,
-                          check=False)
-    assert proc.returncode == 0, proc.stderr
-    envelope = _envelope(proc.stderr.strip())
-    assert envelope["warnings"] == warnings and envelope["exit_code"] == 3
+def test_an_interactive_halt_prints_no_line(tmp_path):
+    run_dir = _run_folder(tmp_path, {"interactive": True, "mode": None}, [QUOTED_WARNING])
+    proc = _run(_argv(_halt_command("write-failed"), run_dir))
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+@pytest.mark.skipif(not POSIX_BASH, reason="runs the documented record command in a POSIX bash")
+def test_a_recorded_warning_reaches_the_halt_line_as_written(tmp_path, validator_output):
+    """The file route keeps a single quote, backticks and `$( )` as text, and the line keeps the recorded order."""
+    _, warning = validator_output
+    hostile = f"{warning['field']}: {warning['message']} $(touch pwned) it's"
+    assert "`" in hostile, "an unquoted argument would run the backticked words as commands"
+    run_dir = _run_folder(tmp_path, {"interactive": False, "mode": None, "skill_name": "demo"})
+    command = RECORD_FILE.strip("`").replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER}"')
+    for text in (QUOTED_WARNING, hostile):
+        (run_dir / "warning.txt").write_bytes(text.encode("utf-8"))
+        proc = subprocess.run([BASH, "-c", command.replace("{run_dir}", run_dir.as_posix())], capture_output=True,
+                              text=True, encoding="utf-8", timeout=30, check=False, cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+    assert not (tmp_path / "pwned").exists()
+    envelope = _halt("target-inaccessible", run_dir)
+    assert envelope["warnings"] == [QUOTED_WARNING, hostile] and envelope["exit_code"] == 3
 
 
 # --------------------------------------------------------------------------
@@ -305,43 +378,55 @@ def test_every_halt_site_emits_its_envelope_before_it_stops():
     for path in HALT_SITE_FILES:
         text = _read(path)
         assert "error envelope per" not in text, f"{path.name} points its halt envelope elsewhere"
-        assert "SKILL.md Halt Contract" in text, path.name
+        assert "Halt Contract" not in text, f"{path.name} still sends its halts to SKILL.md"
         for line in text.splitlines():
-            match = HALT_LINE_RE.search(line)
-            if not match:
+            if "`uv run {emitEnvelopeHelper} emit-halt" not in line:
                 continue
-            sites += 1
+            match = HALT_LINE_RE.search(line)
             where = f"{path.name}: {line[:80]}"
-            # The envelope first, then the halt.
-            assert re.search(re.escape(HALT_CALL) + r".*\bthen (?:HARD )?HALT\b", line), where
-            assert int(match.group("code")) == SETTINGS["exit_codes"][match.group("reason")], where
-    # gather-intent 3, gather-intent-ratify 2, analyze-target 4, scope-definition 1, step-auto-brief 4,
-    # step-auto-validate 2, write-brief 3 (headless-args.md's one halt names the validator's halt_reason)
-    assert sites == 19, sites
+            # The envelope first, then the halt, with the code the schema maps the reason to.
+            assert match, where
+            sites += 1
+            reason, code = match.group("reason"), int(match.group("code"))
+            reasons = ("input-missing", "input-invalid") if reason == "<halt_reason>" else (reason,)
+            assert {SETTINGS["exit_codes"][r] for r in reasons} == {code}, where
+            # Only step 1 §1's write probe runs before the run folder exists.
+            probe = "**On any non-zero exit:**" in line and path == GATHER_INTENT
+            assert (match.group("run_dir") is None) is probe, where
+    # gather-intent 3, headless-args 1, gather-intent-ratify 2, analyze-target 4, scope-definition 1,
+    # step-auto-brief 4, step-auto-validate 2, write-brief 3
+    assert sites == 20, sites
 
 
-def test_write_brief_points_step_one_halts_at_the_halt_contract():
-    """write-brief.md section 4b sends a step 1 or 2 halt to the SKILL.md Halt Contract, which owns `unknown`."""
-    section = _section(_read(WRITE_BRIEF), "### 4b. Result Envelope (Headless)")
-    assert "steps 1 and 2" in section and "SKILL.md Halt Contract" in section and "`unknown`" in section
+def test_write_brief_leaves_each_halt_to_its_own_command():
+    """A halt in steps 1 to 5 runs the command written where it stops, which reads the halt state."""
+    section = " ".join(_section(_read(WRITE_BRIEF), "### 4b. Result Envelope (Headless)").split())
+    assert ("A HALT in this step, or in steps 1 to 3, does not use this section: it runs the `emit-halt` command "
+            "written where it stops, which reads the run's halt state for the mode and the skill name") in section
+    assert "Halt Contract" not in section
 
 
 def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
-    """The Halt Contract fires on {headless_mode} or {auto_mode}: no step 1 halt narrows it to headless,
-    points at write-brief.md section 4b or restates the `unknown` placeholder rule."""
+    """The halt state says whether the run prints an envelope, so no step 1 halt narrows the command to headless,
+    points at write-brief.md section 4b, or types the mode; only the write probe, with no run folder, says when."""
     step_one = (GATHER_INTENT, HEADLESS_ARGS, RATIFY)
     for path in step_one:
         text = _read(path)
         assert "In headless mode, emit" not in text, path.name
         assert "§4b" not in text and "step 5 section 4b" not in text and "placeholder convention" not in text
     [auto] = [line for line in _read(GATHER_INTENT).splitlines() if "brief_path` is not available" in line]
-    assert HALT_CALL in auto and '`halt_reason: "input-missing"`' in auto and '`"auto"`' in auto
-    # The validators' {field, message} warnings reach the envelope as one line each: the input
-    # validator's in the headless input gate, the schema validator's in the ratify route.
-    for path in (HEADLESS_ARGS, RATIFY):
+    match = HALT_CALL_RE.search(auto)
+    assert match and match.group("reason") == "input-missing" and match.group("run_dir"), auto
+    assert '`"auto"`' not in auto and "`mode`" not in auto
+    [probe] = [line for line in _read(GATHER_INTENT).splitlines() if "**On any non-zero exit:**" in line]
+    for needle in ("in a headless or `[auto]` run, emit the halt envelope first",
+                   "(no `--run-dir`: the run folder does not exist; add `--mode auto` in an `[auto]` run)"):
+        assert needle in probe, needle
+    # The validators' {field, message} warnings go to the sink from the file the call saved.
+    for path, saved in ((HEADLESS_ARGS, "inputs-validation.json"), (RATIFY, "ratify-validation.json")):
         valid = [line for line in _read(path).splitlines() if line.lstrip().startswith("- **`valid: true`**")]
-        assert len(valid) == 1 and "workflow_warnings[]" in valid[0], (path.name, valid)
-        assert f"`{OBJECT_WARNING}`" in valid[0], path.name
+        assert len(valid) == 1, (path.name, valid)
+        assert f'`{RECORD}--warnings-file "{{run_dir}}/{saved}"`' in valid[0], path.name
     assert "- **`valid: true`**" not in _read(GATHER_INTENT)
 
 
@@ -357,7 +442,59 @@ def test_no_brief_prose_names_a_dev_only_shared_path():
 
 
 # --------------------------------------------------------------------------
-# The success envelope carries the run's warnings
+# #1134: the halt state, written where the run learns what it holds
+# --------------------------------------------------------------------------
+
+
+HALT_STATE_RE = re.compile(r"""^cat > "\{run_dir\}/halt-state\.json" <<'SKF_JSON'\n(?P<body>.*?)\nSKF_JSON$""",
+                           re.M | re.S)
+# Each file that writes the halt state, the keys it writes and the values it gives in a run that reaches it.
+HALT_STATES = (
+    (GATHER_INTENT, {"interactive": False, "mode": "auto"}),
+    (HEADLESS_ARGS, {"interactive": False, "mode": None, "skill_name": "demo"}),
+    (RATIFY, {"interactive": False, "mode": None, "skill_name": "demo"}),
+    (AUTO_BRIEF, {"interactive": False, "mode": "auto", "skill_name": "demo"}),
+)
+
+
+def _halt_state(path: Path, values: dict) -> dict:
+    """The one halt state the file writes, each placeholder filled from `values`."""
+    [body] = [m.group("body") for m in HALT_STATE_RE.finditer(_read(path))]
+    filled = re.sub(r'"(\w+)": "?<[^<>]*>"?', lambda m: f'"{m.group(1)}": {json.dumps(values[m.group(1)])}', body)
+    return json.loads(filled)
+
+
+@pytest.mark.parametrize("path,values", [pytest.param(path, values, id=path.stem) for path, values in HALT_STATES])
+def test_each_halt_state_is_written_whole_with_the_keys_the_run_knows(tmp_path, path, values):
+    state = _halt_state(path, values)
+    assert state == values, state
+    envelope = _halt("write-failed", _run_folder(tmp_path, state))
+    assert envelope["mode"] == values["mode"]
+    assert envelope["skill_name"] == values.get("skill_name", "unknown")
+
+
+def test_step_one_writes_the_halt_state_before_its_first_halt_that_can_read_it():
+    section = _forge_tier_section()
+    bind = section.index("Bind `{run_dir}` ← the path the last command prints.")
+    state = section.index('cat > "{run_dir}/halt-state.json"')
+    assert bind < state < section.index("--halt-reason forge-tier-missing")
+    body = HALT_STATE_RE.search(section).group("body")
+    assert ('"interactive": <true when neither {headless_mode} nor {auto_mode} is true, else false>' in body
+            and '"mode": <"auto" when {auto_mode} is true, else null>' in body)
+    interactive = _halt_state(GATHER_INTENT, {"interactive": True, "mode": None})
+    assert interactive == {"interactive": True, "mode": None}
+    # The name is written where it resolves: the input gate on the derive route, the ratify route in a headless
+    # run, and the upstream brief on the [auto] route.
+    args = _read(HEADLESS_ARGS)
+    assert args.index("- **`valid: true`**") < args.index('cat > "{run_dir}/halt-state.json"') < args.index("### 3. ")
+    assert "On `valid: true` with no `normalized.from_brief`, the skill name is resolved" in args
+    assert "In a headless run, `valid: true` resolves the skill name" in _read(RATIFY)
+    auto = _read(AUTO_BRIEF)
+    assert auto.index("- **`valid: true`**") < auto.index('cat > "{run_dir}/halt-state.json"') < auto.index("### 2. ")
+
+
+# --------------------------------------------------------------------------
+# The success envelope carries the warnings the run recorded
 # --------------------------------------------------------------------------
 
 
@@ -368,44 +505,102 @@ def test_no_brief_prose_names_a_dev_only_shared_path():
         pytest.param(AUTO_VALIDATE, AUTO_SUCCESS, "auto", id="auto"),
     ],
 )
-def test_success_envelope_carries_the_run_warnings(path, heading, mode):
+def test_success_envelope_carries_the_run_warnings(tmp_path, path, heading, mode):
     command, body = _heredoc(_section(_read(path), heading), "SKF_BRIEF_RESULT")
-    assert command == "uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'"
-    proc = _emit(_fill(body, warnings=[QUOTED_WARNING, "Doc detection failed: proceeding without doc enrichment."]))
+    assert command == SUCCESS_CALL
+    assert '"warnings"' not in body, "the sink holds the warnings; no stage types the list"
+    recorded = [QUOTED_WARNING, "Doc detection failed: proceeding without doc enrichment."]
+    run_dir = _run_folder(tmp_path, {"interactive": False, "mode": mode, "skill_name": "demo"}, recorded)
+    proc = _run(_argv(command, run_dir), stdin=_fill(body))
     assert proc.returncode == 0, proc.stderr
     envelope = _envelope(proc.stdout.strip())
     assert envelope["status"] == "success" and envelope["exit_code"] == SETTINGS["success_exit_code"]
-    assert envelope["mode"] == mode
-    assert envelope["warnings"][0] == QUOTED_WARNING and len(envelope["warnings"]) == 2
+    assert envelope["mode"] == mode and envelope["skill_name"] == "demo"
+    assert envelope["warnings"] == recorded
 
 
-def test_run_warnings_are_declared_once_and_fed_by_the_helpers():
-    rules = _section(_read(SKILL_MD), "## Workflow Rules")
-    assert "`workflow_warnings[]`" in rules and "carries the list as `warnings`" in rules
-    assert f"goes in as one line, `{OBJECT_WARNING}`" in rules
-    for path in (AUTO_BRIEF, AUTO_VALIDATE, WRITE_BRIEF):
-        assert "to `workflow_warnings[]`" in _read(path), path.name
-    # skf-validate-brief-schema.py returns {field, message} objects: each [auto] step converts them.
-    for path in (AUTO_BRIEF, AUTO_VALIDATE):
-        [valid] = [line for line in _read(path).splitlines() if line.startswith("- **`valid: true`**")]
-        assert f"to `workflow_warnings[]` as `{OBJECT_WARNING}`" in valid, path.name
-    assert f"`{OBJECT_WARNING}`" in _section(_read(CONTRACT), "## Result Contract (Headless)")
+# Each helper whose own `warnings[]` a stage records: the file its call saves its stdout in, and how many calls do.
+SAVED_HELPER_OUTPUTS = (
+    (HEADLESS_ARGS, "{validateBriefInputsHelper}", "inputs-validation.json", 1),
+    (RATIFY, "{validateBriefSchemaHelper}", "ratify-validation.json", 1),
+    (AUTO_BRIEF, "{validateBriefSchemaHelper}", "upstream-validation.json", 1),
+    (AUTO_VALIDATE, "{validateBriefSchemaHelper}", "auto-validation.json", 1),
+    (WRITE_BRIEF, "{writeSkillBriefHelper}", "brief-write.json", 2),
+    (AUTO_BRIEF, "{writeSkillBriefHelper}", "brief-write.json", 1),
+    (ANALYZE_TARGET, "{detectWorkspacesHelper} --tree-file \"{run_dir}/tree.json\" --manifest-dir", "workspaces.json",
+     1),
+    (ANALYZE_TARGET, "{extractPublicApiHelper} --mode entries", "entries.json", 1),
+    (ANALYZE_TARGET, "{extractPublicApiHelper} --mode quick", "extract.json", 1),
+)
 
 
-def test_a_validator_warning_reaches_every_envelope_as_one_line(validator_warning):
-    """A real {field, message} warning, converted as documented, passes the halt and both success payloads."""
-    line = _as_line(validator_warning)
-    _, halt = _heredoc(_section(_read(SKILL_MD), "## Halt Contract"), "SKF_BRIEF_HALT")
-    # As the helper returns it, the object costs the run its envelope line.
-    raw = _emit(_fill(halt, halt_reason="input-invalid", mode="auto", warnings=[validator_warning]),
-                "--target", "stderr")
-    assert raw.returncode != 0 and PREFIX not in raw.stdout + raw.stderr
-    proc = _emit(_fill(halt, halt_reason="input-invalid", mode="auto", warnings=[line]), "--target", "stderr")
+@pytest.mark.parametrize("path,helper,saved,calls",
+                         [pytest.param(*row, id=f"{row[0].stem}:{row[2]}") for row in SAVED_HELPER_OUTPUTS])
+def test_a_helpers_warnings_are_recorded_from_the_stdout_its_call_saved(path, helper, saved, calls):
+    text = _read(path)
+    # A call inside a numbered step is indented with its fenced block.
+    lines = [line.strip() for line in text.splitlines() if line.strip().startswith(f"uv run {helper}")]
+    lines = [line for line in lines if "--snapshot" not in line]
+    assert len(lines) == calls and all(line.endswith(f' > "{{run_dir}}/{saved}"') for line in lines), lines
+    assert f'`{RECORD}--warnings-file "{{run_dir}}/{saved}"`' in text, path.name
+
+
+def test_no_stage_keeps_a_warning_list_or_flattens_an_object():
+    """#1134 (architecture-6, determinism-2): the sink is the run's one list, and the emitter turns a {field,
+    message} warning into its line, so no brief file keeps `workflow_warnings[]` or spells out the conversion."""
+    rules = " ".join(_section(_read(SKILL_MD), "## Workflow Rules").split())
+    for needle in ("Record each warning the moment it is raised, each `warn:` line a step logs included",
+                   f'`{RECORD}--warning "<text>"`', "or `--warnings-file` on a helper's saved JSON",
+                   "write it to `{run_dir}/warning.txt`, then pass `--warning \"$(cat \"{run_dir}/warning.txt\")\"`"):
+        assert needle in rules, needle
+    for path in sorted(SKILL_DIR.rglob("*")):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            for gone in ("workflow_warnings", OBJECT_WARNING, "{emitBriefEnvelopeHelper}"):
+                assert gone not in text, (path.relative_to(SKILL_DIR).as_posix(), gone)
+
+
+# Placeholders a fixed --warning may hold: a count, an enum value, a kebab-case name.
+SAFE_PLACEHOLDERS = {"{count}", "{manifest_kind}", "{skill-name}"}
+# A `warn:` line no record command follows: the draft checkpoint is written in interactive runs only, which print
+# no envelope, so SKILL.md's rule alone covers it.
+UNRECORDED_WARN = {"draft-checkpoint.md"}
+
+
+def test_every_warning_is_recorded_where_it_is_raised():
+    """Each site writes the whole record command: fixed text as `--warning "<text>"` with safe placeholders only,
+    text that quotes a helper or the user from `{run_dir}/warning.txt`, written with a file write."""
+    fixed = file_route = 0
+    for path in sorted(REFERENCES.glob("*.md")):
+        for line in _read(path).splitlines():
+            where = f"{path.name}: {line[:90]}"
+            if re.search(r"[`\"]warn: ", line) and path.name not in UNRECORDED_WARN:
+                assert RECORD in line or "the GATE above records" in line, where
+            if RECORD_FILE in line:
+                file_route += line.count(RECORD_FILE)
+                assert "`{run_dir}/warning.txt` with a file write, never `echo`" in line, where
+            for text in re.findall(re.escape(RECORD) + r'--warning "([^"$]*)"`', line):
+                fixed += 1
+                assert not set(re.findall(r"\{[^}]+\}", text)) - SAFE_PLACEHOLDERS, where
+                assert "'" not in text and "`" not in text, where
+    assert fixed >= 8 and file_route >= 14, (fixed, file_route)
+
+
+def test_a_validator_warning_reaches_every_envelope_as_one_line(tmp_path, validator_output):
+    """A real {field, message} warning, recorded with the documented --warnings-file command from the stdout the
+    validator call saved, reaches the halt and both success envelopes as one `field: message` line."""
+    stdout, warning = validator_output
+    line = f"{warning['field']}: {warning['message']}"
+    run_dir = _run_folder(tmp_path, {"interactive": False, "mode": None, "skill_name": "demo"})
+    (run_dir / "ratify-validation.json").write_bytes(stdout)
+    [valid] = [text for text in _read(RATIFY).splitlines() if text.startswith("- **`valid: true`**")]
+    [record] = re.findall(r"`(" + re.escape(RECORD) + r"--warnings-file [^`]+)`", valid)
+    proc = _run(_argv(record, run_dir))
     assert proc.returncode == 0, proc.stderr
-    assert _envelope(proc.stderr.strip())["warnings"] == [line]
-    for path, heading in ((WRITE_BRIEF, "### 4b. Result Envelope (Headless)"), (AUTO_VALIDATE, AUTO_SUCCESS)):
-        _, body = _heredoc(_section(_read(path), heading), "SKF_BRIEF_RESULT")
-        proc = _emit(_fill(body, warnings=[line]))
+    assert _halt("input-invalid", run_dir)["warnings"] == [line]
+    for path, heading in SUCCESS_SITES:
+        command, body = _heredoc(_section(_read(path), heading), "SKF_BRIEF_RESULT")
+        proc = _run(_argv(command, run_dir), stdin=_fill(body))
         assert proc.returncode == 0, f"{path.name}: {proc.stderr}"
         assert _envelope(proc.stdout.strip())["warnings"] == [line], path.name
 
@@ -430,7 +625,8 @@ def test_qmd_registration_never_halts_after_the_write():
     """A missing skf-forge-tier-rw.py costs the registry update, not the envelope of a brief already written."""
     section = _section(_read(WRITE_BRIEF), "### 3b. QMD Collection Registration (Deep Tier Only)")
     assert "HALT if no candidate exists" not in section
-    assert "add `QMD registry not updated: skf-forge-tier-rw.py not found` to `workflow_warnings[]`" in section
+    assert (f'record the warning: `{RECORD}--warning "QMD registry not updated: skf-forge-tier-rw.py not found"`'
+            in section)
     assert "skip the Registry Update" in _section(_read(QMD_REGISTRATION), "## Error Handling")
 
 
@@ -540,7 +736,8 @@ def test_ratify_version_line_names_the_r_pass():
     assert "this path never ran step 2" not in line
     [call] = [line for line in section.splitlines() if "--base-brief" in line]
     assert call == ('uv run {writeSkillBriefHelper} write --target {resolved-target-path} '
-                    '--base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json"')
+                    '--base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json" '
+                    '> "{run_dir}/brief-write.json"')
     confirm = _read(REFERENCES / "confirm-brief.md")
     assert "rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it)" in confirm
     for path in sorted(SKILL_DIR.rglob("*.md")):
@@ -569,7 +766,7 @@ def test_the_auto_path_registers_the_brief_in_qmd_before_its_envelope():
     [qmd] = [line for line in approve.splitlines() if line.startswith("**QMD registration.**")]
     for needle in ("When the run's forge tier (step 1 §1) is Deep, load `{writeBriefFile}` and run its §3b (QMD "
                    "Collection Registration) alone", "with `{skill-name}` ← `{skill_name}`",
-                   "Run nothing else of that file.", "`workflow_warnings[]` before the envelope below is built",
+                   "Run nothing else of that file.", "is recorded in the run sink before the envelope below is built",
                    "At any other tier, skip this."):
         assert needle in qmd, needle
     assert approve.index("**QMD registration.**") < approve.index("<<'SKF_BRIEF_RESULT'")
@@ -676,8 +873,10 @@ def test_step_one_binds_the_tier_and_the_tools_the_documented_call_prints(tmp_pa
     # Each key the branch reads is one the helper prints.
     for key in ("override_rejected", "tier_override", "preferences_error", "detected_tier"):
         assert re.search(rf"[`{{]{key}[`}}]", found) and key in payload, key
-    # An ignored override and an unreadable preferences.yaml each reach the envelope as one warning.
-    assert found.count("to `workflow_warnings[]`") == 1 and "add that line the same way" in found
+    # An ignored override and an unreadable preferences.yaml each reach the envelope as one warning, through the
+    # file route: the override is a value the user typed, the error a helper's message (#1134).
+    assert found.count(RECORD_FILE) == 1 and "record that line the same way, through `{run_dir}/warning.txt`" in found
+    assert "write that line to `{run_dir}/warning.txt` with a file write, never `echo`" in found
     assert "`warn: tier_override {tier_override} is not one of Quick, Forge, Forge+, Deep" in found
 
 
@@ -695,7 +894,8 @@ def test_step_one_halts_forge_tier_missing_when_the_documented_call_finds_no_fil
     assert done.returncode == 0 and json.loads(done.stdout)["exists"] is False
     missing = _branch("**If not found**")
     assert missing.strip().startswith("**If not found** (exit 0 with `exists` false): emit the halt envelope first")
-    assert '`halt_reason: "forge-tier-missing"`' in missing and "then HALT (exit code 3)" in missing
+    match = HALT_LINE_RE.search(missing)
+    assert match and (match.group("reason"), match.group("code")) == ("forge-tier-missing", "3"), missing
 
 
 @pytest.mark.parametrize("content", ["tools:\n  ast_grep: true\n  qmd: tr", "tools:\n  qmd: true\ntier: De",
@@ -710,7 +910,7 @@ def test_step_one_falls_back_to_quick_when_the_documented_call_exits_2(tmp_path,
     assert fallback.startswith("**If found but not usable** (exit 2, any other non-zero exit, or no JSON")
     for needle in ('`tier = "Quick"`, `tools = {}` and `tier_source: "fallback-corrupted-config"`',
                    "Do not HALT.", "`{message}` is the helper's stderr `message`, else its first stderr line",
-                   "to `workflow_warnings[]`"):
+                   f"to `{{run_dir}}/warning.txt` with a file write, never `echo`, then run {RECORD_FILE}"):
         assert needle in fallback, needle
     assert "halt_reason" not in fallback
 

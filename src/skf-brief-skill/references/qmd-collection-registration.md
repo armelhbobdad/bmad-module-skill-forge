@@ -27,7 +27,7 @@ After `qmd embed` completes, verify the collection was embedded:
 
 - Run `qmd status` or `qmd collection list` and confirm `{skill-name}-brief` shows document count > 0
 - If verification succeeds: proceed to registry update with no `status` field
-- If verification fails: log warning "QMD embed verification failed for {skill-name}-brief — collection may not be searchable yet", proceed to registry update but include `status: "pending"` in the entry
+- If verification fails: log the warning `QMD embed verification failed for {skill-name}-brief: collection may not be searchable yet`, record it with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "QMD embed verification failed for {skill-name}-brief: collection may not be searchable yet"`, then proceed to registry update but include `status: "pending"` in the entry
 
 ## Registry Update (Delegated to Script)
 
@@ -44,6 +44,6 @@ The script handles the upsert deterministically (replace existing entry with sam
 
 ## Error Handling
 
-- If `qmd embed` or `qmd collection add` fails: log the error. Do NOT fail the workflow — the brief file was already written successfully.
-- If the `register-qmd-collection` script call fails: log the error JSON, continue. The brief is the user-visible artifact; the registry entry is a portfolio-search optimisation.
-- If `{forgeTierRwHelper}` has no path (step 5 §3b found no `skf-forge-tier-rw.py`): skip the Registry Update. Step 5 §3b has added the warning to `workflow_warnings[]`.
+- If `qmd embed` or `qmd collection add` fails: log the error, write `QMD collection not created: <the first line of its stderr>` to `{run_dir}/warning.txt` with a file write, never `echo`, and run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. Do NOT fail the workflow: the brief file was already written successfully.
+- If the `register-qmd-collection` script call fails: log the error JSON, write `QMD registry not updated: <its message>` to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and continue. The brief is the user-visible artifact; the registry entry is a portfolio-search optimisation.
+- If `{forgeTierRwHelper}` has no path (step 5 §3b found no `skf-forge-tier-rw.py`): skip the Registry Update. Step 5 §3b has recorded the warning.

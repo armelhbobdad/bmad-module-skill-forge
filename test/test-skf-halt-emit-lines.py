@@ -61,7 +61,6 @@ SCHEMAS = _settings()
 
 # The emit commands a workflow's halts run.
 EMIT = {workflow: (f"emit-halt --workflow {workflow}",) for workflow in WORKFLOWS}
-EMIT["skf-brief-skill"] = ("{emitBriefEnvelopeHelper} emit",)
 EMIT["skf-setup"] = ("emit-blocked",)
 # Update's halt helper prints the line; an activation halt before the run
 # folder exists calls the emitter itself.
@@ -79,14 +78,13 @@ RULE_HOMES = {
     "skf-drop-skill": ("Halt Envelope section of `references/invocation-contract.md`",),
     "skf-export-skill": ("`references/result-envelope.md`",),
     "skf-setup": ("SKILL.md halt contract",),
-    "skf-brief-skill": ("SKILL.md Halt Contract",),
     "skf-verify-stack": ("`references/exit-codes.md`",),
 }
 
 # A SKILL.md rule that every step file's HALTs follow. Elsewhere SKILL.md
 # leaves the command to each stage, so listing a stage does not cover it.
 WORKFLOW_WIDE_RULES = {
-    "skf-brief-skill": "Every HALT that names a `halt_reason`, in any step file, emits the `SKF_BRIEF_RESULT_JSON` error envelope",
+    "skf-brief-skill": "Every HALT that names a `halt_reason`, except an interactive `[X]` cancel, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill",
     "skf-create-skill": "Every HARD HALT in steps 1 to 7 emits the result envelope before it stops, in every mode.",
 }
 

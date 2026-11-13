@@ -283,7 +283,7 @@ def test_a_halt_default_names_its_exit_code_and_reason(workflow):
         if not _halt_default(default):
             continue
         coded = re.search(r"\bexit(?: code)?\s*\**\s*\d", body) and re.search(
-            r"halt_reason|`[a-z]+(?:-[a-z]+)+`|\([a-z]+(?:-[a-z]+)+\)", body)
+            r"halt_reason|--halt-reason [a-z]+(?:-[a-z]+)+|`[a-z]+(?:-[a-z]+)+`|\([a-z]+(?:-[a-z]+)+\)", body)
         if workflow == "skf-update-skill":
             coded = re.search(r'status[`:\s"]*`?"?(?:blocked|halted-for-[a-z-]+)\b', body)
         if not coded:

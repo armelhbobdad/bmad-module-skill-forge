@@ -199,6 +199,10 @@ def test_envelope_block_agrees_with_the_schema(path):
             assert allowed is None or meta["success_exit_code"] in allowed
     result_file = meta.get("result_file")
     assert result_file is None or re.fullmatch(r"[a-z][a-z-]*-result", result_file), result_file
+    # #1134: each halt default names an envelope field and gives it a value the field accepts.
+    for key, value in (meta.get("halt_defaults") or {}).items():
+        assert key in props, key
+        assert mod._validate_against_schema(value, props[key]) == [], (key, value)
 
 
 def test_no_two_schemas_claim_one_workflow_at_one_version():

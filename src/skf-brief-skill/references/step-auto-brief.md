@@ -37,20 +37,28 @@ To enrich an upstream skill brief (produced by AN auto-scope) with documentation
 
 Read the upstream brief path from `{brief_path}` (passed by the forger from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`).
 
-**IF `{brief_path}` is not set or the file does not exist:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto-brief requires an upstream brief: `brief_path` is missing or the file does not exist at `{brief_path}`.**"
+**IF `{brief_path}` is not set or the file does not exist:** emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-missing`, then HARD HALT (exit code 2): "**Auto-brief requires an upstream brief: `brief_path` is missing or the file does not exist at `{brief_path}`.**"
 
 **Resolve `{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 Validate the upstream brief against the schema:
 
 ```bash
-uv run {validateBriefSchemaHelper} {brief_path}
+uv run {validateBriefSchemaHelper} {brief_path} > "{run_dir}/upstream-validation.json"
 ```
 
-The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`.
+The script writes JSON `{valid, errors[], warnings[], halt_reason, brief}` to `{run_dir}/upstream-validation.json`.
 
-- **`valid: false`**: the upstream brief is malformed. Emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**"
-- **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and add each to `workflow_warnings[]` as `<field>: <message>`.
+- **`valid: false`**: the upstream brief is malformed. Emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-invalid`, then HARD HALT (exit code 2): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**"
+- **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and record them all with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/upstream-validation.json"`.
+
+On `valid: true` the skill name is resolved: rewrite the halt state with the brief's, so a later halt names the skill:
+
+```bash
+cat > "{run_dir}/halt-state.json" <<'SKF_JSON'
+{"interactive": false, "mode": "auto", "skill_name": "<brief.name>"}
+SKF_JSON
+```
 
 Nothing the upstream brief carries is rebuilt or dropped: §4's writer starts from the upstream brief file itself. That covers the top-level fields (`name`, `version`, `source_type`, `source_repo`, `language`, `description`, `forge_tier`, `created`, `created_by`, `source_authority`, `doc_urls`, `target_version`, `target_ref`, `source_ref`, `scripts_intent`, `assets_intent`) and all scope fields: `scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scope.amendments`, `scope.tier_a_include`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`. The sections below read `skill_name` ← `brief.name`, `source_repo` ← `brief.source_repo`, `scope_type` ← `brief.scope.type` and `source_type` ← `brief.source_type`.
 
@@ -72,7 +80,7 @@ uv run {detectDocsHelper} --repo-url "{source_repo}" > "{run_dir}/detected.json"
 
 - **Exit 0 (found docs):** Proceed to §3, which reads `{run_dir}/detected.json`.
 - **Exit 1 (none found):** Log: "No external documentation found — brief generated from source analysis only." Proceed to §4 with no doc enrichment.
-- **Exit 2 (error):** Log the warning "Doc detection failed: proceeding without doc enrichment." and add it to `workflow_warnings[]`. Do NOT halt: doc enrichment is best-effort. Proceed to §4 with no doc enrichment.
+- **Exit 2 (error):** Log the warning "Doc detection failed: proceeding without doc enrichment." and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "Doc detection failed: proceeding without doc enrichment."`. Do NOT halt: doc enrichment is best-effort. Proceed to §4 with no doc enrichment.
 
 ### 3. Enrich Brief with Detected Docs
 
@@ -82,7 +90,7 @@ uv run {detectDocsHelper} --repo-url "{source_repo}" > "{run_dir}/detected.json"
 uv run {mergeDocUrlsHelper} --scope-type "{scope_type}" --detected-file "{run_dir}/detected.json" --existing-brief "{brief_path}" > "{run_dir}/doc-urls-merged.json"
 ```
 
-§4 hands the writer that file: its `doc_urls` are the merged list, every upstream entry kept with its `source`. On a non-zero exit, add `Doc merge failed: proceeding without doc enrichment.` to `workflow_warnings[]` and proceed to §4 with no doc enrichment.
+§4 hands the writer that file: its `doc_urls` are the merged list, every upstream entry kept with its `source`. On a non-zero exit, record the warning with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "Doc merge failed: proceeding without doc enrichment."` and proceed to §4 with no doc enrichment.
 
 **Log suppressed entries.** When its `suppressed` is non-empty, log one line per entry, `"info: suppressed {url} ({reason})"`, so the operator sees each entry the merge dropped and why (never drop silently).
 
@@ -93,17 +101,17 @@ uv run {mergeDocUrlsHelper} --scope-type "{scope_type}" --detected-file "{run_di
 Write the enriched brief through the canonical writer. It starts from the upstream brief file (`--base-brief`), keeps every field and the version it holds, replaces `doc_urls` with the merged list (`--doc-urls-file`), validates the result and writes it atomically:
 
 ```bash
-uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --base-brief "{brief_path}" --doc-urls-file "{run_dir}/doc-urls-merged.json"
+uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --base-brief "{brief_path}" --doc-urls-file "{run_dir}/doc-urls-merged.json" > "{run_dir}/brief-write.json"
 ```
 
 Leave `--doc-urls-file` out when §2 and §3 were skipped or found nothing, or the merge failed.
 
 **On script failure (non-zero exit):**
-- Exit 1 of a call with `--doc-urls-file` whose stderr `field` is `doc_urls` (a merged entry the brief schema refuses): doc enrichment is best-effort, so add `Doc enrichment dropped: {its message}` to `workflow_warnings[]`, run the call once more without `--doc-urls-file`, and handle that result.
-- Any other exit 1 (validation/invariant): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2).
-- Exit 2 (I/O failure): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HARD HALT (exit code 4).
+- Exit 1 of a call with `--doc-urls-file` whose stderr `field` is `doc_urls` (a merged entry the brief schema refuses): doc enrichment is best-effort, so write `Doc enrichment dropped: {its message}` to `{run_dir}/warning.txt` with a file write, never `echo`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, run the call once more without `--doc-urls-file`, and handle that result.
+- Any other exit 1 (validation/invariant): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-invalid`, then HARD HALT (exit code 2).
+- Exit 2 (I/O failure): emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason write-failed`, then HARD HALT (exit code 4).
 
-**On success:** Capture `brief_path` and `version` from the response envelope for step-auto-validate's envelope emission, and add each entry of its `warnings[]` to `workflow_warnings[]`.
+**On success:** Capture `brief_path` and `version` from the response envelope the writer saved in `{run_dir}/brief-write.json`, for step-auto-validate's envelope emission, and record its `warnings[]` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/brief-write.json"`.
 
 ### 5. Chain to Auto-Validate
 

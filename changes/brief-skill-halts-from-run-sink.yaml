@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  A headless or `[auto]` Brief Skill run that halts now prints its `SKF_BRIEF_RESULT_JSON` line on stderr, with the skill name (`unknown` before the run resolves one), the `mode` and every warning the run raised. Each halt used to leave those values to rules the run might no longer have in view, and one missed value, or a validator warning passed on as an object, made the emitter refuse the payload and print no line at all. Brief Skill now records each warning in its run folder as it is raised, and each halt is one `skf-emit-result-envelope.py emit-halt --halt-reason` call that reads the rest from the run folder. The shared emitter now turns a `{field, message}` warning into one `field: message` line, in `emit`, `emit-halt` and `record --warnings-file` alike. `skf-emit-brief-result-envelope.py` stays as an alias.
+issues: [1134]

@@ -398,8 +398,6 @@ HOOK_BEFORE_ENVELOPE = {"skf-campaign"}
 
 def _success_emit_re(skill: str) -> re.Pattern:
     """The command that prints a run's success envelope (not a halt's)."""
-    if skill == "skf-brief-skill":
-        return re.compile(r"\{emitBriefEnvelopeHelper\} emit <<")
     if skill == "skf-setup":
         return re.compile(r"\{emitEnvelopeHelper\} emit --run-dir")
     return re.compile(rf"\{{emitEnvelopeHelper\}} emit --workflow {re.escape(skill)}\b")

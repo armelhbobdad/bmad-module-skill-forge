@@ -69,7 +69,7 @@ Overwrite it with the brief you just approved? [Y/N]"
 If the file exists:
 
 - If `force` was supplied as a headless argument: log `"headless: force-overwriting existing brief at {path}"` and proceed to §3.
-- Otherwise: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "overwrite-cancelled"` (SKILL.md Halt Contract), then HALT with exit code 5.
+- Otherwise: emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason overwrite-cancelled`, then HALT (exit code 5).
 
 If the file does not exist, proceed normally.
 
@@ -112,7 +112,7 @@ Stage it in the run folder, then run the writer on the file with the `--from-fla
 cat > "{run_dir}/brief-context.json" <<'SKF_JSON'
 <the brief context above, as one JSON object>
 SKF_JSON
-uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat < "{run_dir}/brief-context.json"
+uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat < "{run_dir}/brief-context.json" > "{run_dir}/brief-write.json"
 ```
 
 The script translates flat → nested internally, drops the null optional fields, and runs the same schema validation and atomic write as before — pass every key always, the writer decides what reaches the YAML.
@@ -125,7 +125,7 @@ cat > "{run_dir}/ratify-patch.json" <<'SKF_JSON'
  "scope": {"type": <scope.type>, "include": <scope.include>, "exclude": <scope.exclude>, "notes": <scope.notes>, "rationale": <scope.rationale>, "tier_a_include": <scope.tier_a_include>, "registry_path": <scope.registry_path>, "ui_variants": <scope.ui_variants>, "demo_patterns": <scope.demo_patterns>},
  "scripts_intent": <scripts_intent>, "assets_intent": <assets_intent>, "doc_urls": <doc_urls>}
 SKF_JSON
-uv run {writeSkillBriefHelper} write --target {resolved-target-path} --base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json"
+uv run {writeSkillBriefHelper} write --target {resolved-target-path} --base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json" > "{run_dir}/brief-write.json"
 ```
 
 Either way, the script:
@@ -134,39 +134,39 @@ Either way, the script:
 - Enforces the `target_version == version` invariant (refuses to write a brief that violates it)
 - Renders YAML in canonical key order (byte-stable across runs)
 - Atomically writes the file via temp + fsync + rename (no half-written file ever visible)
-- Emits a JSON success envelope on stdout: `{"status":"ok","brief_path":"…","version":"…","bytes":…,"warnings":[…]}`
+- Emits a JSON success envelope on stdout, which the call saves in `{run_dir}/brief-write.json`: `{"status":"ok","brief_path":"…","version":"…","bytes":…,"warnings":[…]}`
 
 **On script failure (non-zero exit):**
 - Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
   - Interactive: **HALT** — display the error JSON's `message` field.
-  - Headless: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HALT (exit code 2).
+  - Headless: emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason input-invalid`, then HALT (exit code 2).
 - Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.). On a ratify run it can also mean the brief at `{ratify_source_path}` could not be read: show the error JSON's `message` field.
   - Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
-  - Headless: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HALT (exit code 4).
+  - Headless: emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason write-failed`, then HALT (exit code 4).
 
-**On success:** capture `brief_path` and `version` from the response envelope (§4b, §6 and §6b need them), and add each entry of its `warnings[]` to `workflow_warnings[]`.
+**On success:** capture `brief_path` and `version` from the response envelope in `{run_dir}/brief-write.json` (§4b, §6 and §6b need them), and record its `warnings[]` with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/brief-write.json"`.
 
 **Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f`, silent on absent). The draft was the checkpoint step 1 §8 and step 3 §5c wrote for the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
 
 ### 3b. QMD Collection Registration (Deep Tier Only)
 
-**IF forge tier is Deep AND QMD tool is available:** resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` (first existing path wins), then load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. If neither path exists, do not HALT: the brief is already written, and a QMD problem never fails the run. Index the brief all the same, skip the procedure's registry update, and add `QMD registry not updated: skf-forge-tier-rw.py not found` to `workflow_warnings[]`. A warning the procedure logs goes on `workflow_warnings[]` too, which is why this runs before §4b builds the envelope.
+**IF forge tier is Deep AND QMD tool is available:** resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` (first existing path wins), then load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. If neither path exists, do not HALT: the brief is already written, and a QMD problem never fails the run. Index the brief all the same, skip the procedure's registry update, and record the warning: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "QMD registry not updated: skf-forge-tier-rw.py not found"`. The procedure records each warning it raises the same way, which is why this runs before §4b builds the envelope.
 
 **IF forge tier is NOT Deep OR QMD is not available:** skip this section silently: do not load `{qmdRegistrationFile}`. No messaging.
 
 ### 4b. Result Envelope (Headless)
 
-When `{headless_mode}` is true, build the run's `SKF_BRIEF_RESULT_JSON` line now, after the write (§3) and the QMD registration (§3b), so `workflow_warnings[]` holds every warning the run raised. `{emitBriefEnvelopeHelper}` was resolved at SKILL.md On Activation step 4, and `references/invocation-contract.md` defines each field. Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message a `claude -p` caller reads:
+When `{headless_mode}` is true, build the run's `SKF_BRIEF_RESULT_JSON` line now, after the write (§3) and the QMD registration (§3b), so the run sink holds every warning the run raised, which the emitter folds in. `{emitEnvelopeHelper}` was resolved at SKILL.md On Activation step 4, and `references/invocation-contract.md` defines each field. Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message a `claude -p` caller reads:
 
 ```bash
-uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
-{"status":"success","brief_path":"<brief_path from §3>","skill_name":"<name>","version":"<version from §3>","language":"<language>","scope_type":"<scope.type>","halt_reason":null,"mode":null,"warnings":[<workflow_warnings[] as JSON strings>]}
+uv run {emitEnvelopeHelper} emit --workflow skf-brief-skill --run-dir "{run_dir}" <<'SKF_BRIEF_RESULT'
+{"status":"success","brief_path":"<brief_path from §3>","skill_name":"<name>","version":"<version from §3>","language":"<language>","scope_type":"<scope.type>","halt_reason":null,"mode":null}
 SKF_BRIEF_RESULT
 ```
 
-The helper derives `exit_code`, checks the line against the envelope schema and prints it on stdout. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
+The helper derives `exit_code`, checks the line against the envelope schema and prints it on stdout. If `{emitEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
 
-A HALT in this step, or in steps 1 and 2, does not use this section: it emits the error envelope through the SKILL.md Halt Contract, which also gives the `unknown` placeholder for a halt before the skill name is resolved.
+A HALT in this step, or in steps 1 to 3, does not use this section: it runs the `emit-halt` command written where it stops, which reads the run's halt state for the mode and the skill name.
 
 When `{headless_mode}` is false, skip this section silently: no envelope is emitted.
 

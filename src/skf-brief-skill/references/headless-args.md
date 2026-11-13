@@ -42,7 +42,7 @@ Step 1 §1b loads this file when `{headless_mode}` is true outside `[auto]` mode
 
 ### 1. Preset Merge
 
-Skip this merge when a `from_brief` argument is present: a preset seeds a derived brief and means nothing on the ratify route. Otherwise, when the arguments hold a `preset`, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its keys as defaults, an explicit argument winning key by key. When the file does not exist, log `"warn: preset '{name}' not found at {path}; proceeding without preset"`, add it to `workflow_warnings[]` and continue. An unknown field the preset holds passes through: the validator warns about it in §2. Drop the `preset` key itself before validation: it is not a brief field.
+Skip this merge when a `from_brief` argument is present: a preset seeds a derived brief and means nothing on the ratify route. Otherwise, when the arguments hold a `preset`, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its keys as defaults, an explicit argument winning key by key. When the file does not exist, log `"warn: preset '{name}' not found at {path}; proceeding without preset"`, write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and continue. An unknown field the preset holds passes through: the validator warns about it in §2. Drop the `preset` key itself before validation: it is not a brief field.
 
 ### 2. Validate the Arguments
 
@@ -52,13 +52,21 @@ Resolve `{validateBriefInputsHelper}` from `{validateBriefInputsProbeOrder}` (fi
 cat > "{run_dir}/headless-args.json" <<'SKF_JSON'
 <the merged headless arguments, as one JSON object>
 SKF_JSON
-uv run {validateBriefInputsHelper} < "{run_dir}/headless-args.json"
+uv run {validateBriefInputsHelper} < "{run_dir}/headless-args.json" > "{run_dir}/inputs-validation.json"
 ```
 
-It returns `{valid, errors[], warnings[], normalized, halt_reason}`:
+It writes `{valid, errors[], warnings[], normalized, halt_reason}` to `{run_dir}/inputs-validation.json`:
 
-- **`valid: false`**: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with the script's `halt_reason` (`input-missing` for an absent required argument, docs-only without `doc_urls`, or a `reference-app` `scope_type` without `include`; `input-invalid` for an enum violation, malformed semver or a `skill_name` that is not kebab-case) (SKILL.md Halt Contract), surface `errors[]` to the operator log, then HALT (exit code 2).
-- **`valid: true`**: `normalized`, the arguments with the table's defaults applied, is the source of truth for the rest of the run. Log each `warnings[]` entry and add it to `workflow_warnings[]` as `<field>: <message>`.
+- **`valid: false`**: emit the halt envelope first, `uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr --halt-reason <halt_reason>` with the script's `halt_reason` (`input-missing` for an absent required argument, docs-only without `doc_urls`, or a `reference-app` `scope_type` without `include`; `input-invalid` for an enum violation, malformed semver or a `skill_name` that is not kebab-case), surface `errors[]` to the operator log, then HALT (exit code 2).
+- **`valid: true`**: `normalized`, the arguments with the table's defaults applied, is the source of truth for the rest of the run. Log each `warnings[]` entry and record them all: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/inputs-validation.json"`.
+
+On `valid: true` with no `normalized.from_brief`, the skill name is resolved: rewrite the halt state with it, so a later halt names the skill (a ratify run writes its own once §3 has read the brief):
+
+```bash
+cat > "{run_dir}/halt-state.json" <<'SKF_JSON'
+{"interactive": false, "mode": null, "skill_name": "<normalized.skill_name>"}
+SKF_JSON
+```
 
 ### 3. Ratify Route (`from_brief`)
 
@@ -72,19 +80,19 @@ When `normalized.source_authority` is absent, `source_type` is `source` and `tar
 gh api user --jq .login
 ```
 
-Compare it with `<owner>`, both lower-cased (GitHub owners match case-insensitively, but the API keeps the case): a match sets `source_authority: "official"`, another login `community`. When the call fails (`gh` missing or not logged in, no network), set `community`, log `"warn: source-authority detection skipped: gh api user failed"` and add it to `workflow_warnings[]`. In every other case `source_authority` is the value given, else `community`.
+Compare it with `<owner>`, both lower-cased (GitHub owners match case-insensitively, but the API keeps the case): a match sets `source_authority: "official"`, another login `community`. When the call fails (`gh` missing or not logged in, no network), set `community`, log `"warn: source-authority detection skipped: gh api user failed"` and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "warn: source-authority detection skipped: gh api user failed"`. In every other case `source_authority` is the value given, else `community`.
 
 ### 5. Derive the Brief Fields
 
 From `normalized`, before step 2 runs:
 
 - **Version:** a `target_version` sets `version` too; without one, step 2 detects the version.
-- **Doc URLs:** HEAD-check every `doc_urls` entry in parallel, all calls in one message, each `curl -sI --max-time 5 {url}`. Keep a URL that fails, log `"warn: could not reach {url} ({status or error})"` and add it to `workflow_warnings[]`: the failure shows now instead of in skf-create-skill.
-- **Name collision:** when `{forge_data_folder}/{skill_name}/skill-brief.yaml` exists, log `"warn: skill name '{skill_name}' collides with existing brief at {path}"`, add it to `workflow_warnings[]` and proceed: step 5 §2b halts with `overwrite-cancelled` unless `force` was supplied.
+- **Doc URLs:** HEAD-check every `doc_urls` entry in parallel, all calls in one message, each `curl -sI --max-time 5 {url}`. Keep a URL that fails, log `"warn: could not reach {url} ({status or error})"` and write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`: the failure shows now instead of in skf-create-skill. Record the failures one at a time, each record before the next write, since they share that file.
+- **Name collision:** when `{forge_data_folder}/{skill_name}/skill-brief.yaml` exists, log `"warn: skill name '{skill_name}' collides with existing brief at {path}"`, write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, and proceed: step 5 §2b halts with `overwrite-cancelled` unless `force` was supplied.
 - **Description:** compose 1-3 sentences in `{document_output_language}` that say what the skill is and contain a literal `Use when` clause, in the spirit of `{descriptionVoiceExamplesPath}` (load it), from the first seed available:
   1. `intent`.
   2. The repository's own description, when `target_repo` is a GitHub URL: `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). When it is not empty, log `"info: description seeded from GitHub repo description"`.
-  3. None (a local path, an empty description, a failed call): write `"Use the {skill_name} skill to work with code or content from {target_repo}."`, log `"warn: description synthesized without intent or repo description: narrow registry text."` and add it to `workflow_warnings[]`.
+  3. None (a local path, an empty description, a failed call): write `"Use the {skill_name} skill to work with code or content from {target_repo}."`, log `"warn: description synthesized without intent or repo description: narrow registry text."` and record it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "warn: description synthesized without intent or repo description: narrow registry text."`.
 
 ### 6. Continue
 

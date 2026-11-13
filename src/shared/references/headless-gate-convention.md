@@ -85,7 +85,7 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<warning>" [
 uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/<helper output>.json"
 ```
 
-`--warning` repeats, one per warning. `--warnings-file` records, in one call, every warning in a helper's saved JSON output: an array of strings, or an object whose `warnings` is one. A blank or non-string warning, or a file with no such list, records nothing and exits 1; an empty list records nothing and exits 0.
+`--warning` repeats, one per warning. `--warnings-file` records, in one call, every warning in a helper's saved JSON output: an array of strings, or an object whose `warnings` is one; an entry that is a `{field, message}` object, as the brief validators return, is recorded as `field: message`. A blank or non-string warning, or a file with no such list, records nothing and exits 1; an empty list records nothing and exits 0.
 
 With `--workflow`, a decision the workflow's envelope schema rejects fails here, at the gate; without it, the emitter leaves the decision out when the run ends and adds a `headless_decision_invalid` warning. Because the sink is on disk, the trail survives context compaction, and a HARD HALT reports every decision taken before it.
 
@@ -114,7 +114,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow <workflow> --run-dir "{run_dir}
 - Write the `emit-halt` command at each HARD HALT, naming its phase, `halt_reason` and exit code there, and resolve the helper once at activation, before the first halt can fire. The halt then emits the right line even when the step file that defines the run's success envelope was never loaded, or was compacted away.
 - If the helper exits non-zero or prints no line, display the halt reason alone.
 
-A workflow adopts the emitter by adding its schema under `src/shared/scripts/schemas/`, with the emitter's settings in its `$defs`: an entry `skf-envelope` whose `const` names the workflow, the line's prefix, the status a halt carries, the exit code of each `halt_reason` and the result file name (the emitter's docstring lists the fields). `$defs` and `const` are standard keywords, so a strict validator such as Ajv still compiles the installed schema. skf-setup calls the same helper through its `emit` and `emit-blocked` subcommands, and skf-brief-skill through `skf-emit-brief-result-envelope.py`, which stays as an alias. Like the helper it replaced, the alias refuses no payload for a key the envelope has no field for, or for a typed `exit_code`: it drops the key, derives the code, and says so in the envelope's `warnings`.
+A workflow adopts the emitter by adding its schema under `src/shared/scripts/schemas/`, with the emitter's settings in its `$defs`: an entry `skf-envelope` whose `const` names the workflow, the line's prefix, the status a halt carries, the exit code of each `halt_reason` and the result file name (the emitter's docstring lists the fields). `$defs` and `const` are standard keywords, so a strict validator such as Ajv still compiles the installed schema. skf-setup calls the same helper through its `emit` and `emit-blocked` subcommands, and skf-brief-skill calls it directly; `skf-emit-brief-result-envelope.py` stays as an alias for callers that still name it. Like the helper it replaced, the alias refuses no payload for a key the envelope has no field for, or for a typed `exit_code`: it drops the key, derives the code, and says so in the envelope's `warnings`.
 
 ## What Headless Does NOT Skip
 

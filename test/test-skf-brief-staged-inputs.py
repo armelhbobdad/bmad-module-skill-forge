@@ -40,6 +40,12 @@ detector's JSON in the run folder and hands it, with the upstream brief, to
 one merge call that maps and merges the entries, and a merged entry the
 writer refuses drops the enrichment instead of halting.
 
+#1134: the input validator, the brief writer and the workspace detector
+save their stdout in the run folder, where the step reads the result and
+the shared emitter records the helper's warnings (`--warnings-file`). The
+run's halt-state.json is the one staged file no helper is handed: the
+emitter's `emit-halt --run-dir` reads it.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the helpers, with the fetch helper reading
 from a local folder where a command reads GitHub.
@@ -86,6 +92,10 @@ HEREDOC_RE = re.compile(r"<<'(?P<tag>[A-Z_]+)'\n(?P<body>.*?)\n(?P=tag)\n", re.D
 # A fenced bash block, at any indent (a block inside a list item is indented).
 BASH_BLOCK_RE = re.compile(r"^(?P<indent>[ \t]*)```bash\n(?P<body>.*?)^(?P=indent)```", re.DOTALL | re.M)
 STAGE_RE = re.compile(r'cat > "\{run_dir\}/(?P<file>[a-z-]+\.json)" <<\'SKF_JSON\'')
+# #1134: the run's halt state, which no helper is handed: the emitter reads it from the run folder itself.
+HALT_STATE = "halt-state.json"
+RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+RECORD_FILE = f'`{RECORD}--warning "$(cat "{{run_dir}}/warning.txt")"`'
 
 
 def _read(path: Path) -> str:
@@ -267,8 +277,11 @@ def test_staged_payloads_are_quoted_heredocs_a_helper_reads(path):
     """A payload is written to the run folder through a quoted, unindented heredoc, then a helper reads the file:
     redirected into it (its output may go to another file of the run folder) or named by a --*-file flag."""
     text = _read(path)
-    staged = STAGE_RE.findall(text)
+    staged = [name for name in STAGE_RE.findall(text) if name != HALT_STATE]
     assert staged, path.name
+    if HALT_STATE in STAGE_RE.findall(text):
+        # the emitter reads it from the run folder its halts name
+        assert 'emit-halt --workflow skf-brief-skill --run-dir "{run_dir}"' in text, path.name
     for name in staged:
         assert f'\nSKF_JSON\n' in text
         staged_file = rf'"\{{run_dir\}}/{re.escape(name)}"'
@@ -305,16 +318,16 @@ def test_step_two_lists_the_repository_through_the_probe():
     assert "`truncated`" in section
     # a missing probe halts with an envelope like any listing failure
     [missing] = [line for line in section.splitlines() if line.startswith("- **No candidate path, or no JSON**")]
-    assert '`halt_reason: "target-inaccessible"`' in missing
+    assert "--halt-reason target-inaccessible`" in missing
     # every cause the probe reports is classified
     causes = re.search(r"^CAUSES = \(([^)]*)\)", _read(SCRIPTS / "skf-github-probe.py"), re.M).group(1)
     for cause in re.findall(r'"([a-z-]+)"', causes):
         assert f"`{cause}`" in section, cause
     for line in section.splitlines():
         if "`gh-missing` or `gh-unauthenticated`" in line:
-            assert '`halt_reason: "gh-auth-failed"`' in line
+            assert "--halt-reason gh-auth-failed`" in line
         if "`repo-not-found`, `no-access` or `ref-not-found`" in line:
-            assert '`halt_reason: "target-inaccessible"`' in line
+            assert "--halt-reason target-inaccessible`" in line
 
 
 def test_a_target_version_resolves_to_a_tag_through_validate_pins():
@@ -447,7 +460,9 @@ def test_a_rush_tree_reaches_the_workspace_menu(tmp_path):
              .replace("uv run {detectWorkspacesHelper}", _script("skf-detect-workspaces.py")))
     proc = _bash(block)
     assert proc.returncode == 0, proc.stderr
-    fetched, out = _json_objects(proc.stdout)
+    # #1134: the detection's stdout is saved for --warnings-file, and the step reads the result there.
+    [fetched] = _json_objects(proc.stdout)
+    out = json.loads((run_dir / "workspaces.json").read_text(encoding="utf-8"))
     assert fetched["status"] == "ok" and fetched["via"] == "raw" and "rush.json" in fetched["fetched"], fetched
     assert out["is_monorepo"] is True and out["manifest_kind"] == "rush", out
     assert [w["name"] for w in out["workspaces"]] == ["@acme/web", "@acme/core"]
@@ -535,6 +550,16 @@ def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
     assert [r["module_file"] for r in out["unlisted"]] == ["src/private.ts"]
     assert any(w.startswith("--follow could not read src/private.ts") and "gh is not installed" in w
                for w in out["warnings"])
+    # #1134: both calls' warnings go to the run sink through the record commands the section writes.
+    records = re.findall(r"`(" + re.escape(RECORD) + r'--warnings-file "\{run_dir\}/(?:entries|extract)\.json")`',
+                         section)
+    assert len(records) == 2, records
+    for record in records:
+        proc = _bash(record.replace("uv run {emitEnvelopeHelper}", _script("skf-emit-result-envelope.py"))
+                     .replace("{run_dir}", run_dir.as_posix()))
+        assert proc.returncode == 0, proc.stderr
+    sink = [json.loads(line) for line in (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert sink == entries["warnings"] + out["warnings"]
     # step 3 takes the count from the file, never from a number typed into its payload
     body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
             "module_count": 1, "mode": "interactive"}
@@ -662,7 +687,9 @@ def test_headless_arguments_reach_the_validator_from_a_staged_file(tmp_path):
              .replace("uv run {validateBriefInputsHelper}", _script("skf-validate-brief-inputs.py")))
     proc = _bash(block)
     assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
+    # #1134: the result is saved for --warnings-file, and the gate reads it there.
+    assert proc.stdout == ""
+    out = json.loads((tmp_path / "inputs-validation.json").read_text(encoding="utf-8"))
     assert out["valid"] is True and out["normalized"]["intent"] == args["intent"]
 
 
@@ -774,6 +801,9 @@ def _upstream_brief(tmp_path: Path) -> dict:
     return result["brief"]
 
 
+SAVED_WRITE = ' > "{run_dir}/brief-write.json"'
+
+
 def _helper_call(block: str, helper: str, script: str, values: dict[str, str]) -> list[str]:
     """The argv of the documented `uv run {helper} ...` line of `block`, its placeholders filled from `values`."""
     [line] = [line for line in block.splitlines() if line.startswith(f"uv run {{{helper}}} ")]
@@ -794,6 +824,8 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     assert '"scope_rationale":  null' not in text and "auto-brief.json" not in text
     [write] = _blocks(_section(text, "### 4. Write Enriched Brief"), "{writeSkillBriefHelper}")
     assert '--base-brief "{brief_path}"' in write and "--from-flat" not in write
+    assert write.rstrip().endswith(SAVED_WRITE)
+    write = write.replace(SAVED_WRITE, "")
 
     upstream = _upstream_brief(tmp_path)
     brief_path = tmp_path / "upstream" / "skill-brief.yaml"
@@ -807,8 +839,10 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     [merge] = _blocks(three, "{mergeDocUrlsHelper}")
     redirect = ' > "{run_dir}/doc-urls-merged.json"'
     assert merge.rstrip().endswith(redirect) and "<<" not in merge
-    for gone in ("README Link", "`readme_link`", "`homepageUrl`", "detected_via", "SKF_JSON"):
+    for gone in ("README Link", "`readme_link`", "`homepageUrl`", "detected_via"):
         assert gone not in text, gone
+    # No doc entry is typed: the only payload the step stages is the halt state its section 1 writes (#1134).
+    assert "SKF_JSON" not in text.split("### 2. Run Doc Detection", 1)[1]
     (run_dir / "detected.json").write_bytes(json.dumps([
         {"url": "https://demo.dev/docs/index.html", "detected_via": "readme_link", "content_hash": "sha256:0",
          "content_type": "reference"},
@@ -842,9 +876,10 @@ def test_a_refused_doc_url_drops_the_enrichment_and_keeps_the_upstream_brief(tmp
     before writing (exit 1, field doc_urls), and §4 warns and runs the call again without --doc-urls-file."""
     four = _section(_read(AUTO_BRIEF), "### 4. Write Enriched Brief")
     [write] = _blocks(four, "{writeSkillBriefHelper}")
+    write = write.replace(SAVED_WRITE, "")
     [fallback] = [line for line in four.splitlines() if "whose stderr `field` is `doc_urls`" in line]
     assert fallback.startswith("- Exit 1 of a call with `--doc-urls-file` whose stderr `field` is `doc_urls`")
-    assert "to `workflow_warnings[]`, run the call once more without `--doc-urls-file`" in fallback
+    assert f"{RECORD_FILE}, run the call once more without `--doc-urls-file`" in fallback
     assert "HALT" not in fallback
     assert "- Any other exit 1 (validation/invariant): emit the halt envelope first" in four
     upstream = _upstream_brief(tmp_path)
@@ -937,7 +972,8 @@ def test_a_ratify_run_writes_from_the_brief_it_ratified(tmp_path, change):
               .replace("uv run {writeSkillBriefHelper}", _script("skf-write-skill-brief.py")))
     proc = _bash(script)
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["version"] == context["version"]
+    # #1134: the writer's result is saved for --warnings-file, and step 5 reads the path and version there.
+    assert json.loads((run_dir / "brief-write.json").read_text(encoding="utf-8"))["version"] == context["version"]
     assert "version_resolved" not in target.read_text(encoding="utf-8")
     written = json.loads(_run("skf-validate-brief-schema.py", str(target)).stdout)["brief"]
     assert written == context
@@ -1114,7 +1150,7 @@ def test_the_tier_a_list_is_the_runners_reexport_targets():
     [block] = _blocks(section, "{extractPublicApiHelper}")
     assert "--mode full" in block and '-o "{run_dir}/tier-a.json"' in block
     assert "`reexport_targets`" in section and "`entry_points.files[].file`" in section
-    assert "by eye" in section and "`workflow_warnings[]`" in section  # Quick tier and a failed run
+    assert "by eye" in section and RECORD_FILE in section  # Quick tier and a failed run
     assert "extractPublicApiProbeOrder:" in _read(SCOPE_DEFINITION)
     # a clone this section makes holds only the scope's folders, and goes once the runner has run
     assert "sparse-checkout set" in section

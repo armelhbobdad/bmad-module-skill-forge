@@ -70,7 +70,10 @@ CONTRACT = REFERENCES / "invocation-contract.md"
 TEMPLATES = SKILL_DIR / "assets" / "scope-templates.md"
 ENVELOPE_SCHEMA = SCRIPTS / "schemas" / "skf-brief-result-envelope.v1.json"
 
-HALT_CALL = "`uv run {emitBriefEnvelopeHelper} emit --target stderr`"
+# #1134: a halt runs the shared emitter's halt-reason form; a warning is recorded in the run sink where it is raised.
+HALT_CALL = '`uv run {emitEnvelopeHelper} emit-halt --workflow skf-brief-skill --run-dir "{run_dir}" --target stderr '
+RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+RECORD_FILE = f'`{RECORD}--warning "$(cat "{{run_dir}}/warning.txt")"`'
 BASH = shutil.which("bash")
 # The documented blocks are POSIX shell; on Windows `bash` may be WSL's launcher.
 POSIX_BASH = BASH is not None and sys.platform != "win32"
@@ -198,7 +201,7 @@ def test_the_input_gate_merges_and_validates_before_it_derives():
 def test_every_warning_the_input_gate_logs_reaches_the_envelope():
     for line in _read(HEADLESS_ARGS).splitlines():
         if '"warn: ' in line:
-            assert "workflow_warnings[]" in line, line[:100]
+            assert RECORD in line, line[:100]
 
 
 def test_the_argument_table_lists_what_the_validator_knows():
@@ -257,8 +260,8 @@ def test_every_source_scope_type_has_a_headless_boundary_default_or_a_halt():
 def test_a_boundary_default_is_a_warning_the_envelope_carries():
     gate = _boundary_gate()
     [rule] = [line for line in gate.splitlines() if line.startswith("**GATE [default: the scope type's boundary")]
-    assert f"`{BOUNDARY_WARNING}`" in rule and "add that line to `workflow_warnings[]`" in rule
-    # SKILL.md's one list of warnings takes every `warn:` line a step logs.
+    assert f"`{BOUNDARY_WARNING}`" in rule and "and record that line" in rule and RECORD_FILE in rule
+    # SKILL.md's rule records every `warn:` line a step logs in the run sink.
     rules = _section(_read(SKILL_MD), "## Workflow Rules")
     assert "each `warn:` line a step logs" in rules
 
@@ -266,7 +269,7 @@ def test_a_boundary_default_is_a_warning_the_envelope_carries():
 def test_a_reference_app_scope_without_include_halts_input_missing():
     gate = _boundary_gate()
     [halt] = [line for line in gate.splitlines() if line.startswith("A scope with no default")]
-    assert re.search(re.escape(HALT_CALL) + r'.*`halt_reason: "input-missing"`.*then HALT \(exit code 2\)', halt)
+    assert re.search(re.escape(HALT_CALL) + r'--halt-reason input-missing`.*then HALT \(exit code 2\)', halt)
     schema = json.loads(_read(ENVELOPE_SCHEMA))
     assert schema["$defs"]["skf-envelope"]["const"]["exit_codes"]["input-missing"] == 2
     assert "`include`" in halt
@@ -433,7 +436,7 @@ def test_component_library_detection_runs_the_registry_helper():
     gate = _boundary_gate()
     bullet = gate[gate.index("- **Component library detection**"):gate.index("A scope with no default")]
     assert "`selected` when `headless_accept` is true" in bullet and "every `patterns[]` glob" in bullet
-    assert "warn: component library detection skipped" in gate and "workflow_warnings[]" in gate
+    assert "warn: component library detection skipped" in gate and RECORD_FILE in gate
     rows = dict(re.findall(r"^\| `([a-z-]+)` \| (.+) \|$", gate, re.M))
     assert "component library detection below" in rows["component-library"]
     templates = _read(TEMPLATES)
@@ -774,5 +777,5 @@ def test_step_one_files_resolve_each_helper_they_call(path):
     text = _read(path)
     front = _frontmatter(path)
     body = text[text.index("\n---\n", 4):]
-    for stem in set(re.findall(r"\{([a-z][A-Za-z]+)Helper\}", body)) - {"emitBriefEnvelope"}:
+    for stem in set(re.findall(r"\{([a-z][A-Za-z]+)Helper\}", body)) - {"emitEnvelope"}:
         assert f"{stem}ProbeOrder:" in front, (path.name, stem)
