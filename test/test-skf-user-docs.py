@@ -1491,6 +1491,71 @@ def test_pipeline_docs_say_a_resume_comes_from_the_journal():
         assert token in memory, token
 
 
+def test_the_resume_pick_takes_a_stopped_chains_offer_headless_too():
+    """#1169: `resume` is a pick of its own (`campaign resume` stays CA's) that runs the Resume procedure, a
+    headless start with no pick names it, a chain cut off mid-step is a question with its last write, and a
+    drop of one asks first."""
+    forger = _read(FORGER_SKILL)
+    greeting = _slice(forger, "6. **Greet, then dispatch or wait.**", "\n")
+    picks = _slice(greeting, "When the invocation carries a pick", "greet in one line")
+    for token in ("`resume` as the whole pick, which takes step 5's offer", "`@Ferris resume`",
+                  "`/skf-forger resume --headless`",
+                  "`campaign resume` stays CA's"):
+        assert token in picks, token
+    halt = _slice(greeting, "and no pick, HARD HALT", "Otherwise")
+    assert ("start me without `--headless`, or run `/skf-forger resume --headless` to take the offer a stopped "
+            "chain left: <route>.\"") in halt
+    offer = _slice(greeting, "Put step 5's offer", "End the greeting")
+    for token in ("by its `kind`", "`halted_on.code` and `halted_on.reason` beside an `error` route",
+                  "an `interrupted` offer as a question, not a recommendation",
+                  "or is still running in another session (last write `updated_at`)", "ask whether to resume it",
+                  "When `derived.is_first_run` is true, SF comes ahead of the offer"):
+        assert token in offer, token
+    accepted = _slice(forger, "- **An accepted resume or repair offer**", "\n")
+    assert "or the pick `resume` (`campaign resume` is CA's)" in accepted and "Resume procedure" in accepted
+    dropped = _slice(forger, "- **An offer the user wants dropped**", "\n")
+    confirm = ("when the offer is `interrupted`, first confirm once that the user wants it dropped, "
+               "naming its `updated_at`")
+    assert confirm in dropped and dropped.index(confirm) < dropped.index("pipeline-journal.py discard")
+    resume = _read(SRC / "skf-forger" / "references" / "pipeline-mode.md").split("## Resume", 1)[1]
+    resume = resume.split("\n## ", 1)[0]
+    for token in ("or picks `resume`", 'HALT with "**Nothing to resume.**"', "`nothing-to-resume: <message>`",
+                  "`user-action-required: <user_action>`", "write the failed pipeline result as step 1 does",
+                  "supersedes no journal", "A headless offer whose `user_action` is null goes on"):
+        assert token in resume, token
+    reopen = _slice(resume, "`<journal>` is the path the offer named", "Otherwise go on with step 3")
+    assert ("HALT with what it printed; in `{headless_mode}`, first write the failed pipeline result as step 1 does, "
+            "with its `message` (or what it printed, when that is no JSON object) as the halt reason") in reopen
+    # The three headless halts each write it with step 1's call: no third finish call.
+    assert resume.count("the failed pipeline result as step 1 does") == 3
+    contracts = _slice(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "## Resume and Repair",
+                       "### Repair Routes")
+    for token in ("`resume` also prints the journal's `started_at` and `updated_at`, its last write",
+                  "A headless `resume` pick that takes no offer writes a failed pipeline result with no step",
+                  "`nothing-to-resume: <message>`", "`user-action-required: <user_action>`",
+                  "which supersedes no journal"):
+        assert token in contracts, token
+    [bullet] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith("- **Resume:**")]
+    for token in ("`@Ferris resume`", "`/skf-forger resume --headless`", "`user-action-required`",
+                  "`nothing-to-resume`"):
+        assert token in bullet, token
+    memory = _slice(_read(AGENTS), "**Memory:**", "[Getting Started")
+    for token in ("`@Ferris resume`", "`/skf-forger resume --headless`", "may still be running in another session",
+                  "asks before resuming or dropping it", "When a campaign is unfinished, he names it",
+                  "with `CA` to go on with it", "in its default folder, `forge-data/_campaign/`",
+                  "moved with `campaign_workspace_path`"):
+        assert token in memory, token
+
+
+def test_agents_doc_says_ws_shows_drift_and_an_unfinished_campaign():
+    """#1169: WS reads the latest audits and an unfinished campaign, and the menu row says so."""
+    ws = _slice(_read(FORGER_SKILL), "- **WS**:", "## Pipeline Mode")
+    for token in ("their test verdicts and latest audits", "an unfinished campaign", "`drift`", "`campaign`"):
+        assert token in ws, token
+    [row] = [line for line in _read(AGENTS).splitlines() if line.startswith("| 17 | WS |")]
+    assert "any drift an audit found after its test, an unfinished campaign in its default folder" in row
+
+
 def test_headless_docs_name_every_workflow_whose_line_is_the_last():
     """#593: Test Skill, Campaign, Export Skill, Audit Skill and Drop Skill (v4.0.0 quality gate run 1,
     skf-audit-skill and skf-drop-skill enhancement-1) bind the line the shared health check displays last, as

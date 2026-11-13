@@ -79,13 +79,13 @@ Paths here resolve as the skf-forger SKILL.md **Conventions** say: each `uv run 
 
 ## Resume
 
-When the user accepts the offer On Activation step 5 made, run the chain from its journal instead of a new invocation: steps 1 and 2 are skipped, since the journal holds the plan the first parse produced. When the offer has a `user_action`, first confirm the user did it. Then, from the skf-forger skill root:
+When the user accepts the offer On Activation step 5 made, or picks `resume`, run the chain from its journal instead of a new invocation: steps 1 and 2 are skipped, since the journal holds the plan the first parse produced. With no offer from On Activation step 5, HALT with "**Nothing to resume.**" and that call's `message` (or what it printed, when that is no JSON object); in `{headless_mode}`, first write the failed pipeline result as step 1 does, with the halt reason `nothing-to-resume: <message>`. When the offer has a `user_action`, first confirm the user did it; in `{headless_mode}`, ask nothing: write the failed pipeline result as step 1 does, with the halt reason `user-action-required: <user_action>`, then HALT with that reason. That record holds no step, so it supersedes no journal and the next start offers the chain again. A headless offer whose `user_action` is null goes on. Then, from the skf-forger skill root:
 
 ```bash
 uv run scripts/pipeline-journal.py reopen --journal "<journal>"
 ```
 
-`<journal>` is the path the offer named. The call prints the plan entries still to `run`, the `next` entry, the first of them, with its `inputs`, the `alias`, the first workflow's `args` and the handoff `data`. If it prints no JSON object, or its `status` is not `ok`, HALT with what it printed. Otherwise go on with step 3, then step 4 from that `next` entry, without step 4's `start` call (every `step` call names this `journal`): `{pipeline_alias}` is `alias`, and each entry runs with its `inputs`, as the `next` entry prints them.
+`<journal>` is the path the offer named. The call prints the plan entries still to `run`, the `next` entry, the first of them, with its `inputs`, the `alias`, the first workflow's `args` and the handoff `data`. If it prints no JSON object, or its `status` is not `ok`, HALT with what it printed; in `{headless_mode}`, first write the failed pipeline result as step 1 does, with its `message` (or what it printed, when that is no JSON object) as the halt reason, as step 4 does for a `start` that failed. Otherwise go on with step 3, then step 4 from that `next` entry, without step 4's `start` call (every `step` call names this `journal`): `{pipeline_alias}` is `alias`, and each entry runs with its `inputs`, as the `next` entry prints them.
 
 ## Special behaviors
 

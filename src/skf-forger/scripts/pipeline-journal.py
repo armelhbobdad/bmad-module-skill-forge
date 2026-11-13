@@ -93,6 +93,9 @@ Subcommands:
            the per-run ones included), when the journal's skill was tested
            (--forge-data-folder) or exported (--skills-output-folder) after
            the journal's last write, or when its halt has nothing to resume.
+           An offer also prints the journal's `started_at` and `updated_at`
+           (its last write): a chain the journal still records `running`
+           (an `interrupted` offer) may still run in another session.
   reopen   Apply the offer the user accepted: the halted step is pending
            again (after AS CRITICAL the audit counts as done), a repair that
            is a workflow of its own joins the plan right before the step it
@@ -145,7 +148,8 @@ or null when nothing is left to resume), `kind` (`interrupted`, `error` or
 `route` (the next action in one line, such as `US hono --from-test-report,
 then TS EX at the recorded threshold of 90`), `halted_on`, `resume_at` and
 `threshold` (the TS `min` the rest of the plan carries). Every value is
-null for a chain that nothing stopped.
+null for a chain that nothing stopped. `resume` adds the journal's
+`started_at` and `updated_at` beside these keys; `finish` does not.
 
 The journal's skill is the handoff `skill_name`, else the alias argument of
 that name (`forge`, `maintain`), else the bracket name of a TS, EX, US or AS
@@ -1255,6 +1259,9 @@ def cmd_resume(args) -> dict:
         **action,
         "run_id": journal["run_id"],
         "journal": str(path),
+        # When the chain started and the journal's last write: an `interrupted` chain may still run elsewhere.
+        "started_at": journal.get("started_at"),
+        "updated_at": journal.get("updated_at"),
         "invocation": journal.get("invocation"),
         "alias": journal.get("alias"),
         "skill_name": skill,

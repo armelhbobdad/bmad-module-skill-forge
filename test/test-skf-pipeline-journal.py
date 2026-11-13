@@ -24,7 +24,10 @@ killed session or a compacted context loses nothing:
     third with the original alias, brackets and args; a quality halt offers
     its repair route, keyed on the gate's reason; no offer once a later
     chain recorded a result (behind a parse halt's record too), or the skill
-    was tested or exported since
+    was tested or exported since; an offer names the journal's `started_at`
+    and `updated_at` (#1169), and a headless `resume` that halts (no offer,
+    an offer the user acts on first, or a `reopen` that fails) writes a
+    record with no step, which leaves the offer
   - reopen applies the offer: US --from-test-report joins the plan before a
     failed TS, an AS CRITICAL review picks the chain up after AS with the
     skill as US's target; discard drops a stopped chain
@@ -867,6 +870,103 @@ def test_an_error_halt_offers_a_resume_at_the_halted_step(chain):
     assert (out["offer"], out["kind"], out["repair"]) == ("resume", "error", None)
     assert out["resume_at"] == {"index": 2, "code": "CS"}
     assert out["route"] == "resume at CS: CS TS EX at the recorded threshold of 90"
+
+
+def test_resume_prints_when_the_journal_started_and_was_last_written(chain):
+    """#1169: an `interrupted` chain may still run in another session, so the offer carries the journal file's own
+    `started_at` and `updated_at`, which each `step` moves; `finish` prints the same next action without them."""
+    chain.start(FORGE_AUTO)
+    chain.ran("AN")
+    first = chain.resume()
+    written = chain.data()
+    assert first["kind"] == "interrupted"
+    assert (first["started_at"], first["updated_at"]) == (written["started_at"], written["updated_at"])
+    chain.ran("BS")
+    later = chain.resume()  # forge-auto stopped after AN and BS
+    assert (later["kind"], later["started_at"]) == ("interrupted", first["started_at"])
+    assert later["updated_at"] == chain.data()["updated_at"] and later["updated_at"] > first["updated_at"]
+    chain.halt("CS", "helper-missing")
+    finished = chain.finish()
+    error = chain.resume()
+    written = chain.data()
+    assert error["kind"] == "error"
+    assert (error["started_at"], error["updated_at"]) == (written["started_at"], written["updated_at"])
+    assert {key: finished[key] for key in mod.NEXT_ACTION_KEYS} == {key: error[key] for key in mod.NEXT_ACTION_KEYS}
+    assert "started_at" not in finished and "updated_at" not in finished
+
+
+def test_resume_prints_null_for_a_time_the_journal_lacks(chain):
+    chain.start("QS[cognee] TS EX")
+    journal = chain.data()
+    del journal["started_at"], journal["updated_at"]
+    chain.journal.write_bytes(json.dumps(journal).encode("utf-8"))
+    out = chain.resume()
+    assert (out["status"], out["started_at"], out["updated_at"]) == ("offer", None, None)
+
+
+def _resume_section() -> str:
+    return _read(PIPELINE_MODE).split("## Resume", 1)[1].split("\n## ", 1)[0]
+
+
+def test_a_headless_resume_the_user_must_act_on_first_leaves_the_offer(chain):
+    """#1169: `/skf-forger resume --headless` on an offer with a `user_action` writes the failed pipeline result
+    as step 1 does, with no journal and no step, so the offer stands for the next start."""
+    assert "the halt reason `user-action-required: <user_action>`" in _resume_section()
+    _halt_forge_auto_at_ts(chain, "INCONCLUSIVE")
+    chain.finish()
+    offer = chain.resume()
+    assert offer["user_action"] == mod.USER_ACTIONS["add-evidence"]
+    chain.clock.tick(3600)
+    reason = f"user-action-required: {offer['user_action']}"
+    out = chain.cli(*_argv(_pipeline_mode_calls()["parse-halt"], {"{sidecar_path}": str(chain.sidecar)}),
+                    stdin=reason + "\n")
+    assert (out["pipeline_status"], out["halt_reason"]) == ("failed", reason)
+    assert json.loads(_read(chain.sidecar / "pipeline-result-latest.json"))["summary"]["steps"] == []
+    again = chain.resume()
+    assert (again["status"], again["journal"], again["route"]) == ("offer", offer["journal"], offer["route"])
+
+
+def test_a_headless_resume_with_no_offer_writes_its_failed_result(chain):
+    """#1169: `resume` with no offer halts **Nothing to resume.**; headless, it first writes the failed result."""
+    assert "the halt reason `nothing-to-resume: <message>`" in _resume_section()
+    none = chain.resume()
+    assert none["status"] == "none"
+    reason = f"nothing-to-resume: {none['message']}"
+    out = chain.cli(*_argv(_pipeline_mode_calls()["parse-halt"], {"{sidecar_path}": str(chain.sidecar)}),
+                    stdin=reason + "\n")
+    assert (out["pipeline_status"], out["halt_reason"]) == ("failed", reason)
+
+
+def test_a_headless_resume_whose_reopen_fails_writes_its_failed_result(chain):
+    """#1169: a `reopen` that fails (here the run folder went between the offer and the pick) halts; headless, it
+    first writes the failed pipeline result as step 1 does, with its `message`, so a `claude -p` caller does not
+    read an earlier chain's result."""
+    reopen = _resume_section().split("`<journal>` is the path the offer named", 1)[1]
+    assert ("in `{headless_mode}`, first write the failed pipeline result as step 1 does, with its `message` (or what "
+            "it printed, when that is no JSON object) as the halt reason") in reopen
+    chain.start(FORGE_AUTO)
+    chain.ran("AN")
+    offer = chain.resume()
+    chain.cli("discard", "--journal", offer["journal"])
+    failed = chain.cli(*_argv(_pipeline_mode_calls()["reopen"], {"<journal>": offer["journal"]}), code=1)
+    assert failed["status"] == "error" and failed["message"]
+    out = chain.cli(*_argv(_pipeline_mode_calls()["parse-halt"], {"{sidecar_path}": str(chain.sidecar)}),
+                    stdin=failed["message"] + "\n")
+    assert (out["pipeline_status"], out["halt_reason"]) == ("failed", failed["message"])
+    written = json.loads(_read(chain.sidecar / "pipeline-result-latest.json"))
+    assert (written["summary"]["halt_reason"], written["summary"]["steps"]) == (failed["message"], [])
+
+
+def test_a_headless_resume_with_no_user_action_reopens_the_chain(chain):
+    """#1169: an offer whose `user_action` is null goes on to the documented `reopen` call."""
+    assert "A headless offer whose `user_action` is null goes on" in _resume_section()
+    chain.start(FORGE_AUTO)
+    chain.ran("AN")
+    chain.ran("BS")
+    offer = chain.resume()
+    assert (offer["kind"], offer["user_action"]) == ("interrupted", None)
+    out = chain.cli(*_argv(_pipeline_mode_calls()["reopen"], {"<journal>": offer["journal"]}))
+    assert [entry["code"] for entry in out["run"]] == ["CS", "TS", "EX"]
 
 
 @pytest.mark.parametrize(("invocation", "halted", "reason"), [

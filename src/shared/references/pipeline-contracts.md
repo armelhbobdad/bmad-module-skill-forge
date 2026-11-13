@@ -156,6 +156,8 @@ At activation the forger runs `pipeline-journal.py resume`, which reads the newe
 
 `finish` prints the same next action when the chain stops, and both print it with its `route`, the next action in one line (`US hono --from-test-report, then TS EX at the recorded threshold of 90`), and its `user_action`, what the user does before the chain picks up again (null when the chain does it all). `pipeline-journal.py reopen` applies the offer the user accepts (the Resume procedure in the forger's pipeline-mode.md), and `discard` deletes a stopped chain's run folder, so its offer is made no more.
 
+`resume` also prints the journal's `started_at` and `updated_at`, its last write, since an `interrupted` chain may still run in another session. A headless `resume` pick that takes no offer writes a failed pipeline result with no step, its `summary.halt_reason` `nothing-to-resume: <message>` when there is no offer or `user-action-required: <user_action>` when the offer needs the user first, which supersedes no journal.
+
 ### Repair Routes
 
 | Halted on | Reason | `repair` | `user_action` | The chain picks up at |
