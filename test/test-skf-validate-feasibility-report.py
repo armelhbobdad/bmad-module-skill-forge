@@ -266,6 +266,7 @@ READ_KEYS = {
     "missingHeadings",
     "orderViolations",
     "generatedAt",
+    "architectureDoc",
     "overallVerdict",
     "coveragePercentage",
     "coverageMeasured",
@@ -1032,6 +1033,76 @@ def test_generated_at(tmp_path):
     _write_latest(tmp_path, _full_report(extra_frontmatter=['generatedAt: "2026-09-30T10:00:00Z"']))
     result, _ = locate_report(str(tmp_path), "My Project")
     assert result["generatedAt"] == "2026-09-30T10:00:00Z"
+
+
+# --- architectureDoc: the document the report verified (#1179) ----------------
+
+
+@pytest.mark.parametrize(
+    "frontmatter,expected",
+    [
+        (['architectureDoc: "docs/architecture.md"'], "docs/architecture.md"),
+        (["architectureDoc: /work/app/docs/architecture.md"], "/work/app/docs/architecture.md"),
+        (["architectureDoc: ''"], None),
+        (['architectureDoc: ""'], None),
+        ([], None),
+    ],
+    ids=["set", "absolute", "empty-single", "empty-double", "absent"],
+)
+def test_architecture_doc(tmp_path, frontmatter, expected):
+    """Both modes return the optional key Refine Architecture offers as its default, null when empty or absent."""
+    _write_latest(tmp_path, _full_report(extra_frontmatter=frontmatter))
+    located, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0, located
+    assert located["architectureDoc"] == expected
+    validated, code = validate_report(str(tmp_path / "feasibility-report-my-project-latest.md"))
+    assert code == 0, validated
+    assert validated["architectureDoc"] == expected
+
+
+def _locate_copy(tmp_path, report):
+    """The same report, found by --locate."""
+    _write_latest(tmp_path, report.read_text(encoding="utf-8"))
+    return locate_report(str(tmp_path), "My Project")
+
+
+def test_an_uninterpreted_report_gives_no_architecture_doc(tmp_path):
+    frontmatter = ['architectureDoc: "docs/architecture.md"']
+    report = _write(tmp_path, _full_report(schema_version='"2.0"', extra_frontmatter=frontmatter))
+    for result, code in (validate_report(str(report)), _locate_copy(tmp_path, report)):
+        assert code == 1
+        assert result["architectureDoc"] is None
+
+
+def test_no_report_and_an_unreadable_one_give_no_architecture_doc(tmp_path):
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert (code, result["status"], result["architectureDoc"]) == (0, "not-found", None)
+    result, code = validate_report(str(tmp_path / "missing.md"))
+    assert (code, result["architectureDoc"]) == (2, None)
+
+
+def test_the_cli_returns_the_architecture_doc(tmp_path):
+    report = _write(tmp_path, _full_report(extra_frontmatter=['architectureDoc: "docs/architecture.md"']))
+    run = _run(str(report))
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout)["architectureDoc"] == "docs/architecture.md"
+
+
+def test_the_verify_stack_template_keeps_architecture_doc_in_the_shared_contract(tmp_path):
+    """The producer's template lists architectureDoc with the shared keys, above the producer-local comment, and
+    leaves it empty, which reads as null."""
+    assets = Path(__file__).parent.parent / "src" / "skf-verify-stack" / "assets"
+    template = (assets / "feasibility-report-template.md").read_text(encoding="utf-8")
+    frontmatter = template.split("\n---\n", 1)[0]
+    assert "\nprdAvailable: false\narchitectureDoc: ''\n# Producer-local bookkeeping" in frontmatter
+    _write_latest(tmp_path, template)
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0, result
+    assert result["architectureDoc"] is None
+    schema = (Path(__file__).parent.parent / "src" / "shared" / "references" / "feasibility-report-schema.md")
+    text = schema.read_text(encoding="utf-8")
+    assert "they also return `generatedAt`, `architectureDoc` (null when empty or absent)," in text
+    assert "`architectureDoc`, the path of the architecture document the report verified, is optional" in text
 
 
 def test_an_uninterpreted_report_gives_no_coverage(tmp_path):

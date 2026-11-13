@@ -196,7 +196,8 @@ def test_quick_skill_exit_code_map_matches_the_halt_contract():
 
 def test_refine_architecture_documents_the_scope_confirmation():
     """#610: the section describes the gate gap analysis shows for a derived scope, and its headless default; #1177:
-    both say no gap, issue or improvement is looked for with an out-of-scope skill."""
+    both say no gap, issue or improvement is looked for with an out-of-scope skill; #1179: the gate shows too when
+    the document names none of the skills."""
     gate = _slice(_read(RA_REFS / "gap-analysis.md"), "**Confirm a derived scope.**", "**Technologies with no skill.**")
     for token in ("Type **C** to keep this scope", "Type skill names to bring them **into** scope",
                   "Type **-skill_name** to take a skill **out** of scope",
@@ -214,6 +215,14 @@ def test_refine_architecture_documents_the_scope_confirmation():
                   "the VS verdicts and the document's claims that involve one are listed for awareness only and stay "
                   "out of the refined document"):
         assert token in scope, token
+    # #1179: a document that names none of the skills shows the confirmation too, to check it is the right one.
+    for token in ("When the document names none of the skills, RA keeps every skill in scope and shows them the same "
+                  "way, asking you to check that you gave the document you meant",
+                  "a headless run keeps every skill, logs that decision and records a `scope_fallback_all_skills` warning"):
+        assert token in scope, token
+    gap = _read(RA_REFS / "gap-analysis.md")
+    assert "Check that `{architecture_doc}` is the document you meant: it names none of these skills." in gap
+    assert "record the warning `scope_fallback_all_skills: the document names no inventory skill" in gap
 
 
 def test_refine_architecture_documents_the_summary_rows_and_next_step():
@@ -667,7 +676,8 @@ def test_docs_give_the_verdicts_the_rollup_returns():
 
 
 def test_refine_architecture_documents_the_report_lookup_and_its_halt():
-    """RA offers the newest [VS] report it finds, and stops with exit 2 on a report that breaks the contract."""
+    """RA offers the newest [VS] report it finds, and stops with exit 2 on a report that breaks the contract; since
+    #1179 it also offers the document that report verified, outside headless."""
     init = _read(RA_REFS / "init.md")
     for token in ("--locate", "the `-latest` report", "press Enter to use it",
                   "`--vs-report-path none` answers the report question", 'halt_reason: "input-invalid"',
@@ -678,6 +688,16 @@ def test_refine_architecture_documents_the_report_lookup_and_its_halt():
                   "A headless run uses it and logs that it did", "`--vs-report-path none` to refine without one",
                   "exit `2` (`input-invalid`)"):
         assert token in lookup, token
+    # #1179: the report's architectureDoc becomes the architecture question's default, never in headless.
+    for token in ("When that report names the architecture document it verified and the file exists, RA offers it as "
+                  "the architecture document too (press Enter to use it)",
+                  "says which document the report verified when you refine another",
+                  "a headless run still needs `--architecture-doc`"):
+        assert token in lookup, token
+    for token in ("The [VS] report verified `{vs_architecture_doc}`: press Enter to use it, or give another path.",
+                  "since headless never takes `{vs_architecture_doc}` as its default",
+                  "verified `{architectureDoc}`, not `{architecture_doc}`: its verdicts are about that document."):
+        assert token in init, token
     [line] = [line for line in _read(WORKFLOWS).splitlines()
               if line.startswith("- **`/skf-refine-architecture` (RA)**")]
     assert ("(`input-invalid` also covers a Verify Stack report with a `schemaVersion` other than `1.0`, a missing or "

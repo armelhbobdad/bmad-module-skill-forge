@@ -12,7 +12,9 @@ These tests keep the step files on that contract:
   4 loads the API surfaces: the gate's default is a listed option, the Why
   column and a headless run's log name the term that named each skill, the
   cancel tokens halt with exit 6 ahead of the edit branch, and a
-  `--scope-skills` scope or the safe default shows no gate;
+  `--scope-skills` scope shows no gate, while a document that names no
+  inventory skill (the safe default) shows it with every skill in scope
+  (#1179);
 - the mentions helper, not the prose, decides which technologies a skill
   covers, and gives the term that named each skill for the gate;
 - section 6 names the technologies with no skill, and section 3 appends
@@ -43,7 +45,9 @@ It also pins how the steps read the [VS] feasibility report and the scope
 through the shared helpers (#590, #598):
 
 - init runs skf-validate-feasibility-report.py `--locate` before its prompt
-  and offers the report it finds as the default, reads a given report path
+  and offers the report it finds as the default, offers the document that
+  report verified (`architectureDoc`) as the architecture question's default
+  and says once when another one is refined (#1179), reads a given report path
   through the same helper's path mode, halts `input-invalid` on a report
   that breaks the contract, caches the helper's JSON as the only source for
   the report, and records it in the `[RA-VS]` state block; the input flags
@@ -292,9 +296,10 @@ def test_scope_gate_shows_only_for_a_derived_scope_to_confirm():
     condition = gate.splitlines()[0]
     assert "derived (no `{scope_skills}`)" in condition
     assert "`{out_of_scope_skills}` is not empty or an in-scope skill is ambiguous" in condition
-    assert "`--scope-skills`" in condition and "safe default" in condition, (
-        "the gate must say that a --scope-skills scope and the safe default skip it"
-    )
+    # #1179: a document that names no inventory skill shows the gate too, so only --scope-skills skips it.
+    assert "or the safe default applies, show the split once" in condition
+    assert "A scope from `--scope-skills` is already the user's choice, so it shows no gate." in condition
+    assert "so neither shows this gate" not in condition
 
 
 def test_a_common_word_alias_makes_a_skill_ambiguous():
@@ -663,6 +668,10 @@ def test_skill_md_lists_the_scope_gate():
     assert step_2 == ["| 2 | Gap Analysis | references/gap-analysis.md | Conditional (confirm a derived scope) |"]
     gates = [line for line in text.splitlines() if line.startswith("| **Gates** |")]
     assert len(gates) == 1 and "step 2: Scope Confirm Gate [C] continue / [X] cancel" in gates[0]
+    # #1179: the gate also shows when the document names no inventory skill (the safe default).
+    assert ("[C] continue / [X] cancel (when a derived scope drops skills or keeps an ambiguous one, or the document "
+            "names no skill)") in gates[0]
+    assert "only when a derived scope" not in gates[0]
     flags = [line for line in text.splitlines() if line.startswith("| **Flags** |")]
     assert len(flags) == 1 and "so step 2 asks no scope confirmation" in flags[0]
     headless = [line for line in text.splitlines() if line.startswith("| **Headless** |")]
@@ -715,7 +724,47 @@ def test_the_probe_runs_before_the_prompt():
     assert probe < prompt
     assert "Unless `--vs-report-path` was passed, run the probe (the first command) before asking anything" in inputs
     assert "Found the [VS] report from {vs_report_date}: press Enter to use it, or give another path." in inputs
-    assert "`{vs_report_date}` is the date in the probe's `generatedAt`" in inputs
+    # #1179: the date is the report's, so the note on the verified document can name a --vs-report-path report too.
+    assert "`{vs_report_date}` is the date in the report's `generatedAt` (the probe's, or the path mode's)" in inputs
+
+
+def test_the_architecture_question_offers_the_document_the_report_verified():
+    """#1179: the [VS] report records the document it verified, so the architecture question offers that document
+    when the file exists, from the report in hand when the prompt shows; headless never takes it."""
+    inputs = _init_inputs()
+    [question] = [line for line in inputs.splitlines() if line.startswith("1. **Architecture document path**")]
+    assert ("{IF `{vs_architecture_doc}` is set:}The [VS] report verified `{vs_architecture_doc}`: press Enter to use "
+            "it, or give another path.{ELSE:}your project's architecture doc to refine{END IF}") in question
+    binding = _slice(inputs, "`{vs_architecture_doc}` is the `architectureDoc`", "\n")
+    for needle in ("of the report JSON in hand when the prompt shows",
+                   "(the path mode's when it read the `--vs-report-path` report, which runs before the prompt, "
+                   "else the probe's)",
+                   "when it is not null and names a file that exists (a relative path resolves from "
+                   "`{project-root}`), else empty"):
+        assert needle in binding, needle
+    # It is bound before the prompt waits, from a report the probe or the path mode already read.
+    assert inputs.index("uv run {validateFeasibilityReportHelper} --locate") < inputs.index(binding)
+    [gate] = [line for line in inputs.splitlines() if line.startswith("Wait for user input.")]
+    assert ("Store the validated architecture document path as `architecture_doc`: Enter at the architecture "
+            "question takes `{vs_architecture_doc}` when it is set.") in gate
+    assert ('If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) at '
+            "phase `init:inputs`, since headless never takes `{vs_architecture_doc}` as its default.") in gate
+    # The helper gives the key, so no step reads it from the report file.
+    assert "`architectureDoc`" in inputs and "Read the report's frontmatter" not in inputs
+
+
+def test_init_says_once_which_document_the_report_verified():
+    """#1179: refining another document than the one the report verified says so once; a headless run logs it and
+    records no warning, so the result schema is unchanged."""
+    inputs = _init_inputs()
+    note = _slice(inputs, "**The document the report verified.**", "\n\n")
+    assert ("When the `architectureDoc` of `{vs_report}` is not null and names another file than `{architecture_doc}` "
+            "(each relative path resolved from `{project-root}`), say once:") in note
+    assert ('"The [VS] report from {vs_report_date} verified `{architectureDoc}`, not `{architecture_doc}`: its '
+            'verdicts are about that document." (in headless, log it).') in note
+    assert "warning" not in note
+    # It follows the report this run uses, which **Record the VS report.** caches.
+    assert inputs.index("**Record the VS report.**") < inputs.index(note) < inputs.index("**Scope hint")
 
 
 def test_the_input_flags_apply_in_every_mode():
@@ -872,7 +921,7 @@ def test_helper_calls_quote_every_placeholder():
 # The report JSON keys the steps name; each must be one the helper emits.
 REPORT_KEYS = ("status", "path", "generatedAt", "schemaVersionOk", "missingHeadings", "orderViolations",
                "verdictTableFound", "duplicateVerdictTableLine", "unknownTokens", "pairVerdicts",
-               "coveragePercentage", "coverageMeasured")
+               "coveragePercentage", "coverageMeasured", "architectureDoc")
 
 
 def test_the_report_keys_the_steps_read_are_the_helpers(tmp_path):

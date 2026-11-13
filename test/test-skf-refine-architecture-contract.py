@@ -28,11 +28,19 @@ and pin the prose around them:
   reach point at [N]; the documented `hash` call gives one hash for one
   document and another once it is edited, apply and promote leave the
   files the conditions read, and SKILL.md declares no single-pass run;
+- On Activation keeps only the emitter and the heredoc a halt uses before
+  the run folder exists; init.md section 0 runs the config check, the write
+  probe and the run folder in that order, under their on-activation phases,
+  records the resolver warning once the folder exists and then runs the
+  `activation_steps_append` entries, all before its first prompt (#1179);
 - every halt_reason, emitted through the documented command (and On
   Activation's heredoc, before the run folder exists), prints a line that
   validates, whose run_id is the run's timestamp;
 - every decision a gate documents is one the schema accepts, and every
-  warning a step records is a fixed code the schema names;
+  warning a step records is a fixed code the schema names; a document that
+  names no inventory skill shows the scope confirmation with every skill in
+  scope in an interactive run, and a headless run records that gate's
+  decision (#1179);
 - the documented pipeline runs on a fixture: init's rules check passes the
   bundled rules, init's inspect sets an earlier pass aside, compile's apply
   builds the draft from compile's summary, whose Changes Made rows (the VS
@@ -250,8 +258,10 @@ def test_skill_md_stays_under_its_token_budget():
     missing SKF helper, so the ceiling was 10,761. #1037 grows the foreground rule by 108 characters, to have every
     Agent call pass `run_in_background: false`, so the ceiling was 10,869. #1112 adds 286 characters: the bare-path
     rule names the `nextStepFile` exception and a `references/` line names the files the stages load, so the
-    ceiling is 11,155 until #1179 moves section 5's pre-flight into init.md."""
-    assert len(_read(SKILL_MD)) < 11_155, len(_read(SKILL_MD))
+    ceiling was 11,155. #1179 moved section 5's config, write-probe and run-folder halts, the resolver-warning
+    record and the `activation_steps_append` run into init.md §0, which brings SKILL.md back under the 2,500-token
+    guideline (2,331 cl100k tokens at 9,564 characters), so the ceiling is 9,600."""
+    assert len(_read(SKILL_MD)) < 9_600, len(_read(SKILL_MD))
 
 # --- Every HALT names a known reason, its code and its phase ------------------------------
 
@@ -272,11 +282,28 @@ def test_every_halt_uses_a_schema_reason_and_its_exit_code():
     assert {reason for _, _, reason, _ in found} == set(mapping), "every halt_reason is raised somewhere"
 
 
+def _init_pre_flight() -> str:
+    """init.md §0, the On Activation halts #1179 moved out of SKILL.md."""
+    return _section(_read(INIT), "### 0. Pre-flight: Config, Write Probe and Run Folder", "### 1. ")
+
+
 def test_every_halt_names_its_phase():
+    pre_flight = _init_pre_flight()
     for path, _, reason, phase in _halts():
         m = re.fullmatch(r" at phase `([a-z-]+):([a-z0-9-]+)`", phase)
         assert m, f"{_rel(path)}: a {reason} HALT names no phase"
-        assert m.group(1) == PHASE_PREFIX[path.name], (_rel(path), m.group(0))
+        allowed = {PHASE_PREFIX[path.name]} | ({"on-activation"} if path.name == "init.md" else set())
+        assert m.group(1) in allowed, (_rel(path), m.group(0))
+    # #1179: init.md §0 keeps the On Activation phases it took from SKILL.md, and no other part of init.md uses one.
+    init = _read(INIT)
+    at = init.index(pre_flight)
+    for m in HALT_RE.finditer(init):
+        inside = at <= m.start() < at + len(pre_flight)
+        assert m.group(3).startswith(" at phase `on-activation:") is inside, m.group(0)
+    phases = [m.group(3) for m in HALT_RE.finditer(pre_flight)]
+    assert phases == [" at phase `on-activation:config`", " at phase `on-activation:config`",
+                      " at phase `on-activation:write-probe`", " at phase `on-activation:run-folder`"], phases
+    assert [m.group(3) for m in HALT_RE.finditer(_read(SKILL_MD))] == [" at phase `on-activation:emitter`"]
 
 
 def test_each_halting_stage_binds_the_emitter_and_shows_the_command():
@@ -288,11 +315,16 @@ def test_each_halting_stage_binds_the_emitter_and_shows_the_command():
         assert EMIT_PROBES in _frontmatter(text) + "\n", _rel(path)
         assert "**Halt envelope.**" in text and EMIT_HALT in text, _rel(path)
         assert "resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound" in text
-    # SKILL.md resolves it before the first prompt, where its own halts run.
+    # SKILL.md resolves it before init.md §0, whose halts run before the first prompt (#1179).
     activation = _section(_read(SKILL_MD), "5. **Pre-flight", "6. Load")
+    assert activation.startswith("5. **Pre-flight: the emitter.** Resolve `{emitEnvelopeHelper}`")
     assert ("Resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, "
             "else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`") in activation
-    assert activation.index("**The emitter.**") < activation.index("**Config-completeness")
+    pre = _init_pre_flight()
+    order = ["**Config-completeness (exit 3).**", "**Write probe (exit 4).**", "**Run folder (exit 4).**"]
+    assert [pre.index(block) for block in order] == sorted(pre.index(block) for block in order)
+    for block in order:
+        assert block not in _read(SKILL_MD), block
 
 
 def test_no_file_types_an_envelope_or_defers_it_to_skill_md():
@@ -356,12 +388,58 @@ def test_the_activation_halts_emit_before_the_run_folder_exists():
     envelope = _envelope(proc.stderr)
     _validate(envelope)
     assert (envelope["exit_code"], envelope["run_id"]) == (4, None)
-    # The run folder comes last in the pre-flight, after every halt that cannot use it.
-    pre = _section(activation, "5. **Pre-flight", "6. Load")
+    # The run folder comes last in init.md §0's pre-flight, after every halt that cannot use it, and those halts
+    # pass their payload with SKILL.md's block, not through the folder they have not made (#1179).
+    pre = _init_pre_flight()
     assert pre.index("**Write probe") < pre.index("**Run folder (exit 4).**")
     assert 'mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"' in pre
+    assert ("Until the run folder exists, a headless halt here passes its payload on stdin with the `emit-halt` "
+            "block SKILL.md On Activation §5 shows, not through `{run_dir}/halt.json`.") in pre
+    shown = _section(activation, "5. **Pre-flight", "6. Load")
+    assert ("The halts of init.md §0 (the config, the write probe and the run folder) come before the run "
+            "folder") in shown
     assert ("`run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-refine-architecture-{timestamp}`"
             in _section(activation, "2. **Compute run-scoped variables:**", "3. **Resolve"))
+
+
+def test_init_runs_the_pre_flight_and_the_append_steps_before_its_first_prompt():
+    """#1179: init.md §0 runs what On Activation §5 ran, in the order it ran it: the config, the write probe and the
+    run folder, then the resolver warning once the folder exists, then the `activation_steps_append` entries, all
+    before §1 asks for anything. SKILL.md only points there, and runs no append entry itself (#1111's rule, that
+    the entries run once every halting pre-flight check has passed, now holds inside init.md)."""
+    init = _read(INIT)
+    pre = _init_pre_flight()
+    assert init.index("**Recording a decision or a warning.**") < init.index(pre) < init.index("### 1. Accept Input")
+    record = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+              '--warning "$(cat "{run_dir}/resolver-warning.txt")"')
+    steps = ["**Config-completeness (exit 3).**", "**Write probe (exit 4).**", "**Run folder (exit 4).**",
+             'mkdir "{run_dir}"', "`{run_dir}/resolver-warning.txt` with a file write, never `echo`", record,
+             "run each entry in `workflow.activation_steps_append` in order, then go on to §1."]
+    at = [pre.index(step) for step in steps]
+    assert at == sorted(at), steps
+    assert "Every halting pre-flight check has now passed: run each entry" in pre
+    assert pre.index(steps[-1]) > max(m.start() for m in HALT_RE.finditer(pre))
+    assert init.count("activation_steps_append") == 1
+    skill = _read(SKILL_MD)
+    assert skill.count("activation_steps_append") == 1
+    assert "init.md §0 runs `workflow.activation_steps_append` once its pre-flight has passed." in skill
+    assert "then run `workflow.activation_steps_append`" not in skill
+    assert ("keep the reason as `{customization_resolver_unavailable}` for init.md §0 to record once it has created "
+            "`{run_dir}`") in skill
+    assert "record --run-dir" not in skill and "mkdir" not in skill
+    # The resume offer adds the reason to the stopped run's folder the way §0 records it.
+    assert "with the file write and the `record` call §0 uses" in _section(init, "### 1a.", "### 1b.")
+    assert "On Activation §5 uses" not in init
+    # The exit-code rows name the stage that now raises those halts.
+    rows = _exit_code_rows()
+    assert "step 1 §0 (`output_folder` or `forge_data_folder` unconfigured" in rows[3]
+    assert "On Activation §5 (the result emitter is not installed → `resolution-failure`)" in rows[3]
+    assert "step 1 §0 (the write probe, the run folder)" in rows[4]
+    assert "(SKILL.md On Activation §5, step 1 §0) passes the payload on stdin" in _read(EXIT_CODES)
+    # The rows name step 1 §0, so the file says why its halts report on-activation phases.
+    assert ("Step 1 §0's halts report the phases `on-activation:config`, `on-activation:write-probe` and "
+            "`on-activation:run-folder`: they finish the activation's pre-flight, before the first prompt."
+            ) in _read(EXIT_CODES)
 
 
 # --- Decisions and warnings --------------------------------------------------------------
@@ -420,6 +498,60 @@ def test_each_documented_warning_is_a_fixed_code_the_schema_names():
     # Both ways to every skill in scope leave a trace in the envelope.
     safe_default = _section(_read(GAP), "**Safe default:**", "\n\n")
     assert "record the warning `scope_fallback_all_skills: the document names no inventory skill" in safe_default
+
+
+def test_the_safe_default_asks_to_check_the_document_and_records_its_decision(tmp_path):
+    """#1179: a document that names no inventory skill no longer skips the scope confirmation. An interactive run
+    shows every skill in scope under one line asking whether the document is the one meant, with the same menu and
+    edits; a headless run keeps every skill, records the gate's decision naming each one, and the fallback warning
+    is recorded only when every skill leaves the gate in scope."""
+    gap = _read(GAP)
+    safe_default = _section(gap, "**Safe default:**", "\n\n")
+    assert "leave `{in_scope_skills}` empty: §3 then puts every skill in scope" in safe_default
+    assert "The confirmation below then asks the user to check the document." in safe_default
+    assert ("When the confirmation ends with every skill still in scope, as a headless run's does at once, record "
+            "the warning `scope_fallback_all_skills: the document names no inventory skill") in safe_default
+    assert ("an edit that takes a skill out records none, since §3's `out_of_scope_skills` warning names those "
+            "skills") in safe_default
+    gate = _section(gap, "**Confirm a derived scope.**", "**Technologies with no skill.**")
+    condition = gate.splitlines()[0]
+    assert "or the safe default applies, show the split once" in condition
+    assert "the safe default leaves no skill out, so neither shows this gate" not in gate
+    shown = _section(gate, "**Under the safe default**", "\n\n")
+    assert ('show "Check that `{architecture_doc}` is the document you meant: it names none of these skills." in '
+            "place of the title line") in shown
+    assert ("one row `| {skill} | In scope | the document names no inventory skill |` for each skill of "
+            "`{doc_mentions}.skills[]`") in shown
+    assert "with the rest of the message and the same menu" in shown
+    assert ("An edit starts from every one of those skills in `{in_scope_skills}`, and §3's `[RA-SCOPE]` block then "
+            "says the scope was derived then edited at the §2b confirmation; unedited, `{in_scope_skills}` stays "
+            "empty, as §3 expects.") in shown
+    # The check line names the document after a context loss too.
+    assert ("When `{architecture_doc}` is no longer bound, read it from the `<!-- [RA-RUN] ... -->` block of the RA "
+            "state file.") in shown
+    assert gate.index("**Under the safe default**") < gate.index("Display: **Select:**")
+    [gate_line] = [line for line in gate.splitlines() if line.startswith("**GATE [default: C]**")]
+    assert ("Under the safe default, keep every skill in scope: the log and `in_scope` name each skill of "
+            "`{doc_mentions}.skills[]`, and `out_of_scope` is `[]`.") in gate_line
+    assert gate_line.index("Under the safe default") < gate_line.index("Record that decision in the run sink")
+    # [X] at this confirmation cancels as it does for a derived scope.
+    [cancel] = [line for line in gate.splitlines() if line.startswith("- IF cancel / exit / [X] / q / :q:")]
+    assert 'HALT (exit code 6, `halt_reason: "user-cancelled"`) at phase `gap-analysis:scope`' in cancel
+    # The headless decision, every skill in scope and none out, is one the emitter records.
+    [shape] = [d for d in DECISION_RE.findall(gate_line) if '"gate": "gap-analysis.scope"' in d]
+    decision = json.loads(re.sub(r"<[^<>]*>", "value", shape.replace("[<the in-scope skills>]", '["a", "b"]')
+                                 .replace("[<the out-of-scope skills>]", "[]")))
+    assert decision["evidence"] == {"in_scope": ["a", "b"], "out_of_scope": []}
+    run_dir = _run_dir(tmp_path)
+    proc = _run([EMITTER, "record", "--workflow", WORKFLOW, "--run-dir", run_dir, "--decision"],
+                stdin=json.dumps(decision))
+    assert proc.returncode == 0, proc.stderr
+    proc = _run([EMITTER, "record", "--run-dir", run_dir, "--warning",
+                 "scope_fallback_all_skills: the document names no inventory skill, so every skill is in scope"])
+    assert proc.returncode == 0, proc.stderr
+    # The scope block names how the scope was set either way.
+    split = _section(gap, "### 3. Split the Library Pairs by Scope", "### 4.")
+    assert "derived then edited at the §2b confirmation, or every skill by the safe default" in split
 
 
 # --- The documented pipeline ---------------------------------------------------------------

@@ -51,6 +51,34 @@ uv run {emitEnvelopeHelper} record --workflow skf-refine-architecture --run-dir 
 uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'
 ```
 
+### 0. Pre-flight: Config, Write Probe and Run Folder
+
+These run before the first prompt, in this order, so an empty path halts as missing config (exit 3), not as a write failure. Until the run folder exists, a headless halt here passes its payload on stdin with the `emit-halt` block SKILL.md On Activation §5 shows, not through `{run_dir}/halt.json`.
+
+**Config-completeness (exit 3).** If `{outputFolderPath}` is empty: HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`) at phase `on-activation:config`: "Set `output_folder` in config.yaml, then re-run [RA]." If `{forge_data_folder}` is empty: HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) at phase `on-activation:config`: "Set `forge_data_folder` in config.yaml, then re-run [RA]."
+
+**Write probe (exit 4).** Check that both paths are writable before any prompt:
+
+```bash
+for dir in "{outputFolderPath}" "{forge_data_folder}"; do
+  mkdir -p "$dir" && \
+    printf 'probe' > "$dir/.skf-write-probe" && \
+    rm "$dir/.skf-write-probe"
+done
+```
+
+On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:write-probe`, with `"path"` set to the folder that failed.
+
+**Run folder (exit 4).**
+
+```bash
+mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"
+```
+
+If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}." Once it exists and `{customization_resolver_unavailable}` is set, record the reason in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`.
+
+Every halting pre-flight check has now passed: run each entry in `workflow.activation_steps_append` in order, then go on to §1.
+
 ### 1. Accept Input Documents
 
 `--architecture-doc <path>` and `--vs-report-path <path>` apply in every mode, as the SKILL.md Invocation Contract says: each one answers its question below, which is then not asked, in an interactive run as in headless.
@@ -81,14 +109,14 @@ Each checks the report against the shared feasibility-report schema and prints o
 "**Refine Architecture: Evidence-Backed Refinement** (additive: never deletes original content).
 
 If you wanted to *verify* the stack first, type `cancel` and run `[VS] Verify Stack`; if no skills exist yet, run `[CS] Create Skill`. Otherwise, please provide the following:
-1. **Architecture document path** (REQUIRED): your project's architecture doc to refine
+1. **Architecture document path** (REQUIRED): {IF `{vs_architecture_doc}` is set:}The [VS] report verified `{vs_architecture_doc}`: press Enter to use it, or give another path.{ELSE:}your project's architecture doc to refine{END IF}
 2. **VS feasibility report path** (OPTIONAL): {IF the probe found a report:}Found the [VS] report from {vs_report_date}: press Enter to use it, or give another path.{ELSE:}From a previous [VS] Verify Stack run, for additional context.{END IF} Type `none` to refine without a report.
 
 Or type `cancel` / `exit` / `:q` at any prompt to abort cleanly."
 
-`{vs_report_date}` is the date in the probe's `generatedAt`, or the file name of its `path` when `generatedAt` is null.
+`{vs_report_date}` is the date in the report's `generatedAt` (the probe's, or the path mode's), or the file name of its `path` when `generatedAt` is null. `{vs_architecture_doc}` is the `architectureDoc` of the report JSON in hand when the prompt shows (the path mode's when it read the `--vs-report-path` report, which runs before the prompt, else the probe's), when it is not null and names a file that exists (a relative path resolves from `{project-root}`), else empty.
 
-Wait for user input. Store the validated architecture document path as `architecture_doc`. **GATE [default: use args]:** a question a flag answered is not asked, and headless answers the rest with their defaults. If `{headless_mode}` and `--architecture-doc` was provided: use that path and auto-proceed, log: "headless: using provided architecture path". If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) at phase `init:inputs`. The report question's default is the probe's report when its `status` is `ok`: with no `--vs-report-path`, headless takes it and logs "headless: using the [VS] report found at {path}", or logs "headless: no [VS] report for {project_name}; issue detection will use skill data only" when the probe found none.
+Wait for user input. Store the validated architecture document path as `architecture_doc`: Enter at the architecture question takes `{vs_architecture_doc}` when it is set. **GATE [default: use args]:** a question a flag answered is not asked, and headless answers the rest with their defaults. If `{headless_mode}` and `--architecture-doc` was provided: use that path and auto-proceed, log: "headless: using provided architecture path". If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) at phase `init:inputs`, since headless never takes `{vs_architecture_doc}` as its default. The report question's default is the probe's report when its `status` is `ok`: with no `--vs-report-path`, headless takes it and logs "headless: using the [VS] report found at {path}", or logs "headless: no [VS] report for {project_name}; issue detection will use skill data only" when the probe found none.
 
 A headless run that answered the report question this way (no `--vs-report-path`, or one it could not read) records the decision: `{"gate": "init.vs-report", "default_action": "use-found-report", "taken_action": "use-found-report", "reason": "<the line logged>", "evidence": {"vs_report_path": "<path>"}}` when the probe found a report, or `{"gate": "init.vs-report", "default_action": "no-report", "taken_action": "no-report", "reason": "<the line logged>"}` when it found none.
 
@@ -99,6 +127,8 @@ A headless run that answered the report question this way (no `--vs-report-path`
 **Resolve `{arch_project_name}`**, which names the refined output file: the `project_name` the architecture document's YAML frontmatter declares, else the config `{project_name}`. The RA state file and the VS report probe stay keyed on the config `{project_name}`.
 
 **Record the VS report.** Cache the JSON of the report this run uses as `{vs_report}`: no step reads the report file by hand. Set `vs_report_available` to true when there is one (its `status` is `ok`), and to false when the probe found none or `none` was typed or passed with `--vs-report-path`; set `vs_report_path` to its `path`.
+
+**The document the report verified.** When the `architectureDoc` of `{vs_report}` is not null and names another file than `{architecture_doc}` (each relative path resolved from `{project-root}`), say once: "The [VS] report from {vs_report_date} verified `{architectureDoc}`, not `{architecture_doc}`: its verdicts are about that document." (in headless, log it).
 
 **Scope hint (optional, `--scope-skills`):** If `--scope-skills <names>` was provided, store the comma-separated names as `{scope_skills}`, as given: Step 02 §2b takes them as the in-scope skill set, and Step 02 §3 checks each against the inventory. If absent, leave `{scope_skills}` empty.
 
@@ -124,7 +154,7 @@ Display: **Select:** [R] Resume the review of the draft from {stopped_timestamp}
 
 Wait for the user's choice.
 
-- IF R: delete the run folder this activation made, which holds at most the resolver warning: `rm -rf "{run_dir}"`. Then bind each key of the block as §3c maps it, so `{run_dir}`, `{timestamp}` and every other binding there are the stopped run's, and bind `{analysis_doc}` ← `{run_dir}/analysis-doc.md`. When `{customization_resolver_unavailable}` is set, add it to that folder's run sink with the file write and the `record` call SKILL.md On Activation §5 uses. Then run §4's `rules` check, which halts as §4 says, except that its message ends "Fix that copy, or run [RA] again and choose [N] to start a new run." in place of its last sentence: the path is the stopped run's, which removing the override does not change. Set `{resumed_review}` to true, and load, read the full file and then execute `references/compile.md`: its review starts again from the kept plan. §1's report answer and `--scope-skills` do not apply to it, since compile reads the stopped run's `[RA-VS]` and `[RA-SCOPE]` blocks.
+- IF R: delete the run folder this activation made, which holds at most the resolver warning: `rm -rf "{run_dir}"`. Then bind each key of the block as §3c maps it, so `{run_dir}`, `{timestamp}` and every other binding there are the stopped run's, and bind `{analysis_doc}` ← `{run_dir}/analysis-doc.md`. When `{customization_resolver_unavailable}` is set, add it to that folder's run sink with the file write and the `record` call §0 uses. Then run §4's `rules` check, which halts as §4 says, except that its message ends "Fix that copy, or run [RA] again and choose [N] to start a new run." in place of its last sentence: the path is the stopped run's, which removing the override does not change. Set `{resumed_review}` to true, and load, read the full file and then execute `references/compile.md`: its review starts again from the kept plan. §1's report answer and `--scope-skills` do not apply to it, since compile reads the stopped run's `[RA-VS]` and `[RA-SCOPE]` blocks.
 - IF N: leave the stopped run folder as it is and go on to §1b. Once §3c replaces the state file, that review can no longer be resumed.
 - IF cancel / exit / [X] / q / :q: display "Cancelled: no refinement was performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`) at phase `init:resume`.
 - IF anything else: answer it (a question about the stopped review, say), then redisplay the menu.

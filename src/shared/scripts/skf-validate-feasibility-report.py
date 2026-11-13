@@ -20,13 +20,14 @@ and a located report give the same keys:
        ## Evidence Sources
   2. Frontmatter `schemaVersion` equals the literal producer version "1.0".
   3. A report whose schemaVersion is not "1.0" is not interpreted: nothing
-     below is read from it. Otherwise overallVerdict, generatedAt and
-     coveragePercentage come from the frontmatter, and pairVerdicts from the
-     canonical `| lib_a | lib_b | verdict | rationale |` table under
-     `## Integration Verdicts`, and only that table (the display table with
-     more columns below it is not read). Fenced code and HTML comments are
-     skipped, so an example table in either is not read. The report holds
-     the canonical table once: a second one is a schema violation
+     below is read from it. Otherwise overallVerdict, generatedAt,
+     architectureDoc (optional: the document the report verified, null when
+     empty or absent) and coveragePercentage come from the frontmatter, and
+     pairVerdicts from the canonical `| lib_a | lib_b | verdict | rationale |`
+     table under `## Integration Verdicts`, and only that table (the display
+     table with more columns below it is not read). Fenced code and HTML
+     comments are skipped, so an example table in either is not read. The
+     report holds the canonical table once: a second one is a schema violation
      (duplicateVerdictTableLine), since reading only the first, say the
      template's empty table left above the filled one, would drop every
      pair. Verdict tokens are case-sensitive: a token outside the schema's
@@ -74,6 +75,7 @@ only validate mode carries schemaVersionFound, which earlier callers read):
     "missingHeadings": [...],
     "orderViolations": [...],
     "generatedAt": "<value>" | null,      # null when the report was not interpreted
+    "architectureDoc": "<path>" | null,   # null when empty, absent or not interpreted
     "overallVerdict": "<token>" | null,
     "coveragePercentage": int | null,
     "coverageMeasured": bool | null,
@@ -366,6 +368,7 @@ def _uninterpreted():
     """The keys read_report() fills only for a report whose schemaVersion is "1.0"."""
     return {
         "generatedAt": None,
+        "architectureDoc": None,
         "overallVerdict": None,
         "coveragePercentage": None,
         "coverageMeasured": None,
@@ -430,6 +433,7 @@ def read_report(content):
     steps = frontmatter_list(content, STEPS_COMPLETED_KEY) or []
     fields.update(
         generatedAt=fm.get("generatedAt") or None,
+        architectureDoc=fm.get("architectureDoc") or None,
         overallVerdict=overall,
         coveragePercentage=coverage,
         coverageMeasured=coverage is not None and COVERAGE_STEP in steps,
@@ -676,10 +680,10 @@ def _build_parser():
             "order and that frontmatter schemaVersion == \"1.0\"; for a 1.0 "
             "report they also require the one canonical Integration Verdicts "
             "table and known verdict tokens, and return generatedAt, "
-            "overallVerdict, coveragePercentage, coverageMeasured, "
-            "pairVerdicts and unknownTokens. Given a report path: exit 0 "
-            "valid, 1 schema-violation, 2 IO or usage error. Given --locate "
-            "FOLDER --project-name NAME: reads "
+            "architectureDoc, overallVerdict, coveragePercentage, "
+            "coverageMeasured, pairVerdicts and unknownTokens. Given a report "
+            "path: exit 0 valid, 1 schema-violation, 2 IO or usage error. "
+            "Given --locate FOLDER --project-name NAME: reads "
             "FOLDER/feasibility-report-<slug>-latest.md, the slug made from "
             "NAME by the producer's rule; exit 0 ok or not-found, 1 "
             "schema-violation, 2 IO or usage error."
