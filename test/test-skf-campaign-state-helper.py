@@ -1167,6 +1167,38 @@ class TestRecoverAndLog:
         rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive:  a")
         assert (rc, out["skipped"], out["entry"]) == (0, True, "- 2026-09-01T00:00:00+00:00 (event) Directive: a")
 
+    def test_log_once_counts_only_this_campaigns_lines(self, tmp_path, capsys):
+        """#1141: an overwrite archives the state but leaves the log, so an earlier campaign's line never counts."""
+        _write(tmp_path, _state())  # started_at 2026-10-01T10:00:00Z
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_bytes(b"- 2026-09-30T23:59:59+00:00 (event) Directive: a\n")
+        rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert (rc, out["skipped"]) == (0, False)
+        rc, again = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert (rc, again["skipped"], again["entry"]) == (0, True, out["entry"])
+        assert log.read_text(encoding="utf-8").splitlines() == [
+            "- 2026-09-30T23:59:59+00:00 (event) Directive: a", f"- {STAMP} (event) Directive: a"]
+
+    def test_a_campaign_seeded_again_logs_its_notice(self, tmp_path, capsys, monkeypatch):
+        """step-01 §0 archives, §2 inits a new campaign beside the same log: its first notice is logged again."""
+        stamps = iter(["2026-10-01T10:00:00+00:00", "2026-10-01T10:05:00+00:00", "2026-10-02T09:00:00+00:00",
+                       "2026-10-02T09:00:01+00:00"])
+        monkeypatch.setattr(mod, "now", lambda: next(stamps, "2026-10-02T09:30:00+00:00"))
+        state, brief = tmp_path / "_campaign-state.yaml", tmp_path / "campaign-brief.yaml"
+        log, targets = tmp_path / "_campaign-decision-log.md", tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        init = ("init", "--state-file", str(state), "--targets-file", str(targets), "--name", "demo",
+                "--soft-target", "90", "--soft-fallback", "80", "--brief-out", str(brief))
+        notice = ("log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert _run(capsys, *init)[0] == 0
+        assert _run(capsys, *notice)[1]["skipped"] is False
+        assert _run(capsys, "archive", "--state-file", str(state), "--brief-file", str(brief))[0] == 0
+        assert _run(capsys, *init)[0] == 0
+        assert _run(capsys, *notice)[1]["skipped"] is False
+        assert _run(capsys, *notice)[1]["skipped"] is True
+        assert log.read_text(encoding="utf-8").splitlines() == [
+            "- 2026-10-01T10:05:00+00:00 (event) Directive: a", "- 2026-10-02T09:30:00+00:00 (event) Directive: a"]
+
     def test_log_once_on_a_missing_log_appends(self, tmp_path, capsys):
         log = tmp_path / "campaign" / "_campaign-decision-log.md"
         rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")

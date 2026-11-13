@@ -62,7 +62,7 @@ Its exit codes are the campaign's: 2 for invalid input (an unknown skill, an inp
 
 ## Decision Log
 
-`_campaign-decision-log.md` is append-only, one typed and timestamped line per entry, written with `uv run scripts/campaign-state.py log --log-file {campaignWorkspacePath}/_campaign-decision-log.md --type <decision|auto|event> --text '<entry>'` (single-quote the entry, so the shell expands no `$` or backtick in it, and write an apostrophe inside it as `'\''`; a `set-skill --halt-reason` or `--pin` value is quoted the same way). With `--once` it appends nothing when the log already holds a line of the same type and text, and returns `skipped` `true`, so a notice several calls report is logged once. Its types:
+`_campaign-decision-log.md` is append-only, one typed and timestamped line per entry, written with `uv run scripts/campaign-state.py log --log-file {campaignWorkspacePath}/_campaign-decision-log.md --type <decision|auto|event> --text '<entry>'` (single-quote the entry, so the shell expands no `$` or backtick in it, and write an apostrophe inside it as `'\''`; a `set-skill --halt-reason` or `--pin` value is quoted the same way). With `--once` it appends nothing when the log already holds a line of the same type and text stamped at or after the campaign's `started_at` (read from the `_campaign-state.yaml` beside the log, since an overwrite archives the state but leaves the log), and returns `skipped` `true`, so a notice several calls report is logged once per campaign. Its types:
 
 - `decision`: the operator's choice at a gate (skip or force, overwrite, export or cancel, re-run or next, a cancel, a corrected pin, an unattended run)
 - `auto`: the default a headless or unattended run took at a gate

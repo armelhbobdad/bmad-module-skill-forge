@@ -137,7 +137,12 @@ Operations:
                     the clock. The log is append-only. With --once it
                     appends nothing when a line of the log already holds the
                     same type and text (whitespace runs read as one space),
-                    and returns that line with `skipped` true.
+                    and returns that line with `skipped` true. Only a line
+                    stamped at or after the started_at of the
+                    _campaign-state.yaml beside the log counts: an overwrite
+                    archives the state but leaves the log, so an earlier
+                    campaign's line never stands for this one's (with no
+                    readable state there, every line counts).
   halt-payload      Print the payload of a HARD HALT's error envelope for
                     skf-emit-result-envelope.py emit-halt (read-only): the
                     phase, the halt reason, the halt message read from stdin,
@@ -278,6 +283,7 @@ STEP_FILES = {
 }
 TIER_STAGE = {"A": 4, "B": 5}
 DECISION_LOG = "_campaign-decision-log.md"
+STATE_FILE = "_campaign-state.yaml"
 EXIT_INPUT = 2
 EXIT_STATE = 3
 EXIT_CIRCULAR = 4
@@ -1079,8 +1085,29 @@ def op_archive(args: argparse.Namespace) -> dict:
     return {"op": "archive", "archive_dir": folder.as_posix(), "moved": moved}
 
 
-def logged_line(path: Path, kind: str, text: str) -> str | None:
-    """The line of the log that holds an entry of this type and text, or None (a missing log holds none)."""
+def _instant(value: Any) -> datetime | None:
+    """A timestamp as an aware datetime (UTC when it names no zone), or None when it does not parse."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _campaign_start(log: Path) -> datetime | None:
+    """The started_at of the campaign whose state sits beside the log, or None when none can be read."""
+    campaign = (_loose_state(log.parent / STATE_FILE) or {}).get("campaign")
+    return _instant(campaign.get("started_at")) if isinstance(campaign, dict) else None
+
+
+def logged_line(path: Path, kind: str, text: str, since: datetime | None = None) -> str | None:
+    """The line of the log that holds an entry of this type and text, or None (a missing log holds none).
+
+    With `since`, a line stamped before it (an earlier campaign's, in a log an overwrite left) does not count.
+    """
     if not path.is_file():
         return None
     try:
@@ -1089,7 +1116,10 @@ def logged_line(path: Path, kind: str, text: str) -> str | None:
         raise StateError(EXIT_INPUT, "input-unreadable", f"Decision log unreadable: {exc}") from exc
     for line in lines:
         match = LOG_LINE_RE.match(line.strip())
-        if match and match.group(1) == kind and " ".join(match.group(2).split()) == text:
+        if not match or match.group(1) != kind or " ".join(match.group(2).split()) != text:
+            continue
+        stamp = _instant(line.strip()[2:].split(" ", 1)[0])
+        if since is None or stamp is None or stamp >= since:
             return line.strip()
     return None
 
@@ -1100,7 +1130,7 @@ def op_log(args: argparse.Namespace) -> dict:
         raise StateError(EXIT_INPUT, "input-unreadable", "The log entry is empty")
     path = Path(args.log_file)
     if args.once:
-        held = logged_line(path, args.type, text)
+        held = logged_line(path, args.type, text, _campaign_start(path))
         if held is not None:
             return {"op": "log", "log_file": path.as_posix(), "entry": held, "skipped": True}
     entry = f"- {now()} ({args.type}) {text}"
@@ -1296,7 +1326,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--type", required=True, choices=LOG_TYPES)
     p.add_argument("--text", required=True)
     p.add_argument("--once", action="store_true",
-                   help="append nothing when the log already holds a line of this type and text")
+                   help="append nothing when the log already holds a line of this type and text, stamped at or "
+                        "after the started_at of the _campaign-state.yaml beside it")
 
     p = command("halt-payload", "print a HARD HALT's emit-halt payload; the message on stdin", stage=None)
     p.add_argument("--phase", required=True, help="the kebab slug of the step that halts")

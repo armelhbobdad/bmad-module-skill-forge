@@ -1343,6 +1343,10 @@ def test_resume_sets_unattended_before_it_chains() -> None:
 
 def test_contracts_name_the_new_writes() -> None:
     contracts = _step("campaign-contracts.md")
+    # #1141: `log --once` counts only this campaign's lines, as the report's Operator Decisions does.
+    assert ("With `--once` it appends nothing when the log already holds a line of the same type and text stamped at "
+            "or after the campaign's `started_at` (read from the `_campaign-state.yaml` beside the log, since an "
+            "overwrite archives the state but leaves the log)") in contracts
     rows = {m.group(1): m.group(0) for m in re.finditer(r"^\| `([a-z-]+)` \|.*$", contracts, re.M)}
     assert ("`unattended`: true with `--unattended` (the plan gate's `[U]nattended`), else false, keeping a true that "
             "`campaign resume --unattended` wrote") in rows["apply-plan"]
