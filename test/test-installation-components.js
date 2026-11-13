@@ -334,8 +334,12 @@ async function runTests() {
       steps: [
         'init.md',
         'detect-manifests.md',
+        'compose-skills.md',
+        'compose-scope.md',
         'rank-and-confirm.md',
         'parallel-extract.md',
+        'compose-extract.md',
+        'compose-pairs.md',
         'detect-integrations.md',
         'compile-stack.md',
         'generate-output.md',

@@ -73,6 +73,7 @@ CS_SCHEMA = "src/shared/scripts/schemas/skf-create-skill-result-envelope.v1.json
 QS_WRITE = "src/skf-quick-skill/references/write-and-validate.md"
 QS_HALT_CONTRACT = "src/skf-quick-skill/references/halt-contract.md"
 SS_GENERATE = "src/skf-create-stack-skill/references/generate-output.md"
+SS_INIT = "src/skf-create-stack-skill/references/init.md"
 SS_SKILL = "src/skf-create-stack-skill/SKILL.md"
 SS_CONTRACT = "src/skf-create-stack-skill/references/invocation-contract.md"
 # Each writer step file, with the markers of its first write: the ownership
@@ -807,22 +808,64 @@ def test_create_skill_batch_advances_past_a_refused_brief():
     assert "every HARD HALT of steps 1 to 7 returns here after its envelope" in record
 
 
+# A HARD HALT as a create-stack step names it, with its second reason when one halt has two.
+STACK_HALT_RE = re.compile(r'HALT \(exit (\d), `halt_reason: "([a-z-]+)"`(?:, or `halt_reason: "([a-z-]+)"` '
+                           r"for [^,]+)?, phase `([a-z-]+:[a-z-]+)`")
+
+
+def _stack_halts(text: str) -> list[tuple[int, str, str]]:
+    return [(int(code), reason, phase) for code, first, other, phase in STACK_HALT_RE.findall(text)
+            for reason in (first, other) if reason]
+
+
 def test_stack_gate_runs_in_two_phases():
+    """#1152: step 1 checks the stack's folder right after it binds the stack name, before any prior metadata is
+    read or any import counted; step 7 reuses step 1's read and checks only the version folder it writes."""
+    init = _read(SS_INIT)
+    assert PROBE_ORDER in init.split("\n---\n", 1)[0] + "\n", "installed path first, then the src/ path"
+    zero = _section(init, "### 0. Validate Project Config", "### 0b. ")
+    phase_1 = zero.index("uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check "
+                         "--forge-data-folder {forge_data_folder}\n")
+    assert zero.index("uv run {frontmatterValidator} --check-name {stack_name}") < phase_1
+    assert "--write-version" not in init, "step 1 checks the stack's folder, not a version"
+    for needle in ("`{write_verdict}` ← `write_check.verdict`", "`{write_folder}` ← `write_check.folder`",
+                   "`{write_detail}` ← `write_check.detail`",
+                   "`{prior_active_version}` ← `write_check.marked_active_version`",
+                   "no helper candidate resolves", "not even a broken link", "no `write_check`", "`SKILL_NOT_FOUND`"):
+        assert needle in zero, needle
+    assert phase_1 < zero.index("{stack_name}/{prior_active_version}/{stack_name}/metadata.json") \
+        < zero.index("bind `{prior_stack_version}` ← its `version` and `{prior_libraries}` ← its `libraries`")
+    ownership = zero[zero.index("**Ownership, phase 1.**"):]
+    assert _stack_halts(ownership) == [(4, "write-failure", "init:not-a-stack"),
+                                       (5, "not-skf-output", "init:ownership"), (5, "flat-layout", "init:ownership")]
+    # Before any count: §0 comes before the forge tier, the mode helpers and step 3.
+    assert init.index("### 0b. ") < init.index("uv run {scanManifestsHelper} scan")
     text = _read(SS_GENERATE)
     assert "{skills_output_folder}/{project_name}-stack/active/{project_name}-stack/metadata.json" not in text, (
         "prior stack metadata is read only from a version SKF generated")
-    assert "`{prior_active_version}` ← `write_check.marked_active_version`" in text
-    phase_1 = text.index("--skill {stack_name} --write-check --forge-data-folder")
-    assert phase_1 < text.index("{stack_name}/{prior_active_version}/{stack_name}/metadata.json")
-    assert phase_1 < text.index("capture its `version` as `{prior_stack_version}`")
-    assert text.index("**Pre-flight: ownership, phase 2.**") < text.index("stage-dir --target {skill_package}")
+    assert "{prior_active_version}/{stack_name}/metadata.json" not in text, "step 7 reads no published metadata.json"
+    assert "marked_active_version" not in text and "**Prior stack.**" in text
+    calls = [line for line in text.splitlines() if line.startswith("uv run {skillInventoryHelper}")
+             and "--write-check" in line]
+    assert calls == ["uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check "
+                     "--write-version {version} --forge-data-folder {forge_data_folder}"]
+    assert text.index("**Prior stack.**") < text.index("**Pre-flight: ownership, phase 2.**") \
+        < text.index("stage-dir --target {skill_package}")
     exit_codes = _section(_read(SS_CONTRACT), "## Exit Codes", "## Result Contract")
-    assert "state-conflict" in _row(exit_codes, "| 5 ")
+    five = _row(exit_codes, "| 5 ")
+    assert "state-conflict" in five and "step 1 §0" in five and "step 7 §1" in five
+    assert "step 1 §0: a group-dir collision" in _row(exit_codes, "| 4 ")
 
 
 def test_stack_refusals_share_one_message():
-    """Every create-stack ownership refusal reads '`<stack>`: nothing was written.', then its reason (#600)."""
-    refusals = _section(_read(SS_GENERATE), "**Ownership refusals (both phases).**", "Each refusal is a HARD HALT")
+    """Every create-stack ownership refusal reads '`<stack>`: nothing was written.', then its reason (#600), and
+    step 1 and step 7 state the same refusals, each stage holding its own copy (#1152)."""
+    copies = {rel: _section(_read(rel), "**Ownership refusals.**", "Each refusal is a HARD HALT")
+              for rel in (SS_INIT, SS_GENERATE)}
+    assert copies[SS_INIT] == copies[SS_GENERATE], "step 1 and step 7 refuse with different words"
+    for rel in (SS_INIT, SS_GENERATE):
+        assert "(both phases)" not in _read(rel), rel
+    refusals = copies[SS_GENERATE]
     assert refusals.count('"**`{stack_name}`: nothing was written.** {clause}"') == 1
     clauses = [line for line in refusals.splitlines() if line.startswith("- ")]
     # One clause per verdict: flat layout, not SKF output, an unchecked folder, a missing helper.
@@ -836,6 +879,11 @@ def test_stack_refusals_share_one_message():
     (remedy,) = [p for p in refusals.split("\n\n") if p.startswith("`{remedy}` is ")]
     assert "SKF leaves the skills it did not generate alone" in remedy and "module's own source" in remedy
     assert "\u2014" not in refusals
+    # Each stage names its own phase for the refusal halt.
+    for rel, phase in ((SS_INIT, "init:ownership"), (SS_GENERATE, "generate-output:ownership")):
+        text = _read(rel)
+        halt = text[text.index("Each refusal is a HARD HALT"):].split("\n\n", 1)[0]
+        assert _stack_halts(halt) == [(5, "not-skf-output", phase), (5, "flat-layout", phase)], rel
 
 
 @pytest.mark.parametrize("rel", WRITER_SKILLS)
@@ -1060,7 +1108,7 @@ def test_stack_rosters_read_only_skf_output(rel):
 
 
 def test_compose_mode_reads_only_confirmed_skf_skills():
-    detect = _read("src/skf-create-stack-skill/references/detect-manifests.md")
+    detect = _read("src/skf-create-stack-skill/references/compose-skills.md")
     assert "(`skill`, `stack`" not in detect, "SKF writes skill_type single, never skill"
     # Explicitly named skills pass the same roster gate as discovered ones: the
     # enumerate helper's candidates mode gates both, and no step joins by hand.
@@ -1075,7 +1123,7 @@ def test_compose_mode_reads_only_confirmed_skf_skills():
     assert "whose skill_type is single, individual or null (an early Quick Skill" in " ".join(helper.split())
     for stale in ("visited set", "try/except", "*/active/*/SKILL.md", "`{stack_roster}`"):
         assert stale not in detect, stale
-    extract = _read("src/skf-create-stack-skill/references/parallel-extract.md")
+    extract = _read("src/skf-create-stack-skill/references/compose-extract.md")
     for needle in ('"not_skf_output"', "Build a `per_library_extractions[]` entry for each confirmed skill",
                    "that name a confirmed skill", "If `cycles[]` names a confirmed skill",
                    "no longer an SKF skill package"):

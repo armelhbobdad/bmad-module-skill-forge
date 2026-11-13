@@ -31,6 +31,14 @@ Covers:
   - units-from: one project path's --units input from skf-analyze-source's
     units file, deferred units left out, --module import names, and a
     project path or --module that names nothing refused (#1126)
+  - count --module: a known import name moves an unresolved dependency
+    into the ranked dependencies[] (PEP 503 names, several import names in
+    order), a value that is not DIST=IMPORT or names no dependency exits 2,
+    and a count without it is the counter's own output
+  - scope: the recommended scope, the libraries left out with their
+    reasons (a published library's led by `in v<V>: `), the published
+    libraries kept and the unknown overrides, from a saved count envelope
+    or skill names, and the inputs it refuses
 """
 
 from __future__ import annotations
@@ -1449,3 +1457,288 @@ def test_the_matrix_prints_as_utf8_on_a_cp1252_console(tmp_path: Path) -> None:
                           capture_output=True, timeout=60, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.decode("utf-8").splitlines()[-1] == "| caf\u00e9-\u2192 | -- | -- | 0 | -- |"
+
+
+# --------------------------------------------------------------------------
+# --module: a known import name, given on the same count command
+# --------------------------------------------------------------------------
+
+
+class TestModuleOverride:
+    DEPS = [
+        {"name": "acme-client", "ecosystem": "python"},
+        {"name": "requests", "ecosystem": "python"},
+        {"name": "attrs", "ecosystem": "python"},
+    ]
+
+    def _project(self, root: Path) -> None:
+        _write(root / "a.py", "import acme\nimport requests\n")
+        _write(root / "b.py", "import requests\n")
+        _write(root / "c.py", "import attrs\n")
+
+    def _count(self, root: Path, *module: str) -> subprocess.CompletedProcess:
+        args = [arg for value in module for arg in ("--module", value)]
+        return _run_cli("count", str(root), "--deps", "-", *args, stdin=json.dumps(self.DEPS))
+
+    def test_a_known_import_name_ranks_the_unresolved_entry(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        before = json.loads(self._count(tmp_path).stdout)
+        assert _unresolved_names(before) == ["acme-client"]
+        proc = self._count(tmp_path, "acme-client=acme")
+        assert proc.returncode == 0, proc.stderr
+        after = json.loads(proc.stdout)
+        assert after["unresolved"] == []
+        # Ranked with the others: by file_count, highest first, then by name.
+        assert [(d["name"], d["file_count"]) for d in after["dependencies"]] == [
+            ("requests", 2), ("acme-client", 1), ("attrs", 1)]
+        entry = _dep(after, "acme-client")
+        assert (entry["resolution"], entry["import_names"]) == ("explicit", ["acme"])
+        assert _paths(entry) == ["a.py"] and entry["above_threshold"] is False
+
+    def test_a_python_name_matches_as_pep_503_normalises_it(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        proc = self._count(tmp_path, "Acme_Client=acme")
+        assert proc.returncode == 0, proc.stderr
+        assert _dep(json.loads(proc.stdout), "acme-client")["import_names"] == ["acme"]
+
+    def test_several_import_names_accumulate_in_order(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        _write(tmp_path / "d.py", "import acme_legacy\n")
+        proc = self._count(tmp_path, "acme-client=acme", "acme-client=acme_legacy", "acme-client=acme")
+        assert proc.returncode == 0, proc.stderr
+        entry = _dep(json.loads(proc.stdout), "acme-client")
+        assert entry["import_names"] == ["acme", "acme_legacy"] and entry["file_count"] == 2
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            pytest.param("nope=x", "--module nope=x: names no --deps dependency", id="names-no-dependency"),
+            pytest.param("acme", "expected DIST=IMPORT, got 'acme'", id="no-equals-sign"),
+            pytest.param("=acme", "expected DIST=IMPORT, got '=acme'", id="no-name"),
+            pytest.param("acme-client=", "expected DIST=IMPORT, got 'acme-client='", id="no-import-name"),
+        ],
+    )
+    def test_a_bad_value_exits_2(self, tmp_path: Path, value: str, message: str) -> None:
+        self._project(tmp_path)
+        proc = self._count(tmp_path, value)
+        assert proc.returncode == 2
+        assert message in proc.stderr and proc.stdout == ""
+
+    def test_a_name_two_ecosystems_share_exits_2(self, tmp_path: Path) -> None:
+        """One name in two ecosystems: --module cannot say which, so it changes neither count."""
+        _write(tmp_path / "a.js", "import x from 'acme';\n")
+        _write(tmp_path / "b.js", "import y from 'acme';\n")
+        _write(tmp_path / "c.py", "import acme_core\n")
+        deps = json.dumps([{"name": "acme", "ecosystem": "npm"}, {"name": "acme", "ecosystem": "python"}])
+        proc = _run_cli("count", str(tmp_path), "--deps", "-", "--module", "acme=acme_core", stdin=deps)
+        assert proc.returncode == 2 and proc.stdout == ""
+        assert "--module acme=acme_core: names dependencies of several ecosystems (npm, python)" in proc.stderr
+
+    def test_an_npm_name_matches_exactly(self, tmp_path: Path) -> None:
+        _write(tmp_path / "a.js", "import x from 'acme/client';\n")
+        deps = json.dumps([{"name": "acme", "ecosystem": "npm"}])
+        proc = _run_cli("count", str(tmp_path), "--deps", "-", "--module", "Acme=acme/client", stdin=deps)
+        assert proc.returncode == 2 and "--module Acme=acme/client: names no --deps dependency" in proc.stderr
+        proc = _run_cli("count", str(tmp_path), "--deps", "-", "--module", "acme=acme/client", stdin=deps)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["dependencies"][0]["import_names"] == ["acme/client"]
+
+    def test_a_count_without_it_is_the_counters_own_output(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        proc = self._count(tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == mod.count_imports(tmp_path, mod.parse_dependencies(self.DEPS))
+        deps = mod.parse_dependencies(self.DEPS)
+        assert mod.apply_modules(deps, []) == [] and deps == mod.parse_dependencies(self.DEPS)
+
+
+# --------------------------------------------------------------------------
+# scope: the recommended scope of a stack
+# --------------------------------------------------------------------------
+
+
+COUNTS = {
+    "threshold": 2,
+    "files_scanned": 9,
+    "dependencies": [
+        {"name": "jest", "ecosystem": "npm", "import_names": ["jest"], "resolution": "exact", "scope": "dev",
+         "files": [], "file_count": 4, "above_threshold": True},
+        {"name": "react", "ecosystem": "npm", "import_names": ["react"], "resolution": "exact",
+         "files": [], "file_count": 3, "above_threshold": True},
+        {"name": "express", "ecosystem": "npm", "import_names": ["express"], "resolution": "exact",
+         "files": [], "file_count": 2, "above_threshold": True},
+        {"name": "zod", "ecosystem": "npm", "import_names": ["zod"], "resolution": "exact",
+         "files": [], "file_count": 1, "above_threshold": False},
+    ],
+    "unresolved": [
+        {"name": "acme", "ecosystem": "python", "import_names": ["acme"], "reason": "guess-unmatched"},
+    ],
+}
+
+
+class TestScope:
+    def _scope(self, tmp_path: Path, counts: dict | None, *args: str, overrides: object = None,
+               names: list | None = None) -> dict:
+        """Run `scope` as the stages do: the counts file (or the names) and the overrides on stdin."""
+        if names is not None:
+            ov = _write(tmp_path / "scope-overrides.json", json.dumps(overrides))
+            proc = _run_cli("scope", "--names", "-", "--overrides", str(ov), *args, stdin=json.dumps(names))
+        else:
+            counts_file = _write(tmp_path / "import-counts.json", json.dumps(counts))
+            proc = _run_cli("scope", str(counts_file), "--overrides", "-", *args, stdin=json.dumps(overrides))
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    def test_a_new_stack(self, tmp_path: Path) -> None:
+        assert self._scope(tmp_path, COUNTS) == {
+            "scope": ["react", "express"],
+            "dropped": [{"library": "jest", "reason": "dev only"},
+                        {"library": "zod", "reason": "under 2 files"},
+                        {"library": "acme", "reason": "guess-unmatched"}],
+            "prior_kept": [],
+            "unknown_overrides": [],
+        }
+
+    def test_overrides_apply_and_an_unknown_key_is_listed(self, tmp_path: Path) -> None:
+        out = self._scope(tmp_path, COUNTS, overrides={"zod": "include", "react": "exclude", "lodash": "include",
+                                                       "bar": "exclude"})
+        assert out["scope"] == ["express", "zod"]
+        assert {"library": "react", "reason": "excluded by scope_overrides"} in out["dropped"]
+        assert out["unknown_overrides"] == ["lodash", "bar"], "in input order"
+        assert not {"lodash", "bar"} & {d["library"] for d in out["dropped"]}
+
+    def test_an_exclude_takes_its_reason_before_dev_only_and_unresolved(self, tmp_path: Path) -> None:
+        """The first reason that fits: a published library counted at 0 files, then the exclude, then the rest."""
+        counts = {**COUNTS, "dependencies": [*COUNTS["dependencies"],
+                                             {"name": "lodash", "file_count": 0, "above_threshold": False}]}
+        out = self._scope(tmp_path, counts, "--prior-version", "1.2.0", "--prior-libraries", "lodash",
+                          overrides={"jest": "exclude", "acme": "exclude", "lodash": "exclude"})
+        assert out["scope"] == ["react", "express"] and out["prior_kept"] == []
+        assert out["dropped"] == [
+            {"library": "jest", "reason": "excluded by scope_overrides"},
+            {"library": "zod", "reason": "under 2 files"},
+            {"library": "lodash", "reason": "in v1.2.0: no importing file"},
+            {"library": "acme", "reason": "excluded by scope_overrides"},
+        ]
+
+    def test_a_name_two_ecosystems_share_counts_from_either_entry(self, tmp_path: Path) -> None:
+        """A dev entry ranked first does not hide a runtime one above the threshold, and a counted name takes no
+        unresolved reason from another ecosystem's entry."""
+        counts = {
+            "dependencies": [
+                {"name": "redis", "ecosystem": "npm", "scope": "dev", "file_count": 5, "above_threshold": True},
+                {"name": "redis", "ecosystem": "python", "file_count": 3, "above_threshold": True},
+                {"name": "toml", "ecosystem": "npm", "file_count": 1, "above_threshold": False},
+            ],
+            "unresolved": [{"name": "toml", "ecosystem": "python", "reason": "guess-unmatched"}],
+        }
+        out = self._scope(tmp_path, counts)
+        assert out["scope"] == ["redis"]
+        assert out["dropped"] == [{"library": "toml", "reason": "under 2 files"}]
+
+    def test_an_included_unresolved_entry_closes_the_scope(self, tmp_path: Path) -> None:
+        out = self._scope(tmp_path, COUNTS, overrides={"acme": "include", "zod": "include"})
+        assert out["scope"] == ["react", "express", "zod", "acme"]
+        assert out["dropped"] == [{"library": "jest", "reason": "dev only"}]
+
+    def test_a_rerun_keeps_the_published_libraries_the_counts_find(self, tmp_path: Path) -> None:
+        """#1152's rows: a published library imported by one file stays in, a dev-only one too."""
+        counts = {**COUNTS, "dependencies": COUNTS["dependencies"][1:]}
+        prior = ("--prior-version", "1.2.0", "--prior-libraries", "react, zod,lodash")
+        out = self._scope(tmp_path, counts, *prior)
+        assert out == {
+            "scope": ["react", "express", "zod"],
+            "dropped": [{"library": "acme", "reason": "guess-unmatched"},
+                        {"library": "lodash", "reason": "in v1.2.0: not among this run's dependencies"}],
+            "prior_kept": ["zod"],
+            "unknown_overrides": [],
+        }
+        excluded = self._scope(tmp_path, counts, *prior, overrides={"zod": "exclude"})
+        assert excluded["prior_kept"] == []
+        assert {"library": "zod", "reason": "in v1.2.0: excluded by scope_overrides"} in excluded["dropped"]
+        included = self._scope(tmp_path, counts, *prior, overrides={"zod": "include"})
+        assert "zod" in included["scope"] and included["prior_kept"] == [], "the override, not the rerun, kept it"
+        dev = self._scope(tmp_path, COUNTS, "--prior-version", "2.0.0", "--prior-libraries", "jest")
+        assert dev["scope"] == ["jest", "react", "express"] and dev["prior_kept"] == ["jest"]
+        # Two kept: `prior_kept` follows --prior-libraries, `scope` the rank.
+        two = {**counts, "dependencies": [*counts["dependencies"][:2],
+                                          {"name": "yup", "file_count": 1, "above_threshold": False},
+                                          counts["dependencies"][2]]}
+        both = self._scope(tmp_path, two, "--prior-version", "1.2.0", "--prior-libraries", "zod,yup")
+        assert both["scope"] == ["react", "express", "yup", "zod"] and both["prior_kept"] == ["zod", "yup"]
+
+    def test_a_published_library_takes_the_first_reason_that_fits(self, tmp_path: Path) -> None:
+        counts = {
+            "dependencies": [
+                {"name": "react", "file_count": 2, "above_threshold": True},
+                {"name": "lodash", "file_count": 0, "above_threshold": False},
+                {"name": "jest", "scope": "dev", "file_count": 0, "above_threshold": False},
+            ],
+            "unresolved": [{"name": "acme", "reason": "no-import-name"}],
+        }
+        out = self._scope(tmp_path, counts, "--prior-version", "1.2.0",
+                          "--prior-libraries", "zod,lodash,jest,acme,react")
+        assert out["scope"] == ["react"] and out["prior_kept"] == []
+        assert out["dropped"] == [
+            {"library": "lodash", "reason": "in v1.2.0: no importing file"},
+            {"library": "jest", "reason": "in v1.2.0: no importing file"},
+            {"library": "acme", "reason": "in v1.2.0: no-import-name"},
+            {"library": "zod", "reason": "in v1.2.0: not among this run's dependencies"},
+        ]
+
+    def test_the_threshold_names_the_reason(self, tmp_path: Path) -> None:
+        counts = {**COUNTS, "threshold": 3}
+        assert {"library": "zod", "reason": "under 3 files"} in self._scope(tmp_path, counts)["dropped"]
+        bare = {"dependencies": COUNTS["dependencies"]}
+        out = self._scope(tmp_path, bare)
+        assert {"library": "zod", "reason": "under 2 files"} in out["dropped"]
+        assert [d["library"] for d in out["dropped"]] == ["jest", "zod"], "no unresolved list: none left out"
+
+    def test_compose_mode(self, tmp_path: Path) -> None:
+        out = self._scope(tmp_path, None, "--prior-version", "2.0.0", "--prior-libraries", "a,d",
+                          names=["a", "b", "c"], overrides={"c": "exclude", "x": "include"})
+        assert out == {
+            "scope": ["a", "b"],
+            "dropped": [{"library": "c", "reason": "excluded by scope_overrides"},
+                        {"library": "d", "reason": "in v2.0.0: not among this run's dependencies"}],
+            "prior_kept": [],
+            "unknown_overrides": ["x"],
+        }
+
+    def test_compose_names_can_be_the_stored_skills(self, tmp_path: Path) -> None:
+        names = [{"name": "a", "language": "typescript", "source": "existing_skill"}, "b", "a"]
+        out = self._scope(tmp_path, None, names=names, overrides=None)
+        assert out == {"scope": ["a", "b"], "dropped": [], "prior_kept": [], "unknown_overrides": []}
+
+    @pytest.mark.parametrize(
+        ("args", "stdin", "message"),
+        [
+            pytest.param(["counts.json", "--names", "names.json"], "", "not both", id="counts-and-names"),
+            pytest.param([], "", "pass a counts file (code mode) or --names", id="neither"),
+            pytest.param(["-", "--overrides", "-"], "null", "only one input may read stdin", id="both-on-stdin"),
+            pytest.param(["--names", "-", "--overrides", "-"], "[]", "only one input may read stdin",
+                         id="names-and-overrides-on-stdin"),
+            pytest.param(["counts.json", "--overrides", "-"], '{"zod": "keep"}', "is not 'include' or 'exclude'",
+                         id="bad-override-value"),
+            pytest.param(["counts.json", "--overrides", "-"], '["zod"]', "--overrides must be a JSON object",
+                         id="overrides-not-an-object"),
+            pytest.param(["counts.json", "--prior-version", "1.2.0"], "", "--prior-version and --prior-libraries",
+                         id="prior-version-alone"),
+            pytest.param(["counts.json", "--prior-libraries", "react"], "", "--prior-version and --prior-libraries",
+                         id="prior-libraries-alone"),
+            pytest.param(["counts.json", "--prior-version", " ", "--prior-libraries", "react"], "",
+                         "--prior-version is empty", id="empty-prior-version"),
+            pytest.param(["-"], '{"units": []}', "holds no `dependencies` list", id="no-dependencies-list"),
+            pytest.param(["-"], '{"dependencies": [{"name": "react"}]}', "needs an integer `file_count`",
+                         id="a-dependency-without-its-counts"),
+            pytest.param(["--names", "-"], '{"a": 1}', "--names must be a JSON array", id="names-not-a-list"),
+            pytest.param(["missing.json"], "", "file not found", id="missing-counts-file"),
+        ],
+    )
+    def test_bad_input_exits_1(self, tmp_path: Path, args: list[str], stdin: str, message: str) -> None:
+        _write(tmp_path / "counts.json", json.dumps(COUNTS))
+        _write(tmp_path / "names.json", '["a"]')
+        args = [str(tmp_path / arg) if arg.endswith(".json") else arg for arg in args]
+        proc = _run_cli("scope", *args, stdin=stdin)
+        assert proc.returncode == 1, proc.stderr
+        assert proc.stderr.startswith("error: ") and message in proc.stderr and proc.stdout == ""

@@ -2584,6 +2584,71 @@ def test_cli_version(tmp_path):
         assert "Usage:" in err, argv
 
 
+# A code-mode extraction bundle (create-stack-skill step 4) and the candidate list it stands for.
+PRIMARY_BUNDLE = {"mode": "code", "scope": ["react", "express", "zod"], "per_library_extractions": [
+    {"library": "react", "status": "success", "version": "^18.2.0", "confidence": "T1", "file_count": 12},
+    {"library": "express", "status": "success", "version": None, "confidence": "T1-low", "file_count": 12},
+    {"library": "zod", "status": "partial", "version": "3.22.4+build.7", "confidence": "T1", "file_count": 3}],
+    "failed": [], "integrations": [], "cross_cutting": []}
+PRIMARY_CANDIDATES = [{"name": "react", "import_count": 12, "version": "^18.2.0"},
+                      {"name": "express", "import_count": 12, "version": None},
+                      {"name": "zod", "import_count": 3, "version": "3.22.4+build.7"}]
+
+
+def test_cli_version_primary_reads_a_code_bundle(tmp_path):
+    """#1154 determinism-8: generate-output passes {bundleFile} instead of re-typing it as candidates."""
+    bundle, candidates = tmp_path / "extraction-bundle.json", tmp_path / "candidates.json"
+    _write(bundle, PRIMARY_BUNDLE)
+    _write(candidates, PRIMARY_CANDIDATES)
+    code, out, _ = _run_inventory("version", "primary", "--bundle", str(bundle))
+    assert (code, out["primary"], out["version"], out["reason"]) == (0, "react", "18.2.0", "tie-usable-version")
+    assert out == _run_inventory("version", "primary", str(candidates))[1], "the bundle and list forms differ"
+    # An entry without a file_count counts 0, as a candidate without an import_count does.
+    entries = [{key: value for key, value in entry.items() if key != "file_count"}
+               for entry in PRIMARY_BUNDLE["per_library_extractions"]]
+    _write(bundle, dict(PRIMARY_BUNDLE, mode="Code", per_library_extractions=entries))
+    _write(candidates, [{key: value for key, value in c.items() if key != "import_count"} for c in PRIMARY_CANDIDATES])
+    code, out, _ = _run_inventory("version", "primary", "--bundle", str(bundle))
+    # All three tie at 0; react and zod give a version, and react comes first by name.
+    assert (code, out["primary"], out["import_count"], out["reason"]) == (0, "react", 0, "tie-name-order")
+    assert out == _run_inventory("version", "primary", str(candidates))[1]
+    _write(bundle, dict(PRIMARY_BUNDLE, per_library_extractions=[]))
+    code, out, _ = _run_inventory("version", "primary", "--bundle", str(bundle))
+    assert (code, out["version"], out["reason"]) == (0, "1.0.0", "no-candidates")
+
+
+@pytest.mark.parametrize("content, needle", [
+    (dict(PRIMARY_BUNDLE, mode="compose"), "code-mode extraction bundle"),
+    ({k: v for k, v in PRIMARY_BUNDLE.items() if k != "mode"}, "code-mode extraction bundle"),
+    ("{not json", "cannot read the extraction bundle"),
+    (PRIMARY_CANDIDATES, "must be a JSON object"),
+    (dict(PRIMARY_BUNDLE, per_library_extractions=None), "per_library_extractions must be an array"),
+    (dict(PRIMARY_BUNDLE, per_library_extractions=["react"]), "per_library_extractions[0] must be an object"),
+    (dict(PRIMARY_BUNDLE, per_library_extractions=[{"name": "react"}]), "per_library_extractions[0].library"),
+    (dict(PRIMARY_BUNDLE, per_library_extractions=[{"library": "react", "file_count": -1}]), ".file_count"),
+    (dict(PRIMARY_BUNDLE, per_library_extractions=[{"library": "react", "file_count": None}]), ".file_count"),
+    (dict(PRIMARY_BUNDLE, per_library_extractions=[{"library": "react", "version": 18}]), ".version"),
+], ids=["compose", "no-mode", "bad-json", "a-list", "no-entries", "entry-not-object", "no-library",
+        "negative-count", "null-count", "numeric-version"])
+def test_cli_version_primary_refuses_a_bundle_it_cannot_read(content, needle, tmp_path):
+    bundle = tmp_path / "extraction-bundle.json"
+    _write(bundle, content)
+    code, out, _ = _run_inventory("version", "primary", "--bundle", str(bundle))
+    assert (code, out["status"], out["code"]) == (1, "error", "BAD_INPUT"), out
+    assert needle in out["error"], out["error"]
+
+
+def test_cli_version_primary_bundle_needs_one_file(tmp_path):
+    code, out, _ = _run_inventory("version", "primary", "--bundle", "-")
+    assert (code, out["code"]) == (1, "BAD_INPUT") and "not stdin" in out["error"]
+    code, out, _ = _run_inventory("version", "primary", "--bundle", str(tmp_path / "missing.json"))
+    assert (code, out["code"]) == (1, "BAD_INPUT")
+    for argv in (["version", "primary", "--bundle"], ["version", "primary", "--bundle", "a.json", "b.json"]):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+        assert "version primary --bundle <extraction-bundle.json>" in err, argv
+
+
 # --------------------------------------------------------------------------
 # purge check: may drop-skill purge the skill, or one version of it?
 # --------------------------------------------------------------------------

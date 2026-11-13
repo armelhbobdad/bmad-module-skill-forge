@@ -1,8 +1,5 @@
 ---
 nextStepFile: 'detect-integrations.md'
-enumerateStackSkillsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
-  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 renderStackMetadataProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
   - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
@@ -12,7 +9,6 @@ emitEnvelopeProbeOrder:
 bundleFile: '{run_dir}/extraction-bundle.json'
 exportRecordsFile: '{run_dir}/export-records.json'
 importCountsFile: '{run_dir}/import-counts.json'
-stackInventoryFile: '{run_dir}/stack-inventory.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -32,7 +28,7 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}", "mode": "<code|compose>", "stack_libraries": ["<confirmed library>", ...]}`, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}", "mode": "code", "stack_libraries": ["<confirmed library>", ...]}`, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -40,83 +36,26 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
 
-**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
 **Extraction bundle.** What this step extracts goes to `{bundleFile}`, so no later step works from memory: step 5 reads each library's tier there and adds the pairs it keeps, step 6 compiles from it, and step 7 writes the reference files, `metadata.json` and the provenance map from it. It is one JSON object, written with the run's other files in `{run_dir}`:
 
 ```json
 {
-  "mode": "code|compose",
+  "mode": "code",
   "scope": ["<confirmed library>"],
   "per_library_extractions": [
     {"library": "<name>", "status": "success|partial", "version": "<version>",
-     "confidence": "T1|T1-low|T2|T3", "files_analyzed": 0,
+     "confidence": "T1|T1-low|T2|T3", "file_count": 0, "files_analyzed": 0,
      "usage_patterns": ["<pattern with file:line>"], "warnings": [], "temporal": {}}
   ],
   "failed": [{"library": "<name>", "reason": "<why>"}],
   "integrations": [],
-  "hubs": [],
   "cross_cutting": []
 }
 ```
 
-`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. A compose-mode entry also holds `skill_dir`, `skill_package_path`, `exports`, `exports_source` and `source_authority` (§0). A code-mode entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
-
-### 0. Check Compose Mode
-
-**If `compose_mode` is true:**
-
-"**Extraction data already available from individual skills. Skipping extraction phase.**"
-
-For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below): its usage patterns come from there.
-
-**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor (S13) is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
-
-Use `skill_package_path` directly — it points to the package the helper resolved.
-
-**Exports resolution order (H1), script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
-
-**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:enumerate`) with "**Cannot proceed.** `skf-enumerate-stack-skills.py` is missing, so no constituent's exports can be read. Re-install SKF, then re-run."
-
-```bash
-uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} > "{stackInventoryFile}"
-```
-
-Its JSON, in `{stackInventoryFile}`, has the form:
-
-```json
-{
-  "skills": [
-    {
-      "name": "<skill-name>",
-      "path": "<rel-to-skills-root, forward-slash>",
-      "exports": ["..."],
-      "exports_source": "metadata|references|skill-md|unknown",
-      "confidence": "T1|T2|T1-low",
-      "evidence_tier": "T1|T1-low|T2|T3",
-      "metadata_hash": "sha256:..."
-    }
-  ],
-  "cycles": ["<skill-name>"],
-  "warnings": ["<text>"],
-  "not_skf_output": ["<skill-name>"]
-}
-```
-
-§0 reads this JSON from `{stackInventoryFile}`: each constituent's exports come from it, never from memory or from re-reading its `SKILL.md`, `metadata.json` or `references/`. Append to `workflow_warnings[]` the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable: HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:cycle`) with "composes cycle among the confirmed skills: {the `cycles[]` names}."
-
-Build a `per_library_extractions[]` entry for each confirmed skill, from the `skills[]` entry whose `name` is its `skill_dir`:
-- `library`: `inventory.skills[i].name`
-- `exports`: `inventory.skills[i].exports`
-- `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
-- `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`), the library's tier, which steps 5 and 7 read. Never `inventory.skills[i].confidence`: it only says where the export list came from.
-- No `metadata_hash`: step 7's provenance helper copies the anchor above from `{stackInventoryFile}` into `constituents[]`.
-- `skill_dir`, `skill_package_path`, `version` and `source_authority`: from step 2's entry, the path refreshed above.
-- `usage_patterns`: read from the constituent's `SKILL.md` loaded above, each with the file and line it cites there.
-
-Write `{bundleFile}`: `mode`, `scope` and these entries. Then report the loaded extractions: for each skill, export count, confidence tier, and load status. Then auto-proceed to the next step.
-
-**If not compose_mode:** Continue with section 1 (existing flow).
+`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations` and `cross_cutting`. Each entry also holds `file_count`, the library's step 3 import count, and keeps its record's `temporal` (§2), `{}` below Deep tier, which step 7 writes into the library's reference file; its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
 
 ### 1. Prepare Extraction Plan
 
@@ -126,10 +65,6 @@ Write `{bundleFile}`: `mode`, `scope` and these entries. Then report the loaded 
 - An export read by eye, for any reason (Quick tier, ast-grep unavailable, a file ast-grep could not parse, a rule that matched nothing, or a file read instead of running a rule): `extraction_method: "source_reading"`, `confidence: "T1-low"`, `signature_source: "T1-low"`.
 
 Deep-tier temporal findings are T2 annotations, never export labels.
-
-**AST Tool Availability Check (Forge/Deep only):**
-
-This workflow operates on local project files and installed library packages. Remote source resolution does not apply — libraries are analyzed as they exist within the project's dependency tree.
 
 **If AST tool is unavailable at Forge/Deep tier:**
 
@@ -141,30 +76,18 @@ Degrade to Quick tier extraction, and append a `workflow_warnings[]` entry (`ste
 
 If ast-grep fails on an individual file (parse error, unsupported syntax), fall back to source reading for that file only, and log a warning noting which file degraded and why.
 
-For each library in `confirmed_dependencies`, determine extraction strategy based on forge tier:
-
-**Quick Tier:**
-- Read source files that import the library
-- Extract usage patterns from import statements and function calls
-- Identify key exports used in this project
-
-**Forge Tier (adds to Quick):**
-- Use ast_bridge to analyze structural exports from library source
-- Extract function signatures, type definitions, class hierarchies
-- Map parameter types and return types
+**Extraction by tier:** read each library's exports with ast-grep (`ast_bridge`) rules at Forge tier and above, and with file reads at Quick tier or where a rule fails.
 
 **Deep Tier (adds to Forge):**
-- Perform all Forge tier extractions
-- Additionally: query existing QMD temporal collections for each library
+- Query existing QMD temporal collections for each library
 - Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`
 - For each library in `confirmed_dependencies`, search for a registry entry where `skill_name` matches the library name AND `type` is `"temporal"`
 - **If a matching temporal collection exists:**
   - Query `qmd_bridge.search("{library_name} deprecated OR removed OR breaking change")` for deprecation context
   - Query `qmd_bridge.search("{library_name} migration OR upgrade")` for migration patterns
   - Query `qmd_bridge.search("{library_name} version issue OR bug OR workaround")` for version-specific warnings
-  - **Tool resolution for qmd_bridge:** Use QMD MCP tools — `mcp__plugin_qmd-plugin_qmd__search` (Claude Code), qmd MCP server (Cursor), `qmd search "{query}"` (CLI). See `knowledge/tool-resolution.md`
-  - Classify each result as T2-past (historical) or T2-future (planned changes) per confidence-tiers.md
-  - Append temporal findings to the library's extraction as T2 annotations with `[QMD:{collection}:{doc}]` citations
+  - Classify each result as T2-past (historical) or T2-future (planned changes) per `knowledge/confidence-tiers.md`
+  - Add each finding to the library record's `temporal` (§2) as a T2 annotation, its label and `[QMD:{collection}:{doc}]` citation in its text
 - **If no matching temporal collection found:**
   - Log: "No temporal collection for {library_name}. T2 enrichment skipped."
   - Continue with T1/T1-low extraction only
@@ -173,12 +96,7 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 
 **Launch subprocesses in parallel** (max_parallel_generation: 3–5 concurrent Agent tool calls in Claude Code, IDE-dependent in Cursor, CPU core count in CLI) — one per confirmed library:
 
-Each subprocess:
-1. Reads all files importing the library (its `files[]` in `{importCountsFile}`, step 3's import counts, whose paths are relative to `{project_root}`, as `source_file` is)
-2. Extracts key exports used in this project (functions, classes, types, constants)
-3. Identifies usage patterns (initialization, configuration, common call patterns)
-4. Labels each export by the tool that read it (§1)
-5. Returns structured extraction to parent, one record per export:
+Each subprocess reads the files that import its library (its `files[]` in `{importCountsFile}`, step 3's import counts, whose paths are relative to `{project_root}`, as `source_file` is) and returns the library's usage patterns and one record per export the project uses, labeled by the tool that read it (§1); at Deep tier it also runs §1's QMD queries for its library and returns their findings in `temporal`:
 
 ```
 {
@@ -201,9 +119,9 @@ Each subprocess:
   files_analyzed: count,
   warnings: [],
   temporal: {
-    deprecated_exports: ["export_name — reason [QMD:collection:doc]"],
-    migration_notes: ["note [QMD:collection:doc]"],
-    version_warnings: ["warning [QMD:collection:doc]"],
+    deprecated_exports: ["export_name: reason (T2-past|T2-future) [QMD:collection:doc]"],
+    migration_notes: ["note (T2-past|T2-future) [QMD:collection:doc]"],
+    version_warnings: ["warning (T2-past|T2-future) [QMD:collection:doc]"],
     t2_annotation_count: count
   }
 }
@@ -213,29 +131,19 @@ Each subprocess:
 
 **If parallel subprocess unavailable:** Process libraries sequentially in main thread. Report progress after each library.
 
-**Per-subprocess budget (S6):** Tell each library's extraction subprocess to stop and return what it has after about 20 tool calls, adding `"extraction budget reached"` to its `warnings` when it stops there, and wait for it in the foreground. A library whose subprocess returned partial data is a `partial-failure`: store that data and continue with the remaining libraries. One whose subprocess returned no usable data is a complete failure (§3): it goes in `failed[]` with an `extraction-failed` warning and counts toward the `all-extractions-failed` halt. Do NOT abort the batch on a single library that reached its budget or failed.
+**Per-subprocess budget:** Tell each library's extraction subprocess to stop and return what it has after about 20 tool calls, adding `"extraction budget reached"` to its `warnings` when it stops there, and wait for it in the foreground. A library whose subprocess returned partial data is a `partial-failure`: store that data and continue with the remaining libraries. One whose subprocess returned no usable data is a complete failure (§3): it goes in `failed[]` with an `extraction-failed` warning and counts toward the `all-extractions-failed` halt. Do NOT abort the batch on a single library that reached its budget or failed.
 
 ### 3. Handle Extraction Failures
 
-For each library extraction:
+Store each returned extraction as its library's `per_library_extractions[]` entry, and for a partial one append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-partial"`, `message`: the library and its warnings, `extraction budget reached` among them when it stopped on its budget). A library with no usable data stays out of the stack: record it in the bundle's `failed[]` and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-failed"`, `message`: the library and the reason).
 
-**Success:** Store the extraction result as the library's `per_library_extractions[]` entry.
-
-**Partial failure:** Store partial result with warnings, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-partial"`, `message`: the library and its warnings, `extraction budget reached` among them when it stopped on its budget), and continue with other libraries.
-
-**Complete failure:** Log failure reason, exclude from stack skill, note in report.
-
-"**Warning:** Extraction failed for {library}: {reason}. Excluding from stack skill."
-
-Record each excluded library in the bundle's `failed[]` and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-failed"`, `message`: the library and the reason).
-
-**If ALL extractions fail:** HALT (exit 2, `halt_reason: "all-extractions-failed"`, phase `parallel-extract:all-failed`, `stack_libraries` the confirmed library names that failed): nothing remains to build a stack from (B7). The run folder stays, as after every halt but a cancel: its `warnings.jsonl` holds the `extraction-failed` entry that says why each library failed.
+**If ALL extractions fail:** HALT (exit 2, `halt_reason: "all-extractions-failed"`, phase `parallel-extract:all-failed`, `stack_libraries` the confirmed library names that failed): nothing remains to build a stack from. The run folder stays, as after every halt but a cancel: its `warnings.jsonl` holds the `extraction-failed` entry that says why each library failed.
 
 **Otherwise** write `{bundleFile}`: `mode`, `scope`, one `per_library_extractions[]` entry per library that returned (each export record moves to `{exportRecordsFile}` in §3a, so the entry keeps none) and `failed[]`.
 
 ### 3a. Check the Export Labels
 
-Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here, from the file this section writes and keeps for the rest of the run.
+Steps 5 to 7 read the labels checked here, from the file this section writes and keeps for the rest of the run.
 
 Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{exportRecordsFile}`. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`) with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no export label can be checked and no library tier set. Re-install SKF, then re-run." Otherwise relabel the records:
 
@@ -255,7 +163,13 @@ Set each library's `per_library_extractions[].confidence` in `{bundleFile}` to i
 
 ### 4. Display Extraction Summary
 
-Report the extraction results from `{bundleFile}`: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier (the unit of `metadata.json`'s `confidence_distribution`); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
+Count the libraries at each tier with the `{renderStackMetadataHelper}` §3a resolved, never by hand (on exit `2`, fix the bundle field its stderr names and run it again):
+
+```bash
+uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"
+```
+
+Report the extraction results from `{bundleFile}`: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier, the call's `confidence_distribution` (the unit of `metadata.json`'s); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
 
 ### 5. Auto-Proceed to Next Step
 

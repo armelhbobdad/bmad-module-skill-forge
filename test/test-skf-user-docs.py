@@ -1791,12 +1791,22 @@ def test_stack_skill_documents_its_inputs_run_state_and_result_fields():
         assert token in inputs, token
     state = _paragraph(section, "**Run state:**")
     for token in ("`_bmad-output/.skf-run/`", "deleted when the run finishes or you cancel it",
-                  "the full draft only when you ask, and never in a headless run"):
+                  "the full draft only when you ask, and never in a headless run",
+                  "offers to resume at that review"):
         assert token in state, token
     halts = _paragraph(section, "**Halts:**")
     assert "exit `3` (`helper-missing`)" in halts and "exit `2` (`unknown-verdict-token`)" in halts
-    assert "the folder `stack_name` names (by default `<project>-stack`) when SKF generated it" in _paragraph(
-        section, "**Safety:**")
+    assert "exit `2` (`empty-scope`)" in halts and "`scope_overrides` with `<name>: include`" in halts
+    # The rerun rule has a paragraph of its own: Run state covers the run folder and the resume offer.
+    reruns = _paragraph(section, "**Reruns:**")
+    for token in ("names a stack SKF already published", "`kept` or `new`",
+                  "keeps by default every published library code mode still finds in at least one file",
+                  "`prior_kept`"):
+        assert token in reruns, token
+    assert "`prior_kept`" not in state and "already published" not in state
+    safety = _paragraph(section, "**Safety:**")
+    assert "the folder `stack_name` names (by default `<project>-stack`) when SKF generated it" in safety
+    assert "at its first step, before counting or writing anything" in safety
     doc = _read(WORKFLOWS)
     assert "[`src/shared/scripts/schemas/skf-stack-result-envelope.v1.json`]" in _paragraph(
         doc, "**Other workflows emit result envelopes too.**")

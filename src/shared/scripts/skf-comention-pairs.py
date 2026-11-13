@@ -11,7 +11,7 @@ emits is a candidate, never a confirmed integration. Its three subcommands
 share one skills input, one matcher and one Markdown reader:
 
   comention  compose-mode co-mention pairs from an architecture document
-             (create-stack-skill detect-integrations.md §2, compose branch)
+             (create-stack-skill compose-pairs.md §1)
   mentions   the skills a document names and the pairs it names together
              (refine-architecture gap-analysis.md scope sets and documented
              pairs)
@@ -1467,8 +1467,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="skf-comention-pairs",
         description=(
             "Report which loaded skills a document names and the pairs it "
-            "names together (comention: detect-integrations.md §2 compose "
-            "branch; mentions: refine-architecture scope sets), or candidate "
+            "names together (comention: create-stack-skill compose-pairs.md "
+            "§1; mentions: refine-architecture scope sets), or candidate "
             "pairs from the skills' own docs and keywords (infer)."
         ),
     )

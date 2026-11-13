@@ -2,7 +2,7 @@
 """Tests for skf-enumerate-stack-skills.py.
 
 Covers the exports resolution cascade documented in
-`src/skf-create-stack-skill/references/parallel-extract.md` §0:
+`src/skf-create-stack-skill/references/compose-extract.md` §1:
 
   1. metadata.json — exports[] populated, hash captured, confidence=T1
   2. references/   — heuristic `## API` / `## Exports` parse, hash=null, T2
@@ -18,7 +18,11 @@ Plus:
     weaker tier, beside the exports-source `confidence`
   - The metadata.json fields each entry carries (skill_type, language,
     confidence_tier on its skill_type's scale, exports_documented,
-    metadata_schema_version, source_repo and source_root with basenames)
+    metadata_schema_version, source_repo and source_root with basenames,
+    metadata_name, version, and source_authority lower case or null)
+  - --bundle-entries: the compose-mode bundle entry skeleton of each named
+    skill, in the order given, confidence its evidence_tier, and the names
+    no skill answers to
   - --expect-hashes: changed, missing and new skills against a recorded run
   - candidates: explicit, manifest and active-link candidates, the
     exclusion reasons, stale manifest keys and manifest parse errors
@@ -784,7 +788,7 @@ class TestCli:
     def test_default_output_has_no_derived_keys(self, tmp_path: Path) -> None:
         # The additive flags must stay off by default: no --pairs/--reliability
         # means the top-level shape is exactly {skills, cycles, warnings,
-        # not_skf_output}, the shape skf-create-stack-skill/parallel-extract.md
+        # not_skf_output}, the shape skf-create-stack-skill/compose-extract.md
         # documents.
         _make_skill(tmp_path, "alpha", metadata={"name": "alpha", "exports": ["a"]})
         result = _run_cli("enumerate", str(tmp_path))
@@ -1309,7 +1313,7 @@ ENTRY_KEYS = [
     "name", "path", "exports", "exports_source", "confidence", "evidence_tier",
     "metadata_hash", "skill_type", "language", "confidence_tier", "exports_documented",
     "metadata_schema_version", "source_repo", "source_repo_basename", "source_root",
-    "source_root_basename",
+    "source_root_basename", "metadata_name", "version", "source_authority",
 ]
 
 METADATA_FIELD_KEYS = ENTRY_KEYS[ENTRY_KEYS.index("skill_type"):]
@@ -1337,6 +1341,9 @@ class TestMetadataFields:
             "source_repo_basename": "cognee",
             "source_root": "/work/repos/github.com/topoteretes/cognee/",
             "source_root_basename": "cognee",
+            "metadata_name": "cognee",
+            "version": "0.6.0",
+            "source_authority": None,
         }
         assert (entry["confidence"], entry["evidence_tier"]) == ("T1", "T1")
 
@@ -1344,7 +1351,8 @@ class TestMetadataFields:
         _make_skill(tmp_path, "bare", metadata={"name": "bare", "exports": ["b"]})
         [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
         assert list(entry) == ENTRY_KEYS
-        assert all(entry[key] is None for key in METADATA_FIELD_KEYS), entry
+        assert entry["metadata_name"] == "bare"
+        assert all(entry[key] is None for key in METADATA_FIELD_KEYS if key != "metadata_name"), entry
 
     def test_resolve_skill_without_metadata_has_every_field(self, tmp_path: Path) -> None:
         skill_dir = _make_skill(tmp_path, "nometa", skill_md="# n\n## Exports\n- n\n", metadata=None)
@@ -1463,6 +1471,35 @@ class TestMetadataFields:
     def test_source_root_basename(self, source_root, basename) -> None:
         assert mod.metadata_fields({"source_root": source_root})["source_root_basename"] == basename
 
+    def test_name_version_and_authority_are_read_once(self) -> None:
+        """#1154 determinism-4: step 2 never reopens metadata.json for these three."""
+        fields = mod.metadata_fields({"name": "React", "version": " 18.2.0 ", "source_authority": "Official"})
+        assert (fields["metadata_name"], fields["version"], fields["source_authority"]) == (
+            "React", "18.2.0", "official")
+
+    @pytest.mark.parametrize("authority, expected", [
+        ("official", "official"),
+        (" Community ", "community"),
+        ("INTERNAL", "internal"),
+        ("vendor", None),
+        ("", None),
+        (None, None),
+        (1, None),
+        (["official"], None),
+    ])
+    def test_source_authority(self, authority, expected) -> None:
+        assert mod.metadata_fields({"source_authority": authority})["source_authority"] == expected
+
+    @pytest.mark.parametrize("value, expected", [
+        ("18.2.0", "18.2.0"),
+        ("  ", None),
+        (18, None),
+        (None, None),
+    ])
+    def test_version_and_metadata_name(self, value, expected) -> None:
+        fields = mod.metadata_fields({"name": value, "version": value})
+        assert (fields["metadata_name"], fields["version"]) == (expected, expected)
+
     def test_source_fields_are_trimmed(self) -> None:
         fields = mod.metadata_fields({"source_repo": " https://github.com/a/b ", "source_root": " src/b "})
         assert (fields["source_repo"], fields["source_root"]) == ("https://github.com/a/b", "src/b")
@@ -1479,6 +1516,76 @@ class TestMetadataFields:
         assert entry["language"] == ["python", "typescript"]
         assert entry["exports_documented"] == 14
         assert entry["source_repo"] is None and entry["source_repo_basename"] is None
+
+
+# --------------------------------------------------------------------------
+# --bundle-entries: the compose-mode bundle entry skeletons (#1154)
+# --------------------------------------------------------------------------
+
+
+BUNDLE_ENTRY_KEYS = ["library", "skill_dir", "skill_package_path", "version", "source_authority", "exports",
+                     "exports_source", "confidence"]
+
+
+class TestBundleEntries:
+    """create-stack-skill's step 4 writes each compose entry from these skeletons, copying no field by hand."""
+
+    def _skills(self, root: Path) -> None:
+        _make_nested_skill(root, "react", "18.2.0", metadata={
+            "name": "React", "version": " 18.2.0 ", "source_authority": "Official", "skill_type": "single",
+            "exports": ["render", "useState"],
+            "confidence_distribution": {"t1": 1, "t1_low": 0, "t2": 0, "t3": 4}})
+        _make_skill(root, "zod", metadata={"name": "zod", "version": "3.22.4", "source_authority": "vendor",
+                                           "exports": ["parse"]})
+
+    def test_each_name_found_gets_its_skeleton(self, tmp_path: Path) -> None:
+        self._skills(tmp_path)
+        result = _run_cli("enumerate", str(tmp_path), "--bundle-entries", "react,gone,react")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        [entry] = payload["bundle_entries"]
+        assert list(entry) == BUNDLE_ENTRY_KEYS
+        [react] = [skill for skill in payload["skills"] if skill["name"] == "react"]
+        assert entry == {
+            "library": "react", "skill_dir": "react",
+            "skill_package_path": (tmp_path / react["path"]).as_posix(),
+            "version": "18.2.0", "source_authority": "official",
+            "exports": ["render", "useState"], "exports_source": "metadata",
+            # The library's tier is the evidence tier, never the exports-source label.
+            "confidence": "T3"}
+        assert (react["confidence"], react["evidence_tier"]) == ("T1", "T3")
+        assert entry["skill_package_path"].endswith("/react/active/react")
+        assert payload["bundle_entries_missing"] == ["gone"]
+
+    def test_the_skeletons_keep_the_order_given(self, tmp_path: Path) -> None:
+        self._skills(tmp_path)
+        payload = mod.compute_bundle_entries(mod.enumerate_stack_skills(tmp_path)["skills"], tmp_path,
+                                             ["zod", "react", "vue", "angular"])
+        assert [entry["library"] for entry in payload["bundle_entries"]] == ["zod", "react"]
+        assert payload["bundle_entries_missing"] == ["vue", "angular"]
+        zod = payload["bundle_entries"][0]
+        assert (zod["skill_package_path"], zod["source_authority"], zod["confidence"]) == (
+            (tmp_path / "zod").as_posix(), None, "T1-low")
+
+    def test_names_are_trimmed_and_compared_exactly(self, tmp_path: Path) -> None:
+        self._skills(tmp_path)
+        result = _run_cli("enumerate", str(tmp_path), "--bundle-entries", " zod , ,React,zod ")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert [entry["library"] for entry in payload["bundle_entries"]] == ["zod"]
+        assert payload["bundle_entries_missing"] == ["React"]
+
+    @pytest.mark.parametrize("names", ["", " , ,"], ids=["empty", "only-commas"])
+    def test_a_list_that_names_no_skill_exits_1(self, names, tmp_path: Path) -> None:
+        self._skills(tmp_path)
+        result = _run_cli("enumerate", str(tmp_path), "--bundle-entries", names)
+        assert (result.returncode, result.stdout) == (1, "")
+        assert "--bundle-entries names no skill" in result.stderr
+
+    def test_without_the_flag_the_output_has_no_skeletons(self, tmp_path: Path) -> None:
+        self._skills(tmp_path)
+        payload = json.loads(_run_cli("enumerate", str(tmp_path)).stdout)
+        assert "bundle_entries" not in payload and "bundle_entries_missing" not in payload
 
 
 # --------------------------------------------------------------------------

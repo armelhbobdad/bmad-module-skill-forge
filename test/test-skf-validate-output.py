@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -212,7 +213,8 @@ description: A demo stack capstone skill
 Header with project name, library count, integration count, forge tier.
 """
 
-STACK_SNIPPET = "[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: Stack capstone\n|stack: lib-a, lib-b\n"
+STACK_SNIPPET = ("[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: Stack capstone\n|stack: lib-a, lib-b\n"
+                 "|integrations: lib-a+lib-b\n")
 
 # metadata.json as create-stack-skill writes it from
 # src/skf-create-stack-skill/assets/metadata-contract.md, for a compose-mode
@@ -437,7 +439,7 @@ per-library summaries.
 
 FULL_STACK_CONVENTIONS = """## Conventions
 
-- Call `a()` before `b()`.
+- Call `a()` before `b()` (src/app.ts:12).
 """
 
 LIBRARY_REFERENCE = """# {name} Reference
@@ -678,6 +680,77 @@ class TestStackStructure:
             messages = [i["message"] for i in issues_by(structure(make_full_stack(tmp, skill_md=skill_md)), "skill_md")]
             assert messages == ["SKILL.md has no `## Conventions` section"]
 
+    # -- §4: each Conventions bullet cites what shows it (#1155) -----------------
+
+    @staticmethod
+    def _with_conventions(tmp, conventions):
+        return make_full_stack(tmp, skill_md=FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                               + conventions)
+
+    @pytest.mark.parametrize("bullet", [
+        "- Call `a()` before `b()` (src/app.ts:12).",
+        "- Call `a()` before `b()` (src/app.ts:12, src/b.ts:4).",
+        "1. Call `a()` before `b()` (app/(auth)/page.tsx:3-9).",
+        "- Call `a()` before `b()` [from skill: lib-a].",
+        "- Call `a()` before `b()`,\n  as the entry point does (src/app.ts:12).",
+        "- Call `a()` before `b()` (src/app.ts:12):\n  - in each handler\n  - in each job",
+        "- Call `a()` before `b()`.\n\n  The entry point does (src/app.ts:12).",
+    ], ids=["code", "comma-separated", "ordered-route-group-range", "compose", "continuation-line", "nested-bullets",
+            "loose-item"])
+    def test_a_cited_convention_is_no_issue(self, bullet):
+        with tempfile.TemporaryDirectory() as tmp:
+            assert structure(self._with_conventions(tmp, f"## Conventions\n\n{bullet}\n"))["issues"] == []
+
+    def test_an_uncited_convention_is_a_low_issue(self):
+        conventions = ("## Conventions\n\n- Call `a()` before `b()` (src/app.ts:12).\n- Call a() first.\n"
+                       "- Keep `b()` last ({file}:{line}).\n- Keep `b()` last [from skill: {name}].\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._with_conventions(tmp, conventions)
+            issues = issues_by(structure(pkg), "skill_md")
+            assert [(i["severity"], i["field"]) for i in issues] == [("low", "conventions")] * 3, issues
+            assert '"- Call a() first."' in issues[0]["message"]
+            # A template placeholder left unfilled is no citation.
+            assert '"- Keep `b()` last ({file}:{line})."' in issues[1]["message"]
+            assert '"- Keep `b()` last [from skill: {name}]."' in issues[2]["message"]
+            assert "`({file}:{line})` or `[from skill: {name}]`" in issues[0]["message"]
+            r = validate_skill_package(str(pkg), skill_type="stack")
+            cited = [i for i in r["validation"]["stack_structure"]["issues"] if i["field"] == "conventions"]
+            # They count as low issues, and none fails the package.
+            assert len(cited) == 3 and r["summary"]["by_severity"]["low"] >= 3 and r["result"] == "PASS"
+
+    @pytest.mark.parametrize("bullet", [
+        "* Call a() first.", "+ Call a() first.", "1. Call a() first.", "1) Call a() first.",
+        "- Call `fn(x:1)` first.", "- Keep `b()` last ({file}:12).",
+    ], ids=["star", "plus", "ordered-dot", "ordered-paren", "code-span", "placeholder-file"])
+    def test_each_list_marker_and_a_look_alike_is_checked(self, bullet):
+        """An uncited item is flagged whatever its marker, and a `(x:1)` in a code span or a placeholder path is no
+        citation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = issues_by(structure(self._with_conventions(tmp, f"## Conventions\n\n{bullet}\n")), "skill_md")
+            assert [(i["severity"], i["field"]) for i in issues] == [("low", "conventions")], issues
+            assert f'"{bullet}"' in issues[0]["message"]
+
+    def test_a_nested_bullet_belongs_to_its_parent(self):
+        """A sub-bullet is part of its parent's item, so an uncited parent and its sub-bullets are one issue."""
+        conventions = "## Conventions\n\n- Call a() first:\n  - in each handler\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = issues_by(structure(self._with_conventions(tmp, conventions)), "skill_md")
+            assert [i["field"] for i in issues] == ["conventions"], issues
+            assert '"- Call a() first: - in each handler"' in issues[0]["message"]
+
+    def test_a_fenced_bullet_and_a_plain_line_are_no_conventions(self):
+        """A section whose conventions were all dropped keeps one plain line, which cites nothing (compile-stack
+        §5), and a bullet inside fenced code is an example, not a convention."""
+        conventions = ("## Conventions\n\nNo convention could be cited from the extractions.\n\n"
+                       "```markdown\n- Call a() first.\n```\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            assert structure(self._with_conventions(tmp, conventions))["issues"] == []
+
+    def test_only_the_conventions_section_is_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._with_conventions(tmp, FULL_STACK_CONVENTIONS + "\n## Notes\n\n- An uncited note.\n")
+            assert structure(pkg)["issues"] == []
+
     # -- §5: metadata.json ------------------------------------------------------
 
     @pytest.mark.parametrize("overrides, field, needle", [
@@ -891,6 +964,169 @@ class TestStackStructure:
             ref = pkg / "references" / "lib-b.md"
             ref.write_text(ref.read_text(encoding="utf-8").replace("**Confidence:** T1-low", label), encoding="utf-8")
             assert [i["field"] for i in issues_by(structure(pkg), "tier_labels")] == ["tier_label"]
+
+
+# --- Stack snippet lines and workspace (#1157) --------------------------------
+
+
+def _link_active(active_link: Path, version: str) -> None:
+    """active -> version, with the junction fallback of skf-atomic-write.py on
+    a Windows host that does not grant the symlink privilege."""
+    try:
+        active_link.symlink_to(version)
+        return
+    except OSError as e:
+        if os.name != "nt" or getattr(e, "winerror", None) not in (1314, 5):
+            raise
+        target = (active_link.parent / version).resolve()
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(active_link), str(target)],
+                                capture_output=True, text=True, timeout=30, check=False)
+        if result.returncode != 0:
+            raise OSError(f"junction fallback failed: {result.stderr or result.stdout}") from e
+
+
+def make_stack_workspace(tmp_path, case="complete"):
+    """A committed stack as create-stack-skill step 7 leaves it: the package under its version folder, the
+    `active` link and the forge data version folder; `case` takes one part away or points the link elsewhere.
+    Returns the package and the workspace flags' values."""
+    group = tmp_path / "skills" / "demo-stack"
+    pkg = make_full_stack(group / "1.0.0")
+    forge = tmp_path / "forge" / "demo-stack" / "1.0.0"
+    forge.mkdir(parents=True)
+    for name in ("provenance-map.json", "evidence-report.md"):
+        if case != f"no-{name}":
+            (forge / name).write_text("{}\n" if name.endswith(".json") else "# demo-stack Evidence Report\n",
+                                      encoding="utf-8")
+    active = group / "active"
+    if case == "other-version":
+        (group / "0.9.0").mkdir()
+        _link_active(active, "0.9.0")
+    elif case == "broken":
+        (group / "2.0.0").mkdir()
+        _link_active(active, "2.0.0")
+        (group / "2.0.0").rmdir()
+    elif case == "real-folder":
+        active.mkdir()
+    elif case != "missing":
+        _link_active(active, "1.0.0")
+    return pkg, {"forge_version": str(forge), "active_link": str(group), "expected_version": "1.0.0"}
+
+
+def workspace(pkg, flags):
+    r = validate_skill_package(str(pkg), generated_by="create-stack-skill", skill_type="stack", **flags)
+    return r, r["validation"]["stack_workspace"]
+
+
+class TestStackWorkspace:
+    """--skill-type stack: the workspace files and the active link (validate.md §1), and the snippet's stack
+    lines (validate.md §8)."""
+
+    def test_a_committed_stack_has_no_issue(self, tmp_path):
+        pkg, flags = make_stack_workspace(tmp_path)
+        r, section = workspace(pkg, flags)
+        assert section["issues"] == []
+        observed = section["observed"]
+        assert observed["workspace_files"] == {"provenance-map.json": True, "evidence-report.md": True}
+        assert os.path.normcase(observed["active_resolves_to"]) == os.path.normcase(
+            os.path.realpath(tmp_path / "skills" / "demo-stack" / "1.0.0"))
+        assert observed["expected_version"] == "1.0.0"
+        assert [i for i in r["validation"]["context_snippet"]["issues"] if i["field"] != "length"] == []
+
+    @pytest.mark.parametrize("case, field, needle", [
+        ("no-provenance-map.json", "provenance-map.json", "provenance-map.json not found in"),
+        ("no-evidence-report.md", "evidence-report.md", "evidence-report.md not found in"),
+        ("other-version", "active", "0.9.0, not to"),
+        ("broken", "active", "is broken"),
+        ("missing", "active", "does not exist"),
+        ("real-folder", "active", "is not a link"),
+    ])
+    def test_each_miss_is_one_medium_issue(self, case, field, needle, tmp_path):
+        pkg, flags = make_stack_workspace(tmp_path, case)
+        r, section = workspace(pkg, flags)
+        assert [(i["severity"], i["field"]) for i in section["issues"]] == [("medium", field)]
+        assert needle in section["issues"][0]["message"], section["issues"][0]["message"]
+        assert r["summary"]["by_severity"]["medium"] == 1
+        assert r["result"] == "PASS"
+
+    def test_each_flag_runs_its_own_check(self, tmp_path):
+        pkg, flags = make_stack_workspace(tmp_path, "missing")
+        _r, section = workspace(pkg, {"forge_version": flags["forge_version"]})
+        assert section["issues"] == [] and "active_link" not in section["observed"]
+        _r, section = workspace(pkg, {"active_link": flags["active_link"], "expected_version": "1.0.0"})
+        assert [i["field"] for i in section["issues"]] == ["active"]
+        assert "workspace_files" not in section["observed"]
+
+    @pytest.mark.skipif(os.name != "nt", reason="a real junction is made on Windows only")
+    @pytest.mark.parametrize("version, fields", [("1.0.0", []), ("0.9.0", ["active"])])
+    def test_a_junction_is_read_as_the_link(self, version, fields, tmp_path):
+        """flip-link makes `active` a junction on a host without the symlink privilege: it resolves as a link does."""
+        pkg, flags = make_stack_workspace(tmp_path, "missing")
+        group = Path(flags["active_link"])
+        (group / version).mkdir(exist_ok=True)
+        made = subprocess.run(["cmd", "/c", "mklink", "/J", str(group / "active"), str((group / version).resolve())],
+                              capture_output=True, text=True, timeout=30, check=False)
+        assert made.returncode == 0, made.stderr or made.stdout
+        assert not (group / "active").is_symlink(), "a junction, not a symlink"
+        _r, section = workspace(pkg, flags)
+        assert [i["field"] for i in section["issues"]] == fields
+
+    def test_no_flag_runs_no_workspace_pass(self, tmp_path):
+        pkg, _flags = make_stack_workspace(tmp_path, "missing")
+        r = validate_skill_package(str(pkg), skill_type="stack")
+        assert "stack_workspace" not in r["validation"]
+
+    @pytest.mark.parametrize("lines, fields", [
+        (["|stack: lib-a, lib-b"], ["integrations"]),
+        (["|integrations: lib-a+lib-b"], ["stack"]),
+        ([], ["stack", "integrations"]),
+    ], ids=["no-integrations", "no-stack", "neither"])
+    def test_a_stack_snippet_without_its_lines_is_flagged(self, lines, fields, tmp_path):
+        pkg = make_full_stack(tmp_path)
+        head = "[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: Stack capstone\n"
+        (pkg / "context-snippet.md").write_text(head + "".join(f"{line}\n" for line in lines), encoding="utf-8")
+        issues = validate_skill_package(str(pkg), skill_type="stack")["validation"]["context_snippet"]["issues"]
+        assert [(i["severity"], i["field"]) for i in issues if i["field"] != "length"] == [
+            ("medium", field) for field in fields]
+
+    def test_an_individual_snippet_needs_no_stack_lines(self, tmp_path):
+        pkg = make_valid_package(tmp_path)
+        assert "|stack:" not in (pkg / "context-snippet.md").read_text(encoding="utf-8")
+        issues = validate_skill_package(str(pkg))["validation"]["context_snippet"]["issues"]
+        assert [i for i in issues if i["field"] in ("stack", "integrations")] == []
+
+    def test_an_empty_stack_snippet_is_flagged_once(self, tmp_path):
+        pkg = make_full_stack(tmp_path)
+        (pkg / "context-snippet.md").write_text("", encoding="utf-8")
+        issues = validate_skill_package(str(pkg), skill_type="stack")["validation"]["context_snippet"]["issues"]
+        assert [i["field"] for i in issues] == ["content"]
+
+    def test_the_cli_passes_the_workspace_flags(self, tmp_path):
+        pkg, flags = make_stack_workspace(tmp_path, "no-evidence-report.md")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), str(pkg), "--skill-type", "stack", "--forge-version", flags["forge_version"],
+             "--active-link", flags["active_link"], "--expected-version", "1.0.0"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        section = json.loads(proc.stdout)["validation"]["stack_workspace"]
+        assert [i["field"] for i in section["issues"]] == ["evidence-report.md"]
+        assert section["observed"]["active_link"].endswith("active")
+
+    @pytest.mark.parametrize("args, needle", [
+        (["--skill-type", "stack", "--active-link", "group"], "go together"),
+        (["--skill-type", "stack", "--expected-version", "1.0.0"], "go together"),
+        (["--skill-type", "stack", "--forge-version"], "--forge-version needs a value"),
+        (["--skill-type", "stack", "--active-link", "--expected-version", "1.0.0"], "--active-link needs a value"),
+        (["--forge-version", "forge"], "need --skill-type stack"),
+        (["--active-link", "group", "--expected-version", "1.0.0"], "need --skill-type stack"),
+        (["--skill-type", "individual", "--forge-version", "forge"], "need --skill-type stack"),
+    ], ids=["link-without-version", "version-without-link", "forge-version-without-value",
+            "link-without-value", "forge-version-on-individual", "link-on-individual", "explicit-individual"])
+    def test_a_bad_workspace_flag_exits_2(self, args, needle, tmp_path):
+        pkg = make_full_stack(tmp_path)
+        proc = subprocess.run([sys.executable, str(SCRIPT), str(pkg), *args], capture_output=True, text=True)
+        assert (proc.returncode, proc.stdout) == (2, "")
+        assert needle in proc.stderr and len(proc.stderr.strip().splitlines()) == 1, proc.stderr
 
 
 # --- Export-gate mode ------------------------------------------------------

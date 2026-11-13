@@ -43,6 +43,7 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py version bump --prior <version>
          --prior-libraries <a,b> --libraries <a,c>
      uv run skf-skill-inventory.py version primary <candidates.json|->
+     uv run skf-skill-inventory.py version primary --bundle <extraction-bundle.json>
 
 Exit 0 when `status` is "ok" (a write, purge or rename check exits 0
 whatever its verdict, and a guarded delete whatever its `purge_status`);
@@ -153,7 +154,10 @@ build metadata stripped), `order` compares two (`1.10.0` above `1.9.0`),
 `next-patch` gives the next patch version, `bump` the compose-mode stack
 version after a prior one (major when a library was removed, else minor,
 refused when not above it), and `primary` the code-mode primary library of
-a stack and the version it gives, ties broken by a fixed rule.
+a stack and the version it gives, ties broken by a fixed rule, from a
+candidate list or, with `--bundle`, from a code-mode extraction bundle file
+(each per_library_extractions[] entry's `library`, `file_count` as its
+import count and `version`).
 
 Skill names. `derive_name` is the one rule for the name analyze-source
 writes a unit or a brief under, and the name `--match-target` compares, so
@@ -2863,7 +2867,8 @@ USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "       uv run skf-skill-inventory.py version next-patch <version>\n"
          "       uv run skf-skill-inventory.py version bump --prior <version> "
          "--prior-libraries <a,b> --libraries <a,c>\n"
-         "       uv run skf-skill-inventory.py version primary <candidates.json|->")
+         "       uv run skf-skill-inventory.py version primary <candidates.json|->\n"
+         "       uv run skf-skill-inventory.py version primary --bundle <extraction-bundle.json>")
 
 
 def _flag_value(argv, flag, required=False):
@@ -3001,6 +3006,46 @@ def _read_candidates(source):
     return data
 
 
+def _bundle_candidates(source):
+    """The candidate list of `version primary --bundle`: one {name,
+    import_count, version} per per_library_extractions[] entry of a code-mode
+    extraction bundle file (create-stack-skill), its `library`, `file_count`
+    and `version`; an entry without a `file_count` gives no import_count, as a
+    list candidate without one does. Raises ValueError naming the bundle field."""
+    if source == "-":
+        raise ValueError("--bundle reads the extraction bundle from a file, not stdin")
+    try:
+        data = json.loads(Path(source).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read the extraction bundle {source}: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError("the extraction bundle must be a JSON object")
+    mode = data.get("mode")
+    if not isinstance(mode, str) or mode.strip().lower() != "code":
+        raise ValueError(f"version primary --bundle takes a code-mode extraction bundle; its mode is {mode!r}")
+    entries = data.get("per_library_extractions")
+    if not isinstance(entries, list):
+        raise ValueError("the extraction bundle's per_library_extractions must be an array")
+    candidates = []
+    for i, entry in enumerate(entries):
+        where = f"the extraction bundle's per_library_extractions[{i}]"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{where} must be an object")
+        name, version = entry.get("library"), entry.get("version")
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"{where}.library must be a non-empty string: {name!r}")
+        if version is not None and not isinstance(version, str):
+            raise ValueError(f"{where}.version must be a string or null: {version!r}")
+        candidate = {"name": name, "version": version}
+        if "file_count" in entry:
+            count = entry["file_count"]
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError(f"{where}.file_count must be a whole number: {count!r}")
+            candidate["import_count"] = count
+        candidates.append(candidate)
+    return candidates
+
+
 def _main_version(argv):
     """`version normalize|order|next-patch|bump|primary ...`; exit 1 with
     `NOT_A_VERSION`, `NOT_INCREASING`, `BAD_INPUT` or `USAGE` on an error."""
@@ -3028,6 +3073,11 @@ def _main_version(argv):
             except ValueError as e:
                 return _usage_error(str(e))
             result = compose_bump(prior, _library_list(prior_libraries), _library_list(libraries))
+        elif command == "primary" and args[:1] == ["--bundle"]:
+            if len(args) != 2:
+                return _usage_error("version primary --bundle takes one extraction bundle file")
+            code = "BAD_INPUT"
+            result = primary_library(_bundle_candidates(args[1]))
         elif command == "primary" and len(args) == 1:
             code = "BAD_INPUT"
             result = primary_library(_read_candidates(args[0]))

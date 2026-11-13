@@ -5,7 +5,7 @@
 """SKF Enumerate Stack Skills — inventory skill packages + resolve exports.
 
 Replaces the LLM-orchestrated "Exports resolution order" cascade in
-`src/skf-create-stack-skill/references/parallel-extract.md` §0. The stage
+`src/skf-create-stack-skill/references/compose-extract.md` §1. The stage
 prose previously asked the model to walk three fallback sources per
 constituent skill (metadata.json → references/ → SKILL.md prose) and emit
 the cascade decisions inline. That's an N-way implicit-read trap: for a
@@ -15,14 +15,13 @@ runs.
 
 This helper does the deterministic part once: scan the skills root,
 resolve each skill's `exports[]` via the cascade, hash metadata.json
-where present, and emit a structured JSON inventory. The per-skill
-subagent fan-out at §1+ of parallel-extract.md remains unchanged — the
-subprocesses read this inventory's cached result instead of re-reading
-SKILL.md, then extract usage patterns per skill (the part that does
-benefit from LLM judgment).
+where present, and emit a structured JSON inventory. Each constituent's
+SKILL.md is then read by its own subagent (compose-extract.md §2),
+given the export names this inventory lists, for the parts that need
+judgment: its description keywords, usage patterns and signatures.
 
 Subcommands:
-  enumerate <skills-root> [--pairs] [--reliability] [--expect-hashes FILE]
+  enumerate <skills-root> [--pairs] [--reliability] [--expect-hashes FILE] [--bundle-entries a,b]
       Emit JSON {"skills": [...], "cycles": [...], "warnings": [...],
       "not_skf_output": [...]} for the skill folders under <skills-root>.
   candidates <skills-root> [--explicit a,b]
@@ -92,10 +91,17 @@ Each `skills[]` entry carries:
   source_root_basename
                   the last folder name of source_root (see Source
                   basenames)
+  metadata_name   metadata.json `name`, trimmed (`name` above stays the
+                  folder)
+  version         metadata.json `version`, trimmed
+  source_authority
+                  metadata.json `source_authority` when it is official,
+                  community or internal, compared case-insensitively and
+                  printed lower case (a stack counts null as community)
 Each metadata.json field is null when the file lacks it or holds a value
 of another shape, so a caller never reopens metadata.json to read it.
 
-Exports resolution cascade (must match parallel-extract.md §0):
+Exports resolution cascade (must match compose-extract.md §1):
 
   1. metadata.json — if present, valid JSON, and contains an `exports[]`
      array: use the list, mark exports_source="metadata", compute
@@ -207,6 +213,21 @@ consumers that read only skills/cycles/warnings are unaffected):
       run re-enumerates with the result it started from, instead of
       re-reading each metadata.json modification time.
 
+  --bundle-entries NAMES
+      Attach the skeleton of the compose-mode extraction bundle's
+      per_library_extractions[] entry of each skill NAMES lists
+      (comma-separated skill folders, trimmed, empty items and repeats
+      dropped; a list that names none exits 1), so create-stack-skill's
+      step 4 copies no field by hand. `bundle_entries` holds one entry per
+      name that is a skills[] entry, in the order given:
+        {"library": <name>, "skill_dir": <name>,
+         "skill_package_path": <skills-root>/<path>, forward-slash,
+         "version": <version>, "source_authority": <source_authority>,
+         "exports": [...], "exports_source": <exports_source>,
+         "confidence": <evidence_tier>}
+      and `bundle_entries_missing` the names that are none, in the order
+      given. Names compare exactly, as skills[] spells them.
+
 Candidates:
 
   Compose mode builds a stack from the skills SKF generated. The
@@ -279,11 +300,13 @@ Scope:
 Exit codes:
   0  enumeration succeeded (including zero skills found)
   1  user error: a bad skills-root path, an --expect-hashes FILE that
-     cannot be read or holds neither accepted shape, an --explicit list
-     that names no skill, or a scope --skills list that names no skill
+     cannot be read or holds neither accepted shape, an --explicit or
+     --bundle-entries list that names no skill, or a scope --skills list
+     that names no skill
 
 CLI:
   uv run skf-enumerate-stack-skills.py enumerate <skills-root> [--pairs] [--reliability] [--expect-hashes FILE]
+      [--bundle-entries a,b]
   uv run skf-enumerate-stack-skills.py candidates <skills-root> [--explicit a,b]
   uv run skf-enumerate-stack-skills.py scope --skills a,b,c --in-scope a,b
 """
@@ -345,6 +368,10 @@ _FORGE_TIERS = ("Quick", "Forge", "Forge+", "Deep")
 _STACK_TIERS = ("T1", "T1-low", "T2", "T3")
 _SINGLE_SKILL_TYPES = (None, "single", "individual")
 
+# The source_authority values a skill can record, skf-render-stack-metadata.py's
+# AUTHORITIES: any other enumerates as null, which that helper counts as community.
+_AUTHORITIES = ("official", "community", "internal")
+
 # A source_repo or source_root path or URL splits into segments on either
 # separator.
 _PATH_SEPARATOR_RE = re.compile(r"[/\\]")
@@ -364,7 +391,7 @@ REASON_OUTSIDE_SKILLS_ROOT = "outside-skills-root"
 
 # Section headings recognised in the references/ cascade and the SKILL.md
 # cascade. Case-sensitive — these are the canonical SKF heading forms
-# documented in parallel-extract.md §0.
+# this helper reads; compose-extract.md §1 leaves the cascade to it.
 _REFERENCES_HEADINGS = ("## API", "## Exports")
 _SKILL_MD_HEADINGS = ("## Exports", "## API Surface")
 
@@ -641,6 +668,14 @@ def source_root_basename(source_root: str | None) -> str | None:
     return None if source_root is None else _last_segment(source_root)
 
 
+def _source_authority(value) -> str | None:
+    """metadata.json `source_authority` lower case when it is one of
+    _AUTHORITIES (compared case-insensitively), else None."""
+    if isinstance(value, str) and value.strip().lower() in _AUTHORITIES:
+        return value.strip().lower()
+    return None
+
+
 def metadata_fields(metadata: dict) -> dict:
     """The metadata.json facts a skills[] entry carries besides its exports.
 
@@ -664,6 +699,9 @@ def metadata_fields(metadata: dict) -> dict:
         "source_repo_basename": source_repo_basename(source_repo),
         "source_root": source_root,
         "source_root_basename": source_root_basename(source_root),
+        "metadata_name": _text(metadata.get("name")),
+        "version": _text(metadata.get("version")),
+        "source_authority": _source_authority(metadata.get("source_authority")),
     }
 
 
@@ -1390,6 +1428,35 @@ def compute_candidates(skills_root: Path, explicit: list[str] | None = None) -> 
 # --------------------------------------------------------------------------
 
 
+def compute_bundle_entries(skills: list[dict], skills_root: Path, names: list[str]) -> dict:
+    """The compose-mode bundle entry skeleton of each skill `names` lists.
+
+    `bundle_entries` holds one per name that is a skills[] entry, in the order
+    given, with its folder as `library` and `skill_dir`, its package under
+    `skills_root` as `skill_package_path` (forward-slash), its version,
+    source_authority, exports and exports_source, and its evidence_tier as
+    `confidence`; `bundle_entries_missing` holds the other names, in order.
+    """
+    by_name = {skill["name"]: skill for skill in skills}
+    entries, missing = [], []
+    for name in names:
+        skill = by_name.get(name)
+        if skill is None:
+            missing.append(name)
+            continue
+        entries.append({
+            "library": skill["name"],
+            "skill_dir": skill["name"],
+            "skill_package_path": (Path(skills_root) / skill["path"]).as_posix(),
+            "version": skill["version"],
+            "source_authority": skill["source_authority"],
+            "exports": skill["exports"],
+            "exports_source": skill["exports_source"],
+            "confidence": skill["evidence_tier"],
+        })
+    return {"bundle_entries": entries, "bundle_entries_missing": missing}
+
+
 def _read_expected_hashes(source: str) -> dict[str, str | None]:
     """Load the --expect-hashes file (`-` reads stdin). Raises ValueError or OSError."""
     if source == "-":
@@ -1412,6 +1479,12 @@ def _cmd_enumerate(args: argparse.Namespace) -> int:
         except (OSError, ValueError, RecursionError) as exc:
             print(f"error: --expect-hashes {args.expect_hashes}: {exc}", file=sys.stderr)
             return 1
+    bundle_names = None
+    if args.bundle_entries is not None:
+        bundle_names = list(dict.fromkeys(_parse_explicit(args.bundle_entries)))
+        if not bundle_names:
+            print("error: --bundle-entries names no skill", file=sys.stderr)
+            return 1
     result = enumerate_stack_skills(skills_root)
     # Additive derived output — attached only when the flag is set, so the
     # default shape stays {skills, cycles, warnings, not_skf_output}.
@@ -1424,13 +1497,16 @@ def _cmd_enumerate(args: argparse.Namespace) -> int:
         )
     if expected is not None:
         result.update(compare_hashes(result["skills"], expected))
+    if bundle_names is not None:
+        result.update(compute_bundle_entries(result["skills"], skills_root, bundle_names))
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
 
 
 def _parse_explicit(value: str) -> list[str]:
-    """The names of a comma-separated list (--explicit, --skills, --in-scope), trimmed, empty items dropped."""
+    """The names of a comma-separated list (--explicit, --skills, --in-scope, --bundle-entries), trimmed,
+    empty items dropped."""
     return [name for name in (part.strip() for part in value.split(",")) if name]
 
 
@@ -1507,6 +1583,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "(an earlier enumerate result, or an object mapping each skill "
             "name to its metadata_hash; `-` reads stdin) and emit "
             "`changed_skills`, `missing_skills` and `new_skills`"
+        ),
+    )
+    p_enum.add_argument(
+        "--bundle-entries",
+        metavar="NAMES",
+        help=(
+            "additionally emit `bundle_entries[]`, the compose-mode extraction "
+            "bundle entry skeleton of each comma-separated skill folder name "
+            "(confidence its evidence_tier), and `bundle_entries_missing[]`, "
+            "the names that are no enumerated skill"
         ),
     )
     p_enum.set_defaults(func=_cmd_enumerate)

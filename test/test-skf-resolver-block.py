@@ -479,7 +479,10 @@ def test_an_empty_path_override_falls_back_to_the_bundled_file(tmp_path, skill, 
     assert _resolve(root, skill)[key] == default
     assert _resolve(root, skill, f'[workflow]\n{key} = ""\n')[key] == ""
     binding = next(line for line in _skill_md(skill).splitlines() if f"`{{{variable}}}` ←" in line)
-    assert f"`workflow.{key}` if non-empty, else `{default}`" in binding, (skill, binding)
+    # #1150: Stack Skill binds in Quick Skill's shape, the empty-value rule stated once in the lead.
+    quick_form = (f"`workflow.{key}`, else `{default}`" in binding
+                  and "taking the default when the merged value is empty or absent" in _skill_md(skill))
+    assert f"`workflow.{key}` if non-empty, else `{default}`" in binding or quick_form, (skill, binding)
 
 
 @pytest.mark.parametrize("skill", ACTIVATIONS)

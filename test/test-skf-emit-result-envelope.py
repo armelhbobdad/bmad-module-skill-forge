@@ -1583,6 +1583,18 @@ def test_cli_setup_halt_through_emit_halt_matches_emit_blocked():
     assert halt.stdout == blocked.stdout
 
 
+def test_cli_stack_empty_scope_halt_exits_2():
+    """Stack Skill's scope gate halts an empty headless scope with `empty-scope`, which the schema maps to 2."""
+    halt = {"phase": "rank-and-confirm:scope", "halt_reason": "empty-scope", "skill_name": "acme-stack",
+            "mode": "code", "reason": "Cannot proceed. No library is in scope: lodash (under 2 files)."}
+    proc = _cli("emit-halt", "--workflow", "skf-create-stack-skill", payload=halt)
+    assert proc.returncode == 0, proc.stderr
+    env = json.loads(proc.stdout.strip()[len("SKF_STACK_RESULT_JSON: "):])
+    assert (env["status"], env["exit_code"], env["halt_reason"]) == ("error", 2, "empty-scope")
+    assert env["error"] == {"phase": "rank-and-confirm:scope", "reason": halt["reason"]}
+    assert _cli("validate", "--workflow", "skf-create-stack-skill", payload=env).returncode == 0
+
+
 def test_cli_emit_to_stderr(tmp_path):
     proc = _cli("emit-halt", "--workflow", "skf-brief-skill", "--target", "stderr",
                 payload={"phase": "step-1:input", "reason": "no target", "halt_reason": "input-missing",

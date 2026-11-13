@@ -24,7 +24,7 @@ to import names.
 Subcommands:
   count <root> [--deps <json-file-or-'-'>] [--units <json-file-or-'-'>]
                [--threshold N] [--exclude GLOB]... [--format full|libraries]
-               [--relative-to DIR]
+               [--relative-to DIR] [--module DIST=IMPORT]...
 
       Walk <root>, read every source file of the languages the targets need,
       and count the files that import each target. At least one of --deps
@@ -76,6 +76,20 @@ Subcommands:
                        scans one package of a project keeps project-relative
                        paths. Excludes and a unit's `path` stay relative to
                        <root>.
+      --module DIST=IMPORT
+                       give the --deps dependency named DIST the import name
+                       IMPORT: its `modules` become the IMPORT of every
+                       --module that names it, in order, so it counts with
+                       `resolution: explicit` (repeatable). DIST matches a
+                       dependency's name as its ecosystem normalises it
+                       (PEP 503 for Python: `Python_Dateutil` names
+                       `python-dateutil`). A caller that knows the import
+                       name of an `unresolved[]` entry runs the same command
+                       again with it, and the entry ranks with the others.
+                       A value that is not DIST=IMPORT, a DIST that names
+                       no --deps dependency, or one that names dependencies
+                       of several ecosystems (npm `acme` and Python `acme`),
+                       exits 2.
 
       Emit JSON (`full`):
         {
@@ -177,6 +191,62 @@ Subcommands:
       an empty one `--`; `file_count`; `external_dep_count`, `--` for 0),
       or `None.` with no unit.
 
+  scope [<counts-file-or-'-'>] [--names <json-file-or-'-'>]
+        [--overrides <json-file-or-'-'>]
+        [--prior-version V --prior-libraries <a,b>]
+
+      Work out a stack's recommended scope: the libraries it includes, and
+      each one it leaves out with the reason. Code mode reads a saved
+      `count` envelope, the positional; compose mode reads --names, a JSON
+      array of skill names (or of objects with a `name`). Pass exactly one
+      of the two. --overrides is the `scope_overrides` input,
+      {"<name>": "include" | "exclude"}, or null for none. --prior-version
+      and --prior-libraries (comma-separated) name the published stack a
+      rerun builds on: pass both or neither. Only one input may read stdin.
+
+      Emit JSON:
+        {
+          "scope": ["<library>", ...],
+          "dropped": [{"library": "<name>", "reason": "<reason>"}, ...],
+          "prior_kept": ["<library>", ...],
+          "unknown_overrides": ["<name>", ...]
+        }
+      An override that names no `dependencies[]` or `unresolved[]` entry
+      (compose mode: no --names entry) is skipped and listed in
+      `unknown_overrides`, in input order.
+
+      Code mode: the default scope is every dependency with
+      `above_threshold` true and no `scope: "dev"` (a name two ecosystems
+      share is in it when either entry is), and, on a rerun, every
+      published library whose `dependencies[]` entry has `file_count` 1 or
+      more, a dev-only one too: the published stack keeps each library the
+      counts still find. `scope` lists, in `dependencies[]` order, each
+      dependency in the default scope or named `include` and not named
+      `exclude`, then each `unresolved[]` entry named `include`.
+      `prior_kept` lists, in --prior-libraries order, the libraries in
+      `scope` only because the published stack holds them (not named
+      `include`).
+
+      Compose mode: `scope` lists every name not named `exclude`, in input
+      order, and `prior_kept` is [].
+
+      `dropped` lists each library left out once: the `dependencies[]`
+      entries, then the `unresolved[]` entries (compose mode: the names),
+      then the published libraries. Its `reason` is the first that fits:
+        not among this run's dependencies  a published library the input
+                                           does not hold
+        no importing file                  a published library counted at
+                                           0 files
+        excluded by scope_overrides        a library named `exclude`
+        <its unresolved reason>            an `unresolved[]` entry no
+                                           `dependencies[]` entry names
+        dev only                           a `scope: "dev"` dependency
+        under N files                      any other, N being the
+                                           envelope's `threshold` (2 when
+                                           absent)
+      A published library's reason starts with `in v<V>: `, V being
+      --prior-version.
+
 Resolution of a dependency's import names (`resolution`):
   exact     the ecosystem's own rule: an npm package is imported by its name,
             a Rust crate by its name with `-` as `_`, a Go module by its path;
@@ -241,6 +311,10 @@ CLI examples:
     | uv run skf-find-cycles.py find --edges -
   uv run skf-count-imports.py count . --units units.json --deps manifests.json > imports.json
   uv run skf-count-imports.py summary imports.json --manifests manifests.json
+  uv run skf-count-imports.py count . --deps manifests.json --module acme-client=acme > counts.json
+  echo 'null' | uv run skf-count-imports.py scope counts.json --overrides -
+  echo '["react", "express"]' | uv run skf-count-imports.py scope --names - \\
+    --prior-version 1.2.0 --prior-libraries react,zod
 
 Exit codes:
   0  success (including: no dependency imported, no source file found)
@@ -248,7 +322,19 @@ Exit codes:
      a bad dependency or unit entry, both inputs on stdin, bad --threshold,
      a --relative-to that is not a folder holding <root>, a summary input
      that is not a `count --units` envelope or a manifest scan, bad
-     --max-files)
+     --max-files; a units-from input it cannot use: a units file with no
+     `units` list, a --project-path with no unit in it, a units-from
+     --module that is not NAME=IMPORT or names no listed unit; a scope
+     input it cannot use: a counts input with no `dependencies` list or a
+     dependency without an integer `file_count` and a boolean
+     `above_threshold`, both or neither of the counts file and --names,
+     --names that is not an array of names, --overrides that is not an
+     object of include or exclude, one --prior-* flag without the other,
+     an empty --prior-version, two inputs on stdin)
+  2  usage error: argparse's (an unknown flag or subcommand, a count
+     --module that is not DIST=IMPORT), and a count --module whose DIST
+     names no --deps dependency or names dependencies of several
+     ecosystems
 """
 
 from __future__ import annotations
@@ -691,6 +777,44 @@ def parse_dependencies(payload: object) -> list[dict]:
         if "modules" in entry:
             seen["modules"] = list(dict.fromkeys(seen.get("modules", []) + entry["modules"]))
     return list(merged.values())
+
+
+def _module_pair(value: str) -> tuple[str, str]:
+    """A `--module DIST=IMPORT` value as (DIST, IMPORT); argparse exits 2 on any other."""
+    dist, sep, module = value.partition("=")
+    dist, module = dist.strip(), module.strip()
+    if not sep or not dist or not module:
+        raise argparse.ArgumentTypeError(f"expected DIST=IMPORT, got {value!r}")
+    return dist, module
+
+
+def apply_modules(dependencies: list[dict], modules: list[tuple[str, str]]) -> list[str]:
+    """Give each dependency a `--module` names those import names as its `modules`.
+
+    A (DIST, IMPORT) pair names every dependency whose name its ecosystem
+    normalises as it normalises DIST (`_dedupe_key`: PEP 503 for Python). The
+    IMPORT names of the pairs that name a dependency replace its `modules`, in
+    order, so it counts with `resolution: explicit`. Returns why each
+    DIST=IMPORT that names no dependency, or dependencies of several
+    ecosystems (one ecosystem merges its own spellings), was not applied.
+    """
+    given: dict[int, list[str]] = {}
+    problems: list[str] = []
+    for dist, module in modules:
+        hits = [
+            pos for pos, dep in enumerate(dependencies)
+            if _dedupe_key(dep["ecosystem"], dist) == _dedupe_key(dep["ecosystem"], dep["name"])
+        ]
+        if not hits:
+            problems.append(f"{dist}={module}: names no --deps dependency")
+        elif len(hits) > 1:
+            ecosystems = ", ".join(sorted(str(dependencies[pos]["ecosystem"]) for pos in hits))
+            problems.append(f"{dist}={module}: names dependencies of several ecosystems ({ecosystems})")
+        else:
+            given.setdefault(hits[0], []).append(module)
+    for pos, names in given.items():
+        dependencies[pos]["modules"] = list(dict.fromkeys(names))
+    return problems
 
 
 def _normalise_unit_path(path: str) -> str:
@@ -1787,6 +1911,124 @@ def units_from(units_file: object, project_path: str, modules: list[str] | None 
     return {"units": entries}
 
 
+SCOPE_COUNTS = "the counts input (a `count` envelope)"
+SCOPE_ACTIONS = ("include", "exclude")
+NOT_AMONG = "not among this run's dependencies"
+NO_IMPORTING_FILE = "no importing file"
+EXCLUDED = "excluded by scope_overrides"
+
+
+def scope_overrides(payload: object) -> dict[str, str]:
+    """`scope_overrides` as {name: include|exclude}; null is none."""
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise InputError('--overrides must be a JSON object of "<name>": "include" | "exclude", or null')
+    for name, action in payload.items():
+        if action not in SCOPE_ACTIONS:
+            raise InputError(f"--overrides {name!r}: {action!r} is not 'include' or 'exclude'")
+    return dict(payload)
+
+
+def scope_names(payload: object) -> list[str]:
+    """The --names input: names, or objects with a `name`, deduplicated in order."""
+    if not isinstance(payload, list):
+        raise InputError("--names must be a JSON array of names")
+    names: list[str] = []
+    for idx, raw in enumerate(payload):
+        name = raw.get("name") if isinstance(raw, dict) else raw
+        if not isinstance(name, str) or not name.strip():
+            raise InputError(f"--names[{idx}] must be a non-empty name or an object with one")
+        names.append(name.strip())
+    return list(dict.fromkeys(names))
+
+
+def _count_rows(counts: object) -> tuple[list[dict], list[dict], int]:
+    """The `dependencies[]` and `unresolved[]` rows of a `count` envelope, and its threshold."""
+    deps = _object_rows(counts, "dependencies", SCOPE_COUNTS)
+    unresolved = _object_rows(counts, "unresolved", SCOPE_COUNTS) if "unresolved" in counts else []
+    for key, rows in (("dependencies", deps), ("unresolved", unresolved)):
+        for idx, row in enumerate(rows):
+            if not isinstance(row.get("name"), str) or not row["name"]:
+                raise InputError(f"{SCOPE_COUNTS} {key}[{idx}] has no `name`")
+            if key == "dependencies" and (
+                type(row.get("file_count")) is not int or not isinstance(row.get("above_threshold"), bool)
+            ):
+                raise InputError(f"{SCOPE_COUNTS} dependencies[{idx}] needs an integer `file_count` "
+                                 "and a boolean `above_threshold`")
+    threshold = counts.get("threshold", DEFAULT_THRESHOLD)
+    return deps, unresolved, threshold
+
+
+def scope_of(
+    counts: object | None = None,
+    names: list[str] | None = None,
+    overrides: dict[str, str] | None = None,
+    prior: list[str] | None = None,
+    prior_version: str | None = None,
+) -> dict:
+    """The recommended scope of a stack, from a `count` envelope (code mode)
+    or skill names (compose mode), its overrides and the published stack.
+
+    See `scope` in the module docstring for every rule and reason.
+    """
+    overrides = overrides or {}
+    prior = list(dict.fromkeys(prior or []))
+    published = set(prior)
+    if counts is not None:
+        deps, unresolved, threshold = _count_rows(counts)
+        by_name: dict[str, dict] = {}
+        for dep in deps:
+            by_name.setdefault(dep["name"], dep)
+        unresolved_reason: dict[str, str] = {}
+        for row in unresolved:
+            unresolved_reason.setdefault(row["name"], str(row.get("reason") or "unresolved"))
+        listed = [*by_name, *(name for name in unresolved_reason if name not in by_name)]
+    else:
+        by_name, unresolved_reason, threshold = {}, {}, DEFAULT_THRESHOLD
+        listed = list(names or [])
+    known = set(listed)
+    unknown = [name for name in overrides if name not in known]
+    action = {name: value for name, value in overrides.items() if name in known}
+
+    if counts is not None:
+        default = {dep["name"] for dep in deps if dep["above_threshold"] and dep.get("scope") != "dev"}
+        kept = [name for name in prior if name not in default and by_name.get(name, {}).get("file_count", 0) >= 1]
+        scope = [name for name in by_name
+                 if (name in default or name in kept or action.get(name) == "include")
+                 and action.get(name) != "exclude"]
+        scope += [name for name in unresolved_reason if name not in by_name and action.get(name) == "include"]
+    else:
+        kept = []
+        scope = [name for name in listed if action.get(name) != "exclude"]
+    in_scope = set(scope)
+
+    def reason(name: str) -> str:
+        if name in published and name not in known:
+            return NOT_AMONG
+        if name in published and by_name.get(name, {}).get("file_count") == 0:
+            return NO_IMPORTING_FILE
+        if action.get(name) == "exclude":
+            return EXCLUDED
+        if name in unresolved_reason and name not in by_name:
+            return unresolved_reason[name]
+        if by_name[name].get("scope") == "dev":
+            return "dev only"
+        return f"under {threshold} files"
+
+    dropped = [
+        {"library": name, "reason": (f"in v{prior_version}: " if name in published else "") + reason(name)}
+        for name in dict.fromkeys([*listed, *prior])
+        if name not in in_scope
+    ]
+    return {
+        "scope": scope,
+        "dropped": dropped,
+        "prior_kept": [name for name in kept if name in in_scope and action.get(name) != "include"],
+        "unknown_overrides": unknown,
+    }
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -1817,6 +2059,12 @@ def _cmd_count(args: argparse.Namespace) -> int:
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if args.module:
+        problems = apply_modules(dependencies, args.module)
+        if problems:
+            for problem in problems:
+                print(f"error: --module {problem}", file=sys.stderr)
+            return 2
     try:
         result = count_imports(
             root,
@@ -1872,6 +2120,40 @@ def _write_utf8(text: str) -> None:
 def _cmd_units_from(args: argparse.Namespace) -> int:
     try:
         output = units_from(_read_json_source(args.units_file, "--units-file"), args.project_path, args.module)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    json.dump(output, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+def _cmd_scope(args: argparse.Namespace) -> int:
+    if args.counts is None and args.names is None:
+        print("error: pass a counts file (code mode) or --names (compose mode)", file=sys.stderr)
+        return 1
+    if args.counts is not None and args.names is not None:
+        print("error: pass a counts file or --names, not both", file=sys.stderr)
+        return 1
+    if [args.counts, args.names, args.overrides].count("-") > 1:
+        print("error: only one input may read stdin", file=sys.stderr)
+        return 1
+    if (args.prior_version is None) != (args.prior_libraries is None):
+        print("error: pass --prior-version and --prior-libraries together, or neither", file=sys.stderr)
+        return 1
+    if args.prior_version is not None and not args.prior_version.strip():
+        print("error: --prior-version is empty", file=sys.stderr)
+        return 1
+    prior = None
+    if args.prior_libraries is not None:
+        prior = [name.strip() for name in args.prior_libraries.split(",") if name.strip()]
+    try:
+        counts = None if args.counts is None else _read_json_source(args.counts, "counts")
+        names = None if args.names is None else scope_names(_read_json_source(args.names, "--names"))
+        overrides = None if args.overrides is None else scope_overrides(
+            _read_json_source(args.overrides, "--overrides"))
+        output = scope_of(counts, names, overrides, prior,
+                          None if args.prior_version is None else args.prior_version.strip())
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -1940,6 +2222,18 @@ def _build_parser() -> argparse.ArgumentParser:
             "root, instead of to the root"
         ),
     )
+    p_count.add_argument(
+        "--module",
+        action="append",
+        default=[],
+        type=_module_pair,
+        metavar="DIST=IMPORT",
+        help=(
+            "give the --deps dependency named DIST the import name IMPORT, replacing "
+            "its modules (repeatable; a DIST that names no --deps entry, or entries of "
+            "several ecosystems, exits 2)"
+        ),
+    )
     p_count.set_defaults(func=_cmd_count)
 
     p_summary = sub.add_parser(
@@ -1991,6 +2285,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="an import name of a listed unit without a manifest (repeatable)",
     )
     p_units_from.set_defaults(func=_cmd_units_from)
+
+    p_scope = sub.add_parser(
+        "scope", help="work out a stack's recommended scope from saved counts or skill names"
+    )
+    p_scope.add_argument(
+        "counts", nargs="?", default=None,
+        help="code mode: the count envelope, a JSON file or '-' for stdin",
+    )
+    p_scope.add_argument(
+        "--names",
+        default=None,
+        help="compose mode: a JSON array of skill names (or objects with a name), a file or '-' for stdin",
+    )
+    p_scope.add_argument(
+        "--overrides",
+        default=None,
+        help='scope_overrides, a JSON file or \'-\' for stdin: {"<name>": "include" | "exclude"} or null',
+    )
+    p_scope.add_argument(
+        "--prior-version", default=None, metavar="V",
+        help="the published stack's version, which leads each published library's reason as 'in vV: '",
+    )
+    p_scope.add_argument(
+        "--prior-libraries", default=None, metavar="A,B",
+        help="the published stack's libraries, comma-separated (pass with --prior-version)",
+    )
+    p_scope.set_defaults(func=_cmd_scope)
 
     return parser
 

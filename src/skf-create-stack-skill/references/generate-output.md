@@ -15,15 +15,9 @@ verifyProvenanceCompletenessProbeOrder:
 namesPresentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-names-present.py'
   - '{project-root}/src/shared/scripts/skf-names-present.py'
-renderMetadataStatsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
-  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 renderStackMetadataProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
   - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
-countTokensProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
-  - '{project-root}/src/shared/scripts/skf-count-tokens.py'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -34,6 +28,7 @@ pairsFile: '{run_dir}/pair-intersect.json'
 stackInventoryFile: '{run_dir}/stack-inventory.json'
 composeEntriesFile: '{run_dir}/compose-entries.json'
 draftFolder: '{run_dir}/draft'
+runFile: '{run_dir}/run.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -58,9 +53,9 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints and stop with the halt's exit code (`references/invocation-contract.md` lists every halt); when `{emitEnvelopeHelper}` resolves to no path or prints no line, display the halt message alone.
 
-**Warnings.** Every `workflow_warnings[]` entry here has `step: "step-07"` and `severity: "warn"` unless its section names another severity. Record each at once, as SKILL.md's Workflow state contract shows: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+**Warnings.** Every `workflow_warnings[]` entry here has `step: "step-07"` and `severity: "warn"` unless its section names another severity. Record each at once: write its `[step-07/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
 
-**Advisory checks.** §5's snippet count, §7's source-line check and §8's validator and export-name check never halt the run: when a check's helper resolves to no path, cannot run or prints no JSON (exit `2`), append a `workflow_warnings[]` entry (`code`: the one the section names, `message`: the reason) and go on.
+**Advisory checks.** §7's source-line check and §8's validator and export-name check never halt the run: when a check's helper resolves to no path, cannot run or prints no JSON (exit `2`), append a `workflow_warnings[]` entry (`code`: the one the section names, `message`: the reason) and go on.
 
 ### 1. Resolve Paths and Stage Target Directory
 
@@ -68,20 +63,14 @@ Display the line it prints and stop with the halt's exit code (`references/invoc
 
 **The atomic writer.** Resolve `{atomicWriteHelper}` from `{atomicWriteProbeOrder}`; first existing path wins. If neither exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `generate-output:atomic-writer`) with "**Cannot proceed.** `skf-atomic-write.py` is missing, so the stack cannot be written safely. Re-install SKF, then re-run." Nothing is written before this check: §2 to §6 stage the package, which §9 commits whole before §10 flips the `active` link, and §7 and §8b write each workspace file atomically.
 
-**Pre-flight: ownership, phase 1 (S3).** Before any prior metadata is read, resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}` and run:
-
-```bash
-uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --forge-data-folder {forge_data_folder}
-```
-
-Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail` and `{prior_active_version}` ← `write_check.marked_active_version`, and apply the ownership refusals below. When `{prior_active_version}` is not null, read `{skills_output_folder}/{stack_name}/{prior_active_version}/{stack_name}/metadata.json`: a `skill_type` other than `"stack"` is a HALT (exit 4, `halt_reason: "write-failure"`, phase `generate-output:not-a-stack`, `path` `{skill_group}`) with "**Cannot proceed.** `{skills_output_folder}/{stack_name}/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or pass another `stack_name` to avoid collision." Otherwise the run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` as `{prior_libraries}`. A new stack leaves `{prior_stack_version}` unset.
+**Prior stack.** Step 1 §0 checked `{skill_group}` and bound `{prior_active_version}`, `{prior_stack_version}` and `{prior_libraries}` (read them from `{runFile}` if lost): a set `{prior_stack_version}` makes this run a **re-composition**, a `null` one a new stack. Resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}`; first existing path wins.
 
 **Stack version.** `{skillInventoryHelper}` computes `{version}`; never reduce, compare or bump a version by hand:
 
-- **Code mode:** pipe `[{"name": "<library>", "import_count": <its file_count>, "version": "<its manifest version, or null>"}, ...]`, one entry per library of `{bundleFile}`, and bind `{version}` ← `version`:
+- **Code mode:** bind `{version}` ← `version`; the helper takes each library of `{bundleFile}` with its `file_count` as its import count and its manifest `version`:
 
   ```bash
-  uv run {skillInventoryHelper} version primary -
+  uv run {skillInventoryHelper} version primary --bundle "{bundleFile}"
   ```
 
 - **Compose mode, new stack** (`{prior_stack_version}` unset): `1.0.0`; the constituent versions stay in `dependencies[]`.
@@ -91,15 +80,15 @@ Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_ch
   uv run {skillInventoryHelper} version bump --prior "{prior_stack_version}" --prior-libraries "{prior_libraries}" --libraries "{stack_libraries}"
   ```
 
-Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call is malformed: fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON, or the prior `version` names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
+Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call, or in code mode the bundle field its `error` names, is malformed: fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON, or the prior `version` names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
 
-**Pre-flight: ownership, phase 2.** Before the first write below, run the same check for `{version}` and apply the same bindings and refusals:
+**Pre-flight: ownership, phase 2.** Before the first write below, check the version folder this run writes: run the call below, bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`, and apply the ownership refusals below:
 
 ```bash
 uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}
 ```
 
-**Ownership refusals (both phases).** Continue only when the status is `ok` and `{write_verdict}` is `"ok"`, or, when no helper candidate resolves, only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise create nothing and refuse with "**`{stack_name}`: nothing was written.** {clause}", taking the clause of the first case that applies:
+**Ownership refusals.** Continue only when the status is `ok` and `{write_verdict}` is `"ok"`, or, when no helper candidate resolves, only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise create nothing and refuse with "**`{stack_name}`: nothing was written.** {clause}", taking the clause of the first case that applies:
 
 - `{write_verdict}` is `"flat-layout"`: "It still uses the flat layout: a version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {stack_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
 - `{write_verdict}` is `"not-skf-output"`: "It is not SKF output: `{write_folder}` {write_detail}, so SKF writes no version there. {remedy}"
@@ -130,33 +119,43 @@ cp "{draftFolder}/SKILL.md" "{skill_staging}/SKILL.md"
 
 ### 3. Stage Per-Library Reference Files
 
-For each library of `{bundleFile}`'s `per_library_extractions[]`, write `{skill_staging}/references/{library_name}.md` in the references structure of `{stackSkillTemplatePath}` from its bundle entry (its Import count is its `file_count`; compose mode: its export count, and the constituent's `metadata.json` version), with its records in `{exportRecordsFile}` as its key exports (compose mode: its `exports`).
+Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate resolves, invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:references` for its HALT. Otherwise run the call of the run's mode:
+
+```bash
+uv run {renderStackMetadataHelper} references --mode code --bundle "{bundleFile}" --records "{exportRecordsFile}" --pairs "{pairsFile}" --out "{skill_staging}/references"
+uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}" --out "{skill_staging}/references"
+```
+
+It writes `references/{library_name}.md` for each library of `{bundleFile}`'s `per_library_extractions[]` in the references structure of the bundled `assets/stack-skill-template.md`: its title, `**Version:**`, Import count (its `file_count`; compose mode: its export count), `**Confidence:**` and Key Exports (its records in `{exportRecordsFile}`; compose mode: its `exports`). When the entry's `temporal` holds an item, its `## Migration & Deprecation` section lists each `deprecated_exports`, `migration_notes` and `version_warnings` item as written, label and citation included; with none, the file has no such section. It writes §4's pair files too. On exit `2` its stderr names the input it refused (fix that bundle, record or pair field and run it again) or the write that failed (invoke the rollback contract from §1).
+
+In each library file its `written[]` lists, replace the `<!-- skf:fill usage-patterns -->` line with the entry's `usage_patterns`, each cited as compile-stack §4 cites, and the `<!-- skf:fill common-imports -->` line with the most frequent import statements. When `{stackSkillTemplatePath}` is a house-style copy that adds a section to the references structure, write that section into each library file where the copy places it.
 
 If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skill_staging}/references/stack-catalog.md` too; its per-library links stay file-relative, `[ref]({name}.md)`.
 
 ### 4. Stage Integration Pair Reference Files
 
-For each entry of `{bundleFile}`'s `integrations[]`, write `{skill_staging}/references/integrations/{a}-{b}.md` in the integrations structure of `{stackSkillTemplatePath}` from the entry (`type`, its pair's `intersection_count` in `{pairsFile}` as the co-import file count, 0 in compose mode, `description` with its `key_files` citations, `tier`). In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` lines in place of `key_files` citations, and, when its `vs` is set, the VS lines and annotation of its SKILL.md entry.
+§3's call wrote `references/integrations/{a}-{b}.md` for each entry of `{bundleFile}`'s `integrations[]` in the integrations structure of the bundled `assets/stack-skill-template.md`: its title, `**Type:**`, `**Co-import files:**` (its pair's `intersection_count` in `{pairsFile}`, 0 in compose mode), its `**Confidence:**` label and Key Files (its `key_files`; in compose mode the entry's `evidence` and `reference` lines and, when its `vs` is set, its VS lines). In each pair file its `written[]` lists, replace the `<!-- skf:fill integration-pattern -->` line with the entry's `description` and its `key_files` citations (in compose mode its `description`, citing the Key Files lines without repeating them), and the `<!-- skf:fill usage-convention -->` line with how the project structures the integration. A section a house-style `{stackSkillTemplatePath}` adds to the integrations structure goes into each pair file where the copy places it.
 
 ### 5. Stage context-snippet.md
 
-Write `{skill_staging}/context-snippet.md` in the context-snippet format of `{stackSkillTemplatePath}`, with the `{version}` §1 resolved. Measure it as step 8's validator does: resolve `{countTokensHelper}` from `{countTokensProbeOrder}`, run the call below and bind `{token_estimate}` ← its `context-snippet.md` row's `tokens` (advisory, `snippet-unmeasured`: an unmeasured snippet stays as written).
+Write the snippet's gotchas, the one or two most critical integration pitfalls on one line separated by `; ` (an empty file when there is none), to `{run_dir}/snippet-gotchas.txt` with a file write, never an `echo` (a pitfall can quote backticks or `$( )`, which a shell runs), then run the call of the run's mode with the helper §3 resolved:
 
 ```bash
-uv run {countTokensHelper} {skill_staging}
+uv run {renderStackMetadataHelper} snippet --bundle "{bundleFile}" --pairs "{pairsFile}" --stack-name "{stack_name}" --version "{version}" --gotchas - --budget 120 --target "{skill_staging}/context-snippet.md" < "{run_dir}/snippet-gotchas.txt"
+uv run {renderStackMetadataHelper} snippet --bundle "{bundleFile}" --stack-name "{stack_name}" --version "{version}" --gotchas - --budget 120 --target "{skill_staging}/context-snippet.md" < "{run_dir}/snippet-gotchas.txt"
 ```
 
-While `{token_estimate}` exceeds **120**, apply the next trim and measure again: drop the `gotchas` line; strip the `stack` line's versions; keep its top 8 dependencies by import count (export count in compose mode); keep the top 5 `integrations` by co-import file count (§4), each cut list ending `, ...+{N} more`. Never trim the `IMPORTANT:` line. Over budget after the last trim, keep the snippet and append a `workflow_warnings[]` entry (`code: "snippet-over-budget"`, `message`: its `{token_estimate}`).
+It writes the snippet lines of the bundled `assets/stack-skill-template.md` from `{bundleFile}`, with the `{version}` §1 resolved, and trims them while the snippet's tokens, as step 8's validator counts them, exceed the budget, never the `IMPORTANT:` line. Bind `{token_estimate}` ← its `tokens`; when its `over_budget` is true, append a `workflow_warnings[]` entry (`code: "snippet-over-budget"`, `message`: the `{token_estimate}` and its `trims_applied`). On exit `2` its stderr `error:` line names the input it refused (fix it and run the call again) or the write that failed (invoke the rollback contract from §1), unless it reads `invalid choice: 'snippet'`: the installed helper has no `snippet`. Only then, or when the call cannot run or prints no JSON otherwise, write the snippet yourself in the context-snippet format of `{stackSkillTemplatePath}`, untrimmed, and append a `workflow_warnings[]` entry (`code: "snippet-unmeasured"`, `message`: why the call did not run).
 
 ### 6. Stage metadata.json
 
-Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← step 1's run tier. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}` and run:
+Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← the `forge_tier` of `{runFile}`, the run tier step 1 saved. Run the helper §3 resolved:
 
 ```bash
-uv run {renderStackMetadataHelper} metadata --input -
+uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"
 ```
 
-Pipe it `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence": "<its per_library_extractions[].confidence>", "source_authority": "<compose mode: the constituent's>"}, ...], "integrations": [{"a": "<library>", "b": "<library>"}, ...]}`, every library of `{bundleFile}` and every pair of its `integrations[]`, each pair in the order of its `references/integrations/{a}-{b}.md` name, and write the fields the contract takes from it verbatim. On exit `2`, fix the input its stderr names and run it again. If no candidate resolves, invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata` for its HALT.
+It reads every library of `{bundleFile}`, with its `per_library_extractions[].confidence` and, in compose mode, the constituent's authority step 4 wrote, and every pair of its `integrations[]`, each named as its `references/integrations/{a}-{b}.md` file is: write the fields the contract takes from it verbatim. On exit `2`, fix the bundle field its stderr names and run it again; any other failure invokes the rollback contract from §1.
 
 ### 7. Write Forge Data Artifacts (Workspace)
 
@@ -211,18 +210,18 @@ If the validator does not resolve or cannot run, the gate is advisory (`pre-comm
 uv run {namesPresentHelper} --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}
 ```
 
-When its `absent[]` is empty, go on to §8b. Otherwise, when `{headless_mode}` is false, rename each absent entry whose contract a staged file names by a literal identifier to that identifier in `{composeEntriesFile}` and run the §7 compose-mode `provenance` call again; then, in both modes, run the call above with `--drop-absent` to drop every entry still absent. Record a `workflow_warnings[]` entry (`message`: its `source_library` and `export_name`, old and new for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). The check is advisory (`compose-export-names-unchecked`).
+When its `absent[]` is empty, go on to §8b. Otherwise rename each absent entry whose contract a staged file names by a literal identifier to that identifier in `{composeEntriesFile}` and run the §7 compose-mode `provenance` call again; then run the call above with `--drop-absent` to drop every entry still absent. Record a `workflow_warnings[]` entry (`message`: its `source_library` and `export_name`, old and new for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). The check is advisory (`compose-export-names-unchecked`).
 
 ### 8b. Write the Evidence Report (Workspace)
 
-With the §8 gate's warnings recorded, bin the final map's entries by `signature_source` with `{renderMetadataStatsHelper}` (from `{renderMetadataStatsProbeOrder}`), then write `evidence-report.md`; if the write fails, invoke the rollback contract from §1:
+With the §8 gate's warnings recorded, write `evidence-report.md` with the helper §3 resolved, running the call of the run's mode:
 
 ```bash
-echo '{}' | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json --shape stack
-<md-content> | python3 {atomicWriteHelper} write --target {forge_version}/evidence-report.md
+uv run {renderStackMetadataHelper} evidence-report --bundle "{bundleFile}" --run-dir "{run_dir}" --provenance "{forge_version}/provenance-map.json" --pairs "{pairsFile}" --target "{forge_version}/evidence-report.md"
+uv run {renderStackMetadataHelper} evidence-report --bundle "{bundleFile}" --run-dir "{run_dir}" --provenance "{forge_version}/provenance-map.json" --target "{forge_version}/evidence-report.md"
 ```
 
-**evidence-report.md** lists each library's extraction summary and tier from `{bundleFile}` (its `failed[]` included); each pair's integration result; every `workflow_warnings[]` entry, each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds; each auto-decision of `{run_dir}/headless-decisions.jsonl` as its `gate`, `taken_action` and `reason` (the scope gate's dropped libraries included), or "none"; and the helper's `confidence_distribution`, one count per entry (`metadata.json` counts libraries), or "not computed" when the helper is missing or exits `2`.
+**evidence-report.md** lists each library's extraction summary and tier from `{bundleFile}` (its `failed[]` included); each pair's integration result; every `workflow_warnings[]` entry, each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds; each auto-decision of `{run_dir}/headless-decisions.jsonl` as its `gate`, `taken_action` and `reason` (the scope gate's dropped libraries and `prior_kept` included), or "none"; and the final map's entries binned by `signature_source` with `skf-render-metadata-stats.py`, one count per entry (`metadata.json` counts libraries), or "not computed" with its reason when that helper is missing or the map cannot be read. On exit `2` its stderr names the input it refused (fix it and run the call again) or the write that failed; when the write fails or the call cannot run, invoke the rollback contract from §1.
 
 ### 9. Commit Staging Directory
 

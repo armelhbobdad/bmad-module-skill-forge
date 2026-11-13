@@ -118,6 +118,11 @@ INTERACTIVE_ONLY = {
         ("## Half 1: Resume Check (loaded from §3 after the target is confirmed)",),
         ("references/draft-checkpoint.md", "**Headless mode skips this entire lifecycle**"),
     ),
+    # Stack Skill's offer to resume an interrupted run at its review gate (#1150).
+    ("skf-create-stack-skill", "references/init.md"): (
+        ("### 0b. Offer to Resume at the Review Gate",),
+        ("references/init.md", "a headless run always starts fresh"),
+    ),
 }
 
 # Gates whose decision a field or warning the run writes carries instead of

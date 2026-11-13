@@ -12,8 +12,8 @@ compose branch of the sections they govern.
 - validate.md's Rules drop "read-only" and name §3's writes, and no other
   section of the step writes to the committed package (#536).
 - detect-integrations §1 opens with the compose-mode guard, which skips to
-  §2 ahead of the pair-intersect pass that needs step 3's per-library file
-  lists (#537).
+  §3 ahead of the pair-intersect pass that needs step 3's per-library file
+  lists (#537, #1151).
 - report.md's Rules allow the result contract and keep the rest on the
   console; a missing atomic writer records a warning instead of halting
   (#539).
@@ -53,8 +53,8 @@ compose branch of the sections they govern.
   structure pass instead of checking headings, keys and labels by hand, and
   runs it again after §3 changes the package (#606).
 - Compose-mode pairs are candidates: the co-mention helper leaves out the
-  pairs a document only lists together and counts them, so step 5 §2
-  records one warning, confirms the rest from their excerpts, finds pairs
+  pairs a document only lists together and counts them, so compose-pairs.md
+  §1 records one warning, confirms the rest from their excerpts, finds pairs
   with no architecture document by docs mentions or shared keywords (never
   a shared language) and judges those too, writes each pair in an evidence
   format whose label the structure pass reads, and locates the [VS] report
@@ -64,8 +64,8 @@ compose branch of the sections they govern.
   from them in the evidence format, a `[VS: Blocked]` pair still carrying
   the label the structure pass reads (step 5b run 2 architecture-1).
 - Step 7 §1 takes the stack version from skf-skill-inventory.py `version`
-  (#597), and §5 measures the snippet with skf-count-tokens.py, the count
-  the validator takes (#591).
+  (#597), and §5 writes and trims the snippet with skf-render-stack-metadata.py
+  `snippet`, whose count is the one the validator takes (#591, #1157).
 - Step 1 binds every input the Invocation Contract declares and halts with
   `input-invalid` on one it cannot use (#594); `stack_name` names every path
   and envelope, and every envelope carries the skill-check `quality_score`
@@ -122,6 +122,68 @@ compose branch of the sections they govern.
   skill-check 1.2.0's JSON lists no fix: a changed or unhashed SKILL.md
   raises S15 and runs the §1 validator again, and the step still has no
   HALT (#901).
+- Each warning stage states the whole record rule, the file write and,
+  after step 1, the emitter fallback its frontmatter backs; SKILL.md keeps
+  the entry shape and the sink, binds its three scalars in Quick Skill's
+  shape and keeps no ticket tag. Step 1 saves its bindings to `run.json`,
+  which step 2 updates and steps 7 and 8 read the tier from, and an
+  interactive run can resume at step 6's review gate (#1150).
+- A compose-mode run reads its own stage files, routed by
+  `composeNextStepFile`, and passes through one guard in rank-and-confirm
+  and detect-integrations; a subagent reads each constituent's SKILL.md and
+  returns only its description keywords, usage patterns and signatures,
+  which step 5 reads from the bundle; compose-mode-rules keeps three
+  sections and compile-stack states §3 as one goal and §7 as one
+  invitation (#1151).
+- The scope gate checks the scope before it shows the gate and after each
+  change: an empty one offers no [C] and halts a headless run with
+  `empty-scope` (exit 2) before any decision is recorded. Step 1 runs the
+  ownership check on the stack's folder and saves the published stack's
+  version and libraries in `run.json`; on a rerun step 3 keeps each
+  published library the counts still find, marks each row kept or new,
+  lists the published libraries it leaves out and records the keeps as
+  `prior_kept`, and step 7 versions from step 1's read (#1152).
+- Step 3 takes the scope from skf-count-imports.py `scope` in both modes
+  and writes it to `{scopeFile}`, which the Left out table, a rerun's
+  Dropped line and the headless decision read; each unknown override
+  records `scope-override-unknown`. A known import name reruns the count
+  with `--module`, and compose-scope.md takes each skill's layer candidates
+  from skf-comention-pairs.py `mentions`, warning when it cannot run
+  (#1153).
+- The helpers read the extraction bundle: step 5 §3 tiers the pairs, step 5
+  §4 reads the hubs, step 4 §4 counts the libraries per tier, step 6 §1
+  binds the counts, hubs and library order, and step 7 §1 and §6 take the
+  version and metadata.json fields, each with `--bundle "{bundleFile}"`; a
+  pair's detection_method is the helper's, from its qualifier, so no step
+  writes or maps one, and no step counts partners or orders libraries by
+  hand. Step 4 writes each compose entry from the enumerate helper's
+  `bundle_entries[]` skeleton and halts on `bundle_entries_missing[]`, and
+  step 2 takes each constituent's name, version and authority from its
+  `kept[]` entry, never reopening metadata.json (#1154).
+- Step 4 keeps each Deep-tier finding in its record's `temporal`, labeled
+  T2-past or T2-future with its QMD citation as `knowledge/confidence-tiers.md`
+  sorts them; the bundle keeps it, step 7 §3 writes it as the reference
+  file's `## Migration & Deprecation` section and step 6 §4 points at its
+  T2-future items from each summary. Step 4 §1 states extraction by tier in
+  one line, §2 as one goal and §3 in two sentences. Every compose run, a
+  headless one too, renames its absent export entries before it drops the
+  rest. Each Conventions bullet and Usage pattern line cites its file and
+  line, or its constituent in compose mode, and the validator flags an
+  uncited Conventions bullet `low` (#1155).
+- Step 7 §3 resolves skf-render-stack-metadata.py and writes each reference
+  and pair file with its `references` call, the step filling only the
+  marker lines §3 and §4 name; step 6 §6 takes the index rows from the same
+  call without `--out`, and its feedback rerun takes them again; §8b writes
+  the evidence report with its `evidence-report` call, which bins the final
+  map as the stats helper does and lists the recorded warnings and
+  decisions, the scope gate's dropped libraries and `prior_kept` included
+  (#1156).
+- Step 7 §5 writes only the gotchas text, to a file the snippet call reads
+  on stdin, and binds `{token_estimate}` from the helper's `tokens`; step 8
+  §1 passes the validator the workspace folder, the skill group and the
+  version, records `stack_workspace` as ERROR findings and keeps its manual
+  rows for a missing validator; §1 holds the one field map, §5 and §7 are
+  one sentence each and §8 opens with its record rule (#1157).
 
 The step calls run as written, on small fixtures.
 
@@ -135,7 +197,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import io
 import json
 import os
 import posixpath
@@ -160,6 +221,12 @@ REPORT = REFS / "report.md"
 EXTRACT = REFS / "parallel-extract.md"
 MANIFESTS = REFS / "detect-manifests.md"
 COMPOSE_RULES = REFS / "compose-mode-rules.md"
+# Steps 2 to 5 of a compose-mode run (#1151): rank-and-confirm.md and detect-integrations.md each hold one
+# compose guard, the scope gate and the pair classification staying their one home.
+COMPOSE_SKILLS = REFS / "compose-skills.md"
+COMPOSE_SCOPE = REFS / "compose-scope.md"
+COMPOSE_EXTRACT = REFS / "compose-extract.md"
+COMPOSE_PAIRS = REFS / "compose-pairs.md"
 STACK_SKILL = STACK / "SKILL.md"
 CONTRACT = REFS / "invocation-contract.md"
 METADATA_CONTRACT = STACK / "assets" / "metadata-contract.md"
@@ -204,10 +271,12 @@ PAIR_INTERSECT_RE = re.compile(r"pairIntersect|skf-pair-intersect")
 GATE_RUN_RE = re.compile(r"^[ \t]*(?:uv run|python3) \{frontmatterValidator\}", re.MULTILINE)
 EVIDENCE_REPORT = "evidence-report.md"
 # Instructions that change a file: the atomic writer's subcommands, the
-# skill-check writes and a directory create. A flag counts only whole, so
-# the inventory's read-only `--write-check` is not a write.
+# stack helper's evidence report, the skill-check writes and a directory
+# create. A flag counts only whole, so the inventory's read-only
+# `--write-check` is not a write.
 WRITE_OP_RE = re.compile(
     r"\{atomicWriteHelper\}\s+(?:write|stage-dir|commit-dir|flip-link)\b"
+    r"|\{renderStackMetadataHelper\}\s+evidence-report\b|\{renderStackMetadataHelper\}\s+references\b[^\n]*--out\b"
     r"|--fix(?![\w-])|--write(?![\w-])|\bsplit-body\b|\bmkdir -p\b"
 )
 # Rules wording that forbids every write, or every change to what a step reads.
@@ -462,22 +531,25 @@ def test_security_scan_notes_a_scan_that_could_not_run():
 
 
 def test_pair_intersect_pass_skips_in_compose_mode():
+    """#537, #1151: compose-pairs.md found the pairs, so the guard skips both co-import passes to §3."""
     sections = _sections(_body(_read(DETECT)))
-    first, second = sections["1"], sections["2"]
+    first, third = sections["1"], sections["3"]
     opening = first.split("\n", 1)[1].lstrip("\n").split("\n", 1)[0]
     assert "compose_mode" in opening, f"§1 does not open with the compose-mode guard: {opening!r}"
     helper = PAIR_INTERSECT_RE.search(first)
     assert helper, "§1 lost the pair-intersect pass"
-    heading = SECTION_HEADING_RE.match(second)
-    assert heading, "§2 has no numbered heading"
+    heading = SECTION_HEADING_RE.match(third)
+    assert heading, "§3 has no numbered heading"
     ahead = first[: helper.start()]
     assert _slug(f"{heading.group(1)}. {heading.group(2)}") in SKIP_LINK_RE.findall(ahead), (
-        "the compose guard does not skip to §2 ahead of the pair-intersect pass"
+        "the compose guard does not skip to §3 ahead of the pair-intersect pass"
     )
 
 
-def test_section_2_has_the_compose_branch_the_skip_lands_on():
-    assert "compose_mode" in _sections(_body(_read(DETECT)))["2"], "§2 has no compose-mode branch"
+def test_section_2_holds_no_compose_branch():
+    """#1151: the compose pairs come from compose-pairs.md, so §2 is the code-mode co-import pass alone."""
+    two = _sections(_body(_read(DETECT)))["2"]
+    assert not COMPOSE_MODE_RE.search(two), "§2 still holds a compose-mode branch"
 
 
 # --- #539: report.md writes only the result contract ----------------------------
@@ -726,7 +798,6 @@ def test_the_label_check_runs_between_extraction_and_the_summary():
     order = list(sections)
     assert order.index("3") + 1 == order.index("3a") == order.index("4") - 1
     check = sections["3a"]
-    assert "Code mode only" in check.split("\n\n")[1], "§3a does not open with its code-mode guard"
     call = _relabel_call()
     assert call.strip() == 'uv run {renderStackMetadataHelper} relabel --records "{exportRecordsFile}"', call
     for needle in ("`coherence.violations[]`", "`confidence_distribution`", "`relabeled[]`", "export-labels-relabeled",
@@ -934,9 +1005,10 @@ def test_step_7_writes_the_code_mode_entries_with_the_helper(tmp_path):
     pairs.write_text(json.dumps({"pairs": [{"a": "liba", "b": "libb", "intersection_count": 1,
                                             "files": co_import}], "truncated": False, "total_pairs": 1}),
                      encoding="utf-8")
+    # The pair as step 5 §4 writes it: its qualifier, no detection_method (the helper derives it, #1154).
     bundle.write_text(json.dumps({"mode": "code", "integrations": [
         {"a": "libb", "b": "liba", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
-         "detection_method": "co-import grep", "key_files": [], "description": "liba feeds libb"}]}),
+         "key_files": [], "description": "liba feeds libb"}]}),
         encoding="utf-8")
     forge_version = tmp_path / "forge" / "demo-stack" / "1.0.0"
     forge_version.mkdir(parents=True)
@@ -965,9 +1037,9 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
     entries, and the helper writes the integrations and the constituents, each hash copied from the
     inventory and each skill_path relative to the project root, so an audit of the stack finds every
     constituent fresh, under a skills folder that is not the default one."""
-    extract = _read(EXTRACT)
+    extract = _read(COMPOSE_EXTRACT)
     assert "stackInventoryFile: '{run_dir}/stack-inventory.json'" in _frontmatter(extract)
-    enumerate_call = _call(_sections(_body(extract))["0"], "enumerateStackSkillsHelper", "enumerate").strip()
+    enumerate_call = _call(_sections(_body(extract))["1"], "enumerateStackSkillsHelper", "enumerate").strip()
     enumerate_call, target = enumerate_call.split(" > ")
     assert target == '"{stackInventoryFile}"', "step 4 does not save its inventory in the run folder"
     seven = _sections(_body(_read(GENERATE)))["7"]
@@ -984,7 +1056,8 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
         package.mkdir(parents=True)
         (package / "SKILL.md").write_bytes(f"# {name}\n".encode("utf-8"))
         metadata = json.dumps({"name": name, "version": version, "generated_by": "create-skill",
-                               "exports": ["render"], "skill_type": "single"}).encode("utf-8")
+                               "exports": ["render"], "skill_type": "single", "source_authority": "official",
+                               "confidence_distribution": {"t1": 3, "t1_low": 0, "t2": 0, "t3": 0}}).encode("utf-8")
         (package / "metadata.json").write_bytes(metadata)
         hashes[name] = "sha256:" + hashlib.sha256(metadata).hexdigest()
         try:
@@ -994,26 +1067,29 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
     run_dir = project / "_bmad-output" / ".skf-run" / "skf-create-stack-skill-1"
     run_dir.mkdir(parents=True)
     inventory = run_dir / "stack-inventory.json"
-    argv = _argv(enumerate_call, "enumerateStackSkillsHelper", {"{skills_output_folder}": str(skills_root)})
+    argv = _argv(enumerate_call.replace("<names>", "react,express"), "enumerateStackSkillsHelper",
+                 {"{skills_output_folder}": str(skills_root)})
     result = subprocess.run([sys.executable, str(ENUMERATE), *argv], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     inventory.write_text(result.stdout, encoding="utf-8")  # the shell redirect
+    # Step 4 §3 (#1154): each entry is its bundle_entries[] skeleton as it stands, plus what §2 returned.
+    listed = json.loads(result.stdout)
+    assert listed["bundle_entries_missing"] == []
     bundle = run_dir / "extraction-bundle.json"
     bundle.write_text(json.dumps({
         "mode": "compose", "scope": ["react", "express"],
         "per_library_extractions": [
-            {"library": name, "skill_dir": name, "version": version, "confidence": "T1",
-             "skill_package_path": f"{skills_root.as_posix()}/{name}/active/{name}"}
-            for name, version in (("react", "18.2.0"), ("express", "4.19.0"))],
+            dict(entry, description_keywords=[], usage_patterns=[], signatures={})
+            for entry in listed["bundle_entries"]],
         "failed": [],
         "integrations": [{"a": "react", "b": "express", "type": "data-flow", "tier": "T1",
-                          "qualifier": "architecture-co-mention", "detection_method": "architecture_co_mention",
+                          "qualifier": "architecture-co-mention",
                           "key_files": [], "description": "react calls express",
                           # The compose evidence step 5 keeps for steps 6 and 7 (architecture-1).
                           "evidence": ["[from skill: react] render(el)", "[from skill: express] listen(port)"],
                           "reference": '**Architecture reference:** "react calls express" (architecture doc line 3)',
                           "vs": {"pair": "Risky", "overall": "CONDITIONALLY_FEASIBLE"}}],
-        "hubs": [], "cross_cutting": []}), encoding="utf-8")
+        "cross_cutting": []}), encoding="utf-8")
     entries = run_dir / "compose-entries.json"
     # The model writes only the cited fields; the helper adds the constituent's tier.
     entries.write_text(json.dumps({"entries": [{"export_name": "render", "source_library": "react"}]}),
@@ -1079,45 +1155,145 @@ def test_the_run_shows_libraries_per_tier(path, number):
     assert "QMD" not in line, "a library tier is not a temporal annotation"
 
 
-def test_the_evidence_report_bins_the_final_map(tmp_path, monkeypatch, capsys):
-    text = _read(GENERATE)
-    assert _probe_script(text, "renderMetadataStats") == STATS_HELPER
-    report = _sections(_body(text))["8b"]
-    call = _call(report, "renderMetadataStatsHelper")
-    assert "{forge_version}/provenance-map.json" in call and "--shape stack" in call, call
-    assert report.index(call) < report.index("{atomicWriteHelper} write"), "the report is written before it is binned"
-    assert "counts libraries" in report
-    # A compose-mode map: each entry carries its constituent's tier.
+def _mode_calls(section: str, subcommand: str) -> dict[str, str]:
+    """The two fenced `{renderStackMetadataHelper} <subcommand>` calls of a section, by the mode each runs:
+    its `--mode`, or, with none, code mode for the call that passes `--pairs`."""
+    calls = [line for line in _fence_lines(section) if f"{{renderStackMetadataHelper}} {subcommand} " in line]
+    found = {}
+    for call in calls:
+        mode = re.search(r"--mode (\w+)", call)
+        found[mode.group(1) if mode else ("code" if "--pairs" in call else "compose")] = call
+    assert len(calls) == 2 and set(found) == {"code", "compose"}, calls
+    return found
+
+
+T2_FUTURE_ITEM = "get_config: cached per process from 3.0 (T2-future) [QMD:liba-temporal:changelog]"
+
+
+def _step_7_run(run_dir: Path, mode: str) -> dict[str, str]:
+    """The run folder step 7 reads, as the values of a documented call's placeholders: the bundle step 5 completed
+    (in code mode with a failed library, liba's T2-future item and a pair the pair helper names the other way round;
+    in compose mode with its evidence and a Blocked [VS] verdict), the records and the saved pairs."""
+    if mode == "code":
+        libraries = [
+            {"library": "liba", "status": "success", "version": "2.1.0", "confidence": "T1-low", "file_count": 4,
+             "usage_patterns": ["connect at startup (src/app.py:3)"], "warnings": [],
+             "temporal": {"deprecated_exports": [T2_FUTURE_ITEM], "migration_notes": [], "version_warnings": []}},
+            {"library": "libb", "status": "partial", "version": "1.0.0", "confidence": "T1-low", "file_count": 2,
+             "usage_patterns": [], "warnings": ["extraction budget reached"], "temporal": {}},
+        ]
+        pair = {"a": "liba", "b": "libb", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
+                "key_files": ["src/app.py:3"], "description": "liba feeds libb"}
+    else:
+        libraries = [
+            {"library": "liba", "skill_dir": "liba", "version": "2.1.0", "confidence": "T1",
+             "exports": ["connect", "Client"], "signatures": {"connect": "connect(url: str) -> Client"},
+             "usage_patterns": ["connect once (src/app.py:3)"]},
+            {"library": "libb", "skill_dir": "libb", "version": "1.0.0", "confidence": "T2", "exports": ["serve"],
+             "signatures": {}, "usage_patterns": []},
+        ]
+        pair = {"a": "liba", "b": "libb", "type": "adapter", "tier": "T2", "qualifier": "architecture-co-mention",
+                "key_files": [], "evidence": ["[from skill: liba] connect(url: str) -> Client",
+                                              "[from skill: libb] serve(app)"],
+                "reference": '**Architecture reference:** "libb serves what liba connects" (architecture doc line 4)',
+                "vs": {"pair": "Blocked", "overall": "CONDITIONALLY_FEASIBLE"}}
+    bundle = run_dir / "extraction-bundle.json"
+    bundle.write_text(json.dumps({
+        "mode": mode, "scope": ["liba", "libb"], "per_library_extractions": libraries,
+        "failed": [{"library": "libc", "reason": "no usable data"}] if mode == "code" else [],
+        "integrations": [pair], "cross_cutting": []}), encoding="utf-8")
+    records = run_dir / "export-records.json"
+    records.write_text(json.dumps({"entries": _liba_records()}), encoding="utf-8")
+    pairs = run_dir / "pair-intersect.json"
+    pairs.write_text(json.dumps({"pairs": [{"a": "libb", "b": "liba", "intersection_count": 2, "files": [
+        {"path": "src/app.py", "line_a": 1, "line_b": 2}]}], "truncated": False, "total_pairs": 1}), encoding="utf-8")
+    return {"{bundleFile}": str(bundle), "{exportRecordsFile}": str(records), "{pairsFile}": str(pairs),
+            "{run_dir}": str(run_dir)}
+
+
+def _run_call(call: str, values: dict[str, str]) -> dict:
+    """Run a documented stack helper call as written, its placeholders filled; its printed JSON."""
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(call, values)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+# What step 3's scope gate and step 4 record in the run sink, through the emitter's record command.
+SCOPE_EVIDENCE = {"scope": ["liba", "libb"], "dropped": [{"library": "lodash", "reason": "dev only"}],
+                  "prior_kept": ["libd"]}
+STEP_4_WARNING = '[step-04/warn] extraction-partial: libb: `extraction budget reached` $(not run)'
+
+
+def _evidence_report(run_dir: Path, tmp_path: Path, mode: str, entries: list[dict] | None = None) -> tuple[dict, str]:
+    """Run §8b's call of `mode` as written on a run folder whose sink holds the scope decision and a step 4 warning,
+    recorded as the steps record them, and a final map; the call's JSON and the report."""
+    values = _step_7_run(run_dir, mode)
+    decision = dict(_decision("rank-and-confirm.scope"), evidence=SCOPE_EVIDENCE)
+    for args, stdin in ((["--workflow", "skf-create-stack-skill", "--decision"], json.dumps(decision)),
+                        (["--warning", STEP_4_WARNING], None)):
+        recorded = subprocess.run([sys.executable, str(EMITTER), "record", "--run-dir", str(run_dir), *args],
+                                  input=stdin, capture_output=True, text=True)
+        assert recorded.returncode == 0, recorded.stderr
     forge_version = tmp_path / "forge" / "demo-stack" / "1.0.0"
-    forge_version.mkdir(parents=True)
+    forge_version.mkdir(parents=True, exist_ok=True)
+    if entries is None:
+        entries = [dict(record, signature_source=record["confidence"]) for record in _liba_records()]
+    (forge_version / "provenance-map.json").write_text(
+        json.dumps({"skill_name": "demo-stack", "skill_type": "stack", "entries": entries}), encoding="utf-8")
+    call = _mode_calls(_sections(_body(_read(GENERATE)))["8b"], "evidence-report")[mode]
+    out = _run_call(call, dict(values, **{"{forge_version}": str(forge_version)}))
+    return out, (forge_version / "evidence-report.md").read_text(encoding="utf-8")
+
+
+def test_the_evidence_report_bins_the_final_map(run_dir, tmp_path):
+    """#528, #1156: §8b writes the report with the stack helper, which bins the final map's entries as
+    skf-render-metadata-stats.py --shape stack does, so the step resolves the stats helper no more."""
+    text = _read(GENERATE)
+    assert "renderMetadataStatsProbeOrder" not in _frontmatter(text) and "{renderMetadataStatsHelper}" not in text
+    report = _sections(_body(text))["8b"]
+    assert "counts libraries" in report
+    for mode, call in _mode_calls(report, "evidence-report").items():
+        assert '--target "{forge_version}/evidence-report.md"' in call, call
+        assert '--provenance "{forge_version}/provenance-map.json"' in call, call
+        assert ('--pairs "{pairsFile}"' in call) == (mode == "code"), call
+    # A compose-mode map: each entry carries its constituent's tier.
     entries = [
         {"export_name": name, "source_library": library, "extraction_method": "compose-from-skill",
          "confidence": tier, "signature_source": tier}
-        for name, library, tier in (("connect", "liba", "T1"), ("Client", "liba", "T1"), ("render", "libb", "T3"))
+        for name, library, tier in (("connect", "liba", "T1"), ("Client", "liba", "T1"), ("serve", "libb", "T3"))
     ]
-    (forge_version / "provenance-map.json").write_text(
-        json.dumps({"skill_type": "stack", "entries": entries}), encoding="utf-8")
-    argv = _argv(call, "renderMetadataStatsHelper", {"{forge_version}": str(forge_version)})
-    monkeypatch.setattr(sys, "stdin", io.StringIO(re.search(r"echo '(.*?)' \|", call).group(1)))
-    stats = _load(STATS_HELPER, "skf_render_metadata_stats_report")
-    assert stats.main(argv) == 0
-    assert json.loads(capsys.readouterr().out)["confidence_distribution"] == {"t1": 2, "t1_low": 0, "t2": 0, "t3": 1}
+    out, written = _evidence_report(run_dir, tmp_path, "compose", entries)
+    assert out["confidence_distribution"] == {"t1": 2, "t1_low": 0, "t2": 0, "t3": 1}
+    stats = subprocess.run([sys.executable, str(STATS_HELPER), out["target"].replace("evidence-report.md",
+                                                                                    "provenance-map.json"),
+                            "--shape", "stack"], input="{}", capture_output=True, text=True)
+    assert json.loads(stats.stdout)["confidence_distribution"] == out["confidence_distribution"]
+    assert written.endswith("(`metadata.json` counts libraries): T1: 2, T1-low: 0, T2: 0, T3: 1\n")
 
 
 # --- #534: compose tiers come from each constituent's own evidence ----------------
 
 
 def test_compose_constituent_tier_is_the_evidence_tier():
-    zero = _sections(_body(_read(EXTRACT)))["0"]
-    assert '"evidence_tier": "T1|T1-low|T2|T3"' in zero
-    (bullet,) = [line for line in zero.splitlines() if line.startswith("- `confidence`:")]
-    assert bullet.startswith("- `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`)")
-    # The field §0 reads: the largest bin, ties to the weaker tier, T3
+    sections = _sections(_body(_read(COMPOSE_EXTRACT)))
+    assert '"evidence_tier": "T1|T1-low|T2|T3"' in sections["1"]
+    assert '"confidence": "<its evidence_tier>"' in sections["1"]
+    # #1154: §3 copies the helper's skeleton, whose confidence is the evidence tier, instead of mapping fields.
+    assert "its `bundle_entries[]` entry in `{stackInventoryFile}` as it stands, whose `confidence` is the " \
+        "skill's `evidence_tier`" in sections["3"]
+    assert "inventory.skills[i]" not in sections["3"]
+    # The field the skeleton takes: the largest bin, ties to the weaker tier, T3
     # included, T1-low when nothing is recorded.
     enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_stack_rules")
     assert enumerate_.dominant_tier({"t1": 0, "t1_low": 0, "t2": 0, "t3": 12}) == "T3"
     assert enumerate_.dominant_tier({"t1": 2, "t1_low": 2, "t2": 0, "t3": 0}) == "T1-low"
     assert enumerate_.dominant_tier(None) == "T1-low"
+    [entry] = enumerate_.compute_bundle_entries(
+        [{"name": "react", "path": "react/active/react", "version": "18.2.0", "source_authority": None,
+          "exports": [], "exports_source": "metadata", "confidence": "T1", "evidence_tier": "T3"}],
+        Path("skills"), ["react"])["bundle_entries"]
+    assert entry["confidence"] == "T3"
 
 
 def test_compose_entries_carry_their_constituent_tier():
@@ -1129,7 +1305,7 @@ def test_compose_entries_carry_their_constituent_tier():
     # The helper sets the tier from the bundle: the model types only the cited fields (step 5b review).
     assert "The call below sets each entry's `confidence`" in bullet, bullet
     assert "are its constituent's tier" not in bullet
-    for path in (EXTRACT, SCHEMA):
+    for path in (EXTRACT, COMPOSE_EXTRACT, SCHEMA):
         assert "when it was forged" not in _read(path), f"{path.name} says a constituent checked the stack's labels"
 
 
@@ -1138,9 +1314,9 @@ def test_compose_pairs_take_the_helper_tier():
     rules = _h2_section(_read(COMPOSE_RULES), "## Confidence Tier Inheritance")
     assert "`skf-render-stack-metadata.py`" in rules and "`combine_pair_tier`" in rules
     assert not PAIR_CASE_RE.search(rules), "compose-mode-rules still works pair cases out by hand"
-    for path in (COMPOSE_RULES, DETECT):
+    for path in (COMPOSE_RULES, COMPOSE_PAIRS, DETECT):
         assert "+T2 annotations" not in _read(path), f"{path.name} still keeps a T2 pair at a stronger tier"
-    for path in (COMPOSE_RULES, DETECT, SCHEMA):
+    for path in (COMPOSE_RULES, COMPOSE_PAIRS, DETECT, SCHEMA):
         assert not OLD_MATRIX_RE.search(_read(path)), f"{path.name} still points at the old tier matrix"
     helper = _load(STACK_METADATA, "skf_render_stack_metadata_stack_rules")
     for mode in ("code", "compose"):
@@ -1170,25 +1346,35 @@ def test_the_ordering_pattern_matches_a_restatement(text):
 
 
 def test_the_integration_label_names_the_helper_tier():
-    (line,) = [line for line in _read(INTEGRATION_PATTERNS).splitlines() if line.lstrip().startswith("Confidence:")]
-    assert "skf-render-stack-metadata.py" in line and "weaker" not in line, line
-    detect_2 = _sections(_body(_read(DETECT)))["2"]
-    compose = detect_2[:detect_2.index("**If not compose_mode:**")]
-    assert "{renderStackMetadataHelper}" in compose, "§2's compose tier line does not point at the helper"
-    assert "Confidence Tier Inheritance" in compose
+    """#1151 leanness-4: integration-patterns.md holds the types only, its unused Output Format gone, and the
+    compose pair's tier line points at step 5 §3's helper call and the compose rules."""
+    patterns = _read(INTEGRATION_PATTERNS)
+    assert not [line for line in patterns.splitlines() if line.lstrip().startswith("Confidence:")]
+    assert "## Output Format" not in patterns
+    (item,) = [line for line in _sections(_body(_read(COMPOSE_PAIRS)))["1"].splitlines()
+               if line.startswith("6. ")]
+    assert "Its tier comes from the pair-tiers call of `references/detect-integrations.md` §3" in item, item
+    assert "Confidence Tier Inheritance" in item and "weaker" not in item
 
 
-def _pair_tiers_call() -> str:
-    return _call(_sections(_body(_read(DETECT)))["3"], "renderStackMetadataHelper", "pair-tiers")
+def _pair_tiers_call(mode: str = "code") -> str:
+    """Step 5 §3's pair-tiers call as `mode` runs it: code mode passes `--pairs -`, compose mode leaves it out."""
+    call = _call(_sections(_body(_read(DETECT)))["3"], "renderStackMetadataHelper", "pair-tiers")
+    assert call.count(" [--pairs -]") == 1, call
+    return call.replace(" [--pairs -]", " --pairs -" if mode == "code" else "")
 
 
 def test_step_5_takes_each_pair_tier_from_the_helper():
     text = _read(DETECT)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     three = _sections(_body(text))["3"]
-    assert "--input -" in _pair_tiers_call()
-    for needle in ('"mode": "code|compose"', "per_library_extractions[].confidence", "`tier`"):
+    # #1154 determinism-8: the helper reads the tiers from the bundle; only code mode pipes its pairs.
+    assert '--bundle "{bundleFile}"' in _pair_tiers_call() and "--input" not in _pair_tiers_call()
+    for needle in ("In code mode pass `--pairs -` and pipe the qualifying pairs as "
+                   '`[{"a": "<library>", "b": "<library>"}, ...]`, each once; in compose mode leave it out',
+                   "`tier`"):
         assert needle in three, needle
+    assert '"mode": "code|compose"' not in three and '"confidence":' not in three, "§3 still builds a payload"
     assert "weaker" not in three, "§3 still states the tier rule itself"
 
 
@@ -1197,20 +1383,34 @@ def test_a_missing_tier_helper_halts_with_its_envelope():
     three = _sections(_body(_read(DETECT)))["3"]
     halt = _slice(three, "If no candidate exists, HALT", "When at least one pair qualifies")
     assert '(exit 3, `halt_reason: "helper-missing"`, phase `detect-integrations:pair-tiers`)' in halt
-    # Step 7 §6 resolves the same helper after staging: it rolls back with the same code, not as a write failure.
-    six = _sections(_body(_read(GENERATE)))["6"]
-    assert 'invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase' in six
+    # Step 7 §3 resolves the same helper after staging: it rolls back with the same code, not as a write failure.
+    three = _sections(_body(_read(GENERATE)))["3"]
+    assert 'invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase' in three
     (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
-    assert "`skf-render-stack-metadata.py` (step 4 §3a, step 5 §3, step 6 §1, step 7 §6)" in row
+    assert "`skf-render-stack-metadata.py` (step 4 §3a, step 5 §3, step 6 §1, step 7 §3)" in row
 
 
 def test_step_2_records_the_authority_step_7_projects():
-    """§6 pipes each constituent's source_authority, so step 2 must still read it (#606)."""
+    """§6 reads each constituent's source_authority from the bundle (#606), which step 4 copies from the enumerate
+    helper's skeleton, so neither step 2 nor step 4 reopens metadata.json for it (#1154 determinism-4)."""
     six = _sections(_body(_read(GENERATE)))["6"]
-    assert '"source_authority": "<compose mode: the constituent\'s>"' in six
-    (read,) = [line for line in _sections(_body(_read(MANIFESTS)))["0"].splitlines()
-               if line.startswith("3. Read `metadata.json` from `skill_package_path`")]
-    assert "source_authority" in read, "step 2 no longer records each constituent's source_authority"
+    assert "in compose mode, the constituent's authority step 4 wrote" in six
+    (item,) = [line for line in _sections(_body(_read(COMPOSE_SKILLS)))["1"].splitlines() if line.startswith("3. ")]
+    for field in ("`metadata_name`", "`version`", "`source_authority`"):
+        assert field in item, field
+    assert "never reopen that file" in item
+    enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_authority")
+    fields = enumerate_.metadata_fields({"name": "React", "version": " 18.2.0 ", "source_authority": "Official"})
+    assert (fields["metadata_name"], fields["version"], fields["source_authority"]) == ("React", "18.2.0", "official")
+
+
+def test_compose_skills_never_reads_metadata_json():
+    one = _sections(_body(_read(COMPOSE_SKILLS)))["1"]
+    assert not re.search(r"\b[Rr]ead `metadata\.json`", one), "step 2 reopens a constituent's metadata.json"
+    for path in (COMPOSE_EXTRACT, COMPOSE_PAIRS, GENERATE, COMPILE):
+        text = _read(path)
+        for stale in ("`metadata.json` version", "read from its `metadata.json`", "source skill metadata"):
+            assert stale not in text, (path.name, stale)
 
 
 def _stack_input(mode: str = "compose") -> dict:
@@ -1223,16 +1423,47 @@ def _stack_input(mode: str = "compose") -> dict:
     }
 
 
-def _run_stack_metadata(call: str, payload: dict) -> dict:
-    argv = _argv(call, "renderStackMetadataHelper", {})
-    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv], input=json.dumps(payload),
-                            capture_output=True, text=True)
+def _stack_bundle(run_dir: Path, mode: str = "compose", *, with_pairs: bool = True) -> Path:
+    """The extraction bundle that holds `_stack_input(mode)`, as steps 4 and 5 write it, in `run_dir`."""
+    stack = _stack_input(mode)
+    entries = [{"library": library["name"], "confidence": library["confidence"], "version": "1.0.0",
+                **({"source_authority": library["source_authority"]} if "source_authority" in library else {}),
+                **({"file_count": count} if mode == "code" else {})}
+               for library, count in zip(stack["libraries"], (12, 9, 3))]
+    qualifier = "grep-co-import" if mode == "code" else "architecture-co-mention"
+    pairs = [dict(pair, type="adapter", qualifier=qualifier) for pair in stack["integrations"]] if with_pairs else []
+    path = run_dir / "extraction-bundle.json"
+    path.write_text(json.dumps({"mode": mode, "scope": [entry["library"] for entry in entries],
+                                "per_library_extractions": entries, "failed": [], "integrations": pairs,
+                                "cross_cutting": []}), encoding="utf-8")
+    return path
+
+
+def _run_stack_metadata(call: str, payload: dict | None = None, *, run_dir: Path, mode: str = "compose",
+                        with_pairs: bool = True) -> dict:
+    """Run a documented stack helper call as written on the bundle of `_stack_input(mode)`, in a run folder whose
+    path holds a space; `payload` is what the call pipes on stdin."""
+    bundle = _stack_bundle(run_dir, mode, with_pairs=with_pairs)
+    argv = _filled_argv(call, {"{bundleFile}": str(bundle)})
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv],
+                            input=None if payload is None else json.dumps(payload), capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
 
-def test_the_pair_tier_call_runs_as_written():
-    out = _run_stack_metadata(_pair_tiers_call(), _stack_input())
+@pytest.fixture
+def run_dir(tmp_path: Path) -> Path:
+    folder = tmp_path / "run dir"
+    folder.mkdir()
+    return folder
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_the_pair_tier_call_runs_as_written(mode, run_dir):
+    """Code mode pipes the qualifying pairs (step 5 writes them after §3); compose mode reads compose-pairs.md's."""
+    payload = _stack_input(mode)["integrations"] if mode == "code" else None
+    out = _run_stack_metadata(_pair_tiers_call(mode), payload, run_dir=run_dir, mode=mode,
+                              with_pairs=mode == "compose")
     assert out["integrations"] == [{"a": "react", "b": "express", "tier": "T2"},
                                    {"a": "react", "b": "zod", "tier": "T1-low"}]
 
@@ -1241,7 +1472,7 @@ def _metadata_call() -> str:
     return _call(_sections(_body(_read(GENERATE)))["6"], "renderStackMetadataHelper", "metadata")
 
 
-def test_step_7_writes_the_metadata_projection():
+def test_step_7_writes_the_metadata_projection(run_dir):
     text = _read(GENERATE)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     six = _sections(_body(text))["6"]
@@ -1249,23 +1480,28 @@ def test_step_7_writes_the_metadata_projection():
     assert "write the fields the contract takes from it verbatim" in six and "rollback contract" in six
     contract_note = _h2_section(_read(METADATA_CONTRACT), "## metadata.json Structure").split("```")[-1]
     assert "`skf-render-stack-metadata.py`" in contract_note
-    out = _run_stack_metadata(_metadata_call(), _stack_input())
+    out = _run_stack_metadata(_metadata_call(), run_dir=run_dir)
     for field in ("library_count", "integration_count", "libraries", "integration_pairs",
                   "confidence_distribution", "confidence_tier", "source_authority"):
         assert f"`{field}`" in contract_note and field in out, field
         assert f"`{field}`" not in six, f"§6 restates the contract's field {field}"
 
 
-def test_the_metadata_call_runs_as_written():
-    """The distribution counts each library once and sums to library_count (#528)."""
-    out = _run_stack_metadata(_metadata_call(), _stack_input())
+def test_the_metadata_call_runs_as_written(run_dir):
+    """The distribution counts each library once and sums to library_count (#528), read from the bundle (#1154)."""
+    assert '--bundle "{bundleFile}"' in _metadata_call() and "Pipe it" not in _sections(_body(_read(GENERATE)))["6"]
+    out = _run_stack_metadata(_metadata_call(), run_dir=run_dir)
     assert out["library_count"] == sum(out["confidence_distribution"].values()) == 3
     assert out["confidence_distribution"] == {"t1": 1, "t1_low": 1, "t2": 1, "t3": 0}
     assert out["confidence_tier"] == "T2"  # a tie goes to the weaker tier
     assert out["source_authority"] == "internal"  # community and internal give internal
     assert out["integration_pairs"] == [["react", "express"], ["react", "zod"]]
-    code = _run_stack_metadata(_metadata_call(), _stack_input("code"))
+    code = _run_stack_metadata(_metadata_call(), run_dir=run_dir, mode="code")
     assert code["confidence_tier"] == out["confidence_tier"]
+    # The bundle form prints what the stack form prints for the same data.
+    stack = subprocess.run([sys.executable, str(STACK_METADATA), "metadata", "--input", "-"],
+                           input=json.dumps(_stack_input()), capture_output=True, text=True)
+    assert json.loads(stack.stdout) == out
 
 
 VALIDATE_CHECKS = {"4": "skill_md", "5": "metadata", "6": "references", "7": "tier_labels"}
@@ -1288,15 +1524,95 @@ def test_step_8_reads_the_structure_pass():
     assert validator._STACK_RULES_HELPER == STACK_METADATA.name
 
 
+def _split_filled(call: str, prefix: str, values: dict[str, str]) -> list[str]:
+    """The arguments of a documented call after `prefix`, split first and filled in after."""
+    filled = []
+    for arg in shlex.split(call.split(prefix, 1)[1]):
+        for placeholder, value in values.items():
+            arg = arg.replace(placeholder, value)
+        assert "{" not in arg, f"placeholder left unfilled: {arg}"
+        filled.append(arg)
+    return filled
+
+
+def _shell_split(call: str, prefix: str, values: dict[str, str]) -> list[str]:
+    """The arguments of a documented call after `prefix`, filled in first and split after, as a shell splits the
+    call it runs, so a placeholder left unquoted splits a path that holds a space."""
+    text = call.split(prefix, 1)[1]
+    for placeholder, value in values.items():
+        text = text.replace(placeholder, value)
+    assert "{" not in text, f"placeholder left unfilled: {text}"
+    return shlex.split(text)
+
+
 def test_the_validator_call_runs_as_written(tmp_path):
+    """#1157: the call checks what step 7 wrote beside the package, the workspace files and the `active` link §10
+    flips, and the snippet's stack lines, so step 8 confirms none of them by hand."""
     call = [line for line in _fence_lines(_sections(_body(_read(VALIDATE)))["1"]) if "{outputValidator}" in line][0]
-    package = tmp_path / "demo-stack"
-    package.mkdir()
-    args = shlex.split(call.split("python3 {outputValidator}", 1)[1].replace("{skill_package}", str(package))
-                       .replace("{forge_tier}", "Deep"))
-    result = subprocess.run([sys.executable, str(VALIDATOR), *args], capture_output=True, text=True)
-    out = json.loads(result.stdout)
-    assert set(out["validation"]) >= {"stack_counts", "stack_structure"}
+    group = tmp_path / "skills dir" / "demo-stack"
+    package = group / "1.0.0" / "demo-stack"
+    package.mkdir(parents=True)
+    (package / "context-snippet.md").write_bytes(
+        b"[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: demo-stack: read SKILL.md first.\n|stack: liba\n")
+    forge = tmp_path / "forge data" / "demo-stack" / "1.0.0"
+    forge.mkdir(parents=True)
+    (forge / "provenance-map.json").write_bytes(b"{}\n")
+    values = {"{skill_package}": str(package), "{forge_tier}": "Deep", "{forge_version}": str(forge),
+              "{skill_group}": str(group), "{version}": "1.0.0"}
+    flip = _call(_sections(_body(_read(GENERATE)))["10"], "atomicWriteHelper")
+    flipped = subprocess.run([sys.executable, str(ATOMIC_WRITER),
+                              *_split_filled(flip, "python3 {atomicWriteHelper}", values)],
+                             capture_output=True, text=True)
+    assert flipped.returncode == 0, flipped.stderr
+
+    def validate() -> dict:
+        result = subprocess.run([sys.executable, str(VALIDATOR),
+                                 *_shell_split(call, "python3 {outputValidator}", values)],
+                                capture_output=True, text=True)
+        assert result.returncode in (0, 1), result.stderr
+        return json.loads(result.stdout)["validation"]
+
+    out = validate()
+    assert set(out) >= {"stack_counts", "stack_structure", "stack_workspace"}
+    assert [i["field"] for i in out["stack_workspace"]["issues"]] == ["evidence-report.md"]
+    snippet = [i["field"] for i in out["context_snippet"]["issues"]]
+    assert "integrations" in snippet and "stack" not in snippet
+    (forge / "evidence-report.md").write_bytes(b"# demo-stack Evidence Report\n")
+    assert validate()["stack_workspace"]["issues"] == [], "the link step 7 flipped resolves to the version"
+
+
+def test_step_8_reads_the_workspace_and_its_lines_from_the_validator():
+    """#1157 determinism-10, leanness-5: §1 holds the one field map and records `stack_workspace` as ERROR
+    findings, the references/ rows gone and the manual rows kept for a missing validator; §2 drops its padding, the
+    pointer form is "not a violation" in §4 only, §5 and §7 are one sentence each and §8 opens with its record
+    rule, its manual line checks kept for a missing validator."""
+    text = _read(VALIDATE)
+    sections = _sections(_body(text))
+    one = sections["1"]
+    (call,) = [line for line in _fence_lines(one) if "{outputValidator}" in line]
+    for flag in ('--forge-version "{forge_version}"', '--active-link "{skill_group}"', '--expected-version "{version}"'):
+        assert flag in call, flag
+    assert "- `validation.stack_workspace`:" in one
+    assert "each `validation.stack_workspace.issues[]` entry as an **ERROR** finding" in one
+    assert "references/ directory" not in one and "Then confirm the remaining files" not in one
+    manual = _from(one, "When the validator is missing")
+    for row in ("- [ ] provenance-map.json", "- [ ] evidence-report.md",
+                "- [ ] `{skill_group}/active` exists and resolves to `{version}`"):
+        assert row in manual, row
+    assert "Do not assume availability" not in sections["2"]
+    assert text.count("not a violation") == 1 and "not a violation" in sections["4"]
+    for number, check in (("5", "metadata"), ("7", "tier_labels")):
+        body = sections[number].split("\n", 1)[1].strip()
+        assert "\n" not in body and ". " not in body and body.endswith("as a **WARNING** finding."), body
+        assert f"`check` is `{check}`" in body and "the latest output-validator run" in body, body
+    assert text.count("library_count_meta") == 1 and text.count("confidence_sum") == 1, "the field map is §1's"
+    eight = sections["8"].split("\n\n", 2)[1]
+    assert eight.startswith("Record each `validation.context_snippet.issues` entry as a **WARNING** finding.")
+    for token in ("<40 / >300", "step 7 §5", "`snippet-over-budget`"):
+        assert token in eight, token
+    lines = _from(sections["8"], "When the validator is missing")
+    assert "`|stack:`" in lines and "`|integrations:`" in lines
+    assert "\u2014" not in text
 
 
 def test_a_changed_package_is_validated_again():
@@ -1331,7 +1647,7 @@ def test_section_3_tells_a_fix_from_the_file_hash():
                    "taken as changed, not hashed, when no `{hashContentProbeOrder}` path exists (run the skill-check "
                    "call alone) or a `hash` call prints no `content_hash`"):
         assert needle in three, needle
-    s15 = _slice(three, "**Post-fix provenance drift guard (S15):**", "\n")
+    s15 = _slice(three, "**Post-fix provenance drift guard:**", "\n")
     assert "When SKILL.md changed across the `--fix` call" in s15 and "Emit one **WARNING** finding" in s15
     tail = "after step 7 wrote it: metadata.json hashes and provenance may be out of date"
     assert f'`"skill-check --fix modified SKILL.md {tail}"`' in s15
@@ -1347,8 +1663,8 @@ def test_section_3_tells_a_fix_from_the_file_hash():
 
 
 def _compose_branch() -> str:
-    two = _sections(_body(_read(DETECT)))["2"]
-    return two[:two.index("**If not compose_mode:**")]
+    """Step 5's compose-mode sequence, which compose-pairs.md holds (#1151)."""
+    return _body(_read(COMPOSE_PAIRS))
 
 
 def test_compose_candidates_are_judged_on_their_evidence():
@@ -1364,12 +1680,8 @@ def test_compose_candidates_are_judged_on_their_evidence():
     (empty,) = [line for line in branch.splitlines() if 'code: "comention-no-candidates"' in line]
     assert "{list_only_pair_count}" in empty, "the no-candidates warning does not give the list-only count"
     for stale in ("qualify automatically", "detected-integration-pair set", "same `language` field"):
-        assert stale not in _read(DETECT), stale
-    assert "the candidates §2 kept qualify" in _sections(_body(_read(DETECT)))["3"]
-    mapping = _h2_section(_read(COMPOSE_RULES), "## Architecture Integration Mapping")
-    for stale in ("A **co-mention** is detected when", "Complementary domain roles"):
-        assert stale not in mapping, stale
-    assert "`unit_excerpt`" in mapping
+        assert stale not in _read(DETECT) + _read(COMPOSE_PAIRS), stale
+    assert "the pairs `references/compose-pairs.md` wrote qualify" in _sections(_body(_read(DETECT)))["3"]
 
 
 def test_the_comention_call_runs_as_written(tmp_path):
@@ -1389,7 +1701,7 @@ def test_the_comention_call_runs_as_written(tmp_path):
     out = json.loads(result.stdout)
     pairs = {(p["a"], p["b"]): p for p in out["pairs"]}
     # prisma is only listed in the Tech Stack list and the Components table: its
-    # three pairs are counted, never emitted, so §2 item 4 records one warning.
+    # three pairs are counted, never emitted, so §1 item 4 records one warning.
     assert set(pairs) == {("express", "react"), ("express", "zod"), ("react", "zod")}
     assert out["list_only_pair_count"] == 3
     confirmed = pairs[("express", "zod")]
@@ -1407,11 +1719,6 @@ def test_the_comention_guards_are_fields_the_step_weighs(tmp_path):
     for needle in ("`excluded_section`", "`paragraph_count`", 'code: "comention-no-candidates"',
                    "`excluded_section` entry whose excerpt only names both confirms nothing"):
         assert needle in branch, needle
-    precision = _h2_section(_read(COMPOSE_RULES), "## Compose-mode Co-mention Precision")
-    for stale in ("Section filtering", "Two-paragraph minimum", "are excluded", "A single paragraph can be coincidental"):
-        assert stale not in precision, stale
-    for field in ("**`excluded_section`.**", "**`paragraph_count`.**", "weighs instead of filtering"):
-        assert field in precision, field
     call = _call(branch, "comentionHelper", "comention")
     doc = tmp_path / "architecture.md"
     doc.write_bytes(b"# Shop\n\n## Overview\n\nThe React client calls the Express API for every page.\n")
@@ -1463,9 +1770,6 @@ def test_no_document_pairs_come_from_docs_or_keywords(tmp_path):
     kinds = {(p["a"], p["b"]): [e["kind"] for e in p["evidence"]] for p in out["pairs"]}
     assert kinds == {("express", "passport"): ["docs-mention"], ("axios", "express"): ["shared-keywords"]}
     assert out["language_only_pair_count"] == 4  # the typescript pairs with no evidence
-    rules = _h2_section(_read(COMPOSE_RULES), "## Inferred Integrations (No Architecture Document)")
-    assert "never on a shared language alone" in rules
-    assert "Infer potential integrations from skills sharing the same `language` field" not in rules
 
 
 def _infer_bullet(kind: str) -> str:
@@ -1481,12 +1785,11 @@ def test_shared_keyword_candidates_are_judged(tmp_path):
     """
     shared = _infer_bullet("shared-keywords")
     for needle in ("Keep the pair as an `inferred-shared-domain` integration only when",
-                   "both skills' descriptions and exports show how that domain makes them work together",
+                   "both skills' `description_keywords`, `usage_patterns` and `exports` in `{bundleFile}` show how that "
+                   "domain makes them work together",
                    "never for two libraries that do the same job"):
         assert needle in shared, needle
     assert "Keep the pair as a `constituent-documented-contract` integration only when" in _infer_bullet("docs-mention")
-    assert "finds and judges these pairs" in _h2_section(_read(COMPOSE_RULES),
-                                                          "## Inferred Integrations (No Architecture Document)")
     call = _call(_compose_branch(), "comentionHelper", "infer")
     skills = [{"name": name, "keywords": keywords, "language": "typescript", "docs": []}
               for name, keywords in (("zod", ["validation", "schema"]), ("yup", ["validation", "schema"]),
@@ -1518,8 +1821,8 @@ WARNING_ENTRY_RE = re.compile(r"\(([^()]*`code: \"[a-z-]+\"`[^()]*)\)")
 
 
 def test_every_step_5_warning_names_its_step_and_severity():
-    """SKILL.md's workflow_warnings[] shape: {step, severity, code, message}."""
-    entries = WARNING_ENTRY_RE.findall(_body(_read(DETECT)))
+    """SKILL.md's workflow_warnings[] shape: {step, severity, code, message}, in both of step 5's files."""
+    entries = WARNING_ENTRY_RE.findall(_body(_read(DETECT)) + _body(_read(COMPOSE_PAIRS)))
     assert len(entries) >= 7, entries
     for entry in entries:
         assert '`step: "step-05"`' in entry and re.search(r'`severity: "(info|warn|error)"`', entry), entry
@@ -1546,7 +1849,7 @@ def _fill_evidence(vs_pair: str | None) -> str:
     filled = (block.replace("{Skill A name}", "liba").replace("{Skill B name}", "libb")
               .replace("{exported_function_signature}", "connect(url: str) -> Client")
               .replace("{unit_excerpt}", "liba feeds libb").replace("{unit_line}", "12")
-              .replace("{pattern type from integration-patterns.md}", "data-flow")
+              .replace("{the pair's type, assigned in step 5 §3 from {integrationPatternsPath}}", "data-flow")
               .replace("{pair tier}", "T1-low").replace("{qualifier}", "architecture-co-mention"))
     if vs_pair is None:
         return filled
@@ -1573,30 +1876,102 @@ def test_a_vs_rated_pair_keeps_the_label_the_validator_reads():
     assert "[VS:" not in _fill_evidence(None)
 
 
-def test_the_compose_evidence_reaches_the_package():
+def test_the_compose_evidence_reaches_the_package(run_dir, tmp_path):
     """Step 5b run 2 architecture-1: step 5 keeps each compose pair's evidence and VS verdicts in its bundle
     entry, step 6 renders the pair from them in the fixed-path evidence format, and step 7 carries them into
     the pair file, so neither a [VS: Blocked] flag nor the [from skill: ...] lines dead-end at step 5."""
-    detect = _read(DETECT)
-    assert "§4 keeps them in the pair's bundle entry" in _sections(_body(detect))["2"]
-    four = _sections(_body(detect))["4"]
-    compose = four[four.index("In compose mode each entry also holds"):]
-    for field in ('`"evidence": ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"]`',
-                  '`"reference": "<its Architecture reference, Contract reference or Shared domain line>"`',
-                  '`"vs": {"pair": "<verdict>", "overall": "<overallVerdict>"}`',
-                  "`null` when no usable [VS] report rated the pair", "code mode leaves the three out"):
-        assert field in compose, field
+    pairs = _sections(_body(_read(COMPOSE_PAIRS)))
+    assert "§3 writes them to the pair's bundle entry" in pairs["1"]
+    entry = json.loads(_first_fence(pairs["3"]))
+    assert entry["evidence"] == ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"]
+    assert entry["reference"] == "<its Architecture reference, Contract reference or Shared domain line>"
+    assert entry["vs"] == {"pair": "<verdict>", "overall": "<overallVerdict>"}
+    assert "`vs` is `null` when no usable [VS] report rated the pair" in pairs["3"]
+    # Step 5 §4 completes the entry compose-pairs.md wrote and keeps its evidence (#1151).
+    four = _sections(_body(_read(DETECT)))["4"]
+    assert ("In compose mode each entry keeps the `evidence`, `reference` and `vs` `references/compose-pairs.md` "
+            "wrote; code mode leaves the three out.") in four
     compile_ = _read(COMPILE)
     assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(compile_)
     three = _sections(_body(compile_))["3"]
-    (branch,) = [line for line in three.splitlines() if line.startswith("- **In compose mode**")]
-    for needle in ("evidence format of `{composeModeRulesPath}`", "`evidence`, `reference`, `tier` and `qualifier`",
-                   "the entry's `vs` is set", "a compose pair has no key files"):
-        assert needle in branch, needle
+    (goal,) = [p for p in three.split("\n\n") if p.startswith("Otherwise fill the template's Integration Patterns")]
+    for needle in ("evidence format of `{composeModeRulesPath}`",
+                   "`type`, `evidence`, `reference`, `tier` and `qualifier`", "the entry's `vs` is set",
+                   "a compose pair has no key files"):
+        assert needle in goal, needle
     pair_file = _sections(_body(_read(GENERATE)))["4"]
-    for needle in ("In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` "
-                   "lines", "when its `vs` is set"):
+    for needle in ("in compose mode the entry's `evidence` and `reference` lines", "when its `vs` is set",
+                   "(in compose mode its `description`, citing the Key Files lines without repeating them)"):
         assert needle in pair_file, needle
+    # #1156: §3's compose call writes them into the pair file, its label keeping the marker test-skill reads.
+    call = _mode_calls(_sections(_body(_read(GENERATE)))["3"], "references")["compose"]
+    staging = tmp_path / "demo-stack.skf-tmp"
+    _run_call(call, dict(_step_7_run(run_dir, "compose"), **{"{skill_staging}": str(staging)}))
+    written = (staging / "references" / "integrations" / "liba-libb.md").read_text(encoding="utf-8")
+    assert "**Confidence:** T2 (architecture-co-mention) [composed] [VS: Blocked]\n" in written
+    for line in ("- [from skill: liba] connect(url: str) -> Client", "- [from skill: libb] serve(app)",
+                 '- **Architecture reference:** "libb serves what liba connects" (architecture doc line 4)',
+                 "- VS overall: CONDITIONALLY_FEASIBLE", "- VS pair: Blocked"):
+        assert f"\n{line}\n" in written, line
+
+
+# --- #1156: step 7 §3 writes the reference files, step 6 §6 the index rows, from the helper ---
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_step_7_writes_the_reference_files_with_the_helper(mode, run_dir, tmp_path):
+    """§3 resolves the stack helper, and one call of the run's mode writes each library and pair file but the marker
+    lines §3 and §4 fill; the files land in the staging folder §1 made, under `references/`."""
+    sections = _sections(_body(_read(GENERATE)))
+    three, four = sections["3"], sections["4"]
+    assert three.index("{renderStackMetadataProbeOrder}") < three.index("uv run {renderStackMetadataHelper}")
+    assert "Resolve `{renderStackMetadataHelper}`" not in sections["6"] and "the helper §3 resolved" in sections["6"]
+    call = _mode_calls(three, "references")[mode]
+    assert '--out "{skill_staging}/references"' in call and ('--pairs "{pairsFile}"' in call) == (mode == "code")
+    staging = tmp_path / "demo-stack.skf-tmp"
+    out = _run_call(call, dict(_step_7_run(run_dir, mode), **{"{skill_staging}": str(staging)}))
+    assert out["written"] == [
+        {"path": "liba.md", "placeholders": ["usage-patterns", "common-imports"]},
+        {"path": "libb.md", "placeholders": ["usage-patterns", "common-imports"]},
+        {"path": "integrations/liba-libb.md", "placeholders": ["integration-pattern", "usage-convention"]}]
+    for where, slots in ((three, ("usage-patterns", "common-imports")),
+                         (four, ("integration-pattern", "usage-convention"))):
+        for slot in slots:
+            assert f"`<!-- skf:fill {slot} -->`" in where, slot
+    liba = (staging / "references" / "liba.md").read_text(encoding="utf-8")
+    if mode == "code":
+        # Every record of the library, and the Deep finding the bundle kept (#1155).
+        assert "- `connect()` *function* (libs/liba/api.py:6)" in liba and "`Client()` *class*" in liba
+        assert f"## Migration & Deprecation\n\n- {T2_FUTURE_ITEM}\n" in liba
+        pair = (staging / "references" / "integrations" / "liba-libb.md").read_text(encoding="utf-8")
+        assert "**Co-import files:** 2\n" in pair, "the pair helper's count, the pair matched in either order"
+    else:
+        assert "**Export count:** 2 exports" in liba and "- `connect(url: str) -> Client` [from skill: liba]" in liba
+        assert "## Migration & Deprecation" not in liba
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_step_6_takes_the_index_rows_from_the_helper(mode, run_dir):
+    """§6 runs the helper without `--out`, before the package exists, and writes its header and each row in the
+    form §4's placement picks; the rows follow §1's library order."""
+    sections = _sections(_body(_read(COMPILE)))
+    six = sections["6"]
+    call = _mode_calls(six, "references")[mode]
+    assert "--out" not in call and "--pairs" not in call, "step 6 writes no file and needs no pair counts"
+    for needle in ("`index.header`", "`index.rows[]`", "`inline`", "`catalog`"):
+        assert needle in six, needle
+    values = _step_7_run(run_dir, mode)
+    before = sorted(path.name for path in run_dir.iterdir())
+    out = _run_call(call, values)
+    assert out["written"] == [] and sorted(path.name for path in run_dir.iterdir()) == before
+    order = _run_call(_call(sections["1"], "renderStackMetadataHelper", "metadata"), values)["library_order"]
+    assert [row["library"] for row in out["index"]["rows"]] == order
+    (liba,) = [row for row in out["index"]["rows"] if row["library"] == "liba"]
+    assert liba["inline"].endswith("| [ref](references/liba.md) |") and liba["catalog"].endswith("| [ref](liba.md) |")
+    assert out["index"]["header"][0].split("|")[2].strip() == ("Imports" if mode == "code" else "Export Count")
+    # A dropped library or pair changes the rows: the feedback rerun takes them again.
+    (feedback,) = [line for line in _read(COMPILE).splitlines() if line.startswith("- IF Any other:")]
+    assert "run §6's call again and rewrite the index from its rows" in feedback
 
 
 # --- #590: the [VS] report is located and read through the helper -----------------
@@ -1639,7 +2014,7 @@ def test_the_vs_report_is_located_through_the_helper(tmp_path):
     branch = _compose_branch()
     call = _call(branch, "validateFeasibilityReportHelper")
     assert "--locate" in call and '--project-name "{project_name}"' in call, call
-    for path in (DETECT, COMPOSE_RULES):
+    for path in (COMPOSE_PAIRS, DETECT, COMPOSE_RULES):
         assert "feasibility-report-{project_slug}" not in _read(path), f"{path.name} still builds the file name"
     for needle in ("`schemaVersionOk`", "schema-version-mismatch", "`unknownTokens`", "vs-report-unusable",
                    "`pairVerdicts`", 'status: "not-found"'):
@@ -1708,6 +2083,7 @@ def test_the_stack_version_comes_from_the_inventory_helper():
     (rule,) = [line for line in one.splitlines() if line.startswith("Narrate the version")]
     fix, default = rule.split("Start a new release line at `1.0.0` only when", 1)
     assert "`BAD_INPUT` or `USAGE`" in fix and "run it again" in fix
+    assert "in code mode the bundle field its `error` names" in fix, "the code-mode call reads the bundle as written"
     assert "`NOT_A_VERSION`" in default and "`USAGE`" not in default and "`NOT_INCREASING`" not in default
 
 
@@ -1724,14 +2100,25 @@ def _version_call(command: str) -> str:
     return calls[0]
 
 
-def test_the_primary_version_call_runs_as_written():
-    argv = _argv(_version_call("primary"), "skillInventoryHelper", {})
-    candidates = [{"name": "react", "import_count": 12, "version": "^18.2.0"},
-                  {"name": "express", "import_count": 12, "version": None},
-                  {"name": "zod", "import_count": 3, "version": "3.22.4+build.7"}]
-    out = _inventory(argv, json.dumps(candidates))
+def test_the_primary_version_call_runs_as_written(tmp_path):
+    """#1154 determinism-8: the helper reads each library's file_count and version from the bundle file."""
+    call = _version_call("primary")
+    assert '--bundle "{bundleFile}"' in call
+    (bullet,) = [line for line in _one().splitlines() if line.startswith("- **Code mode:**")]
+    assert "`file_count`" in bullet and "pipe" not in bullet and '"import_count"' not in bullet
+    run_dir = tmp_path / "run dir"
+    run_dir.mkdir()
+    bundle = run_dir / "extraction-bundle.json"
+    entries = [{"library": "react", "file_count": 12, "version": "^18.2.0", "confidence": "T1"},
+               {"library": "express", "file_count": 12, "version": None, "confidence": "T1-low"},
+               {"library": "zod", "file_count": 3, "version": "3.22.4+build.7", "confidence": "T1"}]
+    bundle.write_text(json.dumps({"mode": "code", "per_library_extractions": entries}), encoding="utf-8")
+    fill = _argv if sys.platform == "win32" else _shell_filled
+    argv = fill(call, "skillInventoryHelper", {"{bundleFile}": str(bundle)})
+    out = _inventory(argv)
     assert (out["primary"], out["version"], out["reason"]) == ("react", "18.2.0", "tie-usable-version")
-    assert _inventory(argv, "[]")["version"] == "1.0.0"
+    bundle.write_text(json.dumps({"mode": "code", "per_library_extractions": []}), encoding="utf-8")
+    assert _inventory(argv)["version"] == "1.0.0"
 
 
 def test_the_compose_bump_call_runs_as_written():
@@ -1768,26 +2155,57 @@ def test_a_list_with_spaces_survives_the_bump_call():
     assert "unexpected argument" in refused["error"]
 
 
-def test_the_snippet_is_measured_with_the_count_helper(tmp_path):
-    """#591: the snippet budget reads the count step 8's validator takes, from a script, not an estimate."""
+def _snippet_call(mode: str) -> tuple[str, str]:
+    """§5's snippet call of `mode`, and the file the call's redirect pipes to its stdin."""
+    call = _mode_calls(_sections(_body(_read(GENERATE)))["5"], "snippet")[mode]
+    command, redirect = call.split(" < ", 1)
+    return command, shlex.split(redirect)[0]
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_the_snippet_is_written_and_trimmed_by_the_helper(mode, run_dir, tmp_path):
+    """#591, #1157: §5 writes only the gotchas text, to a file no shell reads, and the stack helper builds and trims
+    the snippet; `{token_estimate}` is its `tokens`, the count step 8's validator and skf-count-tokens.py take."""
     text = _read(GENERATE)
-    assert _probe_script(text, "countTokens") == COUNT_TOKENS
+    assert "countTokens" not in _frontmatter(text) and "{countTokensHelper}" not in text
     five = _sections(_body(text))["5"]
-    assert "ceil(" not in five and "character count" not in five
-    assert "`{token_estimate}` exceeds **120**" in five and "snippet-unmeasured" in five
-    call = _call(five, "countTokensHelper")
+    assert "`{run_dir}/snippet-gotchas.txt` with a file write, never an `echo`" in five
+    for token in ("the helper §3 resolved", "Bind `{token_estimate}` \u2190 its `tokens`", "its `over_budget` is true",
+                  '`code: "snippet-over-budget"`', '`code: "snippet-unmeasured"`', "untrimmed",
+                  "invoke the rollback contract from §1"):
+        assert token in five, token
+    assert "ceil(" not in five and "measure again" not in five and "...+{N} more" not in five
+    assert "`{token_estimate}`" in _sections(_body(text))["11"]
+    command, stdin_path = _snippet_call(mode)
+    assert "--gotchas - --budget 120" in command and '--target "{skill_staging}/context-snippet.md"' in command
+    assert ('--pairs "{pairsFile}"' in command) == (mode == "code")
+    assert stdin_path == "{run_dir}/snippet-gotchas.txt"
     staging = tmp_path / "demo-stack.skf-tmp"
-    staging.mkdir()
-    snippet = ("[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: demo-stack: read SKILL.md first.\n"
-               "|stack: react@18.2.0, express@4.19.2\n|integrations: react+express\n")
-    (staging / "context-snippet.md").write_bytes(snippet.encode("utf-8"))
-    argv = _argv(call, "countTokensHelper", {"{skill_staging}": str(staging)})
-    result = subprocess.run([sys.executable, str(COUNT_TOKENS), *argv], capture_output=True, text=True)
+    values = dict(_step_7_run(run_dir, mode), **{"{skill_staging}": str(staging), "{stack_name}": "demo-stack",
+                                                "{version}": "1.0.0"})
+    gotchas = Path(stdin_path.replace("{run_dir}", str(run_dir)))
+    gotchas.write_bytes(b"call `connect()` before $(serve)\n")
+    with open(gotchas, "rb") as stdin:
+        result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(command, values)], stdin=stdin,
+                                capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    (row,) = [row for row in json.loads(result.stdout)["files"] if row["path"] == "context-snippet.md"]
-    assert row["tokens"] == len(snippet) // 4
-    # Step 8's validator takes the same count of the same file.
+    out = json.loads(result.stdout)
+    assert (out["trims_applied"], out["over_budget"]) == ([], False)
+    snippet = (staging / "context-snippet.md").read_bytes().decode("utf-8")
+    lines = snippet.splitlines()
+    assert lines[0] == "[demo-stack v1.0.0]|root: skills/demo-stack/" and lines[1].startswith("|IMPORTANT: demo-stack ")
+    assert lines[2:] == ["|stack: liba@2.1.0, libb@1.0.0", "|integrations: liba+libb",
+                         "|gotchas: call `connect()` before $(serve)"]
+    # Step 8's validator takes the same count of the same file, and finds the lines it checks.
+    assert out["tokens"] == len(snippet) // 4
     assert "approx_tokens = len(content) // 4" in VALIDATOR.read_text(encoding="utf-8")
+    counted = subprocess.run([sys.executable, str(COUNT_TOKENS), str(staging)], capture_output=True, text=True)
+    assert counted.returncode == 0, counted.stderr
+    (row,) = [row for row in json.loads(counted.stdout)["files"] if row["path"] == "context-snippet.md"]
+    assert row["tokens"] == out["tokens"]
+    validator = _load(VALIDATOR, "skf_validate_output_snippet_lines")
+    assert [i for i in validator.validate_context_snippet(snippet) if i["field"] != "length"] == []
+    assert validator.validate_stack_snippet_lines(snippet) == []
 
 
 # --- #538: compose-mode export names checked before the commit --------------------
@@ -1809,9 +2227,13 @@ def test_compose_export_names_are_checked_before_the_commit():
     names = _names_check()
     call = _call(names, "namesPresentHelper")
     assert "--provenance {forge_version}/provenance-map.json" in call and "--skill-dir {skill_staging}" in call, call
-    for needle in ("`absent[]`", "`--drop-absent`", "`{headless_mode}`", "compose-export-name-renamed",
+    for needle in ("`absent[]`", "`--drop-absent`", "compose-export-name-renamed",
                    "compose-export-name-dropped", "`workflow_warnings[]`"):
         assert needle in names, needle
+    # #1155: every run renames, then drops what is still absent, so a headless compose run (the campaign
+    # capstone's) keeps the entries an interactive run keeps; the warnings record each rename and drop.
+    for gate_word in ("{headless_mode}", "headless", "interactive", "in both modes"):
+        assert gate_word not in names, f"the rename still depends on the run mode ({gate_word})"
     # A rename edits the entries file and runs the §7 helper again, which copies each metadata_hash:
     # the model never writes the map, so the schema's only-copier claim holds (step 5b review).
     assert "in `{composeEntriesFile}`" in names and "§7 compose-mode `provenance` call again" in names
@@ -1848,7 +2270,7 @@ def test_the_names_check_calls_run_as_written(tmp_path):
     code, out = run()
     assert code == 1
     assert [(a["entry_index"], a["export_name"]) for a in out["absent"]] == [(1, "client factory"), (2, "toStream")]
-    # An interactive run renames the label to the identifier SKILL.md writes;
+    # Every run, a headless one too, renames the label to the identifier SKILL.md writes;
     # the --drop-absent run then drops what is still absent.
     entries[1]["export_name"] = "createClient"
     provenance.write_text(json.dumps({"skill_type": "stack", "entries": entries}), encoding="utf-8")
@@ -2018,9 +2440,9 @@ def test_steps_2_3_and_5_stay_inside_the_scan_root():
     assert count == ('uv run {countImportsHelper} count {scan_root} --deps - --relative-to {project_root}'
                      ' > "{importCountsFile}"')
     sections = _sections(_body(_read(DETECT)))
-    assert "`{importCountsFile}`" in _from(sections["1"], "**If not compose_mode:**")
+    assert "`{importCountsFile}`" in sections["1"]
     # Pair files and CCC hits share the project-root base, so the guard compares paths as they stand.
-    assert "both paths are relative to `{project_root}`" in _from(sections["2"], "**If not compose_mode:**")
+    assert "both paths are relative to `{project_root}`" in sections["2"]
 
 
 def test_the_monorepo_note_points_back_to_step_1():
@@ -2033,9 +2455,9 @@ def test_the_monorepo_note_points_back_to_step_1():
 
 
 def test_compose_candidates_come_from_the_helper():
-    manifests = _read(MANIFESTS)
-    assert _probe_script(manifests, "enumerateStackSkills") == ENUMERATE
-    zero = _sections(_body(manifests))["0"]
+    skills = _read(COMPOSE_SKILLS)
+    assert _probe_script(skills, "enumerateStackSkills") == ENUMERATE
+    zero = _sections(_body(skills))["1"]
     call = _call(zero, "enumerateStackSkillsHelper", "candidates").strip()
     assert call == 'uv run {enumerateStackSkillsHelper} candidates {skills_output_folder} [--explicit "<names>"]'
     for field in ("`{skill_candidates}`", "`manifest_parse_error`", "`not_skf_output`", "`excluded[]`",
@@ -2056,12 +2478,12 @@ def test_compose_candidates_come_from_the_helper():
     assert ".export-manifest.json" not in three, "step 1 still reads the export manifest by hand"
     assert "**Compose-mode skill names.**" not in three, "step 1 still reduces package paths by hand"
     # A headless run accepts the suggestion, which names only the listed skills when a list is given.
-    headless = _from(three, "**GATE [default: accept]**, headless default (B8):").split("\n\n")[0]
+    headless = _from(three, "**GATE [default: accept]**, headless default:").split("\n\n")[0]
     assert "accept the suggestion" in headless and "With `explicit_deps`, keep code mode" not in headless
 
 
 def test_the_candidates_call_runs_as_written(tmp_path):
-    call = _call(_sections(_body(_read(MANIFESTS)))["0"], "enumerateStackSkillsHelper", "candidates").strip()
+    call = _call(_sections(_body(_read(COMPOSE_SKILLS)))["1"], "enumerateStackSkillsHelper", "candidates").strip()
     skills = tmp_path / "skills"
     for name, skill_type, generator in (("alpha", "single", "create-skill"),
                                         ("app-stack", "stack", "create-stack-skill")):
@@ -2099,25 +2521,39 @@ def test_the_candidates_call_runs_as_written(tmp_path):
 
 def test_step_3_counts_imports_with_the_helper():
     rank = _read(RANK)
-    code = _from(_sections(_body(rank))["1"], "**If not compose_mode:**")
+    code = _sections(_body(rank))["1"]
     found = HAND_COUNT_RE.search(code)
     assert found is None, f"step 3 still counts by hand: {found.group(0)!r}"
     for stale in ("{manifestPatternsPath}", "Exclude from counting", "Use subprocess Pattern 1"):
         assert stale not in rank, stale
-    assert "`{importCountsFile}`" in code and "`unresolved[]`" in code and '"modules"' in code
-    # The rerun for a known import name must not replace the counts file.
-    assert "without the `>` redirect" in _from(code, "**Unresolved names.**")
+    assert "`{importCountsFile}`" in code and "`unresolved[]`" in code
     assert (3, "helper-missing", "rank-and-confirm:count") in _halts(code), "a missing import counter halts with no code"
     assert (3, "helper-missing", "init:mode") in _halts(_sections(_body(_read(INIT)))["3"])
     exit_codes = _slice(_read(CONTRACT), "## Exit Codes", "## Result Contract")
     (row,) = [line for line in exit_codes.splitlines() if line.startswith("| 3 ")]
-    assert "`skf-count-imports.py` (step 3 §1)" in row
+    assert "`skf-count-imports.py` (step 3 §1, `references/compose-scope.md` §1)" in row
     unresolved = _from(code, "**Unresolved names.**").split("\n\n")[0]
     assert "a guessed import name that matched no file, no import name, or an ecosystem with no import rules" \
         in unresolved
-    assert "drop the entry from `unresolved[]`" in unresolved and "keep `dependencies[]` sorted" in unresolved
+    # #1153 determinism-5: a known import name reruns the same count, whose output is the counts file; the
+    # model never splices an entry into it.
+    for token in ("run the command above again, unchanged, redirect included",
+                  "adding one `--module <name>=<import name>` per such entry (`--module acme-client=acme`)",
+                  "the helper counts and ranks it with the others",
+                  "§2 leaves every other unresolved entry out with its `reason`",
+                  # The redirect empties the counts before the helper runs, so a refused `--module` is rerun.
+                  "A later rerun keeps every `--module` an earlier one passed.",
+                  "on a non-zero exit fix or drop the `--module` its error names and run the command again before "
+                  "§2"):
+        assert token in unresolved, token
+    for stale in ("write the file back", "without the `>` redirect", "drop the entry from `unresolved[]`",
+                  "keep `dependencies[]` sorted", '"modules"'):
+        assert stale not in rank, stale
     two = _sections(_body(rank))["2"]
-    assert "`above_threshold`" in two and "dev-only" in two
+    # #1153 determinism-9: the scope, its reasons and the unknown overrides come from the helper.
+    assert _call(two, "countImportsHelper", "scope").endswith('> "{scopeFile}"')
+    for stale in ("**Include by default:**", "**Below threshold:**", "**Apply scope_overrides**", "Apply filtering"):
+        assert stale not in two, stale
     assert 'scope: "dev"' in _sections(_body(rank))["3"], "the Category column does not follow scope"
     gate = [line for line in _sections(_body(rank))["3"].splitlines() if line.startswith("- **GATE")]
     assert len(gate) == 1 and "the recommended libraries in code mode" in gate[0]
@@ -2133,7 +2569,7 @@ def test_step_2_shows_what_the_scanner_searched():
 
 def test_step_5_takes_co_imports_from_step_3s_counts():
     text = _read(DETECT)
-    code = _from(_sections(_body(text))["2"], "**If not compose_mode:**")
+    code = _sections(_body(text))["2"]
     found = HAND_COUNT_RE.search(code)
     assert found is None, f"step 5 still finds co-imports by hand: {found.group(0)!r}"
     for needle in ("`intersection_count` 2 or more", "`line_a`", "`line_b`",
@@ -2141,7 +2577,7 @@ def test_step_5_takes_co_imports_from_step_3s_counts():
         assert needle in code, needle
     # Step 5 types no co-import file: step 7's helper copies them from the saved pairs (determinism-2).
     assert "`co_import_files` ←" not in text
-    guard = _from(code, "**CCC precision guard (H3):**").split("\n\n")[0]
+    guard = _from(code, "**CCC precision guard:**").split("\n\n")[0]
     assert "keep a CCC-surfaced file only when the pair's `files[]` lists it" in guard
     # A file that imports both libraries is already a pair file: CCC never raises a count.
     assert "CCC never changes which pairs qualify" in code
@@ -2242,6 +2678,10 @@ def test_blanket_rule_pattern_matches_a_no_write_rule(rule):
     "npx skill-check check <skill-dir> --fix --format json --no-security-scan",
     "npx skill-check split-body <skill-dir> --write",
     "mkdir -p {forge_version}",
+    'uv run {renderStackMetadataHelper} evidence-report --bundle "{bundleFile}" --run-dir "{run_dir}" '
+    '--provenance "{forge_version}/provenance-map.json" --target "{forge_version}/evidence-report.md"',
+    'uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}" '
+    '--out "{skill_staging}/references"',
 ])
 def test_write_pattern_matches_a_write(line):
     assert WRITE_OP_RE.search(line)
@@ -2251,6 +2691,7 @@ def test_write_pattern_matches_a_write(line):
     "uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check",
     "npx skill-check check <skill-dir> --format json",
     "timeout 10s npx --no-install skill-check -h",
+    'uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}"',
 ])
 def test_write_pattern_skips_a_read(line):
     assert not WRITE_OP_RE.search(line)
@@ -2266,12 +2707,13 @@ def test_in_file_anchor_links_name_a_heading(path):
 
 # --- #593 (create-stack part): every halt through the emitter, helper-missing ------
 
-# The halts a missing shared helper raises, by phase (generate-output §6's goes
+# The halts a missing shared helper raises, by phase (generate-output §3's goes
 # through the rollback contract and is checked on its own).
 HELPER_MISSING_PHASES = {
-    "init:emitter", "init:stack-name", "init:mode", "detect-manifests:enumerate", "detect-manifests:scan",
-    "rank-and-confirm:count", "parallel-extract:enumerate", "parallel-extract:library-tiers",
-    "detect-integrations:pair-intersect", "detect-integrations:comention", "detect-integrations:pair-tiers",
+    "init:emitter", "init:stack-name", "init:mode", "init:run-state", "compose-skills:enumerate",
+    "detect-manifests:scan",
+    "rank-and-confirm:count", "compose-scope:scope", "compose-extract:enumerate", "parallel-extract:library-tiers",
+    "detect-integrations:pair-intersect", "compose-pairs:comention", "detect-integrations:pair-tiers",
     "compile-stack:stats", "generate-output:atomic-writer",
 }
 HALT_COMMAND = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" '
@@ -2323,8 +2765,8 @@ def test_every_halt_reason_is_raised_and_listed():
 def test_a_missing_helper_halts_helper_missing():
     phases = {phase for halts in _step_halts().values() for _, reason, phase in halts if reason == "helper-missing"}
     assert phases == HELPER_MISSING_PHASES
-    six = _sections(_body(_read(GENERATE)))["6"]
-    assert 'with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata`' in six
+    three = _sections(_body(_read(GENERATE)))["3"]
+    assert 'with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:references`' in three
     (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
     for helper in ("skf-emit-result-envelope.py", "skf-validate-frontmatter.py", "skf-scan-manifests.py",
                    "skf-enumerate-stack-skills.py", "skf-count-imports.py", "skf-render-stack-metadata.py",
@@ -2344,16 +2786,16 @@ def test_a_missing_helper_halts_helper_missing():
 
 def test_the_compose_branch_has_no_prose_fallback():
     """#599: a helper that halts when missing has no hand-run equivalent."""
-    text = _read(DETECT)
+    text = _read(DETECT) + _read(COMPOSE_PAIRS)
     assert "Graceful degradation" not in text and "perform the equivalent scan directly" not in text
     compose = _compose_branch()
-    assert compose.index("phase `detect-integrations:comention`") < compose.index("uv run {comentionHelper}")
+    assert compose.index("phase `compose-pairs:comention`") < compose.index("uv run {comentionHelper}")
     assert "when no candidate resolves or `uv` cannot run it" not in compose
 
 
 def test_an_unknown_verdict_token_halts_with_exit_2():
     (bullet,) = [line for line in _compose_branch().splitlines() if line.startswith("- **`unknownTokens`")]
-    assert _halts(bullet) == [(2, "unknown-verdict-token", "detect-integrations:vs-report")]
+    assert _halts(bullet) == [(2, "unknown-verdict-token", "compose-pairs:vs-report")]
 
 
 @pytest.mark.parametrize("path", [p for p in STEP_FILES if p != CONTRACT], ids=lambda p: p.name)
@@ -2437,13 +2879,21 @@ def test_every_headless_gate_records_its_decision(gate, tmp_path):
     assert RECORD_DECISION in _read(GATES[gate])
 
 
-def test_the_scope_gate_records_the_libraries_it_drops():
+def test_the_scope_gate_records_the_libraries_it_drops(run_dir, tmp_path):
     evidence = _decision("rank-and-confirm.scope")["evidence"]
-    assert set(evidence) == {"scope", "dropped"} and set(evidence["dropped"][0]) == {"library", "reason"}
+    assert set(evidence) == {"scope", "dropped", "prior_kept"} and set(evidence["dropped"][0]) == {"library", "reason"}
+    assert isinstance(evidence["prior_kept"], list), "#1152: one stable shape, [] when nothing was kept"
     (gate,) = [line for line in _sections(_body(_read(RANK)))["3"].splitlines() if line.startswith("- **GATE")]
     assert "names each library the default left out" in gate
     report = _sections(_body(_read(GENERATE)))["8b"]
     assert "`{run_dir}/headless-decisions.jsonl`" in report and "dropped libraries" in report
+    assert "`prior_kept`" in report
+    # #1156: §8b's call reads the decision the gate recorded and lists the libraries it dropped and kept.
+    out, written = _evidence_report(run_dir, tmp_path, "code")
+    assert out["decision_count"] == 1
+    assert "; dropped: lodash (dev only); prior_kept: libd\n" in written
+    described = _schema()["properties"]["headless_decisions"]["items"]["properties"]["evidence"]["description"]
+    assert "prior_kept" in described and "'in v<version>: '" in described
 
 
 def test_the_scope_is_confirmed_at_one_gate():
@@ -2454,8 +2904,13 @@ def test_the_scope_is_confirmed_at_one_gate():
     assert rank.count("**Select:**") == 1 and "Please confirm your scope" not in rank
     assert "ask for final confirmation" not in rank
     assert "Set `confirmed_dependencies` ← the recommended scope" in sections["2"]
-    compose = sections["1"][:sections["1"].index("**If not compose_mode:**")]
-    assert "Set `confirmed_dependencies` ←" in compose and "[Confirm the Scope](#3-confirm-the-scope)" in compose
+    # #1151: compose-scope.md sets the compose scope, and §1's guard sends a compose run to the one gate.
+    (guard,) = [line for line in sections["1"].splitlines() if "compose_mode" in line]
+    assert guard.startswith("**If `compose_mode` is true:** `references/compose-scope.md` set `confirmed_dependencies`")
+    assert guard.endswith("Skip to [Confirm the Scope](#3-confirm-the-scope).")
+    scope = _sections(_body(_read(COMPOSE_SCOPE)))["1"]
+    assert scope.rstrip().endswith("Set `confirmed_dependencies` ← `{scopeFile}`'s `scope`.")
+    assert "**Select:**" not in _read(COMPOSE_SCOPE), "compose-scope.md holds a second scope gate"
 
 
 # --- #587 (create-stack part): the run folder holds the run's state ---------------
@@ -2477,28 +2932,36 @@ def test_the_run_folder_is_created_before_anything_can_halt(tmp_path):
     assert (3, "helper-missing", "init:emitter") in _halts(preflight)
     skill = _read(STACK_SKILL)
     assert "no mid-run checkpoint" not in skill and "State lives in memory" not in skill
-    (state,) = [p for p in skill.split("\n\n") if p.startswith("**Single-pass, no resume:**")]
+    assert "Single-pass, no resume" not in skill
+    (state,) = [p for p in skill.split("\n\n") if p.startswith("**Resume only at the review gate:**")]
     assert "`{run_dir}`" in state and state.count(". ") == 0, "the run state is one sentence naming the run folder"
+    assert "re-read from its `run.json`" in state and "unless step 1 resumes an interactive one" in state
+    # `run.json` holds step 1's bindings (and step 2's rebinds), not every binding a later step makes.
+    assert "a step 1 binding lost to compaction" in state
 
 
 def test_the_extraction_bundle_is_written_and_read_from_disk():
     extract = _read(EXTRACT)
     bundle = json.loads(_first_fence(_from(_body(extract), "**Extraction bundle.**")))
-    assert set(bundle) == {"mode", "scope", "per_library_extractions", "failed", "integrations", "hubs",
-                           "cross_cutting"}
+    # #1154: the hubs come from the metadata helper, never a copy stored in the bundle.
+    assert set(bundle) == {"mode", "scope", "per_library_extractions", "failed", "integrations", "cross_cutting"}
+    # The helpers read each library's import count from its entry: the shape shows it.
+    assert "file_count" in bundle["per_library_extractions"][0]
     sections = _sections(_body(extract))
-    assert "Write `{bundleFile}`: `mode`, `scope` and these entries" in sections["0"]
     assert "write `{bundleFile}`: `mode`, `scope`" in sections["3"]
-    # Compose mode keeps each constituent's hash in the bundle, and its usage patterns from its SKILL.md.
-    zero = sections["0"]
-    assert "§1+" not in extract and "fan-out at" not in zero
-    assert "- `usage_patterns`: read from the constituent's `SKILL.md` loaded above" in zero
+    # Compose mode writes each constituent's entry, with what its subagent read, from compose-extract.md (#1151).
+    compose = _read(COMPOSE_EXTRACT)
+    three = _sections(_body(compose))["3"]
+    assert "Write `{bundleFile}`: `mode`, `scope` and these entries" in three
+    assert "§1+" not in compose + extract and "fan-out at" not in compose
+    assert ("- `description_keywords`, `usage_patterns` and `signatures`: what §2 returned for it, each usage pattern "
+            "with the file and line it cites.") in three
     detect_graph = _sections(_body(_read(DETECT)))["4"]
     assert "Write the graph into `{bundleFile}`" in detect_graph
     # The bundle carries no co-import file: they stay in the saved pairs, which step 7's helper reads.
     assert '"co_import_files"' not in detect_graph and "`{pairsFile}`" in detect_graph
-    for key in ("`hubs`", "`cross_cutting`"):
-        assert key in detect_graph, key
+    assert "and `cross_cutting` lists the cross-cutting patterns" in detect_graph
+    assert '"hubs"' not in compose and "`hubs`" not in _slice(detect_graph, "Write the graph", "Then read the hubs")
     # Step 6: the bundle, and in code mode each library's key exports from its records, which the
     # entry no longer holds; a dropped library leaves both files.
     compile_ = _read(COMPILE)
@@ -2530,16 +2993,24 @@ def test_the_draft_is_reviewed_by_path_and_staged_verbatim():
     assert "skill_content" not in _read(GENERATE)
 
 
-def test_the_compile_stats_come_from_the_metadata_helper():
-    """W3 handoff: Libraries, Integration pairs and the tier line come from one helper run."""
+def test_the_compile_stats_come_from_the_metadata_helper(run_dir):
+    """W3 handoff: Libraries, Integration pairs and the tier line come from one helper run, on the bundle file, which
+    also gives §3 its hubs and §4 its library order (#1154)."""
     text = _read(COMPILE)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     sections = _sections(_body(text))
     one = sections["1"]
     call = _call(one, "renderStackMetadataHelper", "metadata")
-    assert call.strip() == "uv run {renderStackMetadataHelper} metadata --input -"
+    assert call.strip() == 'uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"'
     assert (3, "helper-missing", "compile-stack:stats") in _halts(one)
     assert "Bind `{lib_count}` ← its `library_count` and `{integration_count}` ← its `integration_count`" in one
+    assert "`{hubs}` ← its `hubs` for §3 and `{library_order}` ← its `library_order` for §4" in one
+    assert "`hubs`, `cross_cutting`" not in one, "§1 still reads hubs the bundle no longer holds"
+    assert "§1's `{hubs}`" in sections["3"]
+    assert sections["4"].count("§1's `{library_order}`") == 1
+    for stale in ("connectivity", "import count (", "skill confidence tier"):
+        assert stale not in sections["4"], stale
+    assert "its rows in §1's `{library_order}`" in sections["6"], "the index rows follow the summaries' order"
     # The description §2 writes and the stats §7 shows take those bindings; nothing counts by hand.
     assert "with the counts §1 bound" in sections["2"]
     assert "{lib_count} libraries with" in _first_fence(_h2_section(_read(TEMPLATE), "## SKILL.md Section Structure"))
@@ -2549,8 +3020,73 @@ def test_the_compile_stats_come_from_the_metadata_helper():
         assert field in seven, field
     (feedback,) = [line for line in text.splitlines() if line.startswith("- IF Any other:")]
     assert "run the §1 helper call again" in feedback and "rewrite the draft's `description`" in feedback
-    out = _run_stack_metadata(call, _stack_input())
+    # A dropped library or pair can change the hubs and the order, so the rerun rebinds them too.
+    assert "rebinding the counts, `{hubs}` and `{library_order}`" in feedback
+    assert "its Hub Library Connections list and its library order" in feedback
+    out = _run_stack_metadata(call, run_dir=run_dir)
     assert (out["library_count"], out["integration_count"]) == (3, 2)
+    # react pairs with express and zod: no hub (3 partners or more); react first, then the stronger tier.
+    assert (out["hubs"], out["library_order"]) == ([], ["react", "zod", "express"])
+    code = _run_stack_metadata(call, run_dir=run_dir, mode="code")
+    assert code["library_order"] == ["react", "express", "zod"], "code mode breaks a tie by import count"
+
+
+def test_the_hubs_and_the_tier_counts_come_from_the_bundle(run_dir):
+    """#1154 determinism-2 and determinism-8: step 5 §4 reads the hubs, and step 4 §4 the libraries per tier, from a
+    metadata run on the bundle file, so no step counts partners, orders libraries or bins tiers by hand."""
+    detect = _sections(_body(_read(DETECT)))
+    call = _call(detect["4"], "renderStackMetadataHelper", "metadata")
+    assert call.strip() == 'uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"'
+    assert detect["4"].index("Write the graph into `{bundleFile}`") < detect["4"].index(call), \
+        "step 5 reads the hubs before it writes the graph"
+    assert "Its `hubs` lists each hub library and its partners" in detect["4"]
+    assert "each hub library of §4's `hubs` with its partners" in detect["5"]
+    extract_four = _sections(_body(_read(EXTRACT)))["4"]
+    assert _call(extract_four, "renderStackMetadataHelper", "metadata") == call
+    assert "never by hand" in extract_four and "the call's `confidence_distribution`" in extract_four
+    for path in STEP_FILES:
+        text = _read(path)
+        for stale in ("connected to 3+", "Identify **hub libraries**", "3+ partners", "integration connectivity"):
+            assert stale not in text, (path.name, stale)
+    # Step 4 §4 runs before any pair: each library once, in the bin of its tier.
+    out = _run_stack_metadata(call, run_dir=run_dir, mode="code", with_pairs=False)
+    assert (out["confidence_distribution"], out["hubs"]) == ({"t1": 1, "t1_low": 1, "t2": 1, "t3": 0}, [])
+    # Step 5 §4 runs on the graph it wrote: react pairs with three libraries.
+    bundle = run_dir / "extraction-bundle.json"
+    bundle.write_text(json.dumps({"mode": "code", "per_library_extractions": [
+        {"library": name, "confidence": "T1", "file_count": count}
+        for name, count in (("react", 12), ("express", 9), ("zod", 3), ("axios", 5))],
+        "integrations": [{"a": "react", "b": partner, "type": "adapter", "tier": "T1", "qualifier": "grep-co-import"}
+                         for partner in ("express", "zod", "axios")]}), encoding="utf-8")
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(call, {"{bundleFile}": str(bundle)})],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["hubs"] == [{"library": "react", "partners": ["axios", "express", "zod"]}]
+    assert out["library_order"] == ["react", "express", "axios", "zod"]
+
+
+def test_step_4_writes_the_compose_entries_from_the_helper_skeletons():
+    """#1154 determinism-4: compose-extract §1 asks the enumerate helper for each confirmed skill's bundle entry and
+    halts on a name it no longer finds; §3 writes that entry as it stands and adds only what §2 returned."""
+    sections = _sections(_body(_read(COMPOSE_EXTRACT)))
+    call = _call(sections["1"], "enumerateStackSkillsHelper", "enumerate")
+    assert '--bundle-entries "<names>"' in call
+    assert "`<names>` are the confirmed skills' `skill_dir`s, comma-separated" in sections["1"]
+    halt = _slice(sections["1"], "If `bundle_entries_missing[]` names a confirmed skill", "re-run [SS].")
+    assert "phase `compose-extract:constituent-gone`" in halt
+    shape = json.loads(_first_fence(_from(sections["1"], "Its JSON, in `{stackInventoryFile}`, has the form:")))
+    enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_bundle_entries")
+    [skeleton] = enumerate_.compute_bundle_entries(
+        [{"name": "react", "path": "react", "version": None, "source_authority": None, "exports": [],
+          "exports_source": "unknown", "evidence_tier": "T1-low"}], Path("skills"), ["react"])["bundle_entries"]
+    assert list(shape["bundle_entries"][0]) == list(skeleton), "the documented skeleton is not the helper's"
+    assert "bundle_entries_missing" in shape
+    three = sections["3"]
+    assert len(re.findall(r"^- ", three, re.MULTILINE)) == 1, "§3 maps a field by hand"
+    for gone in ("`library`: ", "`exports`: ", "`exports_source`: ", "from step 2's entry"):
+        assert gone not in three, gone
+    assert "No `metadata_hash`" in three
 
 
 def test_working_files_go_after_commit_and_the_folder_after_the_envelope():
@@ -2689,7 +3225,7 @@ def test_contract_settings_are_off_the_override_surface():
         if "{composeModeRulesPath}" in _read(path):
             # Steps 5 and 6 keep the name, each bound to the fixed file in its own frontmatter: no
             # override reaches it, so a team's stack_skill_template_path never drops the compose evidence.
-            assert path in (DETECT, COMPILE), path.name
+            assert path in (COMPOSE_PAIRS, DETECT, COMPILE), path.name
             assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(_read(path))
     assert "## metadata.json Structure" not in _read(TEMPLATE), "the template override still swaps the contract"
     six = _sections(_body(_read(GENERATE)))["6"]
@@ -2766,11 +3302,11 @@ def test_the_integration_patterns_comment_says_what_step_5_does_with_it():
 
 
 def test_the_constituent_hash_anchor_is_stated_once():
-    homes = [path.name for path in sorted(STACK.rglob("*.md")) if "provenance anchor (S13)" in _read(path)]
-    assert homes == ["parallel-extract.md"], homes
+    homes = [path.name for path in sorted(STACK.rglob("*.md")) if "The provenance anchor is the hash" in _read(path)]
+    assert homes == ["compose-extract.md"], homes
     for path in sorted(STACK.rglob("*.md")):
         assert "manifest-detection" not in _read(path), path.name
-    four = [line for line in _sections(_body(_read(MANIFESTS)))["0"].splitlines()
+    four = [line for line in _sections(_body(_read(COMPOSE_SKILLS)))["1"].splitlines()
             if line.startswith("4. **Record the constituent metadata_hash")]
     assert len(four) == 1 and "Step-07" not in four[0] and "step 7" not in four[0]
     assert "never a fresh hash" in _sections(_body(_read(GENERATE)))["7"]
@@ -2781,8 +3317,9 @@ def test_the_lifted_contract_keeps_skill_md_short():
     for heading in ("## Exit Codes", "## Result Contract"):
         assert heading not in skill, heading
     assert "`references/invocation-contract.md`" in _from(skill, "## Invocation Contract")
-    # About 2,000 cl100k tokens today; 10,000 characters stays below the 2,500-token guideline.
-    assert len(skill) < 10_000, len(skill)
+    # #1151: 8,558 characters measured 1,996 cl100k tokens, under the 2,000-token target; the ceiling is that
+    # length rounded up to 50, so a SKILL.md that grows past it is measured again.
+    assert len(skill) < 8_600, len(skill)
     assert "| 1 | Initialize & Mode Detection | references/init.md | Conditional |" in skill
 
 
@@ -2793,8 +3330,9 @@ def test_generate_output_states_each_rule_once():
     assert "#" not in _frontmatter(text), "generate-output's frontmatter still carries comments"
     one = _sections(_body(text))["1"]
     assert one.index("**The atomic writer.**") < one.index("stage-dir --target {skill_package}")
-    assert one.index("**Pre-flight: ownership, phase 1 (S3).**") < one.index("**Stack version.**") \
+    assert one.index("**Prior stack.**") < one.index("**Stack version.**") \
         < one.index("**Pre-flight: ownership, phase 2.**")
+    assert "phase 1" not in one, "#1152: step 1 runs phase 1"
     assert "the pre-flight below resolves it" not in one and "S11" not in one
     five = _sections(_body(text))["5"]
     assert "|IMPORTANT:" not in five and "context-snippet format of `{stackSkillTemplatePath}`" in five
@@ -2814,20 +3352,33 @@ def test_the_co_import_shape_is_the_pair_helpers():
 
 RECORD_WARNING = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
                   '--warning "$(cat "{run_dir}/warning.txt")"')
+FILE_WRITE = "`{run_dir}/warning.txt` with a file write, never an `echo`"
+# #1150: a stage after step 1 may have lost the emitter's binding, so it names the probe list it resolves from.
+EMITTER_FALLBACK = "resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound"
+EMITTER_PROBES = ("emitEnvelopeProbeOrder:\n"
+                  "  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'\n"
+                  "  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'")
 
 
 def test_a_warning_reaches_the_sink_as_text(tmp_path):
-    """A message can quote backticks, a Mermaid edge or `$( )`: the shell must never run it."""
+    """A message can quote backticks, a Mermaid edge or `$( )`: the shell must never run it. #1150: the stage
+    holds the record command and the file-write rule, and SKILL.md's contract keeps only the shape and the sink."""
+    (warnings,) = [p for p in _body(_read(INIT)).split("\n\n") if p.startswith("**Warnings.**")]
+    assert FILE_WRITE in warnings
+    (record,) = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]+)`", warnings)
+    assert record == RECORD_WARNING, record
     contract = _h2_section(_read(STACK_SKILL), "## Workflow state contract")
-    assert RECORD_WARNING in _fence_lines(contract)
-    assert "`{run_dir}/warning.txt` with a file write, never an `echo`" in contract
+    assert "warning.txt" not in contract and "```" not in contract and "a shell runs" not in contract
+    for token in ("`{run_dir}/warnings.jsonl`", "step 7 §8b", "step 9 §1 renders it",
+                  "the result envelope carries it"):
+        assert token in contract, token
     if sys.platform == "win32":
         return
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     message = "[step-05/warn] comention-unconfirmed: react + express: `react --> express` $(touch pwned) café"
     (run_dir / "warning.txt").write_bytes(message.encode("utf-8") + b"\n")
-    command = (RECORD_WARNING.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER.as_posix()}"')
+    command = (record.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER.as_posix()}"')
                .replace("{run_dir}", run_dir.as_posix()))
     result = subprocess.run(["sh", "-c", command], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -2839,28 +3390,41 @@ def test_a_warning_reaches_the_sink_as_text(tmp_path):
 
 @pytest.mark.parametrize("path", [p for p in STEP_FILES if p != CONTRACT], ids=lambda p: p.name)
 def test_every_step_that_warns_records_in_the_sink(path):
-    """Each step file shows the record command itself, so a step read on its own still records."""
+    """Each step file shows the record command itself, so a step read on its own still records. #1150: it also
+    states the file write, and after step 1 resolves a lost emitter from its own frontmatter."""
     text = _read(path)
     if "workflow_warnings[]" not in text:
         return
     assert RECORD_WARNING in text, f"{path.name} appends warnings but never shows the record command"
     assert "--warning \"[" not in text, f"{path.name} puts a message inside the shell command"
+    clauses = [line for line in text.splitlines() if RECORD_WARNING in line]
+    for clause in clauses:
+        assert FILE_WRITE in clause, f"{path.name}: a record command with no file-write rule"
+        if path != INIT:
+            assert EMITTER_FALLBACK in clause, f"{path.name}: a record command with no emitter fallback"
+    assert EMITTER_PROBES in _frontmatter(text), f"{path.name} declares no emitEnvelopeProbeOrder"
+    assert "Workflow state contract shows" not in text, f"{path.name} defers the rule to SKILL.md"
 
 
-def test_evidence_report_facts_are_recorded_warnings():
+def test_evidence_report_facts_are_recorded_warnings(run_dir, tmp_path):
     """No step keeps a fact for the evidence report in memory: each is a warning in the sink."""
-    detect, extract = _read(DETECT), _read(EXTRACT)
-    for code, text in (("pair-cap-truncated", detect), ("infer-cap-truncated", detect),
+    detect, extract, pairs = _read(DETECT), _read(EXTRACT), _read(COMPOSE_PAIRS)
+    for code, text in (("pair-cap-truncated", detect), ("infer-cap-truncated", pairs),
                        ("ccc-files-dropped", detect), ("ast-degraded", extract)):
         (entry,) = [e for e in WARNING_ENTRY_RE.findall(text) if f'`code: "{code}"`' in e]
         assert re.search(r'`severity: "(info|warn|error)"`', entry), entry
     for stale in ("in context for the evidence report", "in workflow state for the evidence report",
                   "record the cap in the evidence report", "record the cap as §1 does"):
-        assert stale not in detect + extract, stale
+        assert stale not in detect + extract + pairs, stale
     eight_b = _sections(_body(_read(GENERATE)))["8b"]
     assert "each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds" in eight_b
     assert "as its `gate`, `taken_action` and `reason`" in eight_b
     assert "decoded as the JSON string it holds" in _sections(_body(_read(REPORT)))["1"]
+    # #1156: §8b's call lists the recorded warning decoded, and the decision as its gate, action and reason.
+    out, written = _evidence_report(run_dir, tmp_path, "code")
+    assert out["warning_count"] == 1 and f"## Warnings\n\n- {STEP_4_WARNING}\n" in written
+    decision = _decision("rank-and-confirm.scope")
+    assert f"- `{decision['gate']}`: {decision['taken_action']} ({decision['reason']})" in written
 
 
 def test_the_import_counts_live_in_the_run_folder():
@@ -2948,3 +3512,1025 @@ def test_the_hook_gets_the_latest_record_and_is_skipped_without_one():
                   "It is skipped, with a report line saying so, when the emitter wrote no result file or not that "
                   "-latest copy"):
         assert token in comment, token
+
+
+# --- #1150: each stage carries its rules, step 1 saves its bindings, resume at the review gate --------
+
+# Phrases SKILL.md no longer holds: the fallback said four times, its own design note, the `references/` note,
+# the Workflow Rules' pointer at the contract and the trace rule the Overview already states.
+SKILL_GONE = ("so stage files don't have to repeat", "empty-string overrides fall through", "if non-empty, else",
+              "Stash both paths", "carved out of SKILL.md", "Warnings use a single accumulator", "Zero hallucination")
+BINDING_LEAD = ("   Bind these three as workflow-context variables, taking the default when the merged value is "
+                "empty or absent:")
+BOUND = (("stackSkillTemplatePath", "stack_skill_template_path"),
+         ("integrationPatternsPath", "integration_patterns_path"),
+         ("onCompleteCommand", "on_complete"))
+# A maintainer's ticket tag, (B2) or (S7, 20); a Markdown header level such as "H1/H2 header" is none.
+TICKET_TAG_RE = re.compile(r"\b[BSHM]\d{1,2}\b")
+HEADER_LEVEL_RE = re.compile(r"\bH[1-6](?:/H[1-6])? (?:header|structure)\b")
+RUN_KEYS = ["stack_name", "headless_mode", "project_root", "scan_root", "compose_mode", "architecture_doc_path",
+            "explicit_deps", "scope_overrides", "prior_active_version", "prior_stack_version", "prior_libraries",
+            "stackSkillTemplatePath", "integrationPatternsPath", "onCompleteCommand", "forge_tier", "detected_tier",
+            "available_tools"]
+RUN_WRITE = 'uv run {atomicWriteHelper} write --target "{runFile}" < "{run_dir}/run-bindings.json"'
+ATOMIC_WRITER = SCRIPTS / "skf-atomic-write.py"
+
+
+def test_skill_md_states_each_rule_once():
+    """leanness-2: the three bindings in Quick Skill's shape, one lead and one bullet each, and no rule twice."""
+    skill = _read(STACK_SKILL)
+    for gone in SKILL_GONE:
+        assert gone not in skill, gone
+    lines = skill.splitlines()
+    (lead,) = [k for k, line in enumerate(lines) if line == BINDING_LEAD]
+    assert lines[lead + 1] == "" and lines[lead + 5] == "", "the lead, a blank line, three bullets, a blank line"
+    for line, (variable, key) in zip(lines[lead + 2: lead + 5], BOUND):
+        assert line.startswith(f"   - `{{{variable}}}` ← `workflow.{key}`, else "), line
+    assert "Every finding must trace to its source with file:line citations." in _h2_section(skill, "## Overview")
+    # The trace rule as a word: a later rule may say "traceback" or "tracing".
+    assert not re.search(r"\btrace\b", _h2_section(skill, "## Workflow Rules"))
+    (headless,) = [line for line in lines if line.startswith("2. **Resolve `{headless_mode}`**")]
+    # A `-H=false` turns nothing on: it falls through to the preferences, as before the rules became one sentence.
+    rules = ["`false` when `--headless=false` or `--no-headless`",
+             "`true` when `--headless` or `-H` was passed without `=false`",
+             "otherwise `headless_mode` from `{sidecar_path}/preferences.yaml`", "otherwise `false`."]
+    positions = [headless.index(rule) for rule in rules]
+    assert positions == sorted(positions), "the four rules in their order of precedence"
+
+
+def test_no_stage_keeps_a_ticket_tag():
+    """leanness-8: a tag such as (B8) or (S13) names a maintainer's ticket and tells the model nothing."""
+    for path in [STACK_SKILL, *STEP_FILES]:
+        tags = TICKET_TAG_RE.findall(HEADER_LEVEL_RE.sub("", _read(path)))
+        assert not tags, f"{path.name}: {tags}"
+    three = _sections(_body(_read(INIT)))["3"]
+    assert "as B8 does" not in three
+    assert "record the auto-decision as the compose-suggestion gate above does" in three
+
+
+def test_step_1_saves_its_bindings_to_run_json(tmp_path):
+    """enhancement-5: step 1's bindings, the tier after its downgrade among them, go to `run.json` with the
+    atomic writer, and a missing writer or a failed write halts there."""
+    init = _read(INIT)
+    assert "runFile: '{run_dir}/run.json'" in _frontmatter(init)
+    assert _probe_script(init, "atomicWrite") == ATOMIC_WRITER
+    sections = _sections(_body(init))
+    assert list(sections)[-3:] == ["4", "5", "6"] and "{nextStepFile}" in sections["6"]
+    five = sections["5"]
+    assert five.startswith("### 5. Save the Run's Bindings")
+    bindings = json.loads(_first_fence(five))
+    assert list(bindings) == RUN_KEYS
+    for token in ("`{run_dir}/run-bindings.json` with a file write", "keyed by each binding's own name",
+                  "an input not given being `null`", "`forge_tier` is the run tier, after §1's override and §2's "
+                  "downgrade", "`detected_tier` is the one `forge-tier.yaml` names",
+                  # #1152: step 3 and step 7 read the published stack step 1 found, a resumed run restores it.
+                  "the three `prior_` keys are §0's, `null` on a new stack",
+                  "with `prior_libraries` the published `libraries` list"):
+        assert token in five, token
+    assert [bindings[key] for key in RUN_KEYS if key.startswith("prior_")] == [None, None, None]
+    assert RUN_WRITE in _fence_lines(five)
+    assert _halts(five) == [(3, "helper-missing", "init:run-state"), (4, "write-failure", "init:run-state")]
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
+    assert "`skf-atomic-write.py` (step 1 §5, step 7 §1)" in row
+    # The documented call, run with the real writer, leaves the staged object in run.json.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-bindings.json").write_bytes(json.dumps(bindings).encode("utf-8"))
+    argv = _argv(RUN_WRITE.split(" < ")[0], "atomicWriteHelper", {"{runFile}": str(run_dir / "run.json")})
+    with open(run_dir / "run-bindings.json", "rb") as staged:
+        result = subprocess.run([sys.executable, str(ATOMIC_WRITER), *argv], stdin=staged, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((run_dir / "run.json").read_bytes().decode("utf-8")) == bindings
+
+
+def test_an_interactive_run_offers_to_resume_at_the_review_gate():
+    """enhancement-5: an interactive run finds an interrupted run of the same stack that holds a draft, and
+    resumes at step 6's review or starts fresh; a headless run never looks."""
+    sections = _sections(_body(_read(INIT)))
+    keys = list(sections)
+    assert keys.index("0") + 1 == keys.index("0b") == keys.index("1") - 1, "the offer follows §0's stack name"
+    offer = sections["0b"]
+    assert offer.startswith("### 0b. Offer to Resume at the Review Gate")
+    for token in ("Only an interactive run looks for an earlier run: a headless run always starts fresh.",
+                  "`{project-root}/_bmad-output/.skf-run/skf-create-stack-skill-*/run.json`",
+                  "whose `run.json` parses", "names this `{stack_name}`", "holds `headless_mode` false",
+                  "With none, go on to §1.",
+                  "the one whose `draft/SKILL.md` changed last", "(last changed: {that file's modification time})"):
+        assert token in offer, token
+    # A run that finished the stack since replaced that draft, so a declined or abandoned one is not offered
+    # again once the stack's group-root result copy (step 9) is newer than it.
+    assert ("that holds a `draft/SKILL.md` changed after "
+            "`{forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json` was written, "
+            "when that file exists") in offer
+    options = [line.strip().rstrip('"') for line in offer.splitlines() if re.match(r"\s+\[[YN]\] ", line)]
+    assert options == ["[Y] Resume at the review of that draft",
+                       "[N] Start fresh (that run folder stays as it is: {its path})"]
+    (yes,) = [line for line in offer.splitlines() if line.startswith("- **[Y]:**")]
+    for token in ("delete this run's new folder, the one the pre-flight created",
+                  "bind `{run_dir}` to the found folder", "restore every binding its `run.json` holds",
+                  "Set `{resumed_at_review}` true", "when On Activation bound `{customization_resolver_unavailable}`, "
+                  "record it in that folder as the resolver warning above does",
+                  "execute `references/compile-stack.md`"):
+        assert token in yes, token
+    (no,) = [line for line in offer.splitlines() if line.startswith("- **[N]:**")]
+    assert "leave the found folder as it is and go on to §1" in no
+    # No gate a headless run reaches: nothing to record, and the contract says so.
+    assert "GATE [default:" not in offer and "--decision" not in offer
+    assert "step 1: the resume offer [Y]/[N] (interactive only; a headless run always starts fresh)" in \
+        _contract_row("Gates")
+
+
+def test_a_resumed_run_goes_to_the_review_of_its_draft():
+    body = _body(_read(COMPILE))
+    (resumed,) = [p for p in body.split("\n\n") if p.startswith("**A resumed run.**")]
+    assert body.index("**Halt envelope.**") < body.index("**A resumed run.**") < body.index("### 1.")
+    for token in ("(`{resumed_at_review}` true)", "run §1's counts call", "go to §7's display and §8's menu",
+                  "the draft in `{draftFolder}` stays as the interrupted run left it, the user's own edits included",
+                  # §7's display and step 7's copy both follow §4's catalog decision, which the resume skips.
+                  "§4 moved the catalog out when `{draftFolder}/stack-catalog.md` exists"):
+        assert token in resumed, token
+
+
+def test_steps_7_and_8_take_the_run_tier_from_run_json():
+    """architecture-2, enhancement-5: a step that lost `{forge_tier}` to compaction reads step 1's saved tier."""
+    for path in (MANIFESTS, GENERATE, VALIDATE):
+        assert "runFile: '{run_dir}/run.json'" in _frontmatter(_read(path)), path.name
+    assert "`forge_tier` ← the `forge_tier` of `{runFile}`" in _sections(_body(_read(GENERATE)))["6"]
+    one = _sections(_body(_read(VALIDATE)))["1"]
+    assert one.index("--forge-tier {forge_tier}") < one.index("`{forge_tier}` is the `forge_tier` of `{runFile}`")
+    for path in STEP_FILES:
+        assert "step 1's run tier" not in _read(path), path.name
+
+
+def test_step_2_saves_a_binding_it_changes():
+    """enhancement-5: the no-manifests answer rebinds `explicit_deps` or `{scan_root}`, so run.json follows it."""
+    text = _read(MANIFESTS)
+    assert _probe_script(text, "atomicWrite") == ATOMIC_WRITER
+    two = _sections(_body(text))["2"]
+    options = _from(two, "STOP and wait").split("\n\n")[0]
+    assert "Option 1 binds `explicit_deps` to the names the user gives" in options
+    # Option 1's own sentences save the list before they go on to §3.
+    one = options[options.index("Option 1 binds"): options.index("Option 2 sets")]
+    assert one.index("saves `explicit_deps` as **Save the new binding** below shows") \
+        < one.index("goes on to [Display Detection Summary](#3-display-detection-summary)")
+    save = _from(two, "**Save the new binding.**")
+    save = save[:save.index("When `manifests` is not empty")]
+    for token in ("When option 1 binds `explicit_deps` or option 2 sets `{scan_root}`", "read `{runFile}`",
+                  "stage the whole object as `{run_dir}/run-bindings.json` with a file write",
+                  "resolving `{atomicWriteHelper}` from `{atomicWriteProbeOrder}` if it is not bound"):
+        assert token in save, token
+    assert RUN_WRITE in _fence_lines(save)
+    assert _halts(save) == [(4, "write-failure", "detect-manifests:run-state")]
+    # The message names the binding the answer changed; nothing binds a `{binding}`.
+    assert "{binding}" not in save
+    assert "The new `explicit_deps` could not be saved to `{runFile}`" in save
+    assert "naming `scan_root` in place of `explicit_deps` after option 2" in save
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 4 ")]
+    assert "step 1 §5 and step 2 §2: `run.json` cannot be written" in row
+
+
+# --- #1151: a compose run reads its own stage files; one home per integration rule ---
+
+NEXT_STEP_RE = re.compile(r"^(nextStepFile|composeNextStepFile): '([^']+)'$", re.MULTILINE)
+# The guard each shared stage opens §1 with, sending a compose run past the code-mode passes.
+RANK_GUARD = ("**If `compose_mode` is true:** `references/compose-scope.md` set `confirmed_dependencies` and showed "
+              "the skills table. Skip to [Confirm the Scope](#3-confirm-the-scope).")
+DETECT_GUARD = ("**If `compose_mode` is true:** `references/compose-pairs.md` found the pairs and wrote them to "
+                "`{bundleFile}`'s `integrations[]`. Skip to [Classify Integration Types](#3-classify-integration-types).")
+STAGES_ROWS = (
+    "| 2 | Detect Manifests | references/detect-manifests.md; compose: references/compose-skills.md | Conditional "
+    "(no manifest found) |",
+    "| 3 | Rank & Confirm Libraries | references/rank-and-confirm.md; compose: references/compose-scope.md first | No "
+    "(confirm) |",
+    "| 4 | Parallel Extract | references/parallel-extract.md; compose: references/compose-extract.md | Yes |",
+    "| 5 | Detect Integrations | references/detect-integrations.md; compose: references/compose-pairs.md first | Yes |",
+)
+COMPOSE_RULE_SECTIONS = ["## Confidence Tier Inheritance", "## Integration Evidence Format",
+                         "## Feasibility Report Integration"]
+# What step 4's subagent returns for one constituent, and nothing else (enhancement-4).
+CONSTITUENT_FIELDS = {"library", "description_keywords", "usage_patterns", "signatures"}
+# Prose that loads a constituent's SKILL.md into the parent, as step 4 §0 did before #1151.
+PARENT_LOAD_RE = re.compile(r"load SKILL\.md from|SKILL\.md` loaded|loaded above|its SKILL\.md `description` names",
+                            re.IGNORECASE)
+
+
+# Compose mode named in prose or as the flag (compose mode, compose-mode, compose_mode), not the `composes` field.
+COMPOSE_MODE_RE = re.compile(r"compose[-_ ]mode", re.IGNORECASE)
+
+
+def _next_steps(path: Path) -> dict[str, str]:
+    return dict(NEXT_STEP_RE.findall(_frontmatter(_read(path))))
+
+
+def _chain(compose: bool) -> list[str]:
+    """The stage files a run loads from step 1 to step 6, by the frontmatter each stage routes with."""
+    names, path = [], INIT
+    while path != COMPILE:
+        assert path.name not in names, f"the routing loops back to {path.name}"
+        steps = _next_steps(path)
+        names.append(path.name)
+        path = REFS / (steps.get("composeNextStepFile", steps["nextStepFile"]) if compose
+                       else steps["nextStepFile"])
+    return names + [COMPILE.name]
+
+
+def test_a_compose_run_reads_its_own_stage_files():
+    """architecture-6: init.md and rank-and-confirm.md route a compose run by `composeNextStepFile`, each compose
+    file names its successor, and the scope gate and the pair classification stay each mode's one home."""
+    assert _next_steps(INIT) == {"nextStepFile": "detect-manifests.md", "composeNextStepFile": "compose-skills.md"}
+    assert _next_steps(RANK) == {"nextStepFile": "parallel-extract.md", "composeNextStepFile": "compose-extract.md"}
+    for path, successor in ((COMPOSE_SKILLS, "compose-scope.md"), (COMPOSE_SCOPE, "rank-and-confirm.md"),
+                            (COMPOSE_EXTRACT, "compose-pairs.md"), (COMPOSE_PAIRS, "detect-integrations.md")):
+        assert _next_steps(path) == {"nextStepFile": successor}, path.name
+    assert _chain(compose=False) == ["init.md", "detect-manifests.md", "rank-and-confirm.md", "parallel-extract.md",
+                                     "detect-integrations.md", "compile-stack.md"]
+    assert _chain(compose=True) == ["init.md", "compose-skills.md", "compose-scope.md", "rank-and-confirm.md",
+                                    "compose-extract.md", "compose-pairs.md", "detect-integrations.md",
+                                    "compile-stack.md"]
+    six = _sections(_body(_read(INIT)))["6"]
+    assert ("Load, read the full file and then execute `{composeNextStepFile}` when `compose_mode` is true, else "
+            "`{nextStepFile}`.") in six
+    (proceed,) = [line for line in _sections(_body(_read(RANK)))["3"].splitlines() if line.startswith("- IF C:")]
+    assert proceed.endswith("then execute `{composeNextStepFile}` when `compose_mode` is true, else {nextStepFile}")
+    # A headless compose run takes the same gate, records it, and goes on by the same line.
+    (gate,) = [line for line in _sections(_body(_read(RANK)))["3"].splitlines() if line.startswith("- **GATE")]
+    assert "every skill in compose mode" in gate and '"gate": "rank-and-confirm.scope"' in gate
+    # One guard opens §1 of each shared stage, and no `**If not compose_mode:**` header follows it.
+    for path, guard, anchor in ((RANK, RANK_GUARD, "3-confirm-the-scope"),
+                                (DETECT, DETECT_GUARD, "3-classify-integration-types")):
+        text = _read(path)
+        one = _sections(_body(text))["1"]
+        assert one.split("\n\n")[1] == guard, path.name
+        assert text.count("compose_mode` is true:**") == 1 and "If not compose_mode" not in text, path.name
+        assert anchor in {_slug(f"{m.group(1)}. {m.group(2)}") for m in SECTION_HEADING_RE.finditer(text)}
+    for path in STEP_FILES:
+        assert "**If not compose_mode:**" not in _read(path), path.name
+    # The code stages name no compose branch, and keep the section numbers every "step N §M" pointer names.
+    for path, numbers in ((MANIFESTS, ["1", "2", "3", "4"]), (EXTRACT, ["1", "2", "3", "3a", "4", "5"])):
+        text = _read(path)
+        assert not COMPOSE_MODE_RE.search(text), f"{path.name} still names compose mode"
+        assert list(_sections(_body(text))) == numbers, path.name
+    # The Stages table names both chains.
+    skill = _read(STACK_SKILL)
+    for row in STAGES_ROWS:
+        assert row in skill, row
+
+
+def test_detect_integrations_fits_its_budget():
+    """architecture-6: a stage that keeps a compose guard stays under the 4,500-token budget of a multi-branch
+    file. #1151: 11,910 characters measured 2,941 cl100k tokens; #1154 (the bundle-form calls and the hub run):
+    12,025 characters, 2,967 tokens. The ceiling is that length rounded up to 50, so a detect-integrations.md that
+    grows past it is measured again."""
+    text = _read(DETECT)
+    assert len(text) < 12_050, len(text)
+    goal = _slice(text, "## STEP GOAL:\n", "\n## Rules")
+    assert ("Find the library pairs whose co-imports show where and how they connect in this codebase, classify every "
+            "pair, compose mode's included, and build the integration graph.") in goal
+    for gone in ("comentionProbeOrder", "validateFeasibilityReportProbeOrder", "{comentionHelper}",
+                 "{validateFeasibilityReportHelper}", "`docs-mention`", "- `architecture-co-mention`:"):
+        assert gone not in text, gone
+    assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(text)
+
+
+def test_a_code_run_loads_no_compose_rule():
+    """A code-mode run reads `{composeModeRulesPath}` only where a sentence says compose mode does."""
+    for path in (DETECT, COMPILE):
+        for paragraph in _body(_read(path)).split("\n\n"):
+            for sentence in re.split(r"(?<=[.;])\s", paragraph):
+                if "{composeModeRulesPath}" in sentence:
+                    assert "compose" in sentence.replace("{composeModeRulesPath}", ""), (path.name, sentence)
+
+
+def test_compose_mode_rules_keep_three_sections():
+    """leanness-1, customization-4: the rules keep the labels, the evidence format and the [VS] lines; the type
+    line names the resolved integration patterns, and the step that assigns it."""
+    text = _read(COMPOSE_RULES)
+    assert [line for line in text.splitlines() if line.startswith("## ")] == COMPOSE_RULE_SECTIONS
+    for gone in ("## Skill Loading", "## Compose-mode Co-mention Precision", "## Architecture Integration Mapping",
+                 "## Inferred Integrations", "\u2014"):
+        assert gone not in text, gone
+    assert ("The labels and the evidence format of a compose-mode integration: step 5 "
+            "(`references/compose-pairs.md`) builds each pair's evidence in this format, and step 6 renders it.") in text
+    block = _first_fence(_h2_section(text, "## Integration Evidence Format"))
+    assert "**Type:** {the pair's type, assigned in step 5 §3 from {integrationPatternsPath}}" in block
+    assert "integration-patterns.md" not in text
+    assert "step 4 (`references/compose-extract.md`) takes from the constituent's `evidence_tier`" in text
+    assert "Step 5 (`references/compose-pairs.md` §2) reads the [VS] report" in text
+
+
+def test_each_constituent_is_read_by_its_own_subagent():
+    """enhancement-4: one foreground subagent per constituent returns only its description keywords, usage
+    patterns and signatures; a failed read leaves them empty with a warning; step 5 reads them from the bundle."""
+    text = _read(COMPOSE_EXTRACT)
+    assert "- Keep each constituent's SKILL.md out of this context: its subagent (§2) returns only the fields §3 " \
+        "writes" in _rules(text)
+    sections = _sections(_body(text))
+    assert list(sections) == ["1", "2", "3", "4", "5"]
+    two = sections["2"]
+    returned = json.loads(_first_fence(two))
+    assert set(returned) == CONSTITUENT_FIELDS, returned
+    assert "(<the file:line it cites>)" in returned["usage_patterns"][0]
+    assert list(returned["signatures"]) == ["<listed export>"]
+    for token in ("launch one per confirmed skill, at most five in one message, each with `run_in_background: "
+                  "false`, and wait for every one before you launch more",
+                  "Tell each to stop and return what it has after about 20 tool calls",
+                  "With no subagent support, read them one at a time here and keep only the fields below",
+                  "the export names its `{stackInventoryFile}` entry lists",
+                  "its `references/` for a listed export whose signature `SKILL.md` does not give"):
+        assert token in two, token
+    (failed,) = [e for e in WARNING_ENTRY_RE.findall(two) if 'code: "constituent-read-failed"' in e]
+    assert '`step: "step-04"`' in failed and '`severity: "warn"`' in failed
+    assert "`description_keywords` and `usage_patterns` are `[]` and its `signatures` `{}`" in two
+    assert "Its exports still come from §1." in two
+    (written,) = [line for line in sections["3"].splitlines() if line.startswith("- `description_keywords`")]
+    assert "what §2 returned for it" in written
+    assert "`constituent-read-failed`" in sections["4"]
+    # No stage loads a constituent's SKILL.md into the parent, or reads its keywords from that body.
+    for path in STEP_FILES:
+        found = PARENT_LOAD_RE.search(_read(path))
+        assert not found, f"{path.name}: {found.group(0)!r}"
+    # Step 5 builds the signatures and the infer keywords from the bundle fields.
+    pairs = _read(COMPOSE_PAIRS)
+    assert "bundleFile: '{run_dir}/extraction-bundle.json'" in _frontmatter(pairs)
+    (item,) = [line for line in _sections(_body(pairs))["1"].splitlines() if line.startswith("6. ")]
+    for token in ("the signature from that skill's `signatures` in `{bundleFile}` for an export the pair rests on",
+                  "else that export's name from its `exports`"):
+        assert token in item, token
+    infer = _from(_body(pairs), "**No architecture document.**")
+    assert "Its `keywords` are its bundle entry's `description_keywords`" in infer
+    assert "under `skill_package_path`, which the helper reads" in infer
+    # A pair kept with no architecture document cites the bundle too, with its own reference line.
+    assert ("For each kept pair, write one `[from skill: <skill>] <signature>` line per skill from `{bundleFile}`, "
+            "as item 6 says") in infer
+    assert "`**Contract reference:**`" in infer and "`**Shared domain:**`" in infer
+
+
+def test_the_compose_halts_name_their_stage():
+    """Each halt a compose stage raises names that file in its phase, with the code and reason it kept."""
+    assert _halts(_body(_read(COMPOSE_SKILLS))) == [
+        (3, "helper-missing", "compose-skills:enumerate"), (3, "resolution-failure", "compose-skills:stale-manifest"),
+        (3, "resolution-failure", "compose-skills:no-skills")]
+    assert sorted(_halts(_body(_read(COMPOSE_EXTRACT)))) == [
+        (3, "helper-missing", "compose-extract:enumerate"), (3, "resolution-failure", "compose-extract:constituent-gone"),
+        (3, "resolution-failure", "compose-extract:cycle")]
+    assert _halts(_body(_read(COMPOSE_PAIRS))) == [
+        (3, "helper-missing", "compose-pairs:comention"), (2, "schema-version-mismatch", "compose-pairs:vs-report"),
+        (2, "unknown-verdict-token", "compose-pairs:vs-report")]
+    # #1153: compose-scope.md takes the scope from the import counter, so a missing one halts there.
+    assert _halts(_body(_read(COMPOSE_SCOPE))) == [(3, "helper-missing", "compose-scope:scope")]
+    for path in (COMPOSE_SKILLS, COMPOSE_SCOPE, COMPOSE_EXTRACT, COMPOSE_PAIRS):
+        assert '"mode": "compose"' in _from(_body(_read(path)), "**Halt envelope.**").split("###", 1)[0], path.name
+    # The schema's example phase is one a step still raises.
+    schema = ENVELOPE_SCHEMA.read_text(encoding="utf-8")
+    assert "for example 'detect-manifests:scan'." in schema and "detect-manifests:enumerate" not in schema
+
+
+def test_compose_pairs_write_their_entries_for_step_5_section_3():
+    """architecture-6: compose-pairs.md writes each kept pair with its qualifier and evidence, and step 5 §3 and §4
+    complete the entry, so the hand-over crosses the file load on disk."""
+    sections = _sections(_body(_read(COMPOSE_PAIRS)))
+    three = sections["3"]
+    assert three.startswith("### 3. Write the Kept Pairs\n\nSet `{bundleFile}`'s `integrations[]` to one entry per "
+                            "kept pair, so `references/detect-integrations.md` §3 reads them from disk:")
+    entry = json.loads(_first_fence(three))
+    # #1154 determinism-3: the pair carries its qualifier; the provenance helper derives the detection_method.
+    assert list(entry) == ["a", "b", "qualifier", "evidence", "reference", "vs"]
+    qualifiers = re.findall(r"^- `([a-z-]+)`: compose-mode pair", three, re.MULTILINE)
+    helper = _load(STACK_METADATA, "skf_render_stack_metadata_qualifiers")
+    assert qualifiers == list(helper.DETECTION_METHODS["compose"]), qualifiers
+    assert "Maps to" not in three and "detection_method:" not in three
+    assert "step 7's provenance helper derives its `detection_method` from it" in three
+    schema = _read(SCHEMA)
+    for table in helper.DETECTION_METHODS.values():
+        for method in table.values():
+            assert f'"{method}"' in schema, method
+    assert "With no pair kept, `integrations[]` stays empty." in three
+    assert sections["4"].rstrip().endswith("its §1 sends a compose run to §3, which classifies these pairs.")
+    # Step 5 §3 classifies and tiers those pairs, keeping what compose-pairs.md wrote.
+    detect = _sections(_body(_read(DETECT)))
+    assert "  - A compose-mode pair keeps the `qualifier` `references/compose-pairs.md` wrote." in detect["3"]
+    assert "  - `grep-co-import`: " in detect["3"] and list(helper.DETECTION_METHODS["code"]) == ["grep-co-import"]
+    for path in STEP_FILES:
+        text = _read(path)
+        assert '"detection_method"' not in text and "Maps to `detection_method" not in text, path.name
+    assert "When at least one pair qualifies, run it once on all of them" in detect["3"]
+    assert "a compose-mode pair has none, so its `key_files` is `[]`" in detect["3"]
+    assert "If none were detected, report that the libraries appear to operate independently" in detect["5"]
+
+
+def test_compile_states_the_integration_layer_as_one_goal():
+    """leanness-6, customization-4: §3 fills the template's Integration Patterns as one goal, a compose pair from
+    its entry's type, and §7 invites edits instead of asking fixed questions."""
+    sections = _sections(_body(_read(COMPILE)))
+    three = sections["3"]
+    assert "Compile in order" not in three and not re.search(r"^\s*- ", three, re.MULTILINE), three
+    paragraphs = [p for p in three.split("\n\n")[1:] if p.strip()]
+    assert [p.split(":", 1)[0] for p in paragraphs][:1] == ["**Zero-integration guard"]
+    (goal,) = paragraphs[1:]
+    for token in ("Otherwise fill the template's Integration Patterns section from `{bundleFile}`",
+                  "Cross-Cutting Patterns from `cross_cutting` when it lists any",
+                  "one Library Pair Integrations entry per `integrations[]` entry",
+                  "with file:line citations and its key files from `key_files`",
+                  "from its entry's `type`, `evidence`, `reference`, `tier` and `qualifier`",
+                  "After the pairs, a Hub Library Connections list gives each hub library of §1's `{hubs}`"):
+        assert token in goal, token
+    seven = sections["7"]
+    assert seven.rstrip().endswith("Edit the draft yourself, or tell me what to change before the stack is written.\"")
+    assert "?" not in seven and "**Please review the integration layer" not in seven
+
+
+# --- #1152: the scope gate stops an empty scope and marks a rerun against the published stack ---
+
+
+def _scope_gate() -> str:
+    return _sections(_body(_read(RANK)))["3"]
+
+
+def _paragraph(text: str, start: str) -> str:
+    (found,) = [p for p in text.split("\n\n") if p.startswith(start)]
+    return found
+
+
+def test_an_empty_scope_offers_no_continue():
+    """enhancement-1: §3 checks the scope before the gate and after each change; an interactive run gets no [C],
+    a headless one halts `empty-scope` (exit 2) before it records a scope decision, in both modes."""
+    three = _scope_gate()
+    empty = _paragraph(three, "**Empty scope.**")
+    assert three.index("**Empty scope.**") < three.index("**Select:**") < three.index("- **GATE")
+    for token in ("before presenting the gate and after each scope change", "the gate offers no [C]",
+                  '"**No library is in scope.**"',
+                  # The interactive view lists what the headless halt lists: every library left out (#1153: the
+                  # helper's `dropped[]`, in both modes).
+                  "shows each library left out with its reason (the Left out table: `{scopeFile}`'s `dropped[]`, "
+                  "then each library the user took out)",
+                  "takes only names to add, a custom list or [X]", "a headless run records no scope decision",
+                  "{each library left out, with its reason}",
+                  "Pass `scope_overrides` with `<name>: include` for each library the stack should cover"):
+        assert token in empty, token
+    assert _halts(empty) == [(2, "empty-scope", "rank-and-confirm:scope")]
+    assert three.index("HALTs (exit 2") < three.index(RECORD_DECISION), "the halt comes before the record"
+    # One Select line, which itself says [C] is not offered while the scope is empty.
+    (select,) = [line for line in three.splitlines() if "**Select:**" in line]
+    assert "**Select:** [C] Continue to extraction with this scope (not offered while the scope is empty) | [X]" \
+        in select
+    (gate,) = [line for line in three.splitlines() if line.startswith("- **GATE")]
+    assert "(an empty scope has halted above)" in gate
+    menu = _from(three, "#### Menu Handling Logic:")
+    (take_c,) = [line for line in menu.splitlines() if line.startswith("- IF C:")]
+    assert take_c.startswith("- IF C: While `confirmed_dependencies` is empty, refuse it")
+    assert take_c.index("show the gate again") < take_c.index("Otherwise display \"**Scope confirmed:**")
+    (other,) = [line for line in menu.splitlines() if line.startswith("- IF Any other:")]
+    assert "check the scope again as **Empty scope** says" in other
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 2 ")]
+    assert "step 3 §3 headless with no library in scope (`empty-scope`)" in row
+    assert "step 3: scope gate [C] (no [C] while the scope is empty; headless: HALT `empty-scope`, exit 2)" \
+        in _contract_row("Gates")
+    schema = _schema()
+    assert _exit_codes()["empty-scope"] == 2 and "empty-scope" in schema["properties"]["halt_reason"]["enum"]
+    assert "no-manifests, empty-scope, all-extractions-failed" in schema["properties"]["exit_code"]["description"]
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_an_empty_scope_halt_emits_exit_2(mode, tmp_path):
+    """The halt staged from rank-and-confirm's own envelope exits 2, records no decision and fits the schema."""
+    from jsonschema import Draft202012Validator
+
+    staged = re.search(r'`(\{"phase": "<phase>".*?\})`', _from(_body(_read(RANK)), "**Halt envelope.**")).group(1)
+    payload = _payload(staged.replace("<phase>", "rank-and-confirm:scope").replace("<halt_reason>", "empty-scope")
+                       .replace("<code|compose>", mode))
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-create-stack-skill-ef56ab78"
+    run_dir.mkdir(parents=True)
+    (run_dir / "halt.json").write_text(json.dumps(payload), encoding="utf-8")
+    argv = _argv(HALT_COMMAND.split(" < ")[0], "emitEnvelopeHelper", {"{run_dir}": str(run_dir)})
+    result = subprocess.run([sys.executable, str(EMITTER), *argv], input=json.dumps(payload),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    (line,) = result.stderr.splitlines()
+    envelope = json.loads(line.removeprefix("SKF_STACK_RESULT_JSON: "))
+    assert not list(Draft202012Validator(_schema()).iter_errors(envelope))
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 2, "empty-scope")
+    assert (envelope["mode"], envelope["stack_libraries"], envelope["headless_decisions"]) == (mode, [], [])
+    assert envelope["error"]["phase"] == "rank-and-confirm:scope"
+
+
+def test_step_1_reads_the_published_stack():
+    """enhancement-2: step 1 §0 checks the stack's folder and binds the published version and libraries once the
+    stack name is bound; step 3 and step 7 read them, from `{runFile}` when lost."""
+    init = _read(INIT)
+    assert _probe_script(init, "skillInventory") == INVENTORY
+    zero = _sections(_body(init))["0"]
+    phase_1 = _paragraph(zero, "**Ownership, phase 1.**")
+    assert zero.index("--check-name {stack_name}") < zero.index("**Ownership, phase 1.**")
+    assert "`{skill_group}` (`{skills_output_folder}/{stack_name}/`)" in phase_1
+    (binds,) = [p for p in zero.split("\n\n") if p.startswith("Bind `{write_verdict}`")]
+    for token in ("`{prior_active_version}` ← `write_check.marked_active_version`",
+                  "bind `{prior_stack_version}` ← its `version` and `{prior_libraries}` ← its `libraries`",
+                  # Only a compose-mode re-composition versions from them; code mode versions from the bundle.
+                  "which step 3 marks the scope against and step 7 versions a compose-mode re-composition from",
+                  "A new stack leaves all three `null`."):
+        assert token in binds, token
+    assert _halts(binds) == [(4, "write-failure", "init:not-a-stack")]
+    assert "`path` `{skill_group}`" in binds
+    # The step's goal and its summary name the check and the published stack a rerun builds on.
+    goal = _slice(init, "## STEP GOAL:", "## Rules")
+    assert "check the stack's folder and read the stack a rerun builds on" in goal
+    four = _sections(_body(init))["4"]
+    assert ("the stack name (`{stack_name}`) and, on a rerun, the published version it builds on "
+            "(`v{prior_stack_version}`, with its `{prior_libraries}` count)") in four
+    for path in (RANK, COMPOSE_SCOPE, GENERATE):
+        assert "runFile: '{run_dir}/run.json'" in _frontmatter(_read(path)), path.name
+    prior = _paragraph(_one(), "**Prior stack.**")
+    for token in ("Step 1 §0 checked `{skill_group}`", "(read them from `{runFile}` if lost)",
+                  "a set `{prior_stack_version}` makes this run a **re-composition**"):
+        assert token in prior, token
+    # The halt envelope names the folder of the not-a-stack and ownership halts.
+    assert 'adding `"path"` when the halt names a file or folder' in _from(_body(init), "**Halt envelope.**")
+    (rule,) = [line for line in _read(STACK_SKILL).splitlines() if "Never write into a skill folder" in line]
+    assert "step 1 runs the inventory's write check before any prior metadata is read, step 7 again before staging" \
+        in rule and "\u2014" not in rule
+
+
+def _make_stack_version(skills: Path, name: str, version: str, metadata: dict) -> Path:
+    package = skills / name / version / name
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_text(f"---\nname: {name}\n---\n", encoding="utf-8")
+    (package / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    return package
+
+
+def test_the_step_1_write_check_runs_as_written(tmp_path):
+    """The phase-1 call names no version: it answers for the stack's folder and names the published version."""
+    call = _call(_sections(_body(_read(INIT)))["0"], "skillInventoryHelper")
+    assert "--write-version" not in call
+    skills, forge = tmp_path / "skills", tmp_path / "forge-data"
+    skills.mkdir()
+
+    def check(stack: str) -> dict:
+        argv = _argv(call, "skillInventoryHelper", {"{skills_output_folder}": str(skills), "{stack_name}": stack,
+                                                    "{forge_data_folder}": str(forge)})
+        return _inventory(argv)["write_check"]
+
+    new = check("acme-stack")
+    assert (new["verdict"], new["marked_active_version"]) == ("ok", None), "a new stack leaves the prior bindings null"
+    (skills / "foreign-stack").mkdir()
+    (skills / "foreign-stack" / "README.md").write_text("mine\n", encoding="utf-8")
+    assert check("foreign-stack")["verdict"] == "not-skf-output", "step 1 refuses a folder SKF did not generate"
+    _make_stack_version(skills, "web-stack", "1.2.0", {
+        "skill_type": "stack", "generated_by": "create-stack-skill", "forge_tier": "Forge", "version": "1.2.0",
+        "libraries": ["react", "zod", "lodash"]})
+    try:
+        (skills / "web-stack" / "active").symlink_to("1.2.0", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available")
+    published = check("web-stack")
+    assert (published["verdict"], published["marked_active_version"]) == ("ok", "1.2.0")
+    (binds,) = [p for p in _sections(_body(_read(INIT)))["0"].split("\n\n") if p.startswith("Bind `{write_verdict}`")]
+    read = re.search(r"read `(\{skills_output_folder\}/\{stack_name\}/\{prior_active_version\}/[^`]+)`", binds).group(1)
+    metadata = Path(read.replace("{skills_output_folder}", str(skills)).replace("{stack_name}", "web-stack")
+                    .replace("{prior_active_version}", published["marked_active_version"]))
+    assert json.loads(metadata.read_text(encoding="utf-8"))["libraries"] == ["react", "zod", "lodash"]
+
+
+def test_a_rerun_marks_the_scope_against_the_published_stack():
+    """enhancement-2: on a rerun §2 keeps each published library the counts still find, §3 marks each row kept or
+    new and lists each published library left out, and the decision records the keeps as `prior_kept`."""
+    sections = _sections(_body(_read(RANK)))
+    two, three = sections["2"], sections["3"]
+    # #1153: the helper holds the rerun rule; §2 passes the published stack only on a rerun, from `{runFile}`
+    # when lost (the rule itself runs in test_a_rerun_keeps_the_published_libraries_the_counts_find).
+    assert '[--prior-version "{prior_stack_version}" --prior-libraries "{prior_libraries}"]' in \
+        _call(two, "countImportsHelper", "scope")
+    assert "only on a rerun (`{prior_libraries}` set; read it and `{prior_stack_version}` from `{runFile}` if lost)" \
+        in two
+    rerun = _paragraph(three, "**A rerun.**")
+    for token in ("When `{prior_libraries}` is set (from `{runFile}` if lost)",
+                  "Published column says `kept` for a library of `{prior_libraries}` and `new` for any other",
+                  # A reason for each way a published library leaves the scope, and a line for none.
+                  "each `{scopeFile}` `dropped[]` entry whose `reason` starts `in v{prior_stack_version}: `, with "
+                  "the reason after that lead",
+                  "`removed at the scope gate` for one the user took out",
+                  "the line reads `none` when it leaves none out",
+                  "Each scope change recomputes the marks and the Dropped line.",
+                  "A new stack shows no Published column and no Dropped line."):
+        assert token in rerun, token
+    # The display itself marks the rerun-only parts, so a new stack never prints "Dropped from vnull".
+    assert "Present the scope and the one gate, with the Published column and the Dropped line only on a rerun." \
+        in three
+    assert [line for line in three.splitlines() if line.startswith("| # | Library |")] == [
+        "| # | Library | Files | Category | Published |"]
+    # A kept published library can be dev-only, so the scope row's Category reads as the below-threshold row's.
+    rows = [line for line in three.splitlines() if line.startswith(("| 1 | {name}", "| 2 | {name}"))]
+    assert rows == [f'| {k} | {{name}} | {{file_count}} | {{runtime, or dev for a `scope: "dev"` dependency}} '
+                    "| {kept or new} |" for k in (1, 2)]
+    (total,) = [line for line in three.splitlines() if line.startswith("**Total:**")]
+    assert total == "**Total:** {total} dependencies detected, {count of confirmed_dependencies} recommended for " \
+        "inclusion", "the Total line counts the scope the table shows, published keeps included"
+    assert three.index("**Total:**") < three.index("**Dropped from v{prior_stack_version}:** {name} ({its reason})") \
+        < three.index("**Select:**")
+    compose = _paragraph(three, "**In compose mode**")
+    assert "with its Published column on a rerun, followed by the same Left out table and Dropped line" in compose
+    lines = three.splitlines()
+    (at,) = [k for k, line in enumerate(lines) if line.startswith("- **GATE")]
+    gate = lines[at]
+    for token in ("a published library's `reason` reads `in v{prior_stack_version}: ` and then its reason",
+                  "`prior_kept` lists the libraries §2 kept only because the published stack holds them",
+                  "`[]` on a new stack and in compose mode"):
+        assert token in gate, token
+    # The explanation comes before the staged decision, so "and run:" still introduces the record command.
+    assert gate.index("`[]` on a new stack and in compose mode") < gate.index('stage `{"gate"')
+    assert gate.endswith("as `{run_dir}/decision.json` and run:")
+    (command,) = [line.strip() for line in lines[at + 1:] if line.strip()][1:2]
+    assert command == RECORD_DECISION
+    reason = _decision("rank-and-confirm.scope")["evidence"]["dropped"][0]["reason"]
+    assert "under 2 files, no importing file, dev only, its unresolved reason" in reason
+    assert "excluded by scope_overrides, or not among this run's dependencies" in reason
+    assert "led by in v{prior_stack_version}: for a published library" in reason
+    menu = _from(three, "#### Menu Handling Logic:")
+    (other,) = [line for line in menu.splitlines() if line.startswith("- IF Any other:")]
+    assert "on a rerun recompute the marks and the Dropped line as **A rerun** says" in other
+    one = _sections(_body(_read(COMPOSE_SCOPE)))["1"]
+    (header,) = [line for line in one.splitlines() if line.startswith("| # | Skill |")]
+    assert header == "| # | Skill | Language | Tier | Architecture Layer | Published |"
+    assert "`kept` for a skill of `{prior_libraries}`, `new` for any other" in one
+    assert "Published column only on a rerun (`{prior_libraries}` set; read it from `{runFile}` if lost)" in one
+    assert one.rstrip().endswith("Set `confirmed_dependencies` ← `{scopeFile}`'s `scope`.")
+
+
+# A `[--flag ...]` synopsis group of a documented call.
+BRACKET_GROUP_RE = re.compile(r" \[(--[^\[\]]*)\]")
+
+
+def _bracketed(call: str, keep: tuple[str, ...]) -> str:
+    """The call with each bracket group that holds one of the `keep` flags kept, its brackets off, and the rest
+    dropped, as a stage passes them."""
+    return BRACKET_GROUP_RE.sub(lambda m: " " + m.group(1) if m.group(1).split()[0] in keep else "", call)
+
+
+def _run_scope_call(path: Path, run_dir: Path, stdin: str, values: dict[str, str], keep: tuple[str, ...]) -> dict:
+    """A stage's own `skf-count-imports.py scope` call, run as written with the bracket groups `keep` names and
+    without the others; the result is the `{scopeFile}` its redirect writes."""
+    section = _sections(_body(_read(path)))["2" if path == RANK else "1"]
+    call, target = _call(section, "countImportsHelper", "scope").strip().split(" > ")
+    assert target == '"{scopeFile}"', f"{path.name} does not save the scope in the run folder"
+    assert "scopeFile: '{run_dir}/scope.json'" in _frontmatter(_read(path)), path.name
+    argv = _argv(_bracketed(call, keep), "countImportsHelper", {**values, "{run_dir}": str(run_dir)})
+    result = subprocess.run([sys.executable, str(COUNT_IMPORTS), *argv], input=stdin, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    scope = json.loads(result.stdout)
+    assert set(scope) == {"scope", "dropped", "prior_kept", "unknown_overrides"}
+    return scope
+
+
+def _code_scope(tmp_path: Path, counts: dict, prior: list[str], version: str, overrides: dict[str, str]) -> dict:
+    """§2's scope call on the helper's counts: `scope_overrides` piped, the published stack passed on a rerun."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(exist_ok=True)
+    counts_file = run_dir / "import-counts.json"
+    counts_file.write_text(json.dumps(counts), encoding="utf-8")
+    values = {"{importCountsFile}": str(counts_file), "{prior_stack_version}": version,
+              "{prior_libraries}": ",".join(prior)}
+    keep = ("--prior-version",) if prior else ()
+    return _run_scope_call(RANK, run_dir, json.dumps(overrides or None), values, keep)
+
+
+def _project_counts(project: Path, files: dict[str, bytes], *module: str) -> dict:
+    """Step 2's scan and step 3's count, run as the steps write them, on a project of `files`; each `module`
+    is a `--module` value §1 adds when it knows an unresolved entry's import name."""
+    for rel, content in files.items():
+        (project / rel).parent.mkdir(parents=True, exist_ok=True)
+        (project / rel).write_bytes(content)
+    scan_call = _call(_sections(_body(_read(INIT)))["3"], "scanManifestsHelper", "scan").strip()
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS),
+                           *_argv(scan_call, "scanManifestsHelper", {"{scan_root}": str(project)})],
+                          capture_output=True, text=True)
+    assert scan.returncode == 0, scan.stderr
+    count_call = _call(_sections(_body(_read(RANK)))["1"], "countImportsHelper", "count").split(" > ")[0].strip()
+    argv = _argv(count_call, "countImportsHelper", {"{scan_root}": str(project), "{project_root}": str(project)})
+    argv += [arg for value in module for arg in ("--module", value)]
+    result = subprocess.run([sys.executable, str(COUNT_IMPORTS), *argv], input=scan.stdout,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_a_rerun_keeps_the_published_libraries_the_counts_find(tmp_path):
+    """The rerun rows of the matrix, §2's scope call run on the import counter's own output: a published library
+    imported by one file stays in by default, one the counts no longer hold or hold at 0 files drops with its
+    published-stack reason, and an exclude override still wins (#1153: the helper, not the model, applies them)."""
+    counts = _project_counts(tmp_path / "project", {
+        "package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "zod": "^3.22.0",'
+                        b' "express": "^4.19.0"}}\n',
+        "src/a.js": b'import React from "react";\nconst express = require("express");\n',
+        "src/b.js": b'import React from "react";\nconst express = require("express");\n',
+        "src/c.js": b'import React from "react";\nimport { z } from "zod";\n',
+    })
+    by_name = {d["name"]: d for d in counts["dependencies"]}
+    assert {name: (d["file_count"], d["above_threshold"]) for name, d in by_name.items()} == {
+        "react": (3, True), "express": (2, True), "zod": (1, False)}
+    prior = ["react", "zod", "lodash"]
+    rerun = _code_scope(tmp_path, counts, prior, "1.2.0", {})
+    assert rerun["scope"] == ["react", "express", "zod"], "the scope keeps the rank order"
+    assert {name: ("kept" if name in prior else "new") for name in rerun["scope"]} == {
+        "react": "kept", "express": "new", "zod": "kept"}
+    assert rerun["prior_kept"] == ["zod"]
+    assert rerun["dropped"] == [{"library": "lodash", "reason": "in v1.2.0: not among this run's dependencies"}]
+    excluded = _code_scope(tmp_path, counts, prior, "1.2.0", {"zod": "exclude"})
+    assert excluded["prior_kept"] == []
+    assert {"library": "zod", "reason": "in v1.2.0: excluded by scope_overrides"} in excluded["dropped"]
+    included = _code_scope(tmp_path, counts, prior, "1.2.0", {"zod": "include"})
+    assert "zod" in included["scope"] and included["prior_kept"] == [], "the override, not the rerun, kept it"
+    assert _code_scope(tmp_path, counts, [], "1.2.0", {})["prior_kept"] == [], "a new stack keeps nothing that way"
+    # A published library the manifest still declares but no file imports: the counts hold it at 0 files.
+    declared = _project_counts(tmp_path / "declared", {
+        "package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "lodash": "^4.17.0"}}\n',
+        "src/a.js": b'import React from "react";\n',
+        "src/b.js": b'import React from "react";\n',
+    })
+    assert {d["name"]: d["file_count"] for d in declared["dependencies"]} == {"react": 2, "lodash": 0}
+    unimported = _code_scope(tmp_path, declared, prior, "1.2.0", {})
+    assert unimported["scope"] == ["react"] and unimported["prior_kept"] == []
+    assert unimported["dropped"] == [
+        {"library": "lodash", "reason": "in v1.2.0: no importing file"},
+        {"library": "zod", "reason": "in v1.2.0: not among this run's dependencies"}]
+    # Each decision is the gate's own shape: schema-valid, and the record command takes it.
+    from jsonschema import Draft202012Validator
+
+    template = _decision("rank-and-confirm.scope")
+    item = _schema()["properties"]["headless_decisions"]["items"]
+    assert set(template["evidence"]) == {"scope", "dropped", "prior_kept"}
+    for k, scope in enumerate((rerun, excluded, unimported)):
+        # The gate copies `{scopeFile}`'s three keys as they stand.
+        evidence = {key: scope[key] for key in template["evidence"]}
+        decision = {**template, "evidence": evidence}
+        assert not list(Draft202012Validator(item).iter_errors(decision)), decision
+        run_dir = tmp_path / f"skf-create-stack-skill-run{k}"
+        argv = _argv(RECORD_DECISION.split(" < ")[0], "emitEnvelopeHelper", {"{run_dir}": str(run_dir)})
+        recorded = subprocess.run([sys.executable, str(EMITTER), *argv], input=json.dumps(decision),
+                                  capture_output=True, text=True)
+        assert recorded.returncode == 0, recorded.stderr
+        assert json.loads((run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8")) == decision
+
+
+# --- #1153: the scope, an unresolved re-count and the compose layers come from helpers ---
+
+UNKNOWN_OVERRIDE_WARNING = ("Append one `workflow_warnings[]` entry per `unknown_overrides[]` key (`step: \"step-03\"`, "
+                            "`severity: \"warn\"`, `code: \"scope-override-unknown\"`, `message`: \"scope_override: "
+                            "unknown dependency '{key}', skipped\"); an unknown key never halts the run.")
+MENTIONS_CALL = 'uv run {comentionHelper} mentions --doc "{architecture_doc_path}" --skills -'
+
+
+def _scope_paragraph(path: Path) -> str:
+    """The paragraph after a stage's scope call, which says what `{scopeFile}` holds."""
+    section = _sections(_body(_read(path)))["2" if path == RANK else "1"]
+    return _paragraph(section, "A non-zero exit means the call is malformed")
+
+
+def test_a_known_import_name_reruns_the_count(tmp_path):
+    """determinism-5: §1's own count call, run again with `--module`, ranks an unresolved entry with the others,
+    so `{importCountsFile}` stays the helper's output."""
+    files = {
+        "requirements.txt": b"acme-client==1.0\nrequests==2.31\n",
+        "app/a.py": b"import acme\nimport requests\n",
+        "app/b.py": b"from acme import client\nimport requests\n",
+        "app/c.py": b"import requests\n",
+    }
+    first = _project_counts(tmp_path / "first", files)
+    assert [u["name"] for u in first["unresolved"]] == ["acme-client"]
+    assert [d["name"] for d in first["dependencies"]] == ["requests"]
+    again = _project_counts(tmp_path / "again", files, "acme-client=acme")
+    assert again["unresolved"] == []
+    assert [(d["name"], d["file_count"], d["resolution"]) for d in again["dependencies"]] == [
+        ("requests", 3, "guessed"), ("acme-client", 2, "explicit")]
+    # §2 then ranks it like any other library.
+    assert _code_scope(tmp_path, again, [], "", {})["scope"] == ["requests", "acme-client"]
+
+
+def test_the_scope_calls_run_as_written(tmp_path):
+    """determinism-9: §2 and compose-scope.md §1 each run the scope helper into `{scopeFile}`, and each records one
+    `scope-override-unknown` warning per unknown override, never a halt."""
+    counts = _project_counts(tmp_path / "project", {
+        "package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "zod": "^3.22.0"},'
+                        b' "devDependencies": {"vitest": "^1.0.0"}}\n',
+        "src/a.js": b'import React from "react";\nimport { z } from "zod";\n',
+        "src/b.js": b'import React from "react";\nimport { test } from "vitest";\n',
+        "src/c.js": b'import { test } from "vitest";\n',
+    })
+    code = _code_scope(tmp_path, counts, [], "", {"zod": "include", "lodash": "include"})
+    assert code == {"scope": ["react", "zod"], "dropped": [{"library": "vitest", "reason": "dev only"}],
+                    "prior_kept": [], "unknown_overrides": ["lodash"]}
+    # Compose mode: the names step 2 stored, piped; the overrides written beside the run, as the stage says.
+    run_dir = tmp_path / "compose-run"
+    run_dir.mkdir()
+    one = _sections(_body(_read(COMPOSE_SCOPE)))["1"]
+    assert "after writing it as JSON to `{run_dir}/scope-overrides.json` with a file write" in one
+    (run_dir / "scope-overrides.json").write_text(json.dumps({"c": "exclude", "x": "include"}), encoding="utf-8")
+    raw_dependencies = [{"name": name, "language": "typescript", "source": "existing_skill"} for name in "abc"]
+    compose = _run_scope_call(COMPOSE_SCOPE, run_dir, json.dumps([d["name"] for d in raw_dependencies]),
+                              {"{prior_stack_version}": "2.0.0", "{prior_libraries}": "a,d"},
+                              ("--overrides", "--prior-version"))
+    assert compose == {"scope": ["a", "b"],
+                       "dropped": [{"library": "c", "reason": "excluded by scope_overrides"},
+                                   {"library": "d", "reason": "in v2.0.0: not among this run's dependencies"}],
+                       "prior_kept": [], "unknown_overrides": ["x"]}
+    # With no overrides and no published stack both bracket groups go, and every skill is in.
+    bare = _run_scope_call(COMPOSE_SCOPE, run_dir, json.dumps(["a", "b"]), {}, ())
+    assert bare == {"scope": ["a", "b"], "dropped": [], "prior_kept": [], "unknown_overrides": []}
+    for path in (RANK, COMPOSE_SCOPE):
+        held = _scope_paragraph(path)
+        assert UNKNOWN_OVERRIDE_WARNING in held, path.name
+        (entry,) = [e for e in WARNING_ENTRY_RE.findall(held) if '`code: "scope-override-unknown"`' in e]
+        assert '`step: "step-03"`' in entry and '`severity: "warn"`' in entry
+    assert "`--overrides -`" not in _read(COMPOSE_SCOPE) and '--overrides -' in _call(
+        _sections(_body(_read(RANK)))["2"], "countImportsHelper", "scope")
+    # The model sets the scope from the file the helper wrote, in both modes.
+    assert "Set `confirmed_dependencies` ← the recommended scope: `{scopeFile}`'s `scope`." in \
+        _sections(_body(_read(RANK)))["2"]
+    assert "Take every count and the recommended scope from `skf-count-imports.py`" in _rules(_read(RANK))
+    assert "Take the scope from `skf-count-imports.py scope`" in _rules(_read(COMPOSE_SCOPE))
+
+
+def test_the_gate_shows_and_records_the_scope_file():
+    """§3 shows the helper's `dropped[]` as the Left out table in both modes, lists a rerun's drops from it and
+    copies the three decision keys from `{scopeFile}`."""
+    rank = _read(RANK)
+    three = _scope_gate()
+    assert "Below threshold" not in rank and "below-threshold" not in rank
+    assert "**Left out:**" in three and "excluded by default" not in rank
+    assert [line for line in three.splitlines() if line.startswith("| Library |")] == ["| Library | Reason |"]
+    assert "| {library} | {reason} |" in three
+    shown = _paragraph(three, "Present the scope and the one gate")
+    assert ("The Left out table lists each `{scopeFile}` `dropped[]` entry, its `library` and `reason` as they "
+            "stand, then each library the user took out, as `removed at the scope gate`; one the user adds leaves "
+            "it.") in shown
+    assert "followed by the same Left out table and Dropped line" in _paragraph(three, "**In compose mode**")
+    assert "`{scopeFile}`'s `dropped[]`" in _paragraph(three, "**Empty scope.**")
+    assert "each `{scopeFile}` `dropped[]` entry whose `reason` starts `in v{prior_stack_version}: `" in \
+        _paragraph(three, "**A rerun.**")
+    (select,) = [line for line in three.splitlines() if "**Select:**" in line]
+    assert "type library names to **add** from the Left out table" in select
+    (gate,) = [line for line in three.splitlines() if line.startswith("- **GATE")]
+    assert "whose `evidence` copies `{scopeFile}`'s `scope`, `dropped` and `prior_kept` as they stand" in gate
+    assert gate.index("copies `{scopeFile}`'s") < gate.index('stage `{"gate"')
+
+
+def test_compose_layers_come_from_the_mentions_helper(tmp_path):
+    """determinism-11, leanness-7: compose-scope.md takes each skill's layer candidates from the co-mention
+    helper's `mentions`, warns when it cannot run, and states goals rather than a parse to emulate."""
+    text = _read(COMPOSE_SCOPE)
+    assert _probe_script(text, "comention") == COMENTION
+    assert _probe_script(text, "countImports") == COUNT_IMPORTS
+    one = _sections(_body(text))["1"]
+    assert _call(one, "comentionHelper", "mentions") == MENTIONS_CALL
+    # Every skill step 2 picked gets its candidates, so one the user adds at the gate has a layer too.
+    assert "pipe the `raw_dependencies` names on stdin as a JSON array, so a skill the user adds at the gate has " \
+        "its layer too" in one
+    layers = _paragraph(one, "A skill's layer candidates are")
+    for token in ("the non-null `paragraphs[].header` values of its `skills[]` entry", "`Unclassified`",
+                  "When no candidate path exists or the call exits non-zero, list the skills by name",
+                  "With no `architecture_doc_path`, or a document whose paragraphs have no header, list the skills "
+                  "by name, with no warning."):
+        assert token in layers, token
+    (entry,) = [e for e in WARNING_ENTRY_RE.findall(layers) if '`code: "architecture-doc-parse-failed"`' in e]
+    assert '`step: "step-03"`' in entry and '`severity: "warn"`' in entry
+    assert "the layers in the order the document first names them and `Unclassified` last, by name within a layer" \
+        in one
+    for stale in ("try/except", "MUST", "alphabetical", "Validate override keys", "Log any overrides applied"):
+        assert stale not in text, stale
+    # The call as written, on a document with two sections: one header candidate each, and none for zod. The
+    # path holds a space, which the quoted placeholder keeps in one argument.
+    doc = tmp_path / "docs dir" / "architecture.md"
+    doc.parent.mkdir()
+    doc.write_text("# Web Stack\n\n## Frontend\n\nThe pages render with react.\n\n## API\n\n"
+                   "The server runs express and returns JSON.\n", encoding="utf-8")
+    argv = _argv(MENTIONS_CALL, "comentionHelper", {"{architecture_doc_path}": str(doc)})
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input=json.dumps(["zod", "express", "react"]),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    skills = json.loads(result.stdout)["skills"]
+    candidates = {s["name"]: list(dict.fromkeys(p["header"] for p in s["paragraphs"] if p["header"])) for s in skills}
+    headed = [(p["header"], p["line"]) for s in skills for p in s["paragraphs"] if p["header"]]
+    first_line = {header: min(line for h, line in headed if h == header) for header, _ in headed}
+    # Among several candidates the model picks the one that names a layer; this document gives none several.
+    assert all(len(found) <= 1 for found in candidates.values()), candidates
+    layer = {name: found[0] if found else "Unclassified" for name, found in candidates.items()}
+    order = sorted(layer, key=lambda name: (layer[name] == "Unclassified", first_line.get(layer[name], 0), name))
+    assert [(name, layer[name]) for name in order] == [
+        ("react", "Frontend"), ("express", "API"), ("zod", "Unclassified")]
+    # A document the helper cannot read exits non-zero: the stage lists by name and records the warning.
+    argv = _argv(MENTIONS_CALL, "comentionHelper", {"{architecture_doc_path}": str(tmp_path / "missing.md")})
+    failed = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react"]', capture_output=True, text=True)
+    assert failed.returncode == 1 and failed.stdout == ""
+
+
+# --- #1155: Deep-tier findings, a lean step 4 and cited conventions ------------------
+
+TEMPORAL_LISTS = ("deprecated_exports", "migration_notes", "version_warnings")
+# A line of a numbered list.
+NUMBERED_ITEM_RE = re.compile(r"^\d+\. ", re.MULTILINE)
+
+
+def _summary_forms() -> dict[str, str]:
+    """The per-library summary of both catalog forms: inline in SKILL.md and in stack-catalog.md."""
+    template = _read(TEMPLATE)
+    return {
+        "inline": _slice(_first_fence(_h2_section(template, "## SKILL.md Section Structure")),
+                         "## Per-Library Summaries", "\n## Conventions"),
+        "catalog": _from(_first_fence(_catalog_section()), "## Per-Library Summaries"),
+    }
+
+
+def test_deep_findings_reach_the_reference_files():
+    """architecture-4: step 4 labels each `temporal` item, the bundle keeps it, step 7 §3 writes it into the library's
+    reference file after Usage Patterns, and both summary forms point at its T2-future items (#1155)."""
+    extract = _read(EXTRACT)
+    shape = _first_fence(_sections(_body(extract))["2"])
+    temporal = shape[shape.index("temporal: {"):]
+    for name in TEMPORAL_LISTS:
+        (item,) = re.findall(rf"^\s+{name}: \[\"([^\"]+)\"\]", temporal, re.MULTILINE)
+        assert item.endswith("(T2-past|T2-future) [QMD:collection:doc]"), (name, item)
+    assert re.search(r"deprecated_exports: \[\"export_name: ", temporal), "a deprecation names its export first"
+    note = _slice(_body(extract), "`scope` is step 3's", "\n")
+    assert "keeps its record's `temporal`" in note and "`{}` below Deep tier" in note
+    three = _sections(_body(_read(GENERATE)))["3"]
+    assert "`temporal`" in three and "`## Migration & Deprecation`" in three
+    for name in TEMPORAL_LISTS:
+        assert f"`{name}`" in three, name
+    assert "item as written, label and citation included" in three
+    # Below Deep tier, and in compose mode, `temporal` holds nothing: no section and no pointer.
+    assert "with none, the file has no such section" in three
+    library = _first_fence(_h2_section(_read(TEMPLATE), "## references/{library}.md Structure"))
+    order = [library.index(f"\n{heading}\n") for heading in
+             ("## Usage Patterns", "## Migration & Deprecation", "## Common Imports")]
+    assert order == sorted(order), "Migration & Deprecation sits between Usage Patterns and Common Imports"
+    for form, summary in _summary_forms().items():
+        lines = summary.splitlines()
+        (usage,) = [k for k, line in enumerate(lines) if line.startswith("**Usage pattern:**")]
+        pointer = lines[usage + 1]
+        assert pointer.startswith("**Deprecations:** {count} T2-future item(s)"), (form, pointer)
+        assert "Migration & Deprecation" in pointer and not LINK_RE.findall(pointer), (form, pointer)
+    four = _sections(_body(_read(COMPILE)))["4"]
+    assert "`temporal` holds T2-future items" in four and "`**Deprecations:**` pointer" in four
+    assert "otherwise the summary has none" in four, "a library with only T2-past items gets no pointer"
+
+
+def test_step_4_states_its_extraction_once():
+    """leanness-3 and architecture-7: one line per tier choice, the Deep classification names the knowledge file,
+    §2 is one goal, §3 two sentences, and init.md §2 lists only the tools a tier needs (#1155)."""
+    assert TIERS.is_file()
+    sections = _sections(_body(_read(EXTRACT)))
+    one = sections["1"]
+    assert "per `knowledge/confidence-tiers.md`" in one
+    assert "per confidence-tiers.md" not in one
+    for stale in ("**Quick Tier:**", "**Forge Tier", "Remote source resolution", "mcp__plugin_qmd",
+                  "Perform all Forge tier extractions", "Additionally:", "**AST Tool Availability Check"):
+        assert stale not in one, stale
+    (tiers,) = [line for line in one.splitlines() if line.startswith("**Extraction by tier:**")]
+    assert "ast-grep (`ast_bridge`) rules at Forge tier and above" in tiers
+    assert "file reads at Quick tier or where a rule fails" in tiers
+    assert "to the library record's `temporal` (§2)" in one, "a Deep finding goes to the record step 7 reads"
+    two = sections["2"]
+    assert not NUMBERED_ITEM_RE.search(two), "§2 still numbers one pass as steps"
+    assert "Each subprocess reads the files that import its library" in two
+    # The subprocess that returns the record runs the Deep queries, so their findings reach the bundle.
+    assert "at Deep tier it also runs §1's QMD queries for its library and returns their findings in `temporal`" in two
+    three = sections["3"]
+    for code in ("extraction-partial", "extraction-failed"):
+        assert three.count(f'`code: "{code}"`') == 1, code
+    for stale in ("**Success:**", "**Partial failure:**", "**Complete failure:**", "Excluding from stack skill"):
+        assert stale not in three, stale
+    init_two = _sections(_body(_read(INIT)))["2"]
+    assert "gh_bridge" not in init_two and "File I/O" not in init_two
+    assert "Required for all tiers" not in init_two
+
+
+def test_conventions_and_usage_patterns_are_cited():
+    """architecture-5: the template gives each Conventions bullet and both Usage pattern lines a citation slot, step 6
+    fills it from the records and drops a convention none cites, and a filled bullet passes the validator's check
+    while an unfilled one does not (#1155)."""
+    code_form, compose_form = "({file}:{line})", "[from skill: {name}]"
+    structure = _first_fence(_h2_section(_read(TEMPLATE), "## SKILL.md Section Structure"))
+    conventions = _from(structure, "## Conventions")
+    for where, text in [("conventions", conventions), *_summary_forms().items()]:
+        assert code_form in text and compose_form in text, where
+    for form, summary in _summary_forms().items():
+        (usage,) = [line for line in summary.splitlines() if line.startswith("**Usage pattern:**")]
+        assert code_form in usage and compose_form in usage, (form, usage)
+    sections = _sections(_body(_read(COMPILE)))
+    four = sections["4"]
+    assert f"`{code_form}`" in four and f"`{compose_form}`" in four and "`usage_patterns`" in four
+    assert "comma-separated in one pair of parentheses" in four and "`none extracted`, uncited" in four
+    five = sections["5"]
+    for needle in ("as §4 does", "`usage_patterns`", "`key_files`", "Drop a convention no record cites",
+                   "one plain line, no bullet", "`[from skill: {name}, {name}]` names each constituent"):
+        assert needle in five, needle
+    validator = _load(VALIDATOR, "skf_validate_output_cited_conventions")
+    bullets = [line for line in conventions.splitlines() if line.startswith("- ")]
+    assert bullets, "the template's Conventions holds no bullet"
+    for bullet in bullets:
+        assert not validator._CONVENTION_CITATION_RE.search(bullet), f"an unfilled slot reads as a citation: {bullet}"
+        filled = bullet.replace("{file}", "src/app.ts").replace("{line}", "12").replace("{name}", "react")
+        assert validator._CONVENTION_CITATION_RE.search(filled), filled
+    # The validator's low `skill_md` issue is a WARNING finding at step 8, whatever its severity.
+    assert "whose `check` is `skill_md` as a **WARNING** finding" in _sections(_body(_read(VALIDATE)))["4"]
+    comment =" ".join(line.lstrip("#").strip() for line in _customize_comment("stack_skill_template_path").splitlines())
+    assert "`## Conventions` with each bullet's citation" in comment

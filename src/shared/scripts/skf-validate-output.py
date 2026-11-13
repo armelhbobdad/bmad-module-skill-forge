@@ -19,7 +19,8 @@ Two package shapes are supported via --skill-type (default: individual):
                library_count), emitted under validation.stack_counts, and the
                stack structure, emitted under validation.stack_structure (see
                validate_stack_structure): the SKILL.md headings of the stack
-               template with the catalog inline or behind a pointer, every
+               template with the catalog inline or behind a pointer, a
+               citation on each `## Conventions` bullet (low), every
                relative link in SKILL.md and references/stack-catalog.md, the
                metadata.json keys and values with the dominant tier recomputed
                by skf-render-stack-metadata.py beside this script, the headings
@@ -28,7 +29,18 @@ Two package shapes are supported via --skill-type (default: individual):
                per-library summary, pair entry and reference file. Each of
                its issues names in `check` the create-stack-skill validate.md
                section that records it. --forge-tier <tier> also checks
-               metadata.json's forge_tier against the run's tier.
+               metadata.json's forge_tier against the run's tier. The
+               context snippet must hold a `|stack:` and an `|integrations:`
+               line (medium issues under validation.context_snippet).
+               --forge-version <dir> checks that the forge data version
+               folder holds provenance-map.json and evidence-report.md, and
+               --active-link <skill_group> --expected-version <version> that
+               <skill_group>/active exists and resolves to
+               <skill_group>/<version> (a symlink or a Windows junction); each
+               miss is a medium issue under validation.stack_workspace.
+               --active-link and --expected-version go together, and the
+               three flags need --skill-type stack: a call that breaks either
+               rule, or gives one of them no value, exits 2.
 
 The --export-gate flag selects a third, self-contained mode used by
 skf-export-skill's publishing gate (load-skill.md §2 runs it, §3 binds its
@@ -104,6 +116,8 @@ CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --skip-frontmatter
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack
      python3 skf-validate-output.py <skill-package-dir> --skill-type stack --forge-tier Deep
+     python3 skf-validate-output.py <skill-package-dir> --skill-type stack --forge-version <forge-version-dir> \
+         --active-link <skill-group-dir> --expected-version <version>
      python3 skf-validate-output.py <skill-package-dir> --export-gate
      python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>
 """
@@ -112,6 +126,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import posixpath
 import re
 import sys
@@ -593,15 +608,34 @@ def crossref_section_7b(skill_md_text, pkg_dir):
     return missing, orphans
 
 
+def _stack_reference_files(references):
+    """(per-library reference files, integration pair files) of a stack's
+    references/ folder, each sorted. A library name with a `/` (a scoped npm
+    package, a Go module path) lands in subfolders, as
+    skf-render-stack-metadata.py references writes it, so both look below
+    the top level: the library files are every .md under references/ but
+    stack-catalog.md and those under integrations/, the pair files every .md
+    under references/integrations/."""
+    ref_files, pair_files = [], []
+    if references.is_dir():
+        for p in sorted(references.rglob("*.md")):
+            parts = p.relative_to(references).parts
+            if len(parts) > 1 and parts[0] == "integrations":
+                pair_files.append(p)
+            elif parts != ("stack-catalog.md",):
+                ref_files.append(p)
+    return ref_files, pair_files
+
+
 def validate_stack_counts(skill_dir, meta):
     """Validate stack-package count equalities against on-disk reference files.
 
     Deterministic integer arithmetic the validate.md prompt previously did by
     hand each run:
       - library_count (metadata) == number of per-library reference files
-        (references/*.md, excluding the integrations/ subdir and stack-catalog.md)
+        (references/**/*.md, excluding the integrations/ subdir and stack-catalog.md)
       - integration_count (metadata) == number of integration pair files
-        (references/integrations/*.md)
+        (references/integrations/**/*.md)
       - sum(confidence_distribution over t1, t1_low, t2, t3) == library_count
 
     Returns (issues, observed) where issues use the same {severity, field,
@@ -609,23 +643,8 @@ def validate_stack_counts(skill_dir, meta):
     counts so the prompt can echo numbers without recomputing them.
     """
     skill_dir = Path(skill_dir)
-    references = skill_dir / "references"
-
-    # Per-library reference files: top-level references/*.md.
-    # glob("*.md") is non-recursive, so references/integrations/*.md is
-    # excluded automatically; stack-catalog.md is excluded by name.
-    ref_file_count = 0
-    if references.is_dir():
-        for p in sorted(references.glob("*.md")):
-            if p.name == "stack-catalog.md":
-                continue
-            ref_file_count += 1
-
-    # Integration pair files: references/integrations/*.md.
-    integrations_dir = references / "integrations"
-    pair_file_count = 0
-    if integrations_dir.is_dir():
-        pair_file_count = sum(1 for _ in integrations_dir.glob("*.md"))
+    ref_files, pair_files = _stack_reference_files(skill_dir / "references")
+    ref_file_count, pair_file_count = len(ref_files), len(pair_files)
 
     library_count_meta = meta.get("library_count")
     integration_count_meta = meta.get("integration_count")
@@ -731,6 +750,15 @@ _REFERENCE_INDEX = "Library Reference Index"
 _PER_LIBRARY = "Per-Library Summaries"
 _CATALOG_POINTER = "Library Catalog"
 _CONVENTIONS = "Conventions"
+# A Conventions bullet's citation: code mode's `(src/app.ts:12)`, several of
+# them comma-separated in one pair of parentheses (`(src/app.ts:12, src/b.ts:4)`),
+# or compose mode's `[from skill: react]`; the template's `{file}:{line}` and
+# `{name}` placeholders are none, nor is text in a code span.
+_CITED_LINE = r"[^\s,:{}]+:\d+(?:-\d+)?"
+_CONVENTION_CITATION_RE = re.compile(
+    rf"\({_CITED_LINE}(?:[ \t]*,[ \t]*{_CITED_LINE})*\)|\[from skill:[ \t]*[^\]\s{{}}][^\]{{}}]*\]")
+# A list item's first line: `- `, `* ` or `+ `, or `1. ` or `1) `.
+_LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\S")
 # The headings of a per-library file and of an integration pair file.
 _LIBRARY_FILE_HEADINGS = ("Key Exports", "Usage Patterns")
 _PAIR_FILE_HEADINGS = ("Integration Pattern", "Key Files")
@@ -836,6 +864,32 @@ def _entries(text, headings, parent, level):
     ]
 
 
+def _list_items(text):
+    """Each list item outside fenced code, as its first line joined to the lines
+    that continue it: a line indented past its marker (a nested bullet, or a
+    paragraph after a blank line) or an unindented line before any blank line.
+    A fence, a heading, or an unindented line after a blank line ends an item."""
+    items, current, indent, blank = [], None, 0, False
+    for line, code in _markdown_lines(text):
+        if not line.strip() and not code:
+            blank = True
+            continue
+        depth = len(line) - len(line.lstrip(" \t"))
+        if code or _ATX_HEADING_RE.match(line):
+            current = None
+        elif current is not None and depth > indent:
+            current.append(line.strip())
+        elif _LIST_ITEM_RE.match(line):
+            current, indent = [line.strip()], depth
+            items.append(current)
+        elif current is not None and not blank:
+            current.append(line.strip())
+        else:
+            current = None
+        blank = False
+    return [" ".join(item) for item in items]
+
+
 def _header_region(text):
     """A reference file's header: the text before its first `## ` heading."""
     for level, _, index in _headings(text):
@@ -870,7 +924,10 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         patterns | Forge tier: T` line under it, its numbers and tier equal
         to metadata.json's; `## Integration Patterns` (unless
         integration_count is 0) ahead of the per-library summaries;
-        `## Conventions`; the catalog inline (`## Library Reference Index`
+        `## Conventions`, each of its list items outside fenced code citing
+        `({file}:{line})` (several comma-separated in one pair of
+        parentheses) or `[from skill: {name}]` (low, field `conventions`);
+        the catalog inline (`## Library Reference Index`
         and `## Per-Library Summaries`) or behind a `## Library Catalog`
         pointer that links references/stack-catalog.md, which holds both
         sections; every relative link in SKILL.md and stack-catalog.md
@@ -900,7 +957,8 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         reference and pair file.
 
     Returns (issues, observed). Every issue is medium, except a generated_by
-    mismatch and a dominant tier that could not be recomputed (low).
+    mismatch, a dominant tier that could not be recomputed and an uncited
+    Conventions bullet (low).
     """
     skill_dir = Path(skill_dir)
     references = skill_dir / "references"
@@ -972,8 +1030,14 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         patterns = _find_heading(headings, 2, _INTEGRATION_PATTERNS)
         if patterns is None and count("integration_count") != 0:
             add("skill_md", "heading", f"SKILL.md has no `## {_INTEGRATION_PATTERNS}` section")
-        if _find_heading(headings, 2, _CONVENTIONS) is None:
+        conventions = _find_heading(headings, 2, _CONVENTIONS)
+        if conventions is None:
             add("skill_md", "heading", f"SKILL.md has no `## {_CONVENTIONS}` section")
+        else:
+            for item in _list_items(_block(skill_md, headings, conventions)):
+                if not _CONVENTION_CITATION_RE.search(_INLINE_CODE_RE.sub("", item)):
+                    add("skill_md", "conventions", f'the `## {_CONVENTIONS}` bullet "{item}" cites no '
+                        "`({file}:{line})` or `[from skill: {name}]`", severity="low")
 
         index = _find_heading(headings, 2, _REFERENCE_INDEX)
         summaries = _find_heading(headings, 2, _PER_LIBRARY)
@@ -1033,11 +1097,8 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
                         f"the pair entry `#### {entry}` in SKILL.md has no `**Confidence:**` T-code label")
 
     # --- Reference and pair files (§6) and their tier labels (§7) -------------
-    ref_files = []
-    if references.is_dir():
-        ref_files = [p for p in sorted(references.glob("*.md")) if p.name != "stack-catalog.md"]
+    ref_files, pair_files = _stack_reference_files(references)
     pair_dir = references / "integrations"
-    pair_files = sorted(pair_dir.glob("*.md")) if pair_dir.is_dir() else []
     for files, kind, line_re, line_name, required in (
         (ref_files, "reference_files", _VERSION_LINE_RE, "**Version:**", _LIBRARY_FILE_HEADINGS),
         (pair_files, "pair_files", _TYPE_LINE_RE, "**Type:**", _PAIR_FILE_HEADINGS),
@@ -1158,8 +1219,68 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
     return issues, observed
 
 
+# The lines a stack's context snippet holds after the shared first two (the
+# stack template's context-snippet.md format), by the issue field each miss
+# takes.
+_STACK_SNIPPET_LINES = (("stack", "|stack:"), ("integrations", "|integrations:"))
+# The workspace files create-stack-skill writes into the forge data version
+# folder (generate-output sections 7 and 8b), which --forge-version checks.
+_STACK_WORKSPACE_FILES = ("provenance-map.json", "evidence-report.md")
+
+
+def validate_stack_snippet_lines(content):
+    """A medium issue for each stack snippet line a non-empty snippet lacks."""
+    if not content or not content.strip():
+        return []
+    lines = content.splitlines()
+    return [{"severity": "medium", "field": field, "message": f"Context snippet has no `{prefix}` line"}
+            for field, prefix in _STACK_SNIPPET_LINES if not any(line.startswith(prefix) for line in lines)]
+
+
+def validate_stack_workspace(forge_version=None, active_link=None, expected_version=None):
+    """The stack's workspace files and its `active` link (create-stack-skill validate.md §1).
+
+    `forge_version`, when given, is the forge data version folder, which must
+    hold each of _STACK_WORKSPACE_FILES. `active_link`, when given, is the
+    skill group folder: its `active` must exist and resolve (os.path.realpath,
+    so a Windows junction counts as a link) to the `expected_version` folder
+    beside it. Each miss is a medium issue, so the package's result keeps its
+    meaning. Returns (issues, observed).
+    """
+    issues, observed = [], {}
+    if forge_version is not None:
+        folder = Path(forge_version)
+        found = {name: (folder / name).is_file() for name in _STACK_WORKSPACE_FILES}
+        observed["forge_version"] = str(folder)
+        observed["workspace_files"] = found
+        for name, present in found.items():
+            if not present:
+                issues.append({"severity": "medium", "field": name, "message": f"{name} not found in {folder}"})
+    if active_link is not None:
+        if expected_version is None:
+            raise ValueError("active_link needs expected_version")
+        group = Path(active_link)
+        link = group / "active"
+        expected = group / expected_version
+        resolved = os.path.realpath(link) if os.path.lexists(link) else None
+        observed.update({"active_link": str(link), "expected_version": expected_version,
+                         "active_resolves_to": resolved})
+        message = None
+        if resolved is None:
+            message = f"{link} does not exist"
+        elif not os.path.exists(link):
+            message = f"{link} is broken: it resolves to {resolved}, which does not exist"
+        elif os.path.normcase(resolved) == os.path.normcase(os.path.join(os.path.realpath(group), "active")):
+            message = f"{link} is not a link: it should resolve to {expected}"
+        elif os.path.normcase(resolved) != os.path.normcase(os.path.realpath(expected)):
+            message = f"{link} resolves to {resolved}, not to {expected}"
+        if message:
+            issues.append({"severity": "medium", "field": "active", "message": message})
+    return issues, observed
+
+
 def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False, skill_type="individual", export_gate=False,
-                           forge_tier=None):
+                           forge_tier=None, forge_version=None, active_link=None, expected_version=None):
     """Validate a complete skill package directory.
 
     When `skip_frontmatter` is True, the SKILL.md frontmatter pass is omitted —
@@ -1172,7 +1293,11 @@ def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False,
     runs validate_stack_counts, emitting validation.stack_counts.{issues,observed},
     and validate_stack_structure, emitting validation.stack_structure.{issues,observed}
     (`forge_tier`, when given, is the run's tier metadata.json must record).
-    Frontmatter and context-snippet checks are shape-agnostic and run for both.
+    Frontmatter and context-snippet checks are shape-agnostic and run for both;
+    a stack's snippet must also hold its `|stack:` and `|integrations:` lines.
+    With `forge_version` or `active_link` (and `expected_version`), a stack
+    also runs validate_stack_workspace, emitting
+    validation.stack_workspace.{issues,observed}.
 
     When `export_gate` is True, a self-contained export-gate validation runs
     instead (see _validate_export_gate). This branch is additive: the
@@ -1236,6 +1361,8 @@ def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False,
     if snippet_path.exists():
         content = snippet_path.read_text(encoding="utf-8")
         snippet_issues = validate_context_snippet(content)
+        if skill_type == "stack":
+            snippet_issues += validate_stack_snippet_lines(content)
         result["validation"]["context_snippet"] = {"issues": snippet_issues}
         for issue in snippet_issues:
             result["summary"]["total_issues"] += 1
@@ -1291,6 +1418,12 @@ def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False,
         for issue in structure_issues:
             result["summary"]["total_issues"] += 1
             result["summary"]["by_severity"][issue["severity"]] += 1
+        if forge_version is not None or active_link is not None:
+            workspace_issues, observed = validate_stack_workspace(forge_version, active_link, expected_version)
+            result["validation"]["stack_workspace"] = {"issues": workspace_issues, "observed": observed}
+            for issue in workspace_issues:
+                result["summary"]["total_issues"] += 1
+                result["summary"]["by_severity"][issue["severity"]] += 1
 
     # Overall pass/fail
     result["result"] = "PASS" if result["summary"]["by_severity"]["high"] == 0 else "FAIL"
@@ -1559,7 +1692,8 @@ if __name__ == "__main__":
         print(
             "Usage: python3 skf-validate-output.py <skill-package-dir> "
             "[--generated-by <generator>] [--skip-frontmatter] "
-            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--export-gate]\n"
+            "[--skill-type {individual,stack}] [--forge-tier <tier>] [--forge-version <dir>] "
+            "[--active-link <skill_group> --expected-version <version>] [--export-gate]\n"
             "       python3 skf-validate-output.py <draft-dir> --snippet-check --package <skill-package-dir>",
             file=sys.stderr,
         )
@@ -1619,9 +1753,31 @@ if __name__ == "__main__":
         if idx + 1 < len(sys.argv):
             run_forge_tier = sys.argv[idx + 1]
 
+    def _workspace_flag(flag):
+        """The value after `flag`, or None when it is absent; exits 2 when it has none."""
+        if flag not in sys.argv:
+            return None
+        idx = sys.argv.index(flag)
+        value = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
+        if not value or value.startswith("--"):
+            print(f"Error: {flag} needs a value", file=sys.stderr)
+            sys.exit(2)
+        return value
+
+    forge_version = _workspace_flag("--forge-version")
+    active_link = _workspace_flag("--active-link")
+    expected_version = _workspace_flag("--expected-version")
+    if (active_link is None) != (expected_version is None):
+        print("Error: --active-link and --expected-version go together", file=sys.stderr)
+        sys.exit(2)
+    if skill_type != "stack" and (forge_version is not None or active_link is not None):
+        print("Error: --forge-version and --active-link need --skill-type stack", file=sys.stderr)
+        sys.exit(2)
+
     result = validate_skill_package(
         pkg_dir, generated_by=gen_by, skip_frontmatter=skip_fm, skill_type=skill_type,
-        forge_tier=run_forge_tier,
+        forge_tier=run_forge_tier, forge_version=forge_version, active_link=active_link,
+        expected_version=expected_version,
     )
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["result"] == "PASS" else 1)

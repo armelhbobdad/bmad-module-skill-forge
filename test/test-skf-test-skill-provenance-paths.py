@@ -1700,15 +1700,15 @@ def test_producer_formats_match_the_criterion():
     # The two scope types the compose rule names are values create-skill writes to metadata.json.
     scope_lines = [line for line in _read(SKILL_SECTIONS).splitlines() if '"scope_type":' in line]
     assert len(scope_lines) == 1 and "reference-app" in scope_lines[0] and "docs-only" in scope_lines[0]
-    # The entries section 5 scores, and the hub summaries it leaves out.
+    # The entries section 5 scores, and the hub summaries it leaves out, after the pairs (#1151 leanness-6).
     compile_3 = _slice(_read(COMPILE_STACK), "### 3. Compile Integration Layer", "### 4.")
-    for part in ("**Cross-cutting patterns**", "**Library pair integrations:**", "**Hub library connections:**"):
+    for part in ("Cross-Cutting Patterns from `cross_cutting`", "one Library Pair Integrations entry per "
+                 "`integrations[]` entry", "After the pairs, a Hub Library Connections list"):
         assert part in compile_3
     patterns = _slice(_read(STACK_TEMPLATE), "## Integration Patterns", "## Library Reference Index")
     assert "### Cross-Cutting Patterns" in patterns and "### Library Pair Integrations" in patterns
     # Code mode: a pair entry carries citations and key files, and has no code-example slot.
-    assert "Pattern description with file:line citations" in compile_3
-    assert "Key files demonstrating the integration" in compile_3
+    assert "its pattern described with file:line citations and its key files from `key_files`" in compile_3
     entry = _slice(_read(STACK_TEMPLATE), "#### {LibraryA} + {LibraryB}", "## Library Reference Index")
     for field in ("**Type:** {pattern_type}", "**Pattern:** {description}", "**Key files:** {file_list}",
                   "**Confidence:**"):

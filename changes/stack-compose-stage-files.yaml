@@ -1,0 +1,6 @@
+type: changed
+scope: skf-create-stack-skill
+summary: |
+  A compose-mode Stack Skill run now reads its own stage files where it picks the constituent skills, sets the scope, reads the constituents and finds their pairs, and a halt there names that file in the envelope's `phase`: `compose-skills:enumerate`, `compose-skills:stale-manifest` and `compose-skills:no-skills` (formerly `detect-manifests:`), `compose-extract:enumerate`, `compose-extract:cycle` and `compose-extract:constituent-gone` (formerly `parallel-extract:`), and `compose-pairs:comention` and `compose-pairs:vs-report` (formerly `detect-integrations:`). Each constituent's `SKILL.md` is read by its own subagent; one it cannot read records a `constituent-read-failed` warning, and that skill's pairs cite its export names in place of signatures.
+issues: [1151]
+prs: [1215]

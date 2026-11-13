@@ -99,4 +99,4 @@ Used when the workflow ran in compose-mode against pre-generated constituent ski
 }
 ```
 
-Step 7 writes `constituents[]` with `skf-render-stack-metadata.py provenance`, the only copier of each `metadata_hash`: the provenance anchor step 4 §0 read, copied from its saved inventory, never hashed again. Each `skill_path` is the constituent's folder in `skills_output_folder`, relative to the project root that Audit Skill resolves it from.
+Step 7 writes `constituents[]` with `skf-render-stack-metadata.py provenance`, the only copier of each `metadata_hash`: the provenance anchor step 4 (`references/compose-extract.md` §1) read, copied from its saved inventory, never hashed again. Each `skill_path` is the constituent's folder in `skills_output_folder`, relative to the project root that Audit Skill resolves it from.
