@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -467,6 +468,96 @@ def test_the_report_lists_what_it_shows():
                 "Remove the remnants by hand with `rm -rf {path}`.", "re-run `@Ferris SF`",
                 "this rename is a LOCAL operation only"):
         assert fix in report, fix
+
+
+# --------------------------------------------------------------------------
+# #1158 architecture-1: each context file is rebuilt with its own skill root
+# --------------------------------------------------------------------------
+
+REBUILD_PY = SRC / "shared" / "scripts" / "skf-rebuild-managed-sections.py"
+OVERRIDE_GROUP = '[--skill-root-override "{snippet_skill_root_override}"]'
+
+
+def _rebuild_calls() -> list[str]:
+    """§7's fenced `{rebuildManagedSectionsHelper}` calls, backslash continuations joined."""
+    calls, joined, fence = [], "", False
+    for line in _section(_read(EXECUTE), "### 7. Rebuild Context Files", "### 8. ").split("\n"):
+        if line.strip().startswith("```"):
+            fence = not fence
+            continue
+        if not fence:
+            continue
+        if line.rstrip().endswith("\\"):
+            joined += line.rstrip()[:-1].strip() + " "
+            continue
+        joined += line.strip()
+        if "{rebuildManagedSectionsHelper}" in joined:
+            calls.append(" ".join(joined.split()))
+        joined = ""
+    return calls
+
+
+def _documented_argv(call: str, values: dict, override: str | None) -> list[str]:
+    """A documented call filled in as an agent fills it, without a shell: a list value is one argument per item."""
+    call = call.replace(OVERRIDE_GROUP, OVERRIDE_GROUP[1:-1] if override else "")
+    argv = []
+    for word in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call)):
+        whole = re.fullmatch(r"@@(\w+)@@", word)
+        if whole and isinstance(values[whole.group(1)], list):
+            argv.extend(values[whole.group(1)])
+        else:
+            argv.append(re.sub(r"@@(\w+)@@", lambda m: str(values[m.group(1)]), word))
+    assert argv[:2] == ["python3", str(REBUILD_PY)], argv
+    return [sys.executable, *argv[1:]]
+
+
+@pytest.mark.parametrize("override", [None, "skills/"], ids=["ide-roots", "override"])
+def test_two_ides_give_each_context_file_its_own_skill_root(tmp_path, override):
+    """With ides [claude-code, codex], AGENTS.md lists the renamed skill under Codex's `.agents/skills/`, not the root
+    of the first target, and --skill-root-override still wins for both. The values hold no `skill_root`: a bare
+    `{skill_root}` reaching assemble would fail to fill, as nothing in rename binds it."""
+    text = _section(_read(EXECUTE), "### 7. Rebuild Context Files", "### 8. ")
+    assert "{skill_root}" not in text
+    assert "its skill root `{target_skill_root}` is that entry's own `skill_root`" in text
+    skills = tmp_path / "skills"
+    package = skills / "beta" / "2.0.0" / "beta"
+    package.mkdir(parents=True)
+    (package / "context-snippet.md").write_bytes(
+        b"[beta v2.0.0]|root: .claude/skills/beta/\n|IMPORTANT: beta v2.0.0: read SKILL.md before writing beta code.\n")
+    (package / "metadata.json").write_bytes(json.dumps({"name": "beta", "skill_type": "single"}).encode("utf-8"))
+    record = {"ides": ["claude-code"], "last_exported": "2026-01-01", "status": "active"}
+    (skills / ".export-manifest.json").write_bytes(json.dumps(
+        {"schema_version": "2", "exports": {"beta": {"active_version": "2.0.0", "versions": {"2.0.0": record}}}}
+    ).encode("utf-8"))
+    for name, root in (("CLAUDE.md", ".claude/skills/"), ("AGENTS.md", ".agents/skills/")):
+        (tmp_path / name).write_bytes((
+            "# Project\n\n<!-- SKF:BEGIN updated:2026-01-01 -->\n[SKF Skills]|1 skills|0 stack\n|\n"
+            f"|[old-beta v2.0.0]|root: {root}old-beta/\n<!-- SKF:END -->\n").encode("utf-8"))
+    resolve, check, assemble, replace = _rebuild_calls()
+    values = {"rebuildManagedSectionsHelper": str(REBUILD_PY), "ides": "claude-code,codex",
+              "skills_output_folder": str(skills), "old_name": "old-beta", "new_name": "beta",
+              "snippet_skill_root_override": override or ""}
+    proc = subprocess.run(_documented_argv(resolve, values, override), capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    targets = json.loads(proc.stdout)["targets"]
+    assert [(t["context_file"], t["skill_root"]) for t in targets] == [
+        ("CLAUDE.md", ".claude/skills/"), ("AGENTS.md", ".agents/skills/")]
+    values["target_paths"] = [str(tmp_path / t["context_file"]) for t in targets]
+    roots = {}
+    for target in targets:
+        path = tmp_path / target["context_file"]
+        values.update(context_path=str(path), target_skill_root=target["skill_root"])
+        for call in (check, assemble):
+            proc = subprocess.run(_documented_argv(call, values, override), capture_output=True, timeout=60)
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+        command, _, source = replace.partition(" < ")
+        with open(source.strip().strip('"').replace("{context_path}", str(path)), "rb") as staged:
+            proc = subprocess.run(_documented_argv(command, values, override), stdin=staged, capture_output=True,
+                                  timeout=60)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        Path(str(path) + ".skf-content").unlink()
+        roots[target["context_file"]] = re.findall(r"\|root: (\S+)beta/", path.read_bytes().decode("utf-8"))
+    assert roots == {"CLAUDE.md": [override or ".claude/skills/"], "AGENTS.md": [override or ".agents/skills/"]}
 
 
 # --------------------------------------------------------------------------

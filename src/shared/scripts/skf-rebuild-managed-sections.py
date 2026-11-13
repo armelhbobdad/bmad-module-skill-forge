@@ -164,6 +164,26 @@ Action-first actions (the action name comes first):
                 span written as `, `; line is null when it writes none. A
                 snippet that is a folder or not UTF-8, a manifest it cannot
                 read and a judgments file it cannot use are errors.
+  rebuild --project-root DIR --ides a,b --skills-folder DIR [--dropped NAME]...
+          [--skill-root-override PREFIX]
+                Rebuild the managed section of every context file
+                resolve-targets gives for --ides, under DIR, from the
+                manifest as it is now: Drop Skill's rebuild after it changed
+                the manifest. Per target, in order: check; a file with no
+                section (case create or append) is listed in `skipped` as
+                {file, case}, and one that is malformed or unreadable in
+                `failed` as {file, context_file, error}, context_file being
+                its resolve-targets name; else assemble with that target's
+                own skill_root (or the override), every target file as an
+                orphan source (but one check found malformed or unreadable)
+                and --dropped, then replace. The staged body is removed
+                whatever the outcome. A failure of one file never stops the
+                next. `updated` lists the files rewritten, as
+                paths under DIR; `warnings` holds one line per assemble
+                warning and skipped_* entry, naming its file and skill,
+                except the skipped_deprecated entry of a --dropped skill
+                (the drop deprecated it). A mapping it cannot read is an
+                error (exit 1); otherwise it exits 0, failures included.
 """
 
 from __future__ import annotations
@@ -174,7 +194,9 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1491,10 +1513,84 @@ def cmd_gotchas_resolve(snippet, skills_folder, skill, judgments_file):
 
 
 # ---------------------------------------------------------------------------
+# rebuild: every target's section, after a manifest change
+# ---------------------------------------------------------------------------
+
+# What each assemble skip says, by its key.
+SKIP_REASONS = {
+    "skipped_deprecated": "its active version {version} is deprecated, so it has no row",
+    "skipped_integrity": "its manifest entry cannot be used ({reason}), so it has no row",
+    "skipped_missing_snippet": "no context-snippet.md was found for {version}, so it has no row",
+    "skipped_malformed_snippet": "its snippet {snippet_path} was skipped: {reason}",
+}
+
+
+def _skip_warnings(context_file, assembled, dropped):
+    """One line per assemble warning and skipped_* entry, naming the file and the skill."""
+    lines = [f"{context_file}: {warning}" for warning in assembled.get("warnings", [])]
+    for key, reason in SKIP_REASONS.items():
+        for entry in assembled.get(key, []):
+            if key == "skipped_deprecated" and entry["skill_name"] in dropped:
+                continue  # the drop itself deprecated it
+            values = {"version": entry.get("version") or entry.get("active_version"), **entry}
+            lines.append(f"{context_file}: {entry['skill_name']}: {reason.format(**values)}")
+    return lines
+
+
+def cmd_rebuild(project_root, ides_csv, skills_folder, *, dropped=(), override=None):
+    """Rebuild the managed section of each context file `ides_csv` maps to under `project_root`."""
+    targets = cmd_resolve_targets(ides_csv)
+    if targets["status"] != "ok":
+        return {"status": "error", "error": f"{targets['error']}. No context file was rebuilt."}
+    paths = [str(Path(project_root) / t["context_file"]) for t in targets["targets"]]
+    checks = [cmd_check(path) for path in paths]
+    # A file that cannot be read is no orphan source: the others are rebuilt without its rows.
+    sources = [path for path, check in zip(paths, checks) if check["status"] == "ok"]
+    updated, failed, skipped, warnings = [], [], [], []
+
+    def fail(target, path, error):
+        failed.append({"file": path, "context_file": target["context_file"], "error": error})
+
+    for target, path, check in zip(targets["targets"], paths, checks):
+        if check["status"] != "ok":
+            fail(target, path, check["error"])
+            continue
+        if check["case"] != "regenerate":
+            skipped.append({"file": path, "case": check["case"]})
+            continue
+        try:
+            stage = tempfile.mkdtemp(prefix="skf-rebuild-")
+        except OSError as e:
+            fail(target, path, f"cannot create a folder to stage the body in: {e}")
+            continue
+        try:
+            assembled = cmd_assemble(path, skills_folder, target["skill_root"], override=override,
+                                     dropped=dropped, orphan_sources=sources,
+                                     out=str(Path(stage) / (target["context_file"] + CONTENT_SUFFIX)))
+            if assembled["status"] != "ok":
+                fail(target, path, assembled["error"])
+                continue
+            warnings += _skip_warnings(target["context_file"], assembled, dropped)
+            try:
+                body = Path(assembled["content_file"]).read_bytes().decode("utf-8")
+            except (OSError, ValueError) as e:
+                fail(target, path, f"cannot read the staged body: {e}")
+                continue
+            replaced = cmd_replace(path, body)
+            if replaced["status"] != "ok":
+                fail(target, path, replaced["error"])
+                continue
+            updated.append(path)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+    return {"status": "ok", "updated": updated, "failed": failed, "skipped": skipped, "warnings": warnings}
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
-ACTION_FIRST = ("orphan-detect", "root-probe", "assemble", "resolve-targets", "gotchas")
+ACTION_FIRST = ("orphan-detect", "root-probe", "assemble", "resolve-targets", "gotchas", "rebuild")
 
 
 def _include_list(value):
@@ -1654,6 +1750,28 @@ def _action_parser(action):
             metavar="FILE",
             help='resolve only: a JSON file {"backed": [one boolean per prior pitfall], "new_gotchas": [...]}',
         )
+    elif action == "rebuild":
+        parser = argparse.ArgumentParser(
+            prog=prog,
+            description="Rebuild the managed section of every context file config.yaml's IDE list maps to, "
+            "from the export manifest as it is now (Drop Skill, after its manifest change).",
+        )
+        parser.add_argument("--project-root", required=True, help="The project the context files sit in")
+        parser.add_argument("--ides", default="", help="Comma-separated IDE identifiers from config.yaml `ides`")
+        parser.add_argument("--skills-folder", required=True, help="skills_output_folder, which holds .export-manifest.json")
+        parser.add_argument(
+            "--dropped",
+            action="append",
+            type=_name_list,
+            default=[],
+            metavar="NAME",
+            help="A dropped skill: its rows are not orphans, and its skipped_deprecated entry is no warning",
+        )
+        parser.add_argument(
+            "--skill-root-override",
+            default="",
+            help="snippet_skill_root_override from config.yaml: every row's root uses it instead of the target's",
+        )
     else:  # resolve-targets
         parser = argparse.ArgumentParser(
             prog=prog, description="Map config.yaml's IDE list to the context files to write and their skill roots."
@@ -1718,6 +1836,14 @@ def _run_action_first(argv):
             result = cmd_gotchas_prior(args.snippet, args.skills_folder, args.skill)
         else:
             result = cmd_gotchas_resolve(args.snippet, args.skills_folder, args.skill, args.judgments)
+    elif action == "rebuild":
+        result = cmd_rebuild(
+            args.project_root,
+            args.ides,
+            args.skills_folder,
+            dropped=[name for group in args.dropped for name in group],
+            override=args.skill_root_override,
+        )
     else:
         result = cmd_resolve_targets(args.ides, args.context_file)
     return result, 0 if result["status"] == "ok" else 1

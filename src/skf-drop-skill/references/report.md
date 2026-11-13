@@ -1,9 +1,7 @@
 ---
 nextStepFile: 'health-check.md'
-# {manifestOpsHelper}: the §1 remaining versions.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# {dropRosterHelper}: the §1 remaining versions.
+dropRosterHelper: 'scripts/drop-roster.py'
 # {emitEnvelopeHelper}: the §2 result contract.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -26,7 +24,7 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the drop
 - Do not hide verification errors, failed context file rebuilds or folders a purge could not delete
-- When a helper is not bound, it resolves to the first existing path in its probe order: `{manifestOpsHelper}` in `{manifestOpsProbeOrder}` and `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`.
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`.
 - The post-drop hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 
 ## MANDATORY SEQUENCE
@@ -37,59 +35,21 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 Set `remaining_versions_display = "(skill fully removed)"`.
 
-**Otherwise** (one version, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
+**Otherwise** (one or more versions, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
 
-Read the target skill's remaining versions through `{manifestOpsHelper}`, rather than re-parsing the manifest by hand:
+Read the target skill's versions from the roster:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
-python3 {manifestOpsHelper} {skills_output_folder} affected-versions {target_skill}
+uv run {dropRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}" --skill "{target_skill}"
 ```
 
-`get` returns `result.entry` (its `active_version` and its `versions` map with each version's `status`); `affected-versions` returns `result.affected_versions` sorted numerically-descending (so `0.10.0` precedes `0.9.0`). Build the display in that order, annotating each version with its `status` and marking `active_version` with a trailing `*`:
+List each `versions` row of its one `skills` entry whose `in_manifest` is true, in the roster's order (newest first, so `0.10.0` precedes `0.9.0`), with its `status`, and mark the row whose `active` is true with a trailing `*`; that list is `remaining_versions_display`.
 
-```
-  - 0.6.0 (active) *
-  - 0.5.0 (archived)
-  - 0.1.0 (deprecated)
-```
+When the call exits non-zero, or prints no JSON, set `remaining_versions_display = "(unknown: {the result's error, or its first stderr line})"`.
 
 ### 2. Render the Report
 
-Display the following block, filling in values from context:
-
-```
-**Drop summary**
-
-Operation:     {Deprecate | Purge}
-Skill:         {target_skill}
-Version(s):    {comma-separated target_versions or "ALL"}
-
-Changes:
-- Manifest updated:      {yes | no}
-- Context files rebuilt: {list from context_files_updated, or "(none)"}
-{if context_files_failed is non-empty:}
-- Context files FAILED: {list from context_files_failed}
-{if drop_mode == "purge":}
-- Files deleted:         {list from files_deleted, or "(none — nothing on disk)"}
-- Disk space freed:      {disk_freed}
-{if delete_failures is non-empty:}- Not deleted:           {each delete_failures path with its error} (remove by hand: `rm -rf {path}`)
-{if forge_left_in_place:}- Left in place (not SKF output): {forge_left_in_place}
-
-Remaining versions for {target_skill}:
-{remaining_versions_display}
-
-{if drop_mode == "deprecate":}
-**Note:** Files remain on disk. This operation is reversible by manually editing
-`{skills_output_folder}/.export-manifest.json` and changing the version's `status`
-field back to `"active"` or `"archived"`, then re-running `[EX] Export Skill` to
-restore the managed section entry.
-
-{if verification_errors is non-empty:}
-**Verification warnings:**
-{list each verification error}
-Each item above names its manual fix.
-```
+Show the report in one block: the operation (Deprecate or Purge), `{target_skill}` and `target_versions` (or "ALL"); when `keep_version` is bound, that `{keep_version}` is now the active version; whether the manifest was updated (`manifest_updated`); the context files rebuilt (`context_files_updated`, or "(none)") and each one in `context_files_failed`; for a purge, the folders deleted (`files_deleted`, or "(none: nothing on disk)"), `disk_freed`, each `delete_failures` path with its error and its fix `rm -rf {path}`, and `forge_left_in_place` as "Left in place (not SKF output)" when it is set; `remaining_versions_display`; for a deprecate, that the files stay on disk and that setting the version's `status` back to `"active"` or `"archived"` in `{skills_output_folder}/.export-manifest.json`, then running `[EX] Export Skill`, reverses the drop; and each `verification_errors` entry with its manual fix.
 
 ### Result Contract
 
@@ -113,15 +73,15 @@ The shared emitter writes the result contract (`shared/references/output-contrac
       "drop_mode": "{drop_mode}",
       "versions_affected": {target_versions},
       "forge_left_in_place": {forge_left_in_place},
-      "headless_provenance": {"headless": {headless_mode}, "mode_source": "{mode_source}", "confirm": "{confirm_source}"}
+      "keep_version": {keep_version}
     }
   }
 }
 ```
 
-- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried, or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
+- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`, or `["0.6.0", "0.5.0"]` after Older versions) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried (a JSON array of paths after Older versions), or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
+- `{keep_version}` is the version select.md §7 made active before the drop, as a JSON string, or `null` when none.
 - `{record_status}` is `"partial"` when some (but not all) purge folders failed to delete (step 2's `purge_status`); then also put step 2's `delete_failures` in `summary.delete_failures`. Otherwise it is `"success"`. A full purge failure and a failed manifest write never reach this step: step 2 HALTs with `halt_reason: "delete-failed"` or `"manifest-write-failed"`.
-- `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, and `{mode_source}` and `{confirm_source}` the values step 1 set.
 - The payload carries no `warnings`: the emitter adds the ones step 2 recorded, so a run whose envelope reads `success` still names what needs a manual fix.
 
 Then run, in every mode:
@@ -130,7 +90,7 @@ Then run, in every mode:
 uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" --result-dir "{skills_output_folder}" < "{run_dir}/result-context.json"
 ```
 
-The emitter stamps the UTC time, the run id, the run's warnings and the auto-decisions select.md recorded (`headless_decisions`) into the record, writes it as `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`, copies it to `{skills_output_folder}/drop-skill-result-latest.json` (the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_DROP_SKILL_RESULT_JSON` line), and prints the `SKF_DROP_SKILL_RESULT_JSON:` line on stdout (field rules in `references/invocation-contract.md`). Bind `{result_json_path}` ← that line's `result_path`: null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, leave `{result_envelope_line}` empty, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
+Bind `{result_json_path}` ← the `result_path` of the `SKF_DROP_SKILL_RESULT_JSON:` line it prints on stdout (field rules in `references/invocation-contract.md`): null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, leave `{result_envelope_line}` empty, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
 
 ### Post-drop hook (optional)
 
@@ -152,5 +112,5 @@ Whether or not a hook ran, then delete the run folder, whose payload the emitter
 
 ### 3. Chain to Health Check
 
-ONLY WHEN the report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not re-run any earlier step after it completes (a fresh drop means re-invoking the workflow from the top).
+Once the report is shown and the record emitted, load, read the full file, and execute `{nextStepFile}`: the health check is the terminal step, and in a headless run it prints the envelope as the last line, so stopping at the report loses it. Do not re-run an earlier step after it completes.
 

@@ -7,7 +7,7 @@ description: Deprecates or purges a skill version or a whole skill, then rebuild
 
 ## Overview
 
-Drops a specific skill version or an entire skill, either as a soft deprecation (manifest-only, files retained) or a hard purge (files deleted). Ensures platform context files are rebuilt to exclude dropped versions. In interactive mode every destructive action requires explicit user confirmation — nothing is deleted silently; headless runs auto-resolve the gates with their default action and log each auto-decision. The export manifest is the source of truth; the filesystem is updated to match.
+Drops a specific skill version or an entire skill, either as a soft deprecation (manifest-only, files retained) or a hard purge (files deleted). The export manifest is the source of truth; the filesystem is updated to match.
 
 ## Conventions
 
@@ -15,10 +15,9 @@ Drops a specific skill version or an entire skill, either as a soft deprecation 
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` holds its helpers (`dir-sizes.py`, `drop-roster.py`).
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
-- `{skill-name}` resolves to the skill directory's basename.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- **Shared context-file rebuild:** `references/select.md` and `references/execute.md` resolve the context files and rebuild their managed sections through `shared/scripts/skf-rebuild-managed-sections.py`, the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping. `skf-export-skill/assets/managed-section-format.md` documents that format.
+- `skf-export-skill/assets/managed-section-format.md` documents the managed section step 2 rebuilds, `snippet_skill_root_override` included.
 
 ## Role
 
@@ -29,13 +28,11 @@ You are Ferris in Management mode — a destructive operation specialist who enf
 These rules apply to every step in this workflow:
 
 - Never delete files in purge mode without clearing the §10 confirmation gate (auto-resolved with its default in headless)
-- Never drop an active version when other non-deprecated versions exist — enforce the active version guard
 - Never purge content SKF did not generate: select.md §8b takes the purge verdict for the skill folder and its forge folder from the inventory helper; a forge folder SKF did not generate is left in place, and a purge SKF cannot check is refused
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread, with two exceptions. A helper On-Activation §4 resolves is never replaced by hand (a missing one halts the run before the first prompt): never type an envelope or edit the manifest or a context file yourself. And never decide by hand whether SKF generated a folder: without the inventory helper, select.md offers manifest skills only and refuses every purge
+- Never do by hand what a helper does: an envelope, a manifest or context-file write, or whether SKF generated a folder. A missing On-Activation §4 helper halts the run before the first prompt, and every other call site says what happens without its helper
 - Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
-- At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 
 ## Stages
@@ -56,7 +53,7 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
+   - `snippet_skill_root_override`
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -70,14 +67,14 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 
    Bind each scalar to its bundled default when the merged value is empty or absent:
 
-   - `{forbidPurgeInHeadless}` ← on when `workflow.forbid_purge_in_headless` holds any value other than the empty string (a TOML `true`, `false` or `"false"` included), else off
+   - `{forbidPurgeInHeadless}` ← the `purge_forbidden` that step 4's `activation` call reads from `workflow.forbid_purge_in_headless`, for a headless purge only; off when the resolver could not run
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 3 then runs no hook)
 
    Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file), then run `workflow.activation_steps_append` after.
 
 4. **Pre-flight: helpers, run folder, write probe and headless-purge guard.** All of it runs before the first prompt, so a broken install or a read-only folder stops the run before the user answers anything. Each HALT below names its exit code, `halt_reason` and phase: in headless mode it prints its envelope as the Halt Envelope section of `references/invocation-contract.md` says, and an interactive HALT displays its message only.
 
-   First, resolve `{emitEnvelopeHelper}`, `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}`, each ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and `{project-root}/src/shared/scripts/<script>` (development tree), where `<script>` is `skf-emit-result-envelope.py`, `skf-manifest-ops.py` and `skf-rebuild-managed-sections.py` in turn. Then create the run folder for the envelope payloads, and bind `{run_dir}` ← the path it prints (step 3, a `--dry-run` at the confirmation gate, or an interactive HALT in step 1 or 2 deletes it; any other HALT keeps it):
+   First, resolve `{emitEnvelopeHelper}`, `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}`, each ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and `{project-root}/src/shared/scripts/<script>` (development tree), where `<script>` is `skf-emit-result-envelope.py`, `skf-manifest-ops.py` and `skf-rebuild-managed-sections.py` in turn. Then create the run folder for the envelope payloads, and bind `{run_dir}` ← the path it prints (an activation HALT keeps it):
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-drop-skill-XXXXXXXX"
@@ -99,6 +96,12 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:write-probe`, path `{skills_output_folder}`): "SKF cannot write to `{skills_output_folder}`: {the first stderr line}. Nothing was changed."
 
-   Last, the headless-purge guard. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate`, or empty the setting in the team or personal override that sets it." A draft skill cannot be deprecated, so it needs an interactive run or the guard off; select.md §8 purges a draft headless only on `mode=purge`, so this guard covers that purge too.
+   Last, the headless-purge guard. When `{headless_mode}` is true, the `mode` arg is `"purge"` and the §3 resolver ran, write the JSON it printed, as printed, to `{run_dir}/customization.json` with a file write, then run (`{dropRosterHelper}` is `scripts/drop-roster.py`):
+
+   ```bash
+   uv run {dropRosterHelper} activation < "{run_dir}/customization.json"
+   ```
+
+   Bind `{forbidPurgeInHeadless}` ← its `purge_forbidden`, which is on for any value other than the empty string (a TOML `true`, `false` or `"false"` included); a non-zero exit, or no JSON, counts as on. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate`, or empty the setting in the team or personal override that sets it." After a failed call the message reads instead: "headless purge stopped: SKF cannot read `forbid_purge_in_headless` ({its `error`, or its first stderr line}): re-run with `mode=deprecate`, or fix that and re-run."
 
 5. Load, read the full file, and then execute `references/select.md` to begin the workflow.

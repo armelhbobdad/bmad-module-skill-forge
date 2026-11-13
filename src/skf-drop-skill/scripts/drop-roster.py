@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Drop Skill roster: the two lists a drop reads, each from one call.
+"""Drop Skill roster: what a drop reads and checks, each from one call.
 
   skills <skills-folder> --forge-data-folder <path> [--skill <name>]
       select.md section 2: every skill the drop can offer (section 3 lists
@@ -19,7 +19,24 @@
       IDEs, and the counts the active-version guard and the blast-radius
       line read. With --skill the roster holds that skill only, so a run
       given its target reads one skill rather than every one; `empty` and
-      `not_offered` still cover the whole folder.
+      `not_offered` still cover the whole folder. report.md section 1 reads
+      the remaining versions from it too.
+
+      `keep_candidate` is the version select.md section 7 names to keep
+      when the user drops the manifest's active_version: the pick
+      skf-update-active-symlink.py repair-after-drop makes after a purge
+      (pick_new_active), with the active version as the dropped one. When
+      the `active` link names another version folder (one forged after the
+      last export, or made active by hand), it is that version when the
+      manifest lists it and not as deprecated, else null, so a keep never
+      moves the link off it. It is also null when the skill has no
+      active_version, when no other version qualifies, and when that
+      script cannot be loaded.
+
+      `older_versions` is what select.md section 6 [O] Older versions drops:
+      the manifest versions that are not the active_version and whose status
+      is neither "active" nor "deprecated", newest first. It is empty for a
+      draft, and the same list when the roster holds the manifest rows alone.
 
       Without skf-skill-inventory.py (an older or broken install), or when
       its scan or resolve fails, `inventory` is false and the roster holds
@@ -27,15 +44,38 @@
       the manifest does not list, so none is offered.
 
   rows --skill <name> [--version <v>]... <context-file>...
-      execute.md section 5: the managed-section rows the context files still
-      hold for a skill (for those versions only, with --version), as
-      {file, version}, read with the parser skf-rebuild-managed-sections.py
-      writes the section with. A row's snippet text never comes back. A file
-      whose markers are malformed, or that cannot be read, is listed in
-      `unchecked` with the reason: its rows are unknown. A missing file holds
-      no row.
+      verify's context-rows check (execute.md section 5) runs it: the
+      managed-section rows the context files still hold for a skill (for
+      those versions only, with --version), as {file, version}, read with
+      the parser skf-rebuild-managed-sections.py writes the section with. A
+      row's snippet text never comes back. A file whose markers are
+      malformed, or that cannot be read, is listed in `unchecked` with the
+      reason: its rows are unknown. A missing file holds no row.
 
-Both shared scripts are read from the shared scripts folder beside this
+  activation  (stdin: the JSON skf-resolve-customization.py printed)
+      SKILL.md On Activation section 4: whether the headless-purge guard is
+      on. `purge_forbidden` is true when `forbid_purge_in_headless`, under
+      the `workflow` table or as a `workflow.forbid_purge_in_headless` key,
+      holds any value other than the empty string (true, false and "false"
+      included), and false when it is "" or absent. stdin is read as bytes
+      and decoded as UTF-8 with replacement (a leading BOM dropped, as the
+      resolver drops one), since a fact path need not be UTF-8. stdin that is not a JSON object, or a `workflow` that is not
+      one, exits 1: the caller then counts the guard as on.
+
+  verify <skills-folder> --skill <name> --mode deprecate|purge
+         [--version <v>]... [<context-file>...]
+      execute.md section 5: the state a drop should leave. The manifest
+      check: each --version has status "deprecated"; with no --version, a
+      deprecate leaves every version of the entry deprecated and a purge
+      leaves no entry (a draft, which the manifest never listed, too). A
+      manifest that cannot be read fails the check rather than the call.
+      The context-rows check, run over the context files given: each row
+      `rows` finds (for those versions, with --version) and each file it
+      cannot check fails it. Each failure is {check: "manifest" or
+      "context-rows", detail: what failed, manual_fix}. The context files
+      may come before or after the flags.
+
+The shared scripts are read from the shared scripts folder beside this
 skill's folder (shared/scripts/), where the installer puts them in an
 installed project as in this checkout.
 
@@ -47,10 +87,14 @@ Output (stdout, one JSON object):
                        "versions": [{"version", "status", "active",
                                      "in_manifest", "on_disk",
                                      "last_exported", "ides"}],
-                       "counts": {"non_deprecated", "on_disk"}}],
+                       "counts": {"non_deprecated", "on_disk"},
+                       "keep_candidate": str|null,
+                       "older_versions": [str]}],
            "not_offered": [{"name", "errors"}], "empty": bool}
   rows:   {"status": "ok", "skill", "versions": [...]|null,
            "rows": [{"file", "version"}], "unchecked": [{"file", "error"}]}
+  activation: {"status": "ok", "purge_forbidden": bool}
+  verify: {"status": "ok", "failures": [{"check", "detail", "manual_fix"}]}
 
 `status` of a version is its manifest status, null for a folder the manifest
 does not list; `active` marks the manifest's active_version. `counts` gives
@@ -59,10 +103,11 @@ and `on_disk` (the version folders; null without the inventory helper).
 
 Exit codes:
   0  status "ok"
-  1  status "error", with a `code`: manifest-corrupt (the export manifest
-     exists but does not parse, is not UTF-8 or is not an object of entry
-     objects; `path` names it) or helper-missing (a shared script this one
-     reads cannot be loaded)
+  1  status "error", with a `code`: manifest-corrupt (skills: the export
+     manifest exists but does not parse, is not UTF-8 or is not an object
+     of entry objects; `path` names it), helper-missing (a shared script
+     this one reads cannot be loaded) or bad-input (activation: stdin is
+     not the resolver's JSON object)
   2  usage error (JSON on stderr)
 """
 from __future__ import annotations
@@ -79,7 +124,12 @@ SHARED_SCRIPTS = Path(__file__).resolve().parent.parent.parent / "shared" / "scr
 MANIFEST_OPS = "skf-manifest-ops.py"
 INVENTORY = "skf-skill-inventory.py"
 REBUILD = "skf-rebuild-managed-sections.py"
+ACTIVE_SYMLINK = "skf-update-active-symlink.py"
 MANIFEST_FILE = ".export-manifest.json"
+# The headless-purge guard's setting, under the `workflow` table the resolver prints.
+FORBID_KEY = "forbid_purge_in_headless"
+# The manual fix of each verify check.
+EXPORT_FIX = "re-run `[EX] Export Skill`"
 # What a shared helper raises on a file it cannot read as it expects (a
 # manifest of the wrong shape or encoding, a folder it cannot list).
 HELPER_ERRORS = (AttributeError, TypeError, ValueError, OSError)
@@ -137,16 +187,34 @@ def _version_row(version: str, active: str | None, records: dict, on_disk: bool)
     }
 
 
-def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_folder) -> dict:
-    """One roster entry: the skill's versions newest first, with their manifest records and counts."""
+def _keep_candidate(symlink, active: str | None, rows: list[dict], link: str | None) -> str | None:
+    """The version select.md section 7 offers to keep when the active version is dropped, or None.
+
+    `link` is the version folder the `active` link names. When it names one
+    other than the active version, keeping any other version would move the
+    link off it, so the candidate is that version when it is a manifest
+    version on disk that is not deprecated, else none.
+    """
+    if symlink is None or active is None:
+        return None
+    if link and link != active:
+        row = next((r for r in rows if r["version"] == link), None)
+        usable = row is not None and row["in_manifest"] and row["on_disk"] and row["status"] != "deprecated"
+        return link if usable else None
+    return symlink.pick_new_active(active, rows, active)
+
+
+def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_folder, symlink=None) -> dict:
+    """One roster entry: the skill's versions newest first, with their manifest records, counts, keep_candidate
+    and older_versions."""
     active, records = _manifest_rows(entry)
     in_manifest = entry is not None
-    resolved = None
+    resolved, link = None, None
     if inventory is not None and _plain_name(name):
         resolved = inventory.resolve_skill(skills_folder, name, forge_folder)
     if resolved is not None:
         rows = [_version_row(r["version"], active, records, r["on_disk"]) for r in resolved["versions"]]
-        layout = resolved["layout"]
+        layout, link = resolved["layout"], resolved.get("symlink_target")
     else:
         # No on-disk scan: the manifest's versions, in the manifest helper's order.
         ordered = ops.cmd_affected_versions(manifest_path, skills_folder, name).get("sources", {}).get("manifest", [])
@@ -163,6 +231,9 @@ def _skill(name, entry, ops, manifest_path, inventory, skills_folder, forge_fold
             "non_deprecated": sum(1 for r in rows if r["in_manifest"] and r["status"] != "deprecated"),
             "on_disk": sum(1 for r in rows if r["on_disk"]) if resolved is not None else None,
         },
+        "keep_candidate": _keep_candidate(symlink, active, rows, link),
+        "older_versions": [r["version"] for r in rows if r["in_manifest"] and not r["active"]
+                           and r["status"] not in ("active", "deprecated")],
     }
 
 
@@ -196,6 +267,7 @@ def roster(skills_folder: str, forge_folder: str, only: str | None = None) -> tu
     exports = data.get("exports", {})
 
     inventory, inventory_error = _load(INVENTORY)
+    symlink, _ = _load(ACTIVE_SYMLINK)
     drafts, not_offered = [], []
     if inventory is not None:
         try:
@@ -215,8 +287,8 @@ def roster(skills_folder: str, forge_folder: str, only: str | None = None) -> tu
     names = sorted(exports) + sorted(drafts)
     listed = [n for n in names if n == only] if only is not None else names
     try:
-        skills = [_skill(name, exports.get(name), ops, manifest_path, inventory, skills_folder, forge_folder)
-                  for name in listed]
+        skills = [_skill(name, exports.get(name), ops, manifest_path, inventory, skills_folder, forge_folder,
+                         symlink) for name in listed]
     except HELPER_ERRORS as e:
         if inventory is None:
             raise
@@ -225,7 +297,7 @@ def roster(skills_folder: str, forge_folder: str, only: str | None = None) -> tu
         drafts, not_offered = [], []
         names = sorted(exports)
         listed = [n for n in names if n == only] if only is not None else names
-        skills = [_skill(name, exports.get(name), ops, manifest_path, None, skills_folder, forge_folder)
+        skills = [_skill(name, exports.get(name), ops, manifest_path, None, skills_folder, forge_folder, symlink)
                   for name in listed]
     return {
         "status": "ok",
@@ -263,8 +335,91 @@ def rows(skill: str, versions: list[str], context_files: list[str]) -> tuple[dic
             "unchecked": unchecked}, 0
 
 
+def activation(raw: bytes) -> tuple[dict, int]:
+    """The `activation` result for the resolver JSON `raw`, and its exit code."""
+    try:
+        data = json.loads(raw.decode("utf-8-sig", errors="replace"))
+    except ValueError as e:
+        return {"status": "error", "code": "bad-input", "error": f"stdin is not JSON: {e}"}, 1
+    if not isinstance(data, dict):
+        return {"status": "error", "code": "bad-input", "error": "stdin is not a JSON object"}, 1
+    found, value = False, None
+    if "workflow" in data:
+        table = data["workflow"]
+        if not isinstance(table, dict):
+            return {"status": "error", "code": "bad-input", "error": "`workflow` is not a JSON object"}, 1
+        found, value = FORBID_KEY in table, table.get(FORBID_KEY)
+    if not found and f"workflow.{FORBID_KEY}" in data:
+        found, value = True, data[f"workflow.{FORBID_KEY}"]
+    return {"status": "ok", "purge_forbidden": found and value != ""}, 0
+
+
+def _failure(check: str, detail: str, manual_fix: str) -> dict:
+    return {"check": check, "detail": detail, "manual_fix": manual_fix}
+
+
+def _manifest_failures(ops, skills_folder: str, skill: str, mode: str, versions: list[str]) -> list[str]:
+    """What the manifest left by the drop gets wrong, one line each (empty when it is as expected)."""
+    manifest_path = Path(skills_folder) / MANIFEST_FILE
+    data, err = _read_manifest(ops, manifest_path)
+    if err:
+        return [f"{manifest_path} cannot be read: {err}"]
+    entry = data.get("exports", {}).get(skill)
+    if not versions and mode == "purge":
+        return [f"the manifest still has a `{skill}` entry"] if entry is not None else []
+    if not isinstance(entry, dict):
+        return [f"the manifest has no `{skill}` entry"]
+    records = entry.get("versions") if isinstance(entry.get("versions"), dict) else {}
+    problems = []
+    for version in versions or list(records):
+        record = records.get(version)
+        status = record.get("status") if isinstance(record, dict) else None
+        if record is None:
+            problems.append(f"the manifest's `{skill}` entry has no {version}")
+        elif status != "deprecated":
+            problems.append(f"the manifest lists `{skill}` {version} as `{status}`, not `deprecated`")
+    return problems
+
+
+def verify(skills_folder: str, skill: str, mode: str, versions: list[str],
+           context_files: list[str]) -> tuple[dict, int]:
+    """The `verify` result and its exit code."""
+    ops, err = _load(MANIFEST_OPS)
+    if ops is None:
+        return {"status": "error", "code": "helper-missing", "error": err}, 1
+    manifest_fix = f"correct the `{skill}` entry of `{Path(skills_folder) / MANIFEST_FILE}` by hand"
+    failures = [_failure("manifest", detail, manifest_fix)
+                for detail in _manifest_failures(ops, skills_folder, skill, mode, versions)]
+    if context_files:
+        found, code = rows(skill, versions, context_files)
+        if code != 0:
+            return found, code
+        failures += [_failure("context-rows", f"{row['file']} still lists `{skill}` v{row['version']}", EXPORT_FIX)
+                     for row in found["rows"]]
+        failures += [_failure("context-rows", f"{item['file']} could not be checked: {item['error']}", EXPORT_FIX)
+                     for item in found["unchecked"]]
+    return {"status": "ok", "failures": failures}, 0
+
+
 class _JsonErrorParser(argparse.ArgumentParser):
-    """Report a usage error as JSON on stderr with exit 2, the subcommands included."""
+    """Report a usage error as JSON on stderr with exit 2, the subcommands included.
+
+    A subcommand marked `intermixed` takes its positionals on both sides of
+    its flags: before Python 3.12, a positional list that follows another
+    positional stops at the first flag.
+    """
+
+    intermixed = False
+    _parsing = False
+
+    def parse_known_args(self, args=None, namespace=None):
+        if not self.intermixed or self._parsing:
+            return super().parse_known_args(args, namespace)
+        self._parsing = True
+        try:
+            return self.parse_known_intermixed_args(args, namespace)
+        finally:
+            self._parsing = False
 
     def error(self, message: str) -> None:
         print(json.dumps({"status": "error", "error": f"usage error: {self.prog}: {message}"}), file=sys.stderr)
@@ -277,7 +432,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="op", required=True, metavar="{skills,rows}")
+    sub = parser.add_subparsers(dest="op", required=True, metavar="{skills,rows,activation,verify}")
 
     p_skills = sub.add_parser("skills", help="the skills a drop can offer, with their versions")
     p_skills.add_argument("skills_folder", metavar="skills-folder", help="{skills_output_folder}")
@@ -289,6 +444,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rows.add_argument("--version", action="append", default=[], dest="versions",
                         help="list the rows of this version only (repeatable)")
     p_rows.add_argument("context_files", nargs="+", metavar="context-file", help="a context file to read")
+
+    sub.add_parser("activation", help="whether the headless-purge guard is on, from the resolver JSON on stdin")
+
+    p_verify = sub.add_parser("verify", help="check the manifest and the context rows a drop left")
+    p_verify.intermixed = True
+    p_verify.add_argument("skills_folder", metavar="skills-folder", help="{skills_output_folder}")
+    p_verify.add_argument("--skill", required=True, help="the dropped skill")
+    p_verify.add_argument("--mode", required=True, choices=("deprecate", "purge"), help="{drop_mode}")
+    p_verify.add_argument("--version", action="append", default=[], dest="versions",
+                          help="a dropped version (repeatable); none for a whole-skill drop")
+    p_verify.add_argument("context_files", nargs="*", metavar="context-file",
+                          help="a context file the drop rebuilt")
     return parser
 
 
@@ -296,8 +463,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.op == "skills":
         result, code = roster(args.skills_folder, args.forge_data_folder, args.skill)
-    else:
+    elif args.op == "rows":
         result, code = rows(args.skill, args.versions, args.context_files)
+    elif args.op == "activation":
+        result, code = activation(sys.stdin.buffer.read())
+    else:
+        result, code = verify(args.skills_folder, args.skill, args.mode, args.versions, args.context_files)
     print(json.dumps(result, indent=2))
     return code
 

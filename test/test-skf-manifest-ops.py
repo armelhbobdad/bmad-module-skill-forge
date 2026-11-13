@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -422,6 +423,87 @@ class TestManifestOps:
         for skill_name, entry in result["manifest"]["exports"].items():
             active = [v for v, e in entry["versions"].items() if e["status"] == "active"]
             assert len(active) == 1, f"{skill_name} has {len(active)} active versions: {active}"
+
+
+SCRIPT = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-manifest-ops.py"
+
+
+def _cli(folder: Path, *args: str) -> tuple[int, dict]:
+    proc = subprocess.run([sys.executable, str(SCRIPT), str(folder), *args], capture_output=True, timeout=60)
+    return proc.returncode, json.loads(proc.stdout.decode("utf-8"))
+
+
+def _today() -> set[str]:
+    """Today's UTC date, and tomorrow's in case the call runs across midnight."""
+    now = datetime.now(timezone.utc)
+    return {now.strftime("%Y-%m-%d"), (now + timedelta(days=1)).strftime("%Y-%m-%d")}
+
+
+class TestDropKeepAndOlderVersions:
+    """#1160: Drop Skill's keep (`set --keep-last-exported`) and its one deprecate call over several versions."""
+
+    @pytest.fixture
+    def seeded(self, manifest_path):
+        manifest_path.write_bytes(json.dumps({"schema_version": "2", "exports": {"cognee": {
+            "active_version": "0.6.0", "versions": {
+                "0.6.0": {"ides": ["claude-code"], "last_exported": "2026-02-01", "status": "active"},
+                "0.5.0": {"ides": ["cursor"], "last_exported": "2025-03-04", "status": "archived"},
+                "0.4.0": {"ides": [], "status": "archived"},
+                "0.1.0": {"ides": [], "last_exported": "2024-01-01", "status": "deprecated"}}}}}).encode("utf-8"))
+        return manifest_path
+
+    def _versions(self, manifest_path) -> dict:
+        return mod.cmd_get(manifest_path, "cognee")["entry"]["versions"]
+
+    def test_set_keep_last_exported_keeps_the_date(self, seeded):
+        r = mod.cmd_set(seeded, "cognee", "0.5.0", keep_last_exported=True)
+        assert r["status"] == "ok"
+        assert mod.cmd_get(seeded, "cognee")["entry"]["active_version"] == "0.5.0"
+        versions = self._versions(seeded)
+        assert versions["0.5.0"] == {"ides": ["cursor"], "last_exported": "2025-03-04", "status": "active"}
+        assert (versions["0.6.0"]["status"], versions["0.6.0"]["last_exported"]) == ("archived", "2026-02-01")
+        assert versions["0.1.0"]["status"] == "deprecated"
+
+    def test_set_keep_last_exported_stamps_today_on_a_version_with_no_date(self, seeded):
+        mod.cmd_set(seeded, "cognee", "0.4.0", keep_last_exported=True)
+        assert self._versions(seeded)["0.4.0"]["last_exported"] in _today()
+
+    def test_set_without_the_flag_still_stamps_today(self, seeded):
+        mod.cmd_set(seeded, "cognee", "0.5.0")
+        assert self._versions(seeded)["0.5.0"]["last_exported"] in _today()
+
+    def test_cli_set_keep_last_exported(self, seeded):
+        code, out = _cli(seeded.parent, "set", "cognee", "0.5.0", "--keep-last-exported")
+        assert (code, out["status"]) == (0, "ok")
+        assert self._versions(seeded)["0.5.0"]["last_exported"] == "2025-03-04"
+        code, _ = _cli(seeded.parent, "set", "cognee", "0.5.0", "--ides", "claude-code", "--keep-last-exported")
+        assert code == 0
+        assert self._versions(seeded)["0.5.0"] == {"ides": ["claude-code", "cursor"], "last_exported": "2025-03-04",
+                                                   "status": "active"}
+
+    def test_deprecate_several_versions_in_one_call(self, seeded):
+        r = mod.cmd_deprecate(seeded, "cognee", ["0.5.0", "0.4.0"])
+        assert (r["status"], r["versions"]) == ("ok", ["0.5.0", "0.4.0"])
+        assert {v: e["status"] for v, e in self._versions(seeded).items()} == {
+            "0.6.0": "active", "0.5.0": "deprecated", "0.4.0": "deprecated", "0.1.0": "deprecated"}
+        assert mod.cmd_get(seeded, "cognee")["entry"]["active_version"] == "0.6.0"
+
+    def test_cli_deprecate_several_versions(self, seeded):
+        code, out = _cli(seeded.parent, "deprecate", "cognee", "0.5.0", "0.4.0")
+        assert (code, out["versions"]) == (0, ["0.5.0", "0.4.0"])
+        assert {v: e["status"] for v, e in self._versions(seeded).items()} == {
+            "0.6.0": "active", "0.5.0": "deprecated", "0.4.0": "deprecated", "0.1.0": "deprecated"}
+        code, out = _cli(seeded.parent, "deprecate", "cognee", "0.6.0")
+        assert (code, out["version"], out["versions"]) == (0, "0.6.0", ["0.6.0"]), "one version reads as before"
+
+    def test_an_unknown_version_fails_before_any_is_marked(self, seeded):
+        before = seeded.read_bytes()
+        r = mod.cmd_deprecate(seeded, "cognee", ["0.5.0", "9.9.9", "8.8.8"])
+        assert r == {"status": "error", "error": "Versions '9.9.9', '8.8.8' not found for 'cognee'"}
+        assert seeded.read_bytes() == before, "nothing is written"
+        code, out = _cli(seeded.parent, "deprecate", "cognee", "0.4.0", "9.9.9")
+        assert (code, out["error"]) == (1, "Version '9.9.9' not found for 'cognee'")
+        assert seeded.read_bytes() == before
 
 
 class TestVersionSortKey:

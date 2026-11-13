@@ -282,7 +282,7 @@ python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"
 
 `{ides}` is the comma-joined list. Store `targets` as `target_context_files` (one `{context_file, skill_root, ides}` entry per file; an IDE the mapping does not list, and an empty list, resolve to AGENTS.md with `.agents/skills/`), and show each `warnings[]` and `notes[]` line. When the helper exits non-zero, rebuild nothing: leave `context_files_updated` empty, set `context_files_failed` to the one entry `all context files: resolve-targets failed: {error}` (the helper's stderr when stdout holds no JSON), and go to §7c.
 
-A target's file is `{context_path}`, its `{context_file}` in `{project-root}`, and `{target_paths}` is the `{context_path}` of every target, each quoted, space-separated, in the order of `target_context_files`.
+A target's file is `{context_path}`, its `{context_file}` in `{project-root}`, its skill root `{target_skill_root}` is that entry's own `skill_root`, and `{target_paths}` is the `{context_path}` of every target, each quoted, space-separated, in the order of `target_context_files`.
 
 **7b. Per-file loop.** For each entry in `target_context_files`:
 
@@ -298,7 +298,7 @@ A target's file is `{context_path}`, its `{context_file}` in `{project-root}`, a
 
    ```bash
    python3 {rebuildManagedSectionsHelper} assemble "{context_path}" \
-     --skills-folder "{skills_output_folder}" --skill-root "{skill_root}" \
+     --skills-folder "{skills_output_folder}" --skill-root "{target_skill_root}" \
      --renamed {old_name}:{new_name} --orphan-sources {target_paths} \
      [--skill-root-override "{snippet_skill_root_override}"]
    ```

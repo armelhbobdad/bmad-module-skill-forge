@@ -12,12 +12,20 @@ CLI: python3 skf-manifest-ops.py <skills-folder> <command> [args]
 Commands:
   read                          — Read entire manifest
   get <skill-name>              — Get a single skill entry
-  set <skill-name> <version> [--ides a,b]
+  set <skill-name> <version> [--ides a,b] [--keep-last-exported]
                                 — Add/update skill with active version;
                                   --ides unions a comma-separated IDE list
-                                  into the version entry (deduped, sorted)
+                                  into the version entry (deduped, sorted);
+                                  --keep-last-exported keeps the version's
+                                  last_exported date (today only when it has
+                                  none), for a version made active again
+                                  without an export
   remove <skill-name>           — Remove skill from manifest
-  deprecate <skill-name> [ver]  — Mark skill or version as deprecated
+  deprecate <skill-name> [ver...]
+                                  Mark every version, or each version given,
+                                  as deprecated: an unknown version fails the
+                                  call before any is marked, and the manifest
+                                  is written once
   rename <old-name> <new-name>  — Rename a skill entry
   affected-versions <name>      — List every version of <name> that a rename must
                                   touch: the union of manifest
@@ -133,7 +141,7 @@ def cmd_get(manifest_path, skill_name):
     return {"status": "ok", "skill": skill_name, "entry": exports[skill_name]}
 
 
-def cmd_set(manifest_path, skill_name, version, ides=None):
+def cmd_set(manifest_path, skill_name, version, ides=None, keep_last_exported=False):
     data, err = read_manifest(manifest_path)
     if err:
         return {"status": "error", "error": err}
@@ -163,9 +171,11 @@ def cmd_set(manifest_path, skill_name, version, ides=None):
             if ide not in merged_ides:
                 merged_ides.append(ide)
         merged_ides = sorted(merged_ides)
+    # A version made active again without an export (Drop Skill's keep) keeps its date.
+    kept = existing_version.get("last_exported") if keep_last_exported else None
     versions[version] = {
         "ides": merged_ides,
-        "last_exported": today,
+        "last_exported": kept if isinstance(kept, str) and kept else today,
         "status": "active",
     }
 
@@ -190,6 +200,12 @@ def cmd_remove(manifest_path, skill_name):
 
 
 def cmd_deprecate(manifest_path, skill_name, version=None):
+    """Mark `version` deprecated: one version, a list of them, or every version when it is None or empty.
+
+    Every version named is checked before any is marked, so a call that names
+    an unknown one fails and leaves the manifest as it was; the rest are
+    written in one atomic write.
+    """
     data, err = read_manifest(manifest_path)
     if err:
         return {"status": "error", "error": err}
@@ -197,16 +213,17 @@ def cmd_deprecate(manifest_path, skill_name, version=None):
     if skill_name not in exports:
         return {"status": "not_found", "skill": skill_name}
     versions = exports[skill_name].get("versions", {})
-    if version:
-        if version not in versions:
-            return {"status": "error", "error": f"Version '{version}' not found for '{skill_name}'"}
-        versions[version]["status"] = "deprecated"
-    else:
-        # Deprecate all versions
-        for v in versions.values():
-            v["status"] = "deprecated"
+    named = list(dict.fromkeys([version] if isinstance(version, str) else (version or [])))
+    missing = [v for v in named if v not in versions]
+    if missing:
+        listed = ", ".join(f"'{v}'" for v in missing)
+        return {"status": "error",
+                "error": f"Version{'s' if len(missing) > 1 else ''} {listed} not found for '{skill_name}'"}
+    for v in named or list(versions):
+        versions[v]["status"] = "deprecated"
     write_manifest(manifest_path, data)
-    return {"status": "ok", "action": "deprecated", "skill": skill_name, "version": version}
+    return {"status": "ok", "action": "deprecated", "skill": skill_name, "version": version,
+            "versions": named or list(versions)}
 
 
 def cmd_rename(manifest_path, old_name, new_name):
@@ -284,7 +301,7 @@ def cmd_affected_versions(manifest_path, skills_folder, skill_name):
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 skf-manifest-ops.py <skills-folder> <command> [args]", file=sys.stderr)
-        print("Commands: read, get <name>, set <name> <version> [--ides a,b], remove <name>, deprecate <name> [version], rename <old> <new>, affected-versions <name>", file=sys.stderr)
+        print("Commands: read, get <name>, set <name> <version> [--ides a,b] [--keep-last-exported], remove <name>, deprecate <name> [version...], rename <old> <new>, affected-versions <name>", file=sys.stderr)
         sys.exit(1)
 
     skills_folder = Path(sys.argv[1])
@@ -301,12 +318,13 @@ def main():
             idx = sys.argv.index("--ides")
             if idx + 1 < len(sys.argv):
                 ides_arg = [s for s in sys.argv[idx + 1].split(",") if s]
-        result = cmd_set(manifest_path, sys.argv[3], sys.argv[4], ides_arg)
+        result = cmd_set(manifest_path, sys.argv[3], sys.argv[4], ides_arg,
+                         keep_last_exported="--keep-last-exported" in sys.argv[5:])
     elif command == "remove" and len(sys.argv) >= 4:
         result = cmd_remove(manifest_path, sys.argv[3])
     elif command == "deprecate" and len(sys.argv) >= 4:
-        ver = sys.argv[4] if len(sys.argv) >= 5 else None
-        result = cmd_deprecate(manifest_path, sys.argv[3], ver)
+        named = sys.argv[4:]
+        result = cmd_deprecate(manifest_path, sys.argv[3], named[0] if len(named) == 1 else named or None)
     elif command == "rename" and len(sys.argv) >= 5:
         result = cmd_rename(manifest_path, sys.argv[3], sys.argv[4])
     elif command == "affected-versions" and len(sys.argv) >= 4:

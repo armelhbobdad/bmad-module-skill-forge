@@ -75,7 +75,7 @@
         }
       ],
       "default": [],
-      "description": "The versions the drop covers: a list holding the one version dropped, or 'all' for a drop of the whole skill. An empty list when the run halted before the scope was chosen."
+      "description": "The versions the drop covers: a list of the versions dropped (the one version, or every older version for version=older), or 'all' for a drop of the whole skill. An empty list when the run halted before the scope was chosen."
     },
     "files_deleted": {
       "type": "array",
@@ -90,10 +90,11 @@
       "description": "Dry run of a purge only: the absolute folder paths the purge would delete (the purge check's affected_directories), so a pipeline can check the blast radius before it runs the drop. Empty otherwise, and for a dry run in deprecate mode."
     },
     "forge_left_in_place": {
-      "type": ["string", "null"],
+      "type": ["string", "array", "null"],
       "minLength": 1,
+      "items": { "type": "string", "minLength": 1 },
       "default": null,
-      "description": "The forge folder a purge leaves in place (or, in a dry run, would leave) because SKF did not generate it. Null otherwise, and in deprecate mode."
+      "description": "The forge folder a purge leaves in place (or, in a dry run, would leave) because SKF did not generate it, or, for a version=older purge, a list of those folders, even of one. Null otherwise, and in deprecate mode."
     },
     "manifest_updated": {
       "type": "boolean",

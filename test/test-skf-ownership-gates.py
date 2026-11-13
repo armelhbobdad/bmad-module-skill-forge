@@ -360,7 +360,8 @@ def test_export_discovery_keeps_only_skf_skills():
 def test_drop_and_rename_take_the_verdict_from_the_helper_and_never_scan_top_level(rel, flag, key):
     text = _read(rel)
     assert f"{flag} " in text and f"From its `{key}`, bind" in text
-    assert "never decide by hand whether SKF generated a folder" in text
+    assert ("The helper alone decides what a purge may delete" if rel == DROP_SELECT
+            else "never decide by hand whether SKF generated a folder") in text
     assert f"its result has no `{key}`" in text, "an installed helper older than the flag must fail closed"
     for stale in ("`{target_ownership}` ← ", "`{target_foreign_entries}` ← ", "`{target_forge_ownership}` ← "):
         assert stale not in text, "the helper returns the verdict: the prose no longer joins the scan by hand"
@@ -380,8 +381,7 @@ def test_drop_forced_purge_is_guarded():
     text = _read(DROP_SELECT)
     ask_mode = _section(text, "### 8. Ask Mode", "### 8b. Purge Guard")
     draft = _section(ask_mode, "**If `target_in_manifest = false`:**", "**If `target_in_manifest = true`:**")
-    for needle in ('"input-invalid"', '"input-missing"', "{forbidPurgeInHeadless}", "apply §8b",
-                   "On-Activation guard"):
+    for needle in ('"input-invalid"', '"input-missing"', "apply §8b"):
         assert needle in draft, needle
     # A headless purge of a draft is reached only with mode=purge, which the On-Activation guard
     # already checks, so a second forbid HALT here could never run.
@@ -398,7 +398,8 @@ def test_drop_contract_describes_the_draft_purge_guard():
     exit_6 = next(line for line in _read(DROP_CONTRACT).splitlines() if line.startswith("| 6 "))
     assert "§8" not in exit_6, "select.md §8 no longer raises headless-purge-forbidden"
     assert "cannot see the purge" not in text
-    assert "cannot be deprecated" in _section(text, "## On Activation", None)
+    assert ('If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT'
+            in _section(text, "## On Activation", None)), "the guard covers every headless purge, a draft's too"
 
 
 def _inventory_reasons(function: str) -> set[str]:
@@ -438,7 +439,7 @@ def test_drop_purge_guard_reads_the_purge_check():
     assert "bind `{purge_verdict}` and `{purge_reason}` to `\"unknown\"`" in guard
     ask = _section(text, "### 8. Ask Mode", "### 8b. Purge Guard")
     assert "run the §8b purge check at the current scope; when `{purge_verdict}` is not `\"ok\"`" in ask
-    stored = _section(text, "### 11. Store Decisions in Context", "### 12.")
+    stored = _section(text, "### 12. Load Next Step", None)
     for kept in ("`affected_directories`", "`forge_left_in_place`", "`target_context_files`"):
         assert kept in stored, kept
     assert "`target_ownership`" not in stored and "`target_forge_ownership`" not in stored
@@ -450,7 +451,7 @@ def test_drop_purge_deletes_through_the_guarded_delete():
     delete = _section(text, "### 4. Delete Files (Purge Mode Only)", "### 5. Verify Final State")
     assert ('uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" '
             '--root "{forge_data_folder}" {each path in affected_directories, quoted, space-separated}') in delete
-    assert "removes any trailing `/`" in delete
+    assert "removes any trailing `/`" not in delete, "the helper's docstring says how it reads a path"
     assert "SKF never deletes through a link" in delete
     for binding in ("`files_deleted` ← `files_deleted`", "`delete_failures` ← `delete_failures`",
                     "`{bytes_freed}` ← `bytes_freed`", "`{purge_status}` ← `purge_status`"):
@@ -625,7 +626,7 @@ def test_rename_recreates_active_with_flip_link():
     assert "§3 + §6" not in execute.split("\n---\n", 1)[0]
     drop = _read(DROP_EXECUTE)
     assert "skf-rename-skill/references/execute.md" not in drop, "rename no longer uses the symlink helper"
-    assert "or a missing helper (no probe candidate), as above with the manual fix" in drop, (
+    assert "When no candidate exists, or the helper prints no JSON, record the same way the manual repair" in drop, (
         "drop §4 records a missing helper, it does not halt")
 
 
@@ -911,9 +912,9 @@ def test_drop_checks_the_forge_folder_before_any_change():
     affected = _section(text, "### 9. Compute Affected Directories", "#### 9b.")
     assert "/{target_skill}/`" not in affected and "/{version}/`" not in affected, "no trailing `/` on a path"
     assert "without a trailing `/`" in affected
-    assert "Left in place (not SKF output)" in _section(text, "### 10. Confirmation Gate", "### 11. ")
+    assert "Left in place (not SKF output)" in _section(text, "### 10. Confirmation Gate", "### 12. ")
     assert "Left in place (not SKF output)" in _read(DROP_REPORT)
-    stored = _section(text, "### 11. Store Decisions in Context", "### 12.")
+    stored = _section(text, "### 12. Load Next Step", None)
     assert "`forge_left_in_place`" in stored
     delete = _section(_read(DROP_EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. Verify Final State")
     assert "run it once over every path in `affected_directories`" in delete
@@ -1322,7 +1323,7 @@ def test_the_retired_settings_are_gone():
 
 @pytest.mark.parametrize("rel, start, end", [
     (EXPORT_LOAD, "**Context File Resolution:**", "### 1b."),
-    (DROP_SELECT, "3. **`context_files_count`**", "### 10."),
+    (DROP_SELECT, "- **`context_files_count`**", "### 10."),
     (RENAME_EXECUTE, "**7a. Resolve the context files.**", "**7b. Per-file loop.**"),
 ])
 def test_context_files_resolve_through_the_shared_mapping(rel, start, end):
@@ -1416,8 +1417,9 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert "{manifestOpsHelper}" not in snippet
     assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
-    verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 6. ")
-    assert "python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}" in verify
+    verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 7. ")
+    # #1158: drop-roster.py verify reads the manifest through skf-manifest-ops.py.
+    assert 'uv run {dropRosterHelper} verify "{skills_output_folder}" --skill {target_skill}' in verify
     assert "Re-read `{skills_output_folder}/.export-manifest.json`" not in verify
 
 
@@ -1504,10 +1506,9 @@ LIFECYCLE_STEPS = {
                "assemble": (EXPORT_UPDATE, "#### 4b. Assemble One Body per Target", "#### 4c. "),
                "check": (EXPORT_UPDATE, "### 5. Check Each Target File", "### 6. "),
                "write": (EXPORT_UPDATE, "### 9. Write and Verify", "### 9b. ")},
-    "drop": {"resolve": (DROP_SELECT, "3. **`context_files_count`**", "### 10."),
-             "assemble": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. "),
-             "check": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. "),
-             "write": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ")},
+    # #1158: drop's section 3 runs check, assemble and replace for every target in one `rebuild` call.
+    "drop": {"resolve": (DROP_SELECT, "- **`context_files_count`**", "### 10."),
+             "rebuild": (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ")},
     "rename": {"resolve": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
                "assemble": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
                "check": (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. "),
@@ -1552,8 +1553,10 @@ def _run_documented(call: str, values: dict, override: str | None) -> dict:
     """Fill a documented call in as an agent would and run it, without a shell (so on Windows too).
 
     Placeholders become sentinels before the words are split, so a Windows path keeps its
-    backslashes; a list value (the target paths) becomes one argument per path.
+    backslashes; a list value (the target paths) becomes one argument per path. `{project-root}`
+    is filled first: its hyphen is no `\\w` placeholder.
     """
+    call = call.replace("{project-root}", "{project_root}")
     if override:
         call = call.replace(OVERRIDE_GROUP, OVERRIDE_GROUP[1:-1])
         values = {**values, "snippet_skill_root_override": override}
@@ -1623,16 +1626,29 @@ def _run_lifecycle(root: Path, skill: str, override: str | None) -> dict:
     skills, config = _lifecycle_project(root, skill)
     values = {"rebuildManagedSectionsHelper": str(REBUILD_PY), "skills_output_folder": str(skills),
               "ides": config["ides"], "target_skill": "gone", "old_name": "old-beta", "new_name": "beta",
-              "batch_includes": "alpha@1.0.0", "orphan_mode": "keep", "export_stage_dir": str(root / "stage")}
+              "batch_includes": "alpha@1.0.0", "orphan_mode": "keep", "export_stage_dir": str(root / "stage"),
+              "project_root": str(root)}
     targets = _run_documented(_call(skill, "resolve", "resolve-targets"), values, override)["targets"]
     values["target_paths"] = [str(root / t["context_file"]) for t in targets]
+    if "rebuild" in LIFECYCLE_STEPS[skill]:  # one call rebuilds every target, from the same `ides`
+        result = _run_documented(_call(skill, "rebuild", "rebuild"), values, override)
+        assert result["updated"] == values["target_paths"] and result["failed"] == [], result
+        assert not list(root.rglob("*.skf-content")), "no staged body is left beside a context file"
     if skill == "export":  # step 2 staged the draft the package snippet was copied from
         draft = skills / "alpha" / "1.0.0" / "alpha" / "context-snippet.md"
         _write_bytes(root / "stage" / "drafts" / "alpha" / "context-snippet.md", draft.read_text(encoding="utf-8"))
     bodies = {}
     for target in targets:
         path = root / target["context_file"]
-        values.update(context_path=str(path), context_file=target["context_file"], skill_root=target["skill_root"],
+        if "rebuild" in LIFECYCLE_STEPS[skill]:
+            text = path.read_bytes().decode("utf-8")
+            bodies[target["context_file"]] = re.search(r"<!-- SKF:BEGIN updated:[^>]*-->\n(.*)\n<!-- SKF:END -->",
+                                                       text, re.S).group(1)
+            assert text.count("<!-- SKF:BEGIN") == 1 and text.count("<!-- SKF:END") == 1
+            continue
+        # Each target's own skill root: a bare `{skill_root}` bound to the first target would give AGENTS.md
+        # CLAUDE.md's root (#1158).
+        values.update(context_path=str(path), context_file=target["context_file"],
                       target_skill_root=target["skill_root"])
         case = _run_documented(_call(skill, "check", "check"), values, override)["case"]
         assembled = _run_documented(_call(skill, "assemble", "assemble"), values, override)
@@ -1665,7 +1681,7 @@ def test_export_drop_and_rename_write_byte_identical_sections(tmp_path, override
 
 def test_drop_and_rename_calls_name_what_the_operation_removed():
     """Without --dropped or --renamed, the removed skill's old rows would stay as orphan rows."""
-    assert "--dropped {target_skill}" in _call("drop", "assemble", "assemble")
+    assert "--dropped {target_skill}" in _call("drop", "rebuild", "rebuild")
     assert "--renamed {old_name}:{new_name}" in _call("rename", "assemble", "assemble")
     export = _call("export", "assemble", "assemble")
     assert "--include {batch_includes}" in export and '--out "{export_stage_dir}/previews/' in export

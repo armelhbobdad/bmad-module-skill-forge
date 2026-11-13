@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-drop-skill
+summary: |
+  Drop Skill's result record (`drop-skill-result-<timestamp>.json` and `drop-skill-result-latest.json`) no longer carries `summary.headless_provenance`. The record's `headless_decisions`, which already held a headless run's mode and confirm decisions, is now the one place they are kept: its `select.mode` entry gives the drop mode (`taken_action`) and where it came from (`reason`: `--mode argument`, or `draft-skill-forced-purge` for a skill with no manifest entry), and its `select.confirm` entry the confirmation a headless run gave itself. An interactive run records neither entry, so its record no longer says whether the mode came from `--mode` or the prompt, or that a person confirmed the drop.
+migration: |
+  Read `headless_decisions` instead of `summary.headless_provenance`, finding each entry by its `gate` (a run given `keep` also records `select.active-guard`, before `select.mode`): `mode_source` is the `select.mode` entry's `reason`, `headless: true` is the presence of a `select.mode` entry, and `confirm: "headless-auto"` that of a `select.confirm` entry. `headless: false`, `mode_source: "interactive-prompt"` and `confirm: "user-explicit"`, which an interactive run carried, have no counterpart.
+issues: [1161]
+prs: [1216]
