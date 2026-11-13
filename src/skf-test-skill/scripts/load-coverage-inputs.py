@@ -244,7 +244,10 @@ reading files and writing one JSON object:
             named exports when the map has entries, else each library and
             each integration pair (`{a} + {b}`, as the stack's Library Pair
             Integrations heading writes it), as reconcile-coverage.py's
-            stack branch takes them.
+            stack branch takes them; and a reference app's pattern-surface
+            count, `stats.pattern_surfaces_documented`
+            (`patternSurfacesDocumented`, null when it is no count), which
+            reconcile-coverage.py render names in its `Denominator:` line.
 
   surface   the enumerated source surface, from every input given (their
             union):
@@ -1396,6 +1399,7 @@ def metadata_inputs(meta: dict, provenance: dict | None) -> dict:
         "confidenceDistribution": dist or None,
         "namedExports": {"count": len(named), "names": named} if entry_names is not None else None,
         "effectiveDenominator": effective,
+        "patternSurfacesDocumented": _count(stats.get("pattern_surfaces_documented")),
         # The stored count counts each name once, while the map (so stats.exports_documented) holds an entry for
         # each name and file: a name the entry points pass on from two files is two entries, one name. Only a map
         # with no `::` entry takes that arm: the stored count holds no method, so a map with methods could match it

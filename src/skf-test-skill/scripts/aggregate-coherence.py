@@ -113,6 +113,35 @@ Exit codes (same convention as compute-score.py / reconcile-coverage.py):
 Both 1 and 2 emit an {"error": ..., "code": "INVALID_INPUT"} envelope on stdout,
 so the envelope's presence — not the specific code — tells a caller the input was
 refused rather than scored.
+
+Subcommand render (coherence-check.md §6 writes its output unchanged, #1186):
+  uv run aggregate-coherence.py render --coherence <coherence.json>
+      --references <references.json> [--judged <file>]
+
+recounts the references with count_references() and prints the contextual
+Coherence Analysis section after its Mode and Migration Section lines:
+  **References Found:**, **References Valid:**, **Broken References:**
+  ### Reference Validation  one row per --references entry, then per
+                     --judged entry, in file order: the reference (a
+                     judged one's `reference`), its `type` (a judged one
+                     carries the §3 type) else -, its line, Target
+                     Exists, Accurate, Severity and Issues. A scanned `ok`
+                     reference is yes/yes/-/-, a `missing` one
+                     no/-/Critical/`nothing at {canonical}` and an
+                     `escapes` one -/no/High/`resolves outside every
+                     root: {canonical}`. A judged one gives target_exists;
+                     it is accurate when its three flags are true and its
+                     `issues` empty, Critical when its target does not
+                     exist, High when it is otherwise invalid, its issues
+                     (else the flags that are false) joined by `; `
+  ### Coherence Score       Reference Validity, Integration Completeness
+                     (N/A when no integration pattern is documented) and
+                     Combined Coherence, from --coherence
+  ### Integration Pattern Completeness  its header rows, last, for the
+                     rows coherence-check §5 judged
+Exit 0 when it printed; 1 when a file is missing or not JSON; 2 a usage
+error, a file that is not its script's result, or a --coherence whose
+reference counts differ from the recount (one `error:` line on stderr).
 """
 
 from __future__ import annotations
@@ -364,6 +393,121 @@ def aggregate_from_files(references, judged=None, integration=None):
     return result
 
 
+class RenderError(Exception):
+    """A render input that is not its script's result, or counts that differ from the recount: exit 2."""
+
+
+def _pct(value):
+    """A percentage as the report writes it.
+
+    >>> _pct(85.71), _pct(90.0), _pct(None)
+    ('85.71%', '90%', 'N/A')
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "N/A"
+    return f"{int(value)}%" if float(value).is_integer() else f"{value}%"
+
+
+def _cell(value):
+    """A table cell: `-` for nothing, a `|` escaped so it does not end the cell."""
+    text = " ".join(str(value).split()) if value is not None and value != "" else "-"
+    return text.replace("|", "\\|")
+
+
+def _yes(flag):
+    return "yes" if flag else "no"
+
+
+def _reference_rows(scan, judged):
+    """The Reference Validation rows: each scanned reference, then each judged one, in file order."""
+    rows = []
+    for ref in scan["references"]:
+        status, canonical = ref["status"], ref.get("canonical")
+        exists, accurate, severity, issues = {
+            "ok": ("yes", "yes", "-", "-"),
+            "missing": ("no", "-", "Critical", f"nothing at {canonical}"),
+            "escapes": ("-", "no", "High", f"resolves outside every root: {canonical}"),
+        }[status]
+        rows.append((ref.get("target"), ref.get("type"), ref.get("line"), exists, accurate, severity, issues))
+    for ref in judged or []:
+        issues = [str(i) for i in ref.get("issues") or []]
+        valid = all(ref[flag] for flag in JUDGED_FLAGS) and not issues
+        severity = "-" if valid else "Critical" if not ref["target_exists"] else "High"
+        named = issues or [f"{flag}: false" for flag in JUDGED_FLAGS if not ref[flag]]
+        rows.append((ref.get("reference"), ref.get("type"), ref.get("line"), _yes(ref["target_exists"]),
+                     _yes(valid), severity, "; ".join(named) or "-"))
+    return [f"| {' | '.join(_cell(v) for v in row)} |" for row in rows]
+
+
+def render(coherence, scan, judged=None):
+    """The contextual Coherence Analysis section after its Mode and Migration Section lines (see the module
+    docstring). Raises RenderError."""
+    counts = coherence.get("input") if isinstance(coherence, dict) else None
+    if (not isinstance(counts, dict) or coherence.get("code") == "INVALID_INPUT"
+            or validate_input(counts) is not None or "combinedCoherence" not in coherence):
+        raise RenderError("--coherence is not aggregate-coherence.py's result: run §5c's command again")
+    counted = count_references(scan, judged)
+    if isinstance(counted, str):
+        raise RenderError(counted)
+    valid, total, _ = counted
+    if (counts["valid_references"], counts["total_references"]) != (valid, total):
+        raise RenderError(f"--coherence counts {counts['valid_references']} valid of {counts['total_references']} "
+                          f"references, the files {valid} of {total}: run §5c's command again over these files")
+    documented, complete = counts["patterns_documented"], counts["patterns_complete"]
+    integration = (f"{complete}/{documented} ({_pct(coherence.get('integrationCompleteness'))})" if documented
+                   else "N/A: no integration patterns documented")
+    lines = [f"**References Found:** {total}", f"**References Valid:** {valid}",
+             f"**Broken References:** {total - valid}", "", "### Reference Validation", "",
+             "| Reference | Type | Line | Target Exists | Accurate | Severity | Issues |",
+             "|-----------|------|------|--------------|----------|----------|--------|",
+             *_reference_rows(scan, judged), "", "### Coherence Score", "",
+             f"- **Reference Validity:** {valid}/{total} ({_pct(coherence.get('referenceValidity'))})",
+             f"- **Integration Completeness:** {integration}",
+             f"- **Combined Coherence:** {_pct(coherence.get('combinedCoherence'))}", "",
+             "### Integration Pattern Completeness", "", "| Pattern | Complete | Issue |",
+             "|---------|----------|-------|"]
+    return "\n".join(lines) + "\n"
+
+
+def _render_main(argv) -> int:
+    parser = argparse.ArgumentParser(
+        prog="aggregate-coherence render",
+        description="Print the contextual Coherence Analysis section's tables from the run files "
+                    "(coherence-check.md §6).",
+    )
+    parser.add_argument("--coherence", required=True, metavar="PATH", help="this script's result (coherence.json)")
+    parser.add_argument("--references", required=True, metavar="PATH",
+                        help="skf-scan-skill-md-structure.py reference-check output (references.json)")
+    parser.add_argument("--judged", metavar="PATH", help="the §4 subagent results (judged-references.json)")
+    args = parser.parse_args(argv)
+    try:
+        coherence = _read_json_file(args.coherence, "--coherence")
+        scan = _read_json_file(args.references, "--references")
+        judged = None
+        if args.judged is not None:
+            judged = _read_json_file(args.judged, "--judged", fenced=True)
+            if isinstance(judged, dict):
+                judged = judged.get("references")
+            if not isinstance(judged, list):
+                raise RenderError(f"--judged {args.judged} holds no array of reference results")
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except RenderError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        text = render(coherence, scan, judged)
+    except RenderError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if hasattr(sys.stdout, "reconfigure"):
+        # a reference or an issue may hold a character a Windows console's code page cannot print
+        sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.write(text)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aggregate-coherence",
@@ -434,6 +578,9 @@ def _resolve_input(args: argparse.Namespace) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["render"]:
+        return _render_main(argv[1:])
     parser = _build_parser()
     args = parser.parse_args(argv)
     files = (args.references, args.judged, args.integration)

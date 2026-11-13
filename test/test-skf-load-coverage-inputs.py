@@ -1299,6 +1299,18 @@ def test_the_map_arm_of_the_signature_runs_the_numerator_check_and_records_its_g
                                   "of its 2 declared exports.")
 
 
+@pytest.mark.parametrize("stats, expected", [({"pattern_surfaces_documented": 8, "exports_documented": 8}, 8),
+                                              ({"pattern_surfaces_documented": 0}, 0),
+                                              ({"exports_documented": 8}, None),
+                                              ({"pattern_surfaces_documented": "8"}, None)],
+                         ids=["set", "zero", "absent", "not-a-count"])
+def test_metadata_keeps_a_reference_apps_pattern_surface_count(stats, expected):
+    """#1186: reconcile-coverage.py render names a reference app's denominator `pattern-surface (N)` from this
+    count, which no other run file holds."""
+    out = mod.metadata_inputs({"scope_type": "reference-app", "stats": stats}, None)
+    assert out["patternSurfacesDocumented"] == expected and out["scopeType"] == "reference-app"
+
+
 def test_metadata_declared_names_fall_back_to_the_provenance_map():
     out = mod.metadata_inputs({"stats": {}}, PROVENANCE)
     assert "fetchData" in out["declaredNames"] and "Extra::run" not in out["declaredNames"]
@@ -2926,6 +2938,14 @@ def test_without_a_brief_the_recorded_scope_still_decides(tmp_path):
     out = _cognee(tmp_path, brief=None)
     assert out["guards"]["staleScope"]["restored"] == RESTORED
     assert out["inputs"]["brief"] is None
+
+
+def test_the_surface_names_the_extraction_it_read(tmp_path):
+    """#1186: reconcile-coverage.py render words a stratified-scope `Denominator:` line by `inputs.extraction`: the
+    files define a set's names when the runner's extraction placed them, else the names sit at those files."""
+    extraction = _write(tmp_path / "extract-full.json", EXTRACTION)
+    assert _surface(tmp_path, "--extraction", extraction)["inputs"]["extraction"] == extraction
+    assert _surface(tmp_path, "--name", "add")["inputs"]["extraction"] is None
 
 
 def test_without_an_extraction_the_stale_scope_guard_does_not_apply(tmp_path):

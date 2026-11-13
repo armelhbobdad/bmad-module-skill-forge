@@ -6,6 +6,8 @@ scoringScript: 'scripts/compute-score.py'
 # §4b.1 reads the run's gaps from the gap ledger the stages recorded them in.
 ledgerFile: '{forge_version}/test-findings-{run_id}.json'
 gapLedgerScript: 'scripts/gap-ledger.py'
+# §6 writes the verdict fields and the Completeness Score section through it.
+resultContextScript: 'scripts/build-result-context.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -88,14 +90,14 @@ Read its output from `{run_dir}/score.json`, where the report step's result cont
 - `weightSum`: sum of final weights (should be ~100)
 - `inconclusiveReasons`: only present when `result == "INCONCLUSIVE"`; explains which floor clause tripped
 - `state2Deduction` and `scoringNotes`: present when the State 2 undercount deduction was weighed (`applied` says whether it lowered Export Coverage) and when a note applies
-- **Verdict-override group**: present as an atomic set of four keys only when a post-score cap or the threshold fallback engaged (§3d/§4b are applied by the script, not re-derived here):
-  - `effectiveResult`: the **final verdict** after caps + fallback (`"PASS"` / `"FAIL"`); read this as the outcome for §4 to §8
+- **Verdict-override group**: present as an atomic set of four keys only when a post-score cap or the threshold fallback engaged (the script applies §3d and §4b):
+  - `effectiveResult`: the **final verdict** after caps + fallback (`"PASS"` / `"FAIL"`)
   - `capReason`: string describing the cap(s) that fired, or `null`
   - `thresholdFallback`: `true` when the FAIL→PASS-at-80-floor fallback fired
   - `originalThreshold`: the pre-fallback threshold when `thresholdFallback` is `true`, else `null`
   - When the group is **absent**, no cap or fallback engaged and `result` is the final verdict.
 
-Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output formatting). **The script owns the minimum-evidence floor, the State 2 deduction, both post-score caps, and the threshold fallback: everywhere below, read its emitted fields (`result`, `effectiveResult`, `capReason`, `thresholdFallback`, `scoringNotes`) and never recompute a verdict, cap, deduction or threshold decision.** The final verdict is `effectiveResult` when the override group is present, otherwise `result` (INCONCLUSIVE is never overridden).
+**The script owns the minimum-evidence floor, the State 2 deduction, both post-score caps, and the threshold fallback: everywhere below, read its emitted fields (`result`, `effectiveResult`, `capReason`, `thresholdFallback`, `scoringNotes`) and never recompute a verdict, cap, deduction or threshold decision.** The **settled verdict** is `effectiveResult` when the override group is present, otherwise `result` (INCONCLUSIVE is never overridden). §6's settle writes it into the report, with the score, the threshold and the fields that follow from it.
 
 #### 3c. If the Script Refuses the Input or Does Not Run
 
@@ -107,38 +109,15 @@ No envelope at all (the script file is missing, or it cannot start): HALT with i
 
 ### 3d. Read Post-Score Caps (applied by the script)
 
-The script settles the verdict in the one order its docstring states, with two post-score caps: **Cap 1** (any `toolingStatus` other than `ok`) and **Cap 2** (docs-only with no external validation score). It returns the settled outcome as `capReason` + `effectiveResult` (§3b). Read those fields; never recompute a cap. If `capReason` is non-null, §6 shows it on its **Cap:** line, and §5 and §8 recommend restoring the tooling it names. A fired cap forces the script's `PASS` into `FAIL`, never touches an INCONCLUSIVE verdict, and is never re-flipped by the threshold fallback (§4b): a capped run stays FAIL whatever the threshold. (Both caps exist because a degraded-tooling or docs-only-without-validators run has too thin an evidence base to trust a PASS; §3a passes the field Cap 1 reads.)
+The script applies **Cap 1** (any `toolingStatus` other than `ok`) and **Cap 2** (docs-only with no external validation score) and returns `capReason` and `effectiveResult` (§3b). A fired cap turns a PASS into FAIL and never touches an INCONCLUSIVE verdict, and the threshold fallback (§4b) never lifts it: a capped run stays FAIL whatever the threshold. If `capReason` is non-null, §6 shows it on its **Cap:** line, and §5 and §8 recommend restoring the tooling it names.
 
 ### 4. Determine Result (PASS / FAIL / INCONCLUSIVE)
 
-The scoring script enforces the minimum-evidence floor BEFORE comparing score vs threshold, then applies the post-score caps (§3d) and threshold fallback (§4b). The **settled verdict** is `effectiveResult` when the override group is present, otherwise `result`:
-
-```
-IF result == "INCONCLUSIVE" — minimum-evidence floor tripped; not PASS, not FAIL (never overridden)
-ELSE settled verdict = effectiveResult if the override group is present, else result   (PASS or FAIL)
-```
-
-**INCONCLUSIVE floor clauses** (the script's minimum-evidence floor):
-- `active_categories < 2` (after all redistribution), OR
-- `tier == "Quick"` AND Export Coverage is the sole scoring contributor
+The settled verdict is §3b's, and INCONCLUSIVE (the minimum-evidence floor, which `inconclusiveReasons` explains) is never overridden.
 
 ### 4b. Threshold Fallback and Evidence Report
 
-After §4 determines the result but before §5 recommends the next workflow, the script's threshold fallback may already have converted a FAIL into a PASS at the 80% floor. This step documents that quality compromise in an evidence report.
-
-Read the script's fields:
-
-- `thresholdFallback == true` → the fallback fired; `effectiveResult` is `"PASS"` and `originalThreshold` holds the pre-fallback threshold.
-- `thresholdFallback` absent or `false` → no fallback; the settled verdict from §4 stands.
-
-**When `thresholdFallback` is true:**
-
-1. Record `threshold_fallback: true`, `original_threshold: {originalThreshold}`, `fallback_threshold: 80` in workflow context.
-2. Use `effectiveResult` (`"PASS"`) as the settled verdict — do not recompute it.
-3. Set `effective_threshold = 80` for use by §5/§6/§7/§8.
-4. Generate the evidence report (§4b.1 below).
-
-The `{totalScore}` used in the report below is the script's raw `totalScore`.
+When `thresholdFallback` is true, the script accepted a FAIL at the 80% floor: `effectiveResult` is `"PASS"` and `originalThreshold` holds the target threshold. Bind `threshold_fallback: true` and `original_threshold` ← `originalThreshold`, and write the evidence report (§4b.1), whose `{totalScore}` is the script's raw `totalScore`. Without a fallback there is no evidence report.
 
 #### 4b.1 Generate Evidence Report
 
@@ -193,74 +172,39 @@ Record `evidence_report_path: '{forge_version}/evidence-report-fallback.md'` in 
 
 ### 5. Determine Next Workflow Recommendation
 
-Based on the **settled verdict** (§4 — `effectiveResult` when the override group is present, else `result`; INCONCLUSIVE is never overridden):
+Recommend the next workflow by the **settled verdict** (§3b); §6's settle writes the `nextWorkflow` that matches it.
 
 **IF PASS:**
-- `nextWorkflow: 'export-skill'` — skill is ready for export
+- Recommend export-skill: the skill is ready for export.
 - **Drift override:** if the `{outputFile}` frontmatter's `workspaceDrift`
   is `overridden` (init.md §5b wrote it when the user passed
   `--allow-workspace-drift` AND the workspace HEAD did not match
   `metadata.source_commit`; the flag on a clean tree leaves it `ok`), the
-  PASS is a **conditional PASS**:
-  - Write `testResult: 'pass-with-drift'` to the output frontmatter instead of
-    bare `'pass'`. The result contract (§4c of step 6) mirrors the same
-    value.
-  - Override `nextWorkflow` to `'update-skill'` — **refuse to recommend
-    `export-skill`**. The drift override weakens the workflow's strongest
-    false-positive guard (we tested against HEAD, not the pinned source); a
-    PASS under drift is not trustworthy enough to promote to export without a
-    clean re-test against the pinned commit.
-  - Record `scoring_notes: workspace drift overridden — PASS is conditional; re-run against pinned commit before export`.
+  PASS is a **conditional PASS**: settle writes `pass-with-drift` as its
+  `testResult` and `update-skill` as its `nextWorkflow`, and its Scoring
+  Notes say so. **Refuse to recommend `export-skill`**: the drift override
+  weakens the workflow's strongest false-positive guard (we tested against
+  HEAD, not the pinned source); a PASS under drift is not trustworthy enough
+  to promote to export without a clean re-test against the pinned commit.
 
 **IF FAIL:**
-- `nextWorkflow: 'update-skill'` — skill needs remediation before export
+- Recommend update-skill: the skill needs remediation before export.
 
 **IF FAIL with a cap** (`capReason` is non-null: a cap fired, and no run passes until the tooling it names is restored):
 - `nextWorkflow` stays `'update-skill'`, but no skill edit lifts a cap, so the step to recommend is to restore the tooling the cap names and test again. Cap 1 (`tooling degraded`): make the tool `toolingStatus` names work again; for `frontmatter-validator-timeout`, the frontmatter validator must finish within 30 seconds. Cap 2 (`docs-only without external validators`): make skill-check run and score the skill (the Gap Report's `skill-check not run` gap says how, when it did not run), or opt in to Tessl Review. When the script's `result` is `FAIL` too, the skill also scored below its threshold: recommend the **IF FAIL:** branch's update-skill as well, after restoring the tooling.
 
 **IF INCONCLUSIVE:**
-- `nextWorkflow: 'manual-review'` — evidence base is insufficient to grade the skill automatically. The test report records `inconclusiveReasons` from the scoring script. Surface to the user — do not auto-recommend export or update.
+- Recommend manual review: the evidence base is too thin to grade the skill automatically. Surface the `inconclusiveReasons` the section lists to the user, and recommend neither export nor update.
 
 ### 6. Write the Completeness Score Section
 
-Write the **Completeness Score** section in place of the template's `## Completeness Score` heading and the placeholder comment under it, in `{outputFile}`:
+`{resultContextScript}` (it resolves relative to the skill root) writes the verdict fields the scoring output settles into the `{outputFile}` frontmatter and prints the section from `{run_dir}/score.json`, `{run_dir}/external.json` and that frontmatter. Always pass `--evidence-report`: settle writes it only after a threshold fallback. Settle rewrites the report file, so once it exits 0, read `{outputFile}` again before you edit it, here and in §7: an edit made from the copy read before settle ran would undo the fields it wrote.
 
-```markdown
-## Completeness Score
-
-### Score Breakdown
-
-| Category | Score | Weight | Weighted |
-|----------|-------|--------|----------|
-| Export Coverage | {N}% | {W}% | {WS}% |
-| Signature Accuracy | {N}% | {W}% | {WS}% |
-| Type Coverage | {N}% | {W}% | {WS}% |
-| Coherence | {N}% | {W}% | {WS}% |
-| External Validation | {N}% | {W}% | {WS}% |
-| **Total** | | **100%** | **{total}%** |
-
-### Result
-
-**Score:** {total}%
-**Threshold:** {threshold}%
-**Result:** **{PASS|FAIL|INCONCLUSIVE}**
-{If capReason is non-null:}
-**Cap:** {capReason}
-{If INCONCLUSIVE:}
-**Inconclusive Reasons:**
-{bulleted list from script `inconclusiveReasons`}
-
-**Threshold Source:** {threshold_source}
-{If threshold_fallback is true:}
-**Threshold Fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
-**Weight Distribution:** {naive (redistributed) | contextual (full)}
-**Tier Adjustment:** {none | Quick tier — signature and type coverage not scored}
-**External Validators:** {skill-check and Tessl Review | skill-check only | Tessl Review only | none — weight redistributed} (from `{external_tools_used}`; `tessl` is Tessl Review)
-**Analysis Confidence:** {full | provenance-map | metadata-only | remote-only | docs-only}
-**Tooling Status:** {ok | frontmatter-validator-timeout}
-{If the script returned `scoringNotes`:}
-**Scoring Notes:** {each entry of `scoringNotes`}
+```bash
+uv run {resultContextScript} settle --report "{outputFile}" --score "{run_dir}/score.json" --external "{run_dir}/external.json" --evidence-report "{forge_version}/evidence-report-fallback.md"
 ```
+
+Exit 0: write its output unchanged as the **Completeness Score** section, in place of the template's `## Completeness Score` heading and the placeholder comment under it, in `{outputFile}`. Exit 2 is a usage error: correct the command and run it again. Exit 1 printed its error on stderr and left the report as it was: HALT with it (`halt_reason: "helper-failed"`, phase `score:settle`).
 
 If the `analysisConfidence` §3a read is not `full`, add a degradation notice at the end of the Completeness Score section. **The notice must be confidence-aware** (see the degradation notice rules in `{sourceAccessProtocol}`):
 
@@ -274,18 +218,13 @@ If the `analysisConfidence` §3a read is not `full`, add a degradation notice at
 
 ### 7. Update Output Frontmatter
 
-Update `{outputFile}` frontmatter:
-- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors the **settled verdict**, `effectiveResult` when the override group is present, else `result`, with `pass-with-drift` substituted for `pass` when the frontmatter's `workspaceDrift` is `overridden`: see the §5 drift override)
-- `score: '{total}%'`
-- `threshold: '{threshold}%'`: the threshold the verdict was settled against (80 after a threshold fallback); `thresholdSource` keeps what init.md wrote
-- When `threshold_fallback` is true, add: `thresholdFallback: true`, `originalThreshold: '{original_threshold}%'`, `evidenceReportPath: '{evidence_report_path}'`
+§6's settle wrote `testResult`, `score`, `threshold` (the one the verdict was settled against) and `nextWorkflow` and, after a threshold fallback, `thresholdFallback`, `originalThreshold` and `evidenceReportPath`. Update the rest of the `{outputFile}` frontmatter:
 - `analysisConfidence: '{full|provenance-map|metadata-only|remote-only|docs-only}'`
-- `nextWorkflow: '{export-skill|update-skill|manual-review}'`
 - Append `'score'` to `stepsCompleted`
 
 ### 8. Report Score
 
-Report the completeness score to the user: the total percentage and PASS/FAIL verdict, the per-category weighted breakdown (already appended to the report in §6), the threshold, and the recommended next workflow (export-skill on pass, update-skill on fail). On a capped FAIL (§5's **IF FAIL with a cap** branch), show `capReason` and recommend restoring the tooling it names and testing again, not update-skill alone: `nextWorkflow` stays `update-skill`, but no skill edit lifts a cap, and update-skill is needed as well only when the script's `result` is `FAIL` too. When `threshold_fallback` is true, include the fallback notice:
+Report the completeness score to the user: the total percentage and PASS/FAIL verdict, the per-category weighted breakdown (already appended to the report in §6), the threshold on the section's **Threshold:** line (80 after a threshold fallback), and the next workflow §5 recommends. On a capped FAIL (§5's **IF FAIL with a cap** branch), show `capReason` and recommend restoring the tooling it names and testing again, not update-skill alone: `nextWorkflow` stays `update-skill`, but no skill edit lifts a cap, and update-skill is needed as well only when the script's `result` is `FAIL` too. When `threshold_fallback` is true, include the fallback notice:
 
 **Threshold fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
 

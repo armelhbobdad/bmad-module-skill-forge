@@ -59,10 +59,10 @@ scoring-rules.md, customize.toml and SKILL.md keep no copy of the scoring
 rules and no override of them; and coverage-check.md stays under the
 single-purpose reference budget (#600), its Quick-tier and fallback scans
 carved into coverage-check-tiers.md, loaded only by the branch that needs it,
-and the text only a few other branches take (States 2 to 4, the scalar and
-stack branches and the Denominator Candidates block) carved into
-coverage-check-branches.md, each section loaded only from the sentence of
-its branch.
+and the text only a few other branches take (States 2 to 4 and the scalar
+and stack branches) carved into coverage-check-branches.md, each section
+loaded only from the sentence of its branch; reconcile-coverage.py render
+writes the denominator record (#1186).
 
 They also keep coherence-check section 5 on the integration entries
 create-stack-skill emits (#544): only the cross-cutting and library-pair
@@ -459,6 +459,22 @@ def test_the_case_4_note_has_a_line_in_each_coherence_format():
     assert ("Record this note on the Coherence Analysis section's **Migration Section:** line (`{outputFormatsFile}` "
             "gives it in both formats)") in case4
     assert _frontmatter(COHERENCE)["outputFormatsFile"] == "assets/output-section-formats.md"
+
+
+def test_the_coherence_formats_take_their_counts_and_rows_from_a_render():
+    """#1186: both Coherence Analysis formats write a render's output where they held typed counts, rows and
+    percentages; the model adds only the rows it judged."""
+    formats = _read(REFS.parent / "assets" / "output-section-formats.md")
+    for typed in ("{count}", "{per-reference rows}", "{percentage}", "{per-issue rows}", "{per-pattern rows}",
+                  "{valid}/{total}"):
+        assert typed not in formats, typed
+    for mode in ("**Mode:** Naive", "**Mode:** Contextual"):
+        assert "\n{the render output}\n" in _fence(formats, mode), mode
+    section6 = _slice(_read(COHERENCE), "### 6. Write the Coherence Analysis Section", "### 7.")
+    assert "uv run {gapLedgerScript} render --from structure" in section6
+    assert "uv run {coherenceAggregationScript} render --coherence" in section6
+    assert "{percentage}" not in _read(COHERENCE)
+    assert "§6's render writes these values into the Coherence Score list." in _flow(_read(COHERENCE))
 
 
 def _awk_program() -> str:
@@ -1519,7 +1535,7 @@ def test_a_run_with_no_local_source_names_its_skip():
     flags = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
     assert "`metadata-only` or `remote-only`, States 3 and 4" in flags
     docs_only = _flow(_slice(_read(COVERAGE_BRANCHES), "## Docs-Only Run", "**Docs-only skill detected.**"))
-    assert "§4's `Denominator: docs-only completeness` annotation" in docs_only
+    assert "§5 (its render writes `Denominator: docs-only completeness`)" in docs_only
 
 
 def test_the_prose_quick_command_runs(tmp_path):
@@ -1590,13 +1606,14 @@ def test_the_flags_left_to_the_model_are_stated_once():
     for command in (_command(COVERAGE_BRANCHES, "surface --provenance"), state3, state4):
         assert "[--monorepo]" in command and "[--curated-subset]" in command, command
     assert "[--barrel <state>]" in state4
-    # the audit trail block stays with the two clauses whose candidates it compares
-    section4 = _flow(_read(COVERAGE))
-    assert ("When `denominator.clause` is `stratified-scope` or `multi-entry`, load `{coverageBranchesFile}` and "
-            "append the block of its **Denominator Candidates** section after the `Denominator:` line") in section4
-    block = _read(COVERAGE_BRANCHES).split("\n## Denominator Candidates\n", 1)[1]
-    assert "**Denominator Candidates** (stratified-scope audit trail):" in _fence(block, "(stratified-scope audit")
-    assert "When `denominator.ladderStep` is set" not in section4
+    # #1186: the audit trail block is the render's, for the two clauses whose candidates it compares
+    section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
+    assert ("§5's render writes the denominator record (the `Denominator:` line, the fold summary and the "
+            "Denominator Candidates block) from `surface.json`, `coverage.json` and `coverage-inputs.json`."
+            ) in section4
+    assert "{coverageBranchesFile}" not in section4 and "When `denominator.ladderStep` is set" not in section4
+    assert "Denominator Candidates" not in _read(COVERAGE_BRANCHES)
+    assert _reconcile_module().AUDITED_CLAUSES == ("stratified-scope", "multi-entry")
 
 
 # #780: the workspace layouts and briefs Test Skill's detection and the recipe runner's monorepo arm read
@@ -2779,42 +2796,59 @@ def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     assert (run / "inventory.json").is_file()
 
 
-# The five Denominator annotations with counts, each read from surface.json `candidates` (#822).
+# The five Denominator annotations with counts, each read from surface.json `candidates` (#822), by
+# reconcile-coverage.py render since #1186: annotation prefix -> the `candidates` fields it names.
 CANDIDATE_ANNOTATIONS = {
     "Empty barrel, denominator:": ["scopeIncludeUnion"],
-    "Stratified scope, denominator:": ["tierAIncludeFiles", "scopeIncludeFiles", "tierAIncludeUnion",
-                                       "scopeIncludeUnion"],
-    "Pattern-reference, denominator:": ["tierAIncludeUnion"],
+    "Stratified scope, denominator:": [],  # {F} and {U}: tierAInclude* or scopeInclude*, by the surface's set
+    "Pattern-reference, denominator:": [],  # tierAIncludeUnion, or the fold's canonical.canonical
     "Specific-modules subset, denominator:": ["scopeIncludeUnion", "scopeIncludeFiles"],
     "Multi-entry (exports-map), denominator:": ["subpathEntries", "subpathUnion", "rootBarrel"],
 }
 
 
+def _reconcile_module():
+    return runpy_module(SCRIPTS_DIR / "reconcile-coverage.py")
+
+
 def test_each_denominator_annotation_reads_a_candidates_field():
     """#822: every Denominator annotation with a count takes it from `surface.json` (`candidates`, or the
     canonicalized count a pattern reference's fold writes), which load-coverage-inputs.py writes; none asks for a
-    count no script holds."""
+    count no script holds. #1186: the render writes them, so the protocol annotates nothing by hand."""
     protocol = _read(SOURCE_ACCESS)
-    clauses = _slice(protocol, "Each clause, by its `denominator.clause`", "Internal module symbols are")
+    assert "Annotate" not in protocol and "annotate the report" not in protocol and "{candidates." not in protocol
+    clauses = _flow(_slice(protocol, "when the tier A globs count no name", "Internal module symbols are"))
+    assert ("coverage-check.md §5's render writes each clause's `Denominator:` line from these counts (`surface.json` "
+            "`candidates`). Each clause, by its `denominator.clause`, with what stays yours:") in clauses
+    assert ("The root-barrel count (`candidates.rootBarrel`) is the secondary candidate in the Denominator Candidates "
+            "block coverage-check.md §5's render writes.") in clauses
+    reconcile = _reconcile_module()
     surface = _slice(_read(SCRIPTS_DIR / "load-coverage-inputs.py"), 'out["candidates"] = {', "}")
-    for clause, fields in CANDIDATE_ANNOTATIONS.items():
-        annotation = clauses[clauses.index(clause):].split("`", 1)[0]
-        assert re.findall(r"candidates\.(\w+)", annotation) == fields, annotation
+    templates = {text.split(" denominator:", 1)[0] + " denominator:": text
+                 for text in reconcile.DENOMINATOR_ANNOTATIONS.values() if " denominator:" in text}
+    assert set(templates) == set(CANDIDATE_ANNOTATIONS)
+    for prefix, fields in CANDIDATE_ANNOTATIONS.items():
+        named = re.findall(r"\{(\w+)\}", templates[prefix])
+        assert [n for n in named if n[0].islower() and n not in ("files_wording", "pattern_set", "pattern_count")
+                ] == fields, prefix
         for gone in ("files matched", "{M} modules", "subpaths resolved", "{N}", "{M}", "{R}"):
-            assert gone not in annotation, (clause, gone)
-        for field in fields:
-            assert f'"{field}":' in surface, field  # a field the script writes
+            assert gone not in templates[prefix], (prefix, gone)
+    for field in ("scopeIncludeUnion", "scopeIncludeFiles", "tierAIncludeFiles", "tierAIncludeUnion", "subpathEntries",
+                  "subpathUnion", "rootBarrel", "statsEffectiveDenominator"):
+        assert f'"{field}":' in surface, field  # a field the script writes
     # a pattern reference's provenance-map count is the fold's canonical count
-    pattern = clauses[clauses.index("Pattern-reference, denominator:"):].split("\n", 1)[0]
-    assert "canonical.canonical" in pattern and '"canonical": len(canonical)' in _read(
-        SCRIPTS_DIR / "load-coverage-inputs.py")
-    # on the `all` set no scope set gives the stratified counts
-    stratified = _flow(clauses[clauses.index("Stratified scope, denominator:"):].split("\n", 1)[0])
-    assert "when `denominator.surfaceSet` is `all` no scope set gives a count, so both read `absent`" in stratified
-    intro = _flow(_slice(protocol, "when the tier A globs count no name", "Each clause, by its"))
-    assert ("each `{candidates.<field>}` count from `surface.json`, and a null one reads `absent`; a `*Files` "
-            "count is the files that define the set's names (at Quick tier, word it as the files its names sit "
-            "at)") in intro
+    assert '"canonical": len(canonical)' in _read(SCRIPTS_DIR / "load-coverage-inputs.py")
+    fold = {"exports": [], "inputs": {"extraction": None}, "canonical": {"canonical": 11}, "candidates": {},
+            "denominator": {"clause": "pattern-reference", "branch": "barrel", "surfaceSet": "all", "absentSet": None}}
+    assert reconcile.denominator_record({"branch": "enumerated"}, fold)[0] == (
+        "**Denominator:** Pattern-reference, denominator: canonicalized provenance-map count (11 pattern surfaces)")
+    # on the `all` set no scope set gives the stratified counts, and at Quick tier the names sit at their files
+    stratified = {**fold, "candidates": {"scopeIncludeFiles": 3, "scopeIncludeUnion": 9},
+                  "denominator": {"clause": "stratified-scope", "branch": "barrel", "surfaceSet": "all",
+                                  "absentSet": "scope.include"}}
+    assert reconcile.denominator_record({"branch": "enumerated"}, stratified)[0] == (
+        "**Denominator:** Stratified scope, denominator: scope.include union (absent files its names sit at, absent "
+        "exports union) (scope.include set absent: all set used)")
 
 
 def test_the_source_access_is_written_when_it_is_resolved():
@@ -3859,21 +3893,6 @@ CARVED_TO_BRANCHES = {
         "When §2b's numerator check found the count inflated and the scalar branch counted no set, its "
         "`absent[]` names replace this gap, one each: update-skill documents a named export, not a count."
     )],
-    "Denominator Candidates": [(
-        "```markdown\n"
-        "**Denominator Candidates** (stratified-scope audit trail):\n"
-        "- `stats.effective_denominator`: {statsEffectiveDenominator | absent}  {← chosen on the scalar "
-        "branch}\n"
-        "- `scope.tier_a_include` union: {tierAIncludeUnion | absent}    {← chosen if the barrel "
-        "branch's set}\n"
-        "- `scope.include` union: {scopeIncludeUnion | absent}           {← chosen if the barrel "
-        "branch's set}\n"
-        "- exports-map subpath union: {subpathUnion | absent}        {← chosen if the barrel branch's "
-        "set}\n"
-        "- root barrel: {rootBarrel | absent}                               {secondary candidate: "
-        "root-barrel-vs-subpath-union audit}\n"
-        "```"
-    )],
     "Metadata Count Cross-Check": [(
         "`{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a "
         "reference app, a cluster with fewer than two counts, drift within its threshold):\n"
@@ -3886,15 +3905,13 @@ CARVED_TO_BRANCHES = {
         "A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its "
         "call and records no count finding, and note the error in the Coverage Analysis section. §5b records "
         "each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an "
-        "Info `multi-denominator` gap. They describe data quality and change no denominator. Record the "
-        "denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + "
-        "integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface "
-        "({pattern_surfaces_documented})`)."
+        # #1186: reconcile-coverage.py render writes a stack's and a reference app's `Denominator:` line
+        "Info `multi-denominator` gap. They describe data quality and change no denominator."
     )],
     "Docs-Only Run": [(
         "**A docs-only run** measures documentation completeness as its Export Coverage, with "
         "`analysis_confidence` `docs-only`. It runs only §1, §1a and §1b, the docs-only guard of §2b, §2c's "
-        "`docsOnly` branch, §4's `Denominator: docs-only completeness` annotation, §5, §5b and §6. Step 5 "
+        "`docsOnly` branch, §5 (its render writes `Denominator: docs-only completeness`), §5b and §6. Step 5 "
         "passes `docsOnly: true` to the scoring script, which skips Signature Accuracy and Type Coverage at "
         "any tier.\n"
         "\n"
@@ -3969,7 +3986,7 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     with it: the Quick-tier scan and the fallback per-file scan in coverage-check-tiers.md, which only the §2
     branch that takes one loads; §1a's inventory failures (the refused response's `rm` included, #814), States
     2 to 4 (State 2, 3 and 4's `surface` commands included), the scalar and stack branches (§2c's scalar and
-    stack commands included, #791 and #792), the Denominator Candidates block, §4b's metadata count cross-check,
+    stack commands included, #791 and #792), §4b's metadata count cross-check,
     the docs-only run and §5b's split-body Source (#841) in coverage-check-branches.md, byte for byte as the step
     held them, each section loaded only from the sentence of its branch, which names it. Every other call stays in
     the step, §5b's call that records the split-body gaps included."""
@@ -4000,7 +4017,6 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
         "Inventory Failures": ["#### 1a. Parent-Side Schema Validation"],
         "States 2 to 4": ["### 2. Analyze Source Code", "### 2b."],
         "Scalar and Stack Branches": ["### 2c."],
-        "Denominator Candidates": ["### 4. The Denominator Record"],
         "Metadata Count Cross-Check": ["### 4b. Metadata Export-Count Coherence Cross-Check"],
         "Docs-Only Run": ["### 0. Check for Docs-Only Mode"],
         "Split-Body Sources": ["### 5b. Record the Coverage Gaps"],
@@ -4358,9 +4374,10 @@ def test_skill_check_s_probe_and_run_are_handled_in_one_passage():
     assert len(row) == 1 and "skill-check not run" in row[0] and "external-validators §5b" in row[0]
 
 
-def test_a_capped_fail_names_the_tooling_to_restore():
+def test_a_capped_fail_names_the_tooling_to_restore(tmp_path):
     """#1185 enhancement-1: the cap shows on a **Cap:** line, and the score step and the final report recommend
-    restoring the tooling it names, while nextWorkflow stays update-skill."""
+    restoring the tooling it names, while nextWorkflow stays update-skill. #1186: score.md §6's settle prints that
+    line, from the scoring output."""
     score = _read(SCORE)
     nxt = _slice(score, "### 5. Determine Next Workflow Recommendation", "### 6.")
     assert nxt.index("**IF FAIL:**") < nxt.index("**IF FAIL with a cap**") < nxt.index("**IF INCONCLUSIVE:**")
@@ -4379,8 +4396,24 @@ def test_a_capped_fail_names_the_tooling_to_restore():
         assert needle in capped, needle
     assert "`result` is `PASS`" not in capped and "applies alone" not in capped
     section6 = _slice(score, "### 6. Write the Completeness Score Section", "### 7.")
-    assert "**Result:** **{PASS|FAIL|INCONCLUSIVE}**\n{If capReason is non-null:}\n**Cap:** {capReason}\n" in section6
-    assert "**Scoring Notes:** {each entry of `scoringNotes`}\n" in section6 and "and `capReason`}" not in section6
+    assert "uv run {resultContextScript} settle" in section6 and "{capReason}" not in section6
+    scored = runpy_module(PROSE_SCRIPTS["{scoringScript}"]).compute_score({
+        "mode": "naive", "tier": "Deep", "threshold": 80, "toolingStatus": "frontmatter-validator-timeout",
+        "scores": {"exportCoverage": 95, "signatureAccuracy": 95, "typeCoverage": 95, "coherence": None,
+                   "externalValidation": 95}})
+    (tmp_path / "score.json").write_bytes(json.dumps(scored).encode("utf-8"))
+    (tmp_path / "external.json").write_bytes(b'{"externalScore": 95, "toolsUsed": ["skill-check"]}')
+    report = tmp_path / "report.md"
+    report.write_bytes(_read(TEMPLATE).replace("toolingStatus: ''", "toolingStatus: 'frontmatter-validator-timeout'")
+                       .encode("utf-8"))
+    settled = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{resultContextScript}"]), "settle", "--report",
+                              str(report), "--score", str(tmp_path / "score.json"), "--external",
+                              str(tmp_path / "external.json")], capture_output=True, text=True, encoding="utf-8")
+    assert settled.returncode == 0, settled.stderr
+    assert f"**Result:** **FAIL**\n**Cap:** {scored['capReason']}\n" in settled.stdout
+    # the cap is on its own line, never folded into the Scoring Notes
+    assert "**Scoring Notes:**" not in settled.stdout
+    assert "\n**Tooling Status:** frontmatter-validator-timeout\n" in settled.stdout
     caps = _flow(_slice(score, "### 3d. Read Post-Score Caps", "### 4."))
     assert "§6 shows it on its **Cap:** line" in caps and "scoring_notes: {capReason}" not in caps
     report_score = _flow(_slice(score, "### 8. Report Score", "Then proceed to the gap report."))

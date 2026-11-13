@@ -153,7 +153,7 @@ Delegate the references §3's subagent found, in one batch, to a subagent given 
    - Skill references: referenced skill exists in skills output folder
    - Integration patterns: documented pattern matches actual implementation
    - Signatures: a documented signature matches its declaration by the rules of `{signatureRulesFile}` (`signature_match`)
-3. Returns only a JSON array, one object per reference, with no prose, no commentary and no markdown fences: `{"reference": "...", "line": N, "target_exists": <bool>, "type_match": <bool>, "signature_match": <bool>, "issues": ["..."]}`
+3. Returns only a JSON array, one object per reference, with no prose, no commentary and no markdown fences: `{"reference": "...", "type": "<its §3 type>", "line": N, "target_exists": <bool>, "type_match": <bool>, "signature_match": <bool>, "issues": ["..."]}`
 
 Save its response, as it came back, to `{run_dir}/judged-references.json` with the Write tool (no file when §3 found no such reference). If subagent unavailable, load `{signatureRulesFile}`, validate each reference in main thread by it and save the same array. §5c counts the valid references from both files, and classifies the invalid ones.
 
@@ -220,11 +220,25 @@ Exit 2 (`INVALID_INPUT`): a file does not hold the shape §3 to §5 describe; co
 - `integrationCompleteness`: integration-completeness percentage (`null` when no patterns are documented)
 - `combinedCoherence`: the combined coherence percentage, the `coherence` score step 5 reads from `{run_dir}/coherence.json`
 
-The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6. `{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, which §6 records from that file; stdout gives only their number.
+The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). §6's render writes these values into the Coherence Score list. `{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, which §6 records from that file; stdout gives only their number.
 
 ### 6. Write the Coherence Analysis Section
 
-Load `{outputFormatsFile}` and use the appropriate Coherence Analysis section format (naive or contextual) to write the findings in place of the template's `## Coherence Analysis` heading and the placeholder comment under it, in `{outputFile}`.
+Load `{outputFormatsFile}` and use the Coherence Analysis section format of this run's mode. Its tables come from the run files: first run the render of the mode (it resolves relative to the skill root), the naive one with the same `--served` as its append below.
+
+- **Naive mode:**
+
+  ```bash
+  uv run {gapLedgerScript} render --from structure --input "{run_dir}/required-sections.json" --input "{run_dir}/structure.json" --input "{run_dir}/usage-scope.json" [--served <family>]...
+  ```
+
+- **Contextual mode:**
+
+  ```bash
+  uv run {coherenceAggregationScript} render --coherence "{run_dir}/coherence.json" --references "{run_dir}/references.json" [--judged "{run_dir}/judged-references.json"]
+  ```
+
+Exit 0: write the format, with the render's output unchanged where it places it, in place of the template's `## Coherence Analysis` heading and the placeholder comment under it, in `{outputFile}`. Exit 2 is a usage error, or a file the render refuses (a `coherence.json` whose counts differ from the files is §5c's to write again): correct it and run the render again. Exit 1, or a second exit 2: HALT with its error (`halt_reason: "helper-failed"`, phase `coherence-check:render`).
 
 Then record every coherence gap in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. `{gapLedgerScript}` (it resolves relative to the skill root) writes the record of each gap a script found from that script's file, with the severity and category the Gap Severity table gives it and a fixed title, Source and Remediation. Run the commands of this run's mode:
 

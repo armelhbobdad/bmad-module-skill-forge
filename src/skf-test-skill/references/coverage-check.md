@@ -170,7 +170,7 @@ Load the metadata and provenance-map counts once (pass `--provenance` when init.
 uv run {coverageInputsScript} metadata --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] --output "{run_dir}/coverage-inputs.json"
 ```
 
-**Pick the denominator.** `surface.json` `denominator` holds the Source API Surface Definition clause (§0b) `surface` picked: its §2c `branch` (`barrel`, `scalar` or `stack`), `surfaceSet` (the set the barrel branch counts, as the scalar one does when `setCounted` is true, and the signature score reads) and `ladderStep`. When `absentSet` names a set the surface lacks, `surfaceSet` is `all` and the `Denominator:` line (§4) adds `({absentSet} set absent: all set used)`. When `rebuild` is `provenance-fold`, load `{coverageBranchesFile}` and rerun State 2's command from its **States 2 to 4** section without `--metadata` and with `--fold` and `--pattern-reference-intent`, running nothing else from that section, and read the `denominator` it writes.
+**Pick the denominator.** `surface.json` `denominator` holds the Source API Surface Definition clause (§0b) `surface` picked: its §2c `branch` (`barrel`, `scalar` or `stack`), `surfaceSet` (the set the barrel branch counts, as the scalar one does when `setCounted` is true, and the signature score reads) and `ladderStep`. When `absentSet` names a set the surface lacks, `surfaceSet` is `all`, and §5's render says so on the `Denominator:` line. When `rebuild` is `provenance-fold`, load `{coverageBranchesFile}` and rerun State 2's command from its **States 2 to 4** section without `--metadata` and with `--fold` and `--pattern-reference-intent`, running nothing else from that section, and read the `denominator` it writes.
 
 - **A stack skill** (`branch` `stack`): `coverage-inputs.json` `stack.denominator`. Its own barrel is empty by design, and its `[from skill: …]` citations never make it docs-only. **If `stack.denominator` is 0**: HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
 - **A docs-only skill**: the `docsOnly` branch, over the inventory.
@@ -233,7 +233,7 @@ Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run i
 
 ### 4. The Denominator Record
 
-Record the denominator source in the Coverage Analysis section with the annotation `{sourceAccessProtocol}` gives `denominator.clause` (§4b gives a stack's and a reference app's): `Denominator: {barrel | empty barrel (…) | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…) | stack composition (…) | pattern-surface (…) | docs-only completeness}`, and the `canonical.summary` line when `surface.json` has a fold. When `denominator.clause` is `stratified-scope` or `multi-entry`, load `{coverageBranchesFile}` and append the block of its **Denominator Candidates** section after the `Denominator:` line, with every count from `surface.json` `candidates` (`absent` for a null one).
+§5's render writes the denominator record (the `Denominator:` line, the fold summary and the Denominator Candidates block) from `surface.json`, `coverage.json` and `coverage-inputs.json`.
 
 The guards raise coverage gaps too, which §5b records from `surface.json`: `guards.deflation.fires` is a Medium `metadata-drift` gap (on its `tier_a_include` basis, a stale stored count to recount), `guards.inflation.fires` a Medium `denominator-inflation` gap (with deflation, both name one fix: the brief's tier A list) and `guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief.
 
@@ -263,10 +263,10 @@ This section reports none of the helper's `missing`, `orphaned` or `citations` f
 
 ### 5. Write the Coverage Analysis Section
 
-Write the **Coverage Analysis** section in place of the template's `## Coverage Analysis` heading and the placeholder comment under it, in `{outputFile}`. `{reconcileScript}` renders its counts, per-export table and category scores from the run files (leave out `--surface` on a docs-only run and `--signatures` when §2b scored none):
+Write the **Coverage Analysis** section in place of the template's `## Coverage Analysis` heading and the placeholder comment under it, in `{outputFile}`. `{reconcileScript}` renders its counts, per-export table and category scores from the run files (leave out `--surface` on a docs-only run, `--signatures` when §2b scored none and `--coverage-inputs` when §2b wrote none):
 
 ```bash
-uv run {reconcileScript} render --coverage "{run_dir}/coverage.json" [--surface "{run_dir}/surface.json"] [--signatures "{run_dir}/signatures.json"]
+uv run {reconcileScript} render --coverage "{run_dir}/coverage.json" [--surface "{run_dir}/surface.json"] [--signatures "{run_dir}/signatures.json"] [--coverage-inputs "{run_dir}/coverage-inputs.json"]
 ```
 
 Exit 0: write its output unchanged where the section below places it. Exit 2 is a usage error: correct the command and run it again. Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:render`).
@@ -278,9 +278,6 @@ Exit 0: write its output unchanged where the section below places it. Exit 2 is 
 **Source Access:** {analysis_confidence}
 **Source Path:** {source_path}
 **Workspace Layout:** {source_workspace_kind | single package | unknown (no local source, or the §0b helper failed)}
-**Denominator:** {the §4 annotation}
-{the Denominator Candidates block, when §4 adds one}
-
 {the render output}
 
 {the notes §1a to §4b add to this section}

@@ -14,6 +14,8 @@ from __future__ import annotations
 import doctest
 import importlib.util
 import json
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -323,3 +325,173 @@ def test_the_scanners_own_output_is_read_as_written(tmp_path):
     assert [(r["target"], r["status"]) for r in out["invalidReferences"]] == [("references/gone.md", "missing")]
     gone = out["invalidReferences"][0]
     assert gone["root"] == "skill" and Path(gone["canonical"]).name == "gone.md"
+
+
+# --------------------------------------------------------------------------
+# render (#1186): coherence-check §6 writes the contextual tables the files give, and the model adds only the
+# Integration Pattern rows and the Migration Section line
+# --------------------------------------------------------------------------
+
+COHERENCE_STEP = Path(__file__).resolve().parent.parent / "src" / "skf-test-skill" / "references" / "coherence-check.md"
+# The scanner's reference-check output: each reference's `type` is the Type cell of its row.
+RENDER_SCAN = {"references": [
+    {"line": 3, "form": "link", "target": "references/api.md", "type": "file-path",
+     "canonical": "/skill/references/api.md", "status": "ok", "root": "skill"},
+    {"line": 4, "form": "mention", "target": "scripts/run.py", "type": "script-asset",
+     "canonical": "/skill/scripts/run.py", "status": "missing", "root": "skill"},
+    {"line": 5, "form": "link", "target": "../../etc/passwd", "type": "file-path", "canonical": "/etc/passwd",
+     "status": "escapes", "root": None},
+]}
+# §4's results carry the §3 type of each reference (#1186)
+RENDER_JUDGED = [{**ref, "type": kind} for ref, kind in zip(JUDGED, ("skill", "type-import", "skill"))]
+GOLDEN_CONTEXTUAL = """**References Found:** 6
+**References Valid:** 2
+**Broken References:** 4
+
+### Reference Validation
+
+| Reference | Type | Line | Target Exists | Accurate | Severity | Issues |
+|-----------|------|------|--------------|----------|----------|--------|
+| references/api.md | file-path | 3 | yes | yes | - | - |
+| scripts/run.py | script-asset | 4 | no | - | Critical | nothing at /skill/scripts/run.py |
+| ../../etc/passwd | file-path | 5 | - | no | High | resolves outside every root: /etc/passwd |
+| react | skill | 9 | yes | yes | - | - |
+| ./types | type-import | 12 | yes | no | High | Props is not exported by ./types |
+| ghost-skill | skill | 14 | no | no | Critical | target_exists: false; type_match: false; signature_match: false |
+
+### Coherence Score
+
+- **Reference Validity:** 2/6 (33.33%)
+- **Integration Completeness:** 4/5 (80%)
+- **Combined Coherence:** 52%
+
+### Integration Pattern Completeness
+
+| Pattern | Complete | Issue |
+|---------|----------|-------|
+"""
+
+
+def _aggregated(tmp_path, scan=RENDER_SCAN, judged=RENDER_JUDGED, integration=None):
+    """The files §3 to §5 write and the coherence.json §5c's command writes from them."""
+    paths = _files(tmp_path, scan=scan, judged=judged, integration=integration)
+    proc = _cli_files(paths, "--output", str(tmp_path / "coherence.json"))
+    assert proc.returncode == 0, proc.stdout
+    return paths
+
+
+def _render(*args):
+    return subprocess.run([sys.executable, str(SCRIPT), "render", *map(str, args)], capture_output=True, text=True,
+                          encoding="utf-8")
+
+
+def _render_files(tmp_path, paths):
+    args = ["--coherence", tmp_path / "coherence.json", "--references", paths["--references"]]
+    return _render(*args, *(["--judged", paths["--judged"]] if "--judged" in paths else []))
+
+
+def test_render_prints_the_golden_contextual_tables(tmp_path):
+    paths = _aggregated(tmp_path)
+    proc = _render_files(tmp_path, paths)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == GOLDEN_CONTEXTUAL
+    assert _render_files(tmp_path, paths).stdout == GOLDEN_CONTEXTUAL
+
+
+def test_render_without_a_judged_file_or_patterns(tmp_path):
+    """A skill with no skill, type-import or integration reference, and no integration pattern."""
+    paths = _aggregated(tmp_path, judged=None, integration={"patterns_documented": 0, "patterns_complete": 0})
+    proc = _render_files(tmp_path, paths)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    assert lines[:3] == ["**References Found:** 3", "**References Valid:** 1", "**Broken References:** 2"]
+    assert [line for line in lines if line.startswith("| ") and not line.startswith("| Reference")][:3] == [
+        "| references/api.md | file-path | 3 | yes | yes | - | - |",
+        "| scripts/run.py | script-asset | 4 | no | - | Critical | nothing at /skill/scripts/run.py |",
+        "| ../../etc/passwd | file-path | 5 | - | no | High | resolves outside every root: /etc/passwd |"]
+    for line in ("- **Reference Validity:** 1/3 (33.33%)",
+                 "- **Integration Completeness:** N/A: no integration patterns documented",
+                 "- **Combined Coherence:** 33.33%"):
+        assert line in lines, line
+    assert lines[-2:] == ["| Pattern | Complete | Issue |", "|---------|----------|-------|"]
+
+
+def test_render_reads_a_judged_file_in_its_references_form(tmp_path):
+    """§4's results written as `{"references": [...]}`, a form the aggregate reads too, render the same rows."""
+    paths = _aggregated(tmp_path)
+    paths["--judged"].write_bytes(json.dumps({"references": RENDER_JUDGED}).encode("utf-8"))
+    proc = _render_files(tmp_path, paths)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == GOLDEN_CONTEXTUAL
+
+
+def test_render_escapes_a_pipe_and_shows_a_judged_reference_without_a_type(tmp_path):
+    judged = [{"reference": "a|b", "line": 2, "target_exists": True, "type_match": True, "signature_match": True,
+               "issues": []}]
+    paths = _aggregated(tmp_path, scan={"references": []}, judged=judged)
+    proc = _render_files(tmp_path, paths)
+    assert proc.returncode == 0, proc.stderr
+    assert "| a\\|b | - | 2 | yes | yes | - | - |\n" in proc.stdout
+
+
+@pytest.mark.parametrize("case, code, error", [
+    ("count-mismatch", 2, "run §5c's command again over these files"),
+    ("not-a-result", 2, "not aggregate-coherence.py's result"),
+    ("refusal", 2, "not aggregate-coherence.py's result"),
+    ("bad-judged", 2, "`target_exists` must be true or false"),
+    ("missing", 1, "coherence.json"),
+    ("not-json", 1, "not valid JSON"),
+])
+def test_render_refuses_what_it_cannot_write(tmp_path, case, code, error):
+    paths = _aggregated(tmp_path)
+    coherence = tmp_path / "coherence.json"
+    if case == "count-mismatch":
+        # §4's file was written again after §5c ran: one more valid reference than coherence.json counts
+        paths["--judged"].write_bytes(json.dumps([{**RENDER_JUDGED[0]}, *RENDER_JUDGED]).encode("utf-8"))
+    if case == "not-a-result":
+        coherence.write_bytes(json.dumps({"combinedCoherence": 90.0}).encode("utf-8"))
+    if case == "refusal":
+        coherence.write_bytes(json.dumps({"error": "bad", "code": "INVALID_INPUT"}).encode("utf-8"))
+    if case == "bad-judged":
+        paths["--judged"].write_bytes(json.dumps([{"reference": "x", "target_exists": "yes"}]).encode("utf-8"))
+    if case == "missing":
+        coherence.unlink()
+    if case == "not-json":
+        coherence.write_bytes(b"{not json")
+    proc = _render_files(tmp_path, paths)
+    assert proc.returncode == code, proc.stdout + proc.stderr
+    assert proc.stdout == "" and proc.stderr.startswith("error: ") and error in proc.stderr, proc.stderr
+
+
+def test_coherence_check_renders_the_contextual_tables_as_written(tmp_path):
+    """§6 runs the render over the files §3 to §5c wrote: with one judged and two scanned references, every
+    reference row and count comes from the files, and the format leaves the model the Integration Pattern rows and
+    the Migration Section line alone."""
+    text = COHERENCE_STEP.read_text(encoding="utf-8")
+    section = text[text.index("### 6. Write the Coherence Analysis Section"):text.index("### 7.")]
+    [command] = [line.strip() for line in section.splitlines()
+                 if line.strip().startswith("uv run {coherenceAggregationScript} render")]
+    run = tmp_path / "run"
+    run.mkdir()
+    scan = {"references": RENDER_SCAN["references"][:2]}
+    paths = _files(run, scan=scan, judged=[RENDER_JUDGED[1]])
+    aggregate = text[text.index("### 5c."):text.index("### 6.")]
+    [first] = [line for line in aggregate.splitlines() if line.startswith("uv run {coherenceAggregationScript}")]
+    words = shlex.split(re.sub(r" \[([^\]]+)\]", r" \1", first).replace("{run_dir}", run.as_posix()))
+    assert _cli(words[3:]).returncode == 0
+    words = shlex.split(re.sub(r" \[([^\]]+)\]", r" \1", command).replace("{run_dir}", run.as_posix()))
+    assert words[:4] == ["uv", "run", "{coherenceAggregationScript}", "render"]
+    proc = _render(*words[4:])
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.startswith("**References Found:** 3\n**References Valid:** 1\n**Broken References:** 2\n")
+    rows = [line for line in proc.stdout.splitlines() if line.startswith("| ") and "|---" not in line]
+    assert rows[1:4] == ["| references/api.md | file-path | 3 | yes | yes | - | - |",
+                         "| scripts/run.py | script-asset | 4 | no | - | Critical | nothing at /skill/scripts/run.py |",
+                         "| ./types | type-import | 12 | yes | no | High | Props is not exported by ./types |"]
+    assert proc.stdout.endswith("### Integration Pattern Completeness\n\n| Pattern | Complete | Issue |\n"
+                                "|---------|----------|-------|\n")
+    flow = " ".join(section.split())
+    assert '(`halt_reason: "helper-failed"`, phase `coherence-check:render`)' in flow
+    assert "write the format, with the render's output unchanged where it places it" in flow
+    judged = text[text.index("### 4. Contextual Mode"):text.index("### 5. Contextual Mode")]
+    assert '`{"reference": "...", "type": "<its §3 type>", "line": N,' in judged

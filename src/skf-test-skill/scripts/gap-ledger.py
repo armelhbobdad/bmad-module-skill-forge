@@ -407,6 +407,18 @@ cites (never read; default `metadata.json`):
       --heading adds the `## Gap Report` line. With no records the body says
       no gaps were found.
 
+  render --from structure --input <file>... [--served <family>]...
+      Print the naive Coherence Analysis section's Structural Findings table
+      (coherence-check.md §6, #1186) from the records the structure adapter
+      builds out of the same scan files and --served as its append: the
+      `### Structural Findings` heading, the `| # | Type | Severity | Detail
+      | Line |` header, then one row per record in the adapter's order, `#`
+      from 1, Type its category, Detail its title and Line the number after
+      `SKILL.md:` (else -), a `|` escaped. The rows the model judged (§2.5)
+      are numbered on under it. --ledger or --heading beside --from, or a
+      kind other than structure, is a usage error (exit 2); a file the
+      adapter refuses is INVALID_INPUT on stderr, exit 2.
+
   summary --ledger <path>
       Output: {"status": "ok", "ledger", "run_id", "stages", "total",
                "counts": {severity: n}, "blocking", "non_blocking",
@@ -2540,6 +2552,29 @@ def build_records(args: argparse.Namespace) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
+def render_structural_findings(records: list[dict]) -> str:
+    """The naive Coherence Analysis section's Structural Findings table, one row per `from_structure` record.
+
+    >>> print(render_structural_findings([_gap("Medium", "structural", "naive-coherence: table row at line 9 has 3 "
+    ...     "columns; header has 2", "SKILL.md:9", "Fix."), _gap("High", "structural", "a | b", "SKILL.md", "Fix.")]),
+    ...       end="")
+    ### Structural Findings
+    <BLANKLINE>
+    | # | Type | Severity | Detail | Line |
+    |---|------|----------|--------|------|
+    | 1 | structural | Medium | naive-coherence: table row at line 9 has 3 columns; header has 2 | 9 |
+    | 2 | structural | High | a \\| b | - |
+    """
+    lines = ["### Structural Findings", "", "| # | Type | Severity | Detail | Line |",
+             "|---|------|----------|--------|------|"]
+    for number, record in enumerate(records, 1):
+        source = str(record.get("source") or "")
+        line = source.split(":", 1)[1] if source.startswith("SKILL.md:") else "-"
+        cells = [str(number), record["category"], record["severity"], " ".join(str(record["title"]).split()), line]
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
 def render_gap_report(ledger: dict, heading: bool = False) -> str:
     """The Gap Report section body, from the ledger (report.md §4c writes it)."""
     records = ordered(ledger["records"])
@@ -2699,6 +2734,25 @@ def _cmd_append(args: argparse.Namespace) -> int:
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
+    parser = args.render_parser
+    if args.adapter is not None:
+        if args.ledger is not None or args.heading:
+            parser.error("--from renders a script's result, --ledger the Gap Report: pass one of them")
+        if args.adapter != "structure":
+            parser.error(f"render --from reads only structure results, not {args.adapter}")
+        if not args.input:
+            parser.error("render --from structure reads one or more --input files")
+        try:
+            records = from_structure([read_result(p, "--input") for p in args.input], args.served)
+        except AdapterError as exc:
+            _emit(_error("INVALID_INPUT", str(exc)), stream=sys.stderr)
+            return 2
+        sys.stdout.write(render_structural_findings(records))
+        return 0
+    if args.ledger is None:
+        parser.error("render takes --ledger, or --from structure with its --input files")
+    if args.input or args.served:
+        parser.error("--input and --served work only with --from structure")
     path = Path(args.ledger)
     try:
         ledger = load_ledger(path)
@@ -2771,10 +2825,15 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="external: the file external-validators.md §2 wrote why skill-check did not run to")
     p.set_defaults(func=_cmd_append)
 
-    p = sub.add_parser("render", help="print the Gap Report in Markdown")
-    p.add_argument("--ledger", required=True)
+    p = sub.add_parser("render", help="print the Gap Report, or the naive Structural Findings table, in Markdown")
+    p.add_argument("--ledger", help="the gap ledger whose Gap Report to print")
     p.add_argument("--heading", action="store_true", help="start with the ## Gap Report line")
-    p.set_defaults(func=_cmd_render)
+    p.add_argument("--from", dest="adapter", choices=tuple(ADAPTER_OPTIONS),
+                   help="structure: print the Structural Findings table of the scan files given as --input")
+    p.add_argument("--input", action="append", help="with --from structure: a scan file (repeatable)")
+    p.add_argument("--served", action="append", choices=FAMILIES,
+                   help="with --from structure: a family another heading serves, as the append passes it")
+    p.set_defaults(func=_cmd_render, render_parser=p)
 
     p = sub.add_parser("summary", help="counts by severity and category")
     p.add_argument("--ledger", required=True)

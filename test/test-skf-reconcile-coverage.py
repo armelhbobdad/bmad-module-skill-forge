@@ -1313,10 +1313,16 @@ def _run_render(*args):
                           encoding="utf-8")
 
 
+# coverage-inputs.json, as load-coverage-inputs.py metadata writes it for a library skill (§2b, every source-based run)
+RENDER_COVERAGE_INPUTS = {"skillType": "single", "scopeType": "full-library", "effectiveDenominator": None,
+                          "patternSurfacesDocumented": None, "stack": None}
+
+
 def _render_run_files(run):
     """The run files §2, §2b and §2c write, the coverage one by this script's barrel branch."""
     _write(run / "inventory.json", RENDER_INVENTORY)
     _write(run / "surface.json", RENDER_SURFACE)
+    _write(run / "coverage-inputs.json", RENDER_COVERAGE_INPUTS)
     _write(run / "signatures.json", RENDER_SIGNATURES)
     proc = _run_cli(["--denominator-source", "barrel", "--inventory", (run / "inventory.json").as_posix(),
                      "--surface", (run / "surface.json").as_posix(), "--output", (run / "coverage.json").as_posix()])
@@ -1349,10 +1355,13 @@ def test_render_matches_the_golden_barrel_section(tmp_path):
 
 
 def test_coverage_check_writes_the_render_output_as_written(tmp_path):
-    """§5 runs the render with every run file the barrel branch wrote, and the model writes it unchanged."""
+    """§5 runs the render with every run file the barrel branch wrote, and the model writes it unchanged. #1186: a
+    stratified-scope run over tier A gets its annotation and Candidates block from the render, the tier A union
+    marked chosen, with no annotation typed by the model."""
     text = COVERAGE_STEP.read_text(encoding="utf-8")
     section = text[text.index("### 5. Write the Coverage Analysis Section"):text.index("### 5b.")]
     [command] = [line for line in section.splitlines() if line.startswith("uv run {reconcileScript} render")]
+    assert '[--coverage-inputs "{run_dir}/coverage-inputs.json"]' in command
     run = tmp_path / "run"
     _render_run_files(run)
     command = re.sub(r" \[([^\]]+)\]", r" \1", command).replace("{run_dir}", run.as_posix())
@@ -1360,13 +1369,18 @@ def test_coverage_check_writes_the_render_output_as_written(tmp_path):
     assert words[:3] == ["uv", "run", "{reconcileScript}"]
     proc = _run_render(*words[4:])
     assert proc.returncode == 0 and proc.stdout == GOLDEN_BARREL
+    _write(run / "surface.json", {**RENDER_SURFACE, **STRATIFIED_TIER_A})
+    proc = _run_render(*words[4:])
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == STRATIFIED_TIER_A_RECORD + GOLDEN_BARREL
     flow = " ".join(section.split())
     assert "write its output unchanged where the section below places it" in flow
     assert '(`halt_reason: "helper-failed"`, phase `coverage-check:render`)' in flow
     assert "Exit 2 is a usage error: correct the command and run it again." in flow
-    # §4's Denominator Candidates block has its place, right under the Denominator line.
-    assert ("**Denominator:** {the §4 annotation}\n{the Denominator Candidates block, when §4 adds one}\n\n"
-            "{the render output}") in section
+    # The render's denominator record opens its output, right under the header lines.
+    assert "**Workspace Layout:** {source_workspace_kind | single package | unknown (no local source, or the §0b " \
+           "helper failed)}\n{the render output}\n" in section
+    assert "{the §4 annotation}" not in text and "{the Denominator Candidates block" not in text
     # The render marks a Quick-tier signature unverified, and lists the names the surface leaves out:
     # the earlier sections no longer have the model write either by hand.
     assert "Signatures cannot be verified at this tier (§5's render marks them unverified)." in text
@@ -1394,7 +1408,9 @@ def test_render_a_docs_only_run():
     exports = [{"name": "load", "kind": "function", "description": "Loads it."},
                {"name": "Config", "kind": "type", "fields": ["a"], "description": "The config."}]
     coverage = reconcile({"denominatorSource": "docsOnly", "exports": exports})
-    assert mod.render(coverage) == """**Files Analyzed:** N/A: no source surface
+    assert mod.render(coverage) == """**Denominator:** docs-only completeness
+
+**Files Analyzed:** N/A: no source surface
 
 ### Export Coverage
 
@@ -1437,9 +1453,10 @@ def test_render_a_stack_run_names_no_export(tmp_path):
     pkg = _make_skill_pkg(tmp_path, skill_md_text="composes react-query and zod")
     coverage = reconcile({"denominatorSource": "stack", "compositionNames": ["react-query", "zod", "trpc"],
                           "denominatorValue": 3, "skillPackagePath": pkg})
-    text = mod.render(coverage, {"exports": []})
+    # #1186: the stack's basis, from coverage-inputs.json, names its denominator
+    text = mod.render(coverage, {"exports": []}, None, {"stack": {"basis": "composition", "denominator": 3}})
     assert "| Export |" not in text
-    for line in ("**Files Analyzed:** 0",
+    for line in ("**Denominator:** stack composition (3 libraries + integration pairs)", "**Files Analyzed:** 0",
                  "No per-export table: the stack denominator counts the composition surface without naming each "
                  "export. The summary below gives the counts.",
                  "- **Exports Found:** 3", "- **Documented:** 2 (66.67%)", "- **Missing Documentation:** 1",
@@ -1584,3 +1601,161 @@ def test_render_refuses_a_file_it_cannot_read(tmp_path, coverage, signatures, er
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# --------------------------------------------------------------------------
+# #1186: the denominator record (the `Denominator:` line, the fold summary and the Denominator Candidates block)
+# is the render's, from surface.json, coverage.json and coverage-inputs.json
+# --------------------------------------------------------------------------
+
+CANDIDATES = {"statsEffectiveDenominator": 12, "tierAIncludeUnion": 10, "scopeIncludeUnion": 40,
+              "tierAIncludeFiles": 4, "scopeIncludeFiles": 9, "subpathUnion": 31, "subpathEntries": 3,
+              "rootBarrel": 18, "extractorEffectiveDenominator": None, "extractorBasis": None}
+# A stratified-scope surface on the barrel branch over its tier A set, read from a full extraction.
+STRATIFIED_TIER_A = {"inputs": {"extraction": "run/extraction.json"}, "candidates": CANDIDATES,
+                     "guards": {"deflation": {"applicable": True, "fires": False}},
+                     "denominator": {"clause": "stratified-scope", "branch": "barrel", "surfaceSet": "tier_a_include",
+                                     "ladderStep": 2, "absentSet": None, "rebuild": None}}
+STRATIFIED_TIER_A_RECORD = """**Denominator:** Stratified scope, denominator: tier_a_include union (4 files define its names, \
+10 exports union)
+**Denominator Candidates** (stratified-scope audit trail):
+- `stats.effective_denominator`: 12
+- `scope.tier_a_include` union: 10 ← chosen
+- `scope.include` union: 40
+- exports-map subpath union: 31
+- root barrel: 18 (secondary candidate: root-barrel-vs-subpath-union audit)
+
+"""
+
+
+def _picked(clause, branch="barrel", surface_set="all", absent=None):
+    return {"clause": clause, "branch": branch, "surfaceSet": surface_set, "ladderStep": None, "absentSet": absent,
+            "rebuild": None}
+
+
+def _surface(picked, candidates=CANDIDATES, extraction="run/extraction.json", applicable=True, **more):
+    return {"exports": [], "inputs": {"extraction": extraction}, "candidates": candidates,
+            "guards": {"deflation": {"applicable": applicable}}, "denominator": picked, **more}
+
+
+@pytest.mark.parametrize("coverage, surface, inputs, expected", [
+    ({"branch": "enumerated"}, _surface(_picked("standard-barrel")), None, ["**Denominator:** barrel"]),
+    ({"branch": "enumerated"}, _surface(_picked("empty-barrel", surface_set="scope.include")), None,
+     ["**Denominator:** Empty barrel, denominator: scope.include union (40 exports)"]),
+    # the scalar branch takes the stored count, read here from a surface the source gave
+    ({"branch": "scalar"}, _surface(_picked("stratified-scope", "scalar", "tier_a_include")), None,
+     ["**Denominator:** Stratified scope, denominator: effective_denominator (4 files define its names, 10 exports "
+      "union)", "**Denominator Candidates** (stratified-scope audit trail):",
+      "- `stats.effective_denominator`: 12 ← chosen", "- `scope.tier_a_include` union: 10",
+      "- `scope.include` union: 40", "- exports-map subpath union: 31",
+      "- root barrel: 18 (secondary candidate: root-barrel-vs-subpath-union audit)"]),
+    # no surface read from the source: the stored count is used unverified
+    ({"branch": "scalar"}, _surface(_picked("specific-modules", "scalar", "scope.include"), applicable=False), None,
+     ["**Denominator:** Specific-modules subset, denominator: in-scope reachable barrel (40 items from 9 files, "
+      "after scope.include/exclude filtering); effective_denominator used unverified: no source access to "
+      "re-derive the barrel"]),
+    # the surface lacked the multi-entry ladder's last set: the `all` set counted, its counts absent
+    ({"branch": "enumerated"},
+     _surface(_picked("multi-entry", surface_set="all", absent="subpaths"),
+              {**CANDIDATES, "subpathUnion": None, "subpathEntries": None, "tierAIncludeUnion": None}), None,
+     ["**Denominator:** Multi-entry (exports-map), denominator: subpath union (absent subpath entry points, absent "
+      "exports union; root barrel: 18) (subpaths set absent: all set used)",
+      "**Denominator Candidates** (multi-entry audit trail):", "- `stats.effective_denominator`: 12",
+      "- `scope.tier_a_include` union: absent", "- `scope.include` union: 40", "- exports-map subpath union: absent",
+      "- root barrel: 18 (secondary candidate: root-barrel-vs-subpath-union audit)"]),
+    ({"branch": "enumerated"}, _surface(_picked("multi-entry", surface_set="subpaths")), None,
+     ["**Denominator:** Multi-entry (exports-map), denominator: subpath union (3 subpath entry points, 31 exports "
+      "union; root barrel: 18)", "**Denominator Candidates** (multi-entry audit trail):",
+      "- `stats.effective_denominator`: 12", "- `scope.tier_a_include` union: 10", "- `scope.include` union: 40",
+      "- exports-map subpath union: 31 ← chosen",
+      "- root barrel: 18 (secondary candidate: root-barrel-vs-subpath-union audit)"]),
+    ({"branch": "enumerated"}, _surface(_picked("pattern-reference", surface_set="tier_a_include")), None,
+     ["**Denominator:** Pattern-reference, denominator: tier_a_include union (10 pattern surfaces)"]),
+    # the provenance-fold rerun's canonicalized count, and its fold summary on the next line
+    ({"branch": "enumerated"},
+     _surface(_picked("pattern-reference"), canonical={"raw": 14, "canonical": 11,
+                                                       "summary": "Provenance-map canonicalization: 14 raw entries"}),
+     None, ["**Denominator:** Pattern-reference, denominator: canonicalized provenance-map count (11 pattern "
+            "surfaces)", "Provenance-map canonicalization: 14 raw entries"]),
+    # Quick tier: no extraction, so a set's names sit at the files the reader found them in
+    ({"branch": "enumerated"}, _surface(_picked("stratified-scope", surface_set="scope.include"), extraction=None),
+     None, ["**Denominator:** Stratified scope, denominator: scope.include union (9 files its names sit at, 40 exports "
+            "union)", "**Denominator Candidates** (stratified-scope audit trail):",
+            "- `stats.effective_denominator`: 12", "- `scope.tier_a_include` union: 10",
+            "- `scope.include` union: 40 ← chosen", "- exports-map subpath union: 31",
+            "- root barrel: 18 (secondary candidate: root-barrel-vs-subpath-union audit)"]),
+    # on the `all` set no scope set gives the stratified counts
+    ({"branch": "enumerated"},
+     _surface(_picked("stratified-scope", surface_set="all", absent="scope.include"), {}), None,
+     ["**Denominator:** Stratified scope, denominator: scope.include union (absent files define its names, absent "
+      "exports union) (scope.include set absent: all set used)",
+      "**Denominator Candidates** (stratified-scope audit trail):", "- `stats.effective_denominator`: absent",
+      "- `scope.tier_a_include` union: absent", "- `scope.include` union: absent",
+      "- exports-map subpath union: absent",
+      "- root barrel: absent (secondary candidate: root-barrel-vs-subpath-union audit)"]),
+    ({"branch": "stack", "denominator": 6}, _surface(_picked("stack", "stack", None)),
+     {"stack": {"basis": "provenance", "denominator": 6}, "scopeType": None},
+     ["**Denominator:** stack composition (6 cited contracts)"]),
+    ({"branch": "stack", "denominator": 5}, None, {"stack": {"basis": "composition", "denominator": 5}},
+     ["**Denominator:** stack composition (5 libraries + integration pairs)"]),
+    # a reference app in a curated monorepo, whose clause load-coverage-inputs.py picks as stratified-scope: the
+    # pattern-surface line, then that clause's audit trail
+    ({"branch": "enumerated"}, _surface(_picked("stratified-scope", surface_set="tier_a_include")),
+     {"stack": None, "scopeType": "reference-app", "patternSurfacesDocumented": 8},
+     ["**Denominator:** pattern-surface (8)", "**Denominator Candidates** (stratified-scope audit trail):",
+      "- `stats.effective_denominator`: 12", "- `scope.tier_a_include` union: 10 ← chosen",
+      "- `scope.include` union: 40", "- exports-map subpath union: 31",
+      "- root barrel: 18 (secondary candidate: root-barrel-vs-subpath-union audit)"]),
+    ({"branch": "enumerated"}, None, {"stack": None, "scopeType": "reference-app", "patternSurfacesDocumented": None},
+     ["**Denominator:** pattern-surface (absent)"]),
+    ({"branch": "docsOnly"}, None, None, ["**Denominator:** docs-only completeness"]),
+    # no denominator on the surface (an older surface.json), or no surface: no line
+    ({"branch": "enumerated"}, {"exports": []}, None, []),
+    ({"branch": "scalar"}, None, RENDER_COVERAGE_INPUTS, []),
+], ids=["standard-barrel", "empty-barrel", "stratified-scalar", "specific-modules-unverified", "multi-entry-absent",
+        "multi-entry-subpaths", "pattern-reference-tier-a", "pattern-reference-fold", "stratified-quick-tier",
+        "stratified-all", "stack-provenance", "stack-composition", "reference-app", "reference-app-no-count",
+        "docs-only", "no-denominator", "no-surface"])
+def test_the_render_writes_the_denominator_record(coverage, surface, inputs, expected):
+    lines = mod.denominator_record(coverage, surface, inputs)
+    assert lines == (expected + [""] if expected else []), lines
+
+
+def test_a_stack_without_its_coverage_inputs_exits_1(tmp_path):
+    """The stack's basis is in coverage-inputs.json alone: without it the render names no denominator by hand."""
+    coverage = _write(tmp_path / "coverage.json", {"branch": "stack", "denominator": 5, "documented": 4,
+                                                   "missingCount": 1, "exportCoverage": 80.0})
+    proc = _run_render("--coverage", coverage)
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert proc.stderr.startswith("error: ") and "pass --coverage-inputs" in proc.stderr
+    inputs = _write(tmp_path / "coverage-inputs.json", {"stack": {"basis": "composition", "denominator": 5}})
+    proc = _run_render("--coverage", coverage, "--coverage-inputs", inputs)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.startswith("**Denominator:** stack composition (5 libraries + integration pairs)\n\n"
+                                  "**Files Analyzed:** N/A: no source surface\n")
+    # a file that is not load-coverage-inputs.py metadata's result, or a clause no script picks, is refused
+    bad = _write(tmp_path / "bad.json", {"effectiveDenominator": 5})
+    proc = _run_render("--coverage", coverage, "--coverage-inputs", bad)
+    assert proc.returncode == 1 and "not load-coverage-inputs.py metadata's result" in proc.stderr
+    surface = _write(tmp_path / "surface.json", {"exports": [], "denominator": _picked("by-hand")})
+    proc = _run_render("--coverage", _write(tmp_path / "c.json", {"branch": "enumerated", "documentedNames": []}),
+                       "--surface", surface)
+    assert proc.returncode == 1 and "'by-hand' is no clause" in proc.stderr
+
+
+def test_the_record_reads_the_candidates_load_coverage_inputs_writes(tmp_path):
+    """#822, #1186: every count an annotation names is a `candidates` field surface writes (or the fold's canonical
+    count), so no count is one no script holds."""
+    loader = (REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "load-coverage-inputs.py").read_text(
+        encoding="utf-8")
+    written = loader[loader.index('out["candidates"] = {'):]
+    written = written[:written.index("}")]
+    named = set()
+    for annotation in mod.DENOMINATOR_ANNOTATIONS.values():
+        named |= set(re.findall(r"\{([a-z]\w+)\}", annotation)) - {"files_wording", "pattern_set", "pattern_count"}
+    named |= {field for _, field, _ in mod.CANDIDATE_BULLETS} | {"rootBarrel", "tierAIncludeFiles",
+                                                                 "scopeIncludeFiles", "tierAIncludeUnion"}
+    for field in sorted(named):
+        assert f'"{field}":' in written, field
+    assert set(mod.DENOMINATOR_ANNOTATIONS) == {"standard-barrel", "empty-barrel", "stratified-scope",
+                                                "pattern-reference", "specific-modules", "multi-entry"}

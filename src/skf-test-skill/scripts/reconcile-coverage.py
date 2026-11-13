@@ -179,9 +179,32 @@ Exit codes:
 Subcommand render (coverage-check.md §5 writes its output unchanged):
   uv run reconcile-coverage.py render --coverage <coverage.json>
       [--surface <surface.json>] [--signatures <signatures.json>]
+      [--coverage-inputs <coverage-inputs.json>]
 
 prints the Markdown of the Coverage Analysis section that follows its
 header lines, from the run files:
+  **Denominator:**     the denominator record (#1186), then the --surface
+                       fold summary (`canonical.summary`) when it has one,
+                       the Denominator Candidates block, and a blank line.
+                       Its annotation: `docs-only completeness` on the
+                       docsOnly branch; `pattern-surface (N)` when
+                       --coverage-inputs `scopeType` is `reference-app`
+                       (its `patternSurfacesDocumented`); on the stack
+                       branch `stack composition (N cited contracts)` or
+                       `(N libraries + integration pairs)` by
+                       --coverage-inputs `stack.basis` (a stack without
+                       --coverage-inputs exits 1); else the --surface
+                       `denominator.clause`'s (DENOMINATOR_ANNOTATIONS),
+                       its counts from `candidates` (`absent` for a null
+                       one), with ` ({absentSet} set absent: all set
+                       used)` when the surface lacked its set and
+                       `; effective_denominator used unverified: ...` on
+                       the scalar branch of a surface not read from the
+                       source (`guards.deflation.applicable` not true).
+                       A stratified-scope or multi-entry clause adds the
+                       Denominator Candidates block, its chosen count
+                       marked. No line without a --surface `denominator`
+                       on the enumerated or scalar branch.
   **Files Analyzed:**  the distinct files the --surface export records name
                        (N/A without --surface: a docs-only run has none)
   ### Export Coverage  on the enumerated branch, one row per name the
@@ -731,6 +754,136 @@ def _left_out(surface):
     return lines
 
 
+# The denominator record (#1186): the annotation of each `denominator.clause` load-coverage-inputs.py picks,
+# filled from the surface's `candidates` ({X} the set word below, {F} and {U} the files and union of its set).
+DENOMINATOR_ANNOTATIONS = {
+    "standard-barrel": "barrel",
+    "empty-barrel": "Empty barrel, denominator: scope.include union ({scopeIncludeUnion} exports)",
+    "stratified-scope": "Stratified scope, denominator: {X} ({F} {files_wording}, {U} exports union)",
+    "pattern-reference": "Pattern-reference, denominator: {pattern_set} ({pattern_count} pattern surfaces)",
+    "specific-modules": ("Specific-modules subset, denominator: in-scope reachable barrel ({scopeIncludeUnion} items "
+                         "from {scopeIncludeFiles} files, after scope.include/exclude filtering)"),
+    "multi-entry": ("Multi-entry (exports-map), denominator: {X} ({subpathEntries} subpath entry points, "
+                    "{subpathUnion} exports union; root barrel: {rootBarrel})"),
+}
+# A clause's set, as its annotation names it.
+SET_WORDS = {"tier_a_include": "tier_a_include union", "scope.include": "scope.include union",
+             "subpaths": "subpath union", "all": "all set"}
+# The clauses whose candidates the Denominator Candidates block compares, and its bullets: (label, the
+# `candidates` field, the `surfaceSet` that chooses it).
+AUDITED_CLAUSES = ("stratified-scope", "multi-entry")
+CANDIDATE_BULLETS = (
+    ("`stats.effective_denominator`", "statsEffectiveDenominator", None),
+    ("`scope.tier_a_include` union", "tierAIncludeUnion", "tier_a_include"),
+    ("`scope.include` union", "scopeIncludeUnion", "scope.include"),
+    ("exports-map subpath union", "subpathUnion", "subpaths"),
+)
+UNVERIFIED = "; effective_denominator used unverified: no source access to re-derive the barrel"
+
+
+def _n(value):
+    """A count as the denominator record writes it: `absent` for a null one.
+
+    >>> _n(12), _n(0), _n(None), _n(True)
+    ('12', '0', 'absent', 'absent')
+    """
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) else "absent"
+
+
+def _clause_annotation(surface, picked):
+    """The `Denominator:` annotation of a clause-picked denominator, with its suffixes."""
+    clause, chosen, absent = picked.get("clause"), picked.get("surfaceSet"), picked.get("absentSet")
+    if clause not in DENOMINATOR_ANNOTATIONS:
+        raise RenderError(f"--surface `denominator.clause` {clause!r} is no clause load-coverage-inputs.py picks")
+    scalar = picked.get("branch") == "scalar"
+    counts = surface.get("candidates") if isinstance(surface.get("candidates"), dict) else {}
+    of_set = {"tier_a_include": ("tierAIncludeFiles", "tierAIncludeUnion"),
+              "scope.include": ("scopeIncludeFiles", "scopeIncludeUnion")}.get(chosen, (None, None))
+    inputs = surface.get("inputs") if isinstance(surface.get("inputs"), dict) else {}
+    canonical = surface.get("canonical") if isinstance(surface.get("canonical"), dict) else {}
+    # over the tier A set when the surface has it, else the canonicalized provenance map the --fold rerun counted
+    over_tier_a = chosen == "tier_a_include"
+    fields = {key: _n(value) for key, value in counts.items()}
+    fields |= {
+        "X": "effective_denominator" if scalar else SET_WORDS.get(absent or chosen, str(absent or chosen)),
+        "F": _n(counts.get(of_set[0])) if of_set[0] else "absent",
+        "U": _n(counts.get(of_set[1])) if of_set[1] else "absent",
+        # A name read by eye, or a quick name, sits at its entry file, not the file that defines it.
+        "files_wording": "files define its names" if inputs.get("extraction") else "files its names sit at",
+        "pattern_set": "tier_a_include union" if over_tier_a else "canonicalized provenance-map count",
+        "pattern_count": _n(counts.get("tierAIncludeUnion") if over_tier_a else canonical.get("canonical")),
+    }
+    for name in ("scopeIncludeUnion", "scopeIncludeFiles", "subpathEntries", "subpathUnion", "rootBarrel"):
+        fields.setdefault(name, "absent")
+    text = DENOMINATOR_ANNOTATIONS[clause].format(**fields)
+    if absent:
+        text += f" ({absent} set absent: all set used)"
+    guards = surface.get("guards") if isinstance(surface.get("guards"), dict) else {}
+    deflation = guards.get("deflation") if isinstance(guards.get("deflation"), dict) else {}
+    if scalar and deflation.get("applicable") is not True:
+        text += UNVERIFIED
+    return text
+
+
+def _candidates_block(surface, picked):
+    """The Denominator Candidates block of a stratified-scope or multi-entry clause, its chosen count marked."""
+    counts = surface.get("candidates") if isinstance(surface.get("candidates"), dict) else {}
+    scalar = picked.get("branch") == "scalar"
+    lines = [f"**Denominator Candidates** ({picked['clause']} audit trail):"]
+    for label, field, chosen_by in CANDIDATE_BULLETS:
+        chosen = (chosen_by is None) if scalar else (chosen_by is not None and chosen_by == picked.get("surfaceSet"))
+        lines.append(f"- {label}: {_n(counts.get(field))}" + (" ← chosen" if chosen else ""))
+    lines.append(f"- root barrel: {_n(counts.get('rootBarrel'))} "
+                 "(secondary candidate: root-barrel-vs-subpath-union audit)")
+    return lines
+
+
+def denominator_record(coverage, surface=None, inputs=None):
+    """The denominator record's lines, ending in a blank one, or [] when there is none (see the module docstring).
+
+    >>> denominator_record({"branch": "docsOnly"})
+    ['**Denominator:** docs-only completeness', '']
+    >>> denominator_record({"branch": "stack", "denominator": 7}, None, {"stack": {"basis": "composition"}})
+    ['**Denominator:** stack composition (7 libraries + integration pairs)', '']
+    >>> denominator_record({"branch": "enumerated"}, {"exports": [], "denominator": {
+    ...     "clause": "empty-barrel", "branch": "barrel", "surfaceSet": "scope.include"},
+    ...     "candidates": {"scopeIncludeUnion": 14}})
+    ['**Denominator:** Empty barrel, denominator: scope.include union (14 exports)', '']
+    >>> denominator_record({"branch": "enumerated"}, {"exports": []})
+    []
+    """
+    branch = coverage.get("branch")
+    if inputs is not None and not (isinstance(inputs, dict) and "stack" in inputs):
+        raise RenderError("--coverage-inputs is not load-coverage-inputs.py metadata's result (no `stack` key)")
+    picked = surface.get("denominator") if isinstance(surface, dict) else None
+    if branch == "docsOnly":
+        annotation = "docs-only completeness"
+    elif inputs is not None and inputs.get("scopeType") == "reference-app":
+        annotation = f"pattern-surface ({_n(inputs.get('patternSurfacesDocumented'))})"
+    elif branch == "stack":
+        if inputs is None:
+            raise RenderError("a stack's denominator is named by `stack.basis`: pass --coverage-inputs")
+        stack = inputs.get("stack") if isinstance(inputs.get("stack"), dict) else {}
+        unit = {"provenance": "cited contracts", "composition": "libraries + integration pairs"}.get(
+            stack.get("basis"))
+        if unit is None:
+            raise RenderError("--coverage-inputs holds no stack `basis` (provenance or composition)")
+        annotation = f"stack composition ({_n(coverage.get('denominator'))} {unit})"
+    elif isinstance(picked, dict):
+        annotation = _clause_annotation(surface, picked)
+    else:
+        return []
+    lines = [f"**Denominator:** {annotation}"]
+    canonical = surface.get("canonical") if isinstance(surface, dict) else None
+    if isinstance(canonical, dict) and isinstance(canonical.get("summary"), str) and canonical["summary"].strip():
+        lines.append(canonical["summary"])
+    # The clause's audit trail, whichever annotation the line took (a reference app in a curated monorepo picks
+    # stratified-scope).
+    if isinstance(picked, dict) and picked.get("clause") in AUDITED_CLAUSES:
+        lines += _candidates_block(surface, picked)
+    return lines + [""]
+
+
 def _rows(coverage, surface, signatures):
     """The Export Coverage table of the enumerated branch."""
     if "documentedNames" not in coverage:
@@ -782,8 +935,9 @@ def _rows(coverage, surface, signatures):
     return rows
 
 
-def render(coverage, surface=None, signatures=None):
-    """The Coverage Analysis section after its header lines, as Markdown (see the module docstring)."""
+def render(coverage, surface=None, signatures=None, inputs=None):
+    """The Coverage Analysis section after its header lines, as Markdown (see the module docstring); `inputs` is
+    load-coverage-inputs.py metadata's result (coverage-inputs.json)."""
     if not isinstance(coverage, dict) or coverage.get("branch") not in BRANCHES:
         raise RenderError("--coverage is not reconcile-coverage.py's result (no known `branch`)")
     if surface is not None and not (isinstance(surface, dict) and isinstance(surface.get("exports"), list)):
@@ -798,7 +952,8 @@ def render(coverage, surface=None, signatures=None):
     else:
         files = len({r["file"] for r in surface["exports"]
                      if isinstance(r, dict) and isinstance(r.get("file"), str) and r["file"]})
-    lines = [f"**Files Analyzed:** {files}", "", "### Export Coverage", ""]
+    lines = denominator_record(coverage, surface, inputs)
+    lines += [f"**Files Analyzed:** {files}", "", "### Export Coverage", ""]
     # A scalar result that counts its set names its exports as the enumerated branch does.
     named = branch == "enumerated" or (branch == "scalar" and "documentedNames" in coverage)
     lines += _rows(coverage, surface, signatures) if named else [NO_TABLE[branch]]
@@ -867,11 +1022,15 @@ def _render_main(argv):
     parser.add_argument("--coverage", required=True, metavar="PATH", help="this script's result (coverage.json)")
     parser.add_argument("--surface", metavar="PATH", help="load-coverage-inputs.py surface output (surface.json)")
     parser.add_argument("--signatures", metavar="PATH", help="score-signatures.py score output (signatures.json)")
+    parser.add_argument("--coverage-inputs", metavar="PATH",
+                        help="load-coverage-inputs.py metadata output (coverage-inputs.json): a stack's basis and a "
+                             "reference app's pattern-surface count")
     args = parser.parse_args(argv)
     try:
         text = render(_read_json_file(args.coverage, "--coverage"),
                       _read_json_file(args.surface, "--surface") if args.surface else None,
-                      _read_json_file(args.signatures, "--signatures") if args.signatures else None)
+                      _read_json_file(args.signatures, "--signatures") if args.signatures else None,
+                      _read_json_file(args.coverage_inputs, "--coverage-inputs") if args.coverage_inputs else None)
     except (InputFileError, RenderError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

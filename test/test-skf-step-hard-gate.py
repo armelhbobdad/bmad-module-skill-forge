@@ -1040,7 +1040,7 @@ class TestStagesRecordTheirGaps:
     def test_inflated_names_become_missing_exports_update_skill_can_route(self, values: dict[str, str],
                                                                           tmp_path: pathlib.Path) -> None:
         text = _flow(_body(COVERAGE_FILE))
-        scalar = _flow(_slice(_read(COVERAGE_BRANCHES_FILE), "## Scalar and Stack Branches", "## Denominator"))
+        scalar = _flow(_slice(_read(COVERAGE_BRANCHES_FILE), "## Scalar and Stack Branches", "## Metadata Count Cross-Check"))
         assert "its `absent[]` names replace this gap, one each" in scalar
         # §5b keeps `--provenance` whenever the map is bound, though no run file holds it: the absent names'
         # Source comes from it, and update-skill takes that line as its `source_citation`.

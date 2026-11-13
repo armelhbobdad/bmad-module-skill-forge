@@ -15,8 +15,11 @@ runs, not from a prose copy of it.
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -43,6 +46,14 @@ ALIASES = parse_pipeline.ALIASES
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _load_compute_score():
+    spec = importlib.util.spec_from_file_location("compute_score_threshold_source", TS_DIR / "scripts" / "compute-score.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _read(path: pathlib.Path) -> str:
@@ -221,20 +232,43 @@ class TestInitThresholdSourceLogging:
 
 
 class TestScoreReportOutput:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(SCORE_FILE)
+    """#1186: score.md §6 writes the section `build-result-context.py settle` prints, whose Threshold Source line is
+    the report frontmatter's `thresholdSource`, the source init.md §1b resolved."""
 
-    def test_threshold_source_in_completeness_score_section(self, text: str) -> None:
-        score_section = text[text.find("## Completeness Score"):]
-        assert "**Threshold Source:**" in score_section, (
+    @staticmethod
+    def _section(tmp_path: pathlib.Path, source: str) -> str:
+        report = tmp_path / "report.md"
+        report.write_bytes((f"---\ntestMode: 'naive'\nhardGate: 'passed'\ntestResult: ''\nscore: ''\n"
+                            f"threshold: '80%'\nthresholdSource: '{source}'\nanalysisConfidence: 'full'\n"
+                            "toolingStatus: 'ok'\nnextWorkflow: ''\n---\n# R\n").encode("utf-8"))
+        scored = _load_compute_score().compute_score({"mode": "naive", "tier": "Deep", "threshold": 80,
+                                                      "toolingStatus": "ok", "scores": {
+                                                          "exportCoverage": 90, "signatureAccuracy": 90,
+                                                          "typeCoverage": 90, "coherence": None,
+                                                          "externalValidation": 90}})
+        (tmp_path / "score.json").write_bytes(json.dumps(scored).encode("utf-8"))
+        (tmp_path / "external.json").write_bytes(b'{"externalScore": 90, "toolsUsed": ["skill-check"]}')
+        proc = subprocess.run([sys.executable, str(TS_DIR / "scripts" / "build-result-context.py"), "settle",
+                               "--report", str(report), "--score", str(tmp_path / "score.json"), "--external",
+                               str(tmp_path / "external.json")], capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout
+
+    def test_threshold_source_in_completeness_score_section(self, tmp_path: pathlib.Path) -> None:
+        section = self._section(tmp_path, "pipeline default (forge-auto → 90%)")
+        assert section.startswith("## Completeness Score\n")
+        assert "**Threshold Source:**" in section, (
             "Completeness Score section must include **Threshold Source:** line"
         )
+        score = _read(SCORE_FILE)
+        assert "uv run {resultContextScript} settle" in score[score.find("### 6. Write the Completeness Score"):]
 
-    def test_threshold_source_line_format(self, text: str) -> None:
-        assert re.search(
-            r"\*\*Threshold Source:\*\*\s*\{threshold_source\}", text
-        ), "Threshold Source line must use {threshold_source} variable"
+    def test_threshold_source_line_format(self, tmp_path: pathlib.Path) -> None:
+        for source in ("CLI override (90%)", "pipeline default (forge → 85%)", "workflow default (80%)",
+                       "bundled fallback (80%)"):
+            assert f"\n**Threshold Source:** {source}\n" in self._section(tmp_path, source), (
+                "the Threshold Source line must give the frontmatter's thresholdSource"
+            )
 
 
 # ---------------------------------------------------------------------------

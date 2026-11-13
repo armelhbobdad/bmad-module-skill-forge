@@ -3753,3 +3753,109 @@ class TestTheProseCalls:
             "coherence: inaccurate reference: Options",
             "coherence: scripts/assets directory exists but Scripts & Assets section missing",
         ]
+
+
+# --------------------------------------------------------------------------
+# render --from structure (#1186): the naive Structural Findings rows come from the scan files, as the structure
+# adapter reads them for the append, so coherence-check §6 types none of them
+# --------------------------------------------------------------------------
+
+
+def _naive_scans(tmp_path: Path) -> list[Path]:
+    """The three scan files coherence-check §2.0 and §2.4 write, over a SKILL.md with no API section, a bare
+    fence, a short table row, an open fence and a scripts/ folder."""
+    skill, run_dir = tmp_path / "skill", tmp_path / "run"
+    (skill / "scripts").mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(exist_ok=True)
+    (skill / "SKILL.md").write_bytes(
+        b"---\nname: demo\n---\n# demo\n\n## Usage Examples\n\n```\nrun()\n```\n\n"
+        b"| a | b |\n|---|---|\n| 1 |\n\n```bash\n# API\n")
+    write_json(run_dir / "required-sections.json", scan("scan", str(skill / "SKILL.md"), "--required-sections"))
+    write_json(run_dir / "structure.json", scan("scan", str(skill / "SKILL.md")))
+    write_json(run_dir / "usage-scope.json", {"scope": {}, "exports": [],
+                                              "zero_usage": [{"name": "fetch|Data", "kind": "function"}]})
+    return [run_dir / f"{name}.json" for name in ("required-sections", "structure", "usage-scope")]
+
+
+GOLDEN_STRUCTURAL_FINDINGS = """### Structural Findings
+
+| # | Type | Severity | Detail | Line |
+|---|------|----------|--------|------|
+| 1 | structural | High | naive-coherence: missing required section: description | - |
+| 2 | structural | High | naive-coherence: missing required section: api_surface | - |
+| 3 | structural | High | naive-coherence: unbalanced code fence (unclosed block) | - |
+| 4 | structural | Medium | naive-coherence: opening code fence at line 8 missing language tag | 8 |
+| 5 | structural | Medium | naive-coherence: table row at line 14 has 1 columns; header has 2 | 14 |
+| 6 | scripts-assets | Medium | naive-coherence: scripts/assets directory exists but Scripts & Assets section missing | - |
+| 7 | structural | Medium | naive-coherence: exported function `fetch\\|Data` is not referenced in any usage-family section \
+or reference file | - |
+"""
+
+
+class TestRenderStructuralFindings:
+    def test_the_golden_rows_of_the_three_scan_files(self, tmp_path: Path):
+        inputs = [a for path in _naive_scans(tmp_path) for a in ("--input", str(path))]
+        proc = run("render", "--from", "structure", *inputs, "--served", "usage")
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == GOLDEN_STRUCTURAL_FINDINGS
+        # the same files and --served give the append the same records, in the same order
+        records = mod.from_structure([json.loads(p.read_text(encoding="utf-8")) for p in _naive_scans(tmp_path)],
+                                     served=["usage"])
+        assert [r["title"] for r in records] == [line.split(" | ")[3].replace("\\|", "|")
+                                                 for line in proc.stdout.splitlines()[4:]]
+
+    def test_no_finding_leaves_the_header(self, tmp_path: Path):
+        empty = write_json(tmp_path / "usage-scope.json", {"zero_usage": []})
+        proc = run("render", "--from", "structure", "--input", str(empty))
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.splitlines() == ["### Structural Findings", "", "| # | Type | Severity | Detail | Line |",
+                                            "|---|------|----------|--------|------|"]
+
+    def test_a_file_that_is_no_scan_is_invalid_input(self, tmp_path: Path):
+        coverage = write_json(tmp_path / "coverage.json", {"branch": "enumerated", "missing": []})
+        proc = run("render", "--from", "structure", "--input", str(coverage))
+        assert proc.returncode == 2 and proc.stdout == ""
+        error = json.loads(proc.stderr)
+        assert error["code"] == "INVALID_INPUT" and "is not a scan" in error["error"]
+
+    def test_a_missing_scan_file_is_invalid_input(self, tmp_path: Path):
+        proc = run("render", "--from", "structure", "--input", str(tmp_path / "structure.json"))
+        assert proc.returncode == 2 and proc.stdout == ""
+        error = json.loads(proc.stderr)
+        assert error["code"] == "INVALID_INPUT" and "cannot read --input" in error["error"]
+
+    @pytest.mark.parametrize("args", [
+        ["--from", "coverage", "--input", "x.json"],
+        ["--from", "structure", "--input", "x.json", "--ledger", "l.json"],
+        ["--from", "structure", "--input", "x.json", "--heading"],
+        ["--from", "structure"],
+        ["--ledger", "l.json", "--input", "x.json"],
+        ["--ledger", "l.json", "--served", "usage"],
+        [],
+    ], ids=["another-kind", "with-ledger", "with-heading", "no-input", "input-without-from", "served-without-from",
+            "nothing"])
+    def test_each_refused_mix_is_a_usage_error(self, args: list[str]):
+        proc = run("render", *args)
+        assert proc.returncode == 2 and proc.stdout == "", proc.stdout
+        assert "usage: gap-ledger render" in proc.stderr and "error:" in proc.stderr
+
+    def test_coherence_check_runs_the_naive_render_as_written(self, tmp_path: Path):
+        """§6 runs the render with the same --served as its append; the format numbers the §2.5 rows on under it."""
+        text = COHERENCE_STEP.read_text(encoding="utf-8")
+        section = text[text.index("### 6. Write the Coherence Analysis Section"):text.index("### 7.")]
+        [command] = [line.strip() for line in section.splitlines()
+                     if line.strip().startswith("uv run {gapLedgerScript} render")]
+        [append] = [line.strip() for line in section.splitlines()
+                    if line.strip().startswith("uv run {gapLedgerScript} append") and "required-sections" in line]
+        # the same scan files and the same --served as the append that records them
+        assert command.split(" --input", 1)[1] == append.split(" --input", 1)[1]
+        call = OPTIONAL_GROUP.sub(lambda m: " " + m.group(1), command)
+        run_dir = _naive_scans(tmp_path)[0].parent
+        proc = run_prose(call, {"{run_dir}": run_dir.as_posix(), "<family>": "usage"})
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == GOLDEN_STRUCTURAL_FINDINGS
+        formats = (REFS.parent / "assets" / "output-section-formats.md").read_text(encoding="utf-8")
+        start = formats.index("**Mode:** Naive")
+        naive = formats[start:formats.index("\n## Coherence Analysis", start)]
+        assert "\n{the render output}\n{one row per §2.5 finding, numbered on from the render's last row" in naive
+        assert "**Structural Issues:** {the number of rows}" in naive

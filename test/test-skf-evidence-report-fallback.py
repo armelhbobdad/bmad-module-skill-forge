@@ -187,21 +187,45 @@ class TestEvidenceReportPath:
 # ---------------------------------------------------------------------------
 
 
+def _settle(tmp_path: pathlib.Path) -> tuple[str, str]:
+    """(the Completeness Score section, the report) score.md §6's `settle` writes for a run the fallback accepted
+    (#1186): 85 against a 90 target, from compute-score.py's own output."""
+    report = tmp_path / "report.md"
+    report.write_bytes(("---\nworkflowType: 'test-skill'\ntestMode: 'contextual'\nhardGate: 'passed'\n"
+                        "testResult: ''\nscore: ''\nthreshold: '90%'\nthresholdSource: 'CLI override (90%)'\n"
+                        "analysisConfidence: 'full'\ntoolingStatus: 'ok'\nworkspaceDrift: 'ok'\n"
+                        "nextWorkflow: ''\n---\n# Test Report: demo\n").encode("utf-8"))
+    categories = ("exportCoverage", "signatureAccuracy", "typeCoverage", "coherence", "externalValidation")
+    scored = _compute_score().compute_score({"mode": "contextual", "tier": "Deep", "threshold": 90,
+                                             "toolingStatus": "ok", "scores": dict.fromkeys(categories, 85)})
+    score = tmp_path / "score.json"
+    score.write_bytes(json.dumps(scored).encode("utf-8"))
+    external = tmp_path / "external.json"
+    external.write_bytes(json.dumps({"externalScore": 85, "toolsUsed": ["skill-check"]}).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(BUILD_CONTEXT), "settle", "--report", str(report), "--score",
+                           str(score), "--external", str(external), "--evidence-report",
+                           "forge/demo/1.0.0/evidence-report-fallback.md"],
+                          capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout, report.read_text(encoding="utf-8")
+
+
 class TestScoreSection6Fallback:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(SCORE_FILE)
+    """#1186: §6 writes what `settle` prints, so the fallback line is the script's."""
 
-    def test_threshold_fallback_line_in_section_6(self, text: str) -> None:
-        score_section = text[text.find("### 6. Write the Completeness Score Section"):]
-        assert "**Threshold Fallback:**" in score_section, (
-            "§6 must include a **Threshold Fallback:** line when fallback is active"
+    def test_threshold_fallback_line_in_section_6(self, tmp_path: pathlib.Path) -> None:
+        section, _ = _settle(tmp_path)
+        assert ("**Threshold Fallback:** scored 85% against 90% target: accepted at 80% floor. Evidence report: "
+                "forge/demo/1.0.0/evidence-report-fallback.md\n") in section, (
+            "the Completeness Score section must include a **Threshold Fallback:** line when fallback is active"
         )
+        text = _read(SCORE_FILE)
+        assert "uv run {resultContextScript} settle" in text[text.find("### 6. Write the Completeness Score"):]
 
-    def test_fallback_line_after_threshold_source(self, text: str) -> None:
-        score_section = text[text.find("### 6. Write the Completeness Score Section"):]
-        ts_idx = score_section.find("**Threshold Source:**")
-        fb_idx = score_section.find("**Threshold Fallback:**")
+    def test_fallback_line_after_threshold_source(self, tmp_path: pathlib.Path) -> None:
+        section, _ = _settle(tmp_path)
+        ts_idx = section.find("**Threshold Source:** CLI override (90%)\n")
+        fb_idx = section.find("**Threshold Fallback:**")
         assert ts_idx != -1 and fb_idx != -1 and ts_idx < fb_idx, (
             "**Threshold Fallback:** must appear after **Threshold Source:**"
         )
@@ -566,10 +590,13 @@ class TestFallbackWorkflowContext:
             "§4b must document recording original_threshold in workflow context"
         )
 
-    def test_records_fallback_threshold_80(self, fallback_section: str) -> None:
-        assert "fallback_threshold: 80" in fallback_section, (
-            "§4b must document recording fallback_threshold: 80 in workflow context"
-        )
+    def test_records_fallback_threshold_80(self, fallback_section: str, tmp_path: pathlib.Path) -> None:
+        """#1186: settle writes the 80 floor as the report's threshold, so §4b binds no threshold of its own."""
+        assert "fallback_threshold" not in fallback_section and "effective_threshold = 80" not in fallback_section
+        _, report = _settle(tmp_path)
+        for line in ("threshold: '80%'", "thresholdFallback: true", "originalThreshold: '90%'",
+                     "evidenceReportPath: 'forge/demo/1.0.0/evidence-report-fallback.md'"):
+            assert f"\n{line}\n" in report, line
 
     def test_records_evidence_report_path(self, fallback_section: str) -> None:
         assert "evidence_report_path" in fallback_section, (

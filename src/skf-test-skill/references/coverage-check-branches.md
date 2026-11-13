@@ -1,6 +1,6 @@
 # Coverage Check: Branch Sections
 
-Load this file only from the coverage-check.md sentence that names one of its sections, and follow that section alone: **Inventory Failures** from coverage-check.md §1a when the inventory check fails; **States 2 to 4** from coverage-check.md §2 when the source is not local, and only its State 2 command from coverage-check.md §2b when `rebuild` is `provenance-fold`; **Scalar and Stack Branches** from coverage-check.md §2c on the scalar or stack branch; **Denominator Candidates** from coverage-check.md §4 when `denominator.clause` is `stratified-scope` or `multi-entry`; **Metadata Count Cross-Check** from coverage-check.md §4b; **Docs-Only Run** from coverage-check.md §0 when the run is docs-only; **Split-Body Sources** from coverage-check.md §5b when §1b found a split-body mismatch. Load it once: when another sentence names one of its sections, read that section from the copy already loaded. A bare § in a section is coverage-check.md's. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md right after the sentence that loaded it.
+Load this file only from the coverage-check.md sentence that names one of its sections, and follow that section alone: **Inventory Failures** from coverage-check.md §1a when the inventory check fails; **States 2 to 4** from coverage-check.md §2 when the source is not local, and only its State 2 command from coverage-check.md §2b when `rebuild` is `provenance-fold`; **Scalar and Stack Branches** from coverage-check.md §2c on the scalar or stack branch; **Metadata Count Cross-Check** from coverage-check.md §4b; **Docs-Only Run** from coverage-check.md §0 when the run is docs-only; **Split-Body Sources** from coverage-check.md §5b when §1b found a split-body mismatch. Load it once: when another sentence names one of its sections, read that section from the copy already loaded. A bare § in a section is coverage-check.md's. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md right after the sentence that loaded it.
 
 ## Inventory Failures
 
@@ -51,17 +51,6 @@ coverage-check.md §5b records this gap from the run files:
 
 - **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. A scalar result that counts its set records its `missing` names as §2c's Missing names bullet says instead, plus one gap for the rest when `missingCount` exceeds them. When §2b's numerator check found the count inflated and the scalar branch counted no set, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
 
-## Denominator Candidates
-
-```markdown
-**Denominator Candidates** (stratified-scope audit trail):
-- `stats.effective_denominator`: {statsEffectiveDenominator | absent}  {← chosen on the scalar branch}
-- `scope.tier_a_include` union: {tierAIncludeUnion | absent}    {← chosen if the barrel branch's set}
-- `scope.include` union: {scopeIncludeUnion | absent}           {← chosen if the barrel branch's set}
-- exports-map subpath union: {subpathUnion | absent}        {← chosen if the barrel branch's set}
-- root barrel: {rootBarrel | absent}                               {secondary candidate: root-barrel-vs-subpath-union audit}
-```
-
 ## Metadata Count Cross-Check
 
 `{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a reference app, a cluster with fewer than two counts, drift within its threshold):
@@ -70,11 +59,11 @@ coverage-check.md §5b records this gap from the run files:
 uv run {coherenceScript} --inputs "{run_dir}/coverage-inputs.json" > "{run_dir}/metadata-coherence.json"
 ```
 
-A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its call and records no count finding, and note the error in the Coverage Analysis section. §5b records each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an Info `multi-denominator` gap. They describe data quality and change no denominator. Record the denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface ({pattern_surfaces_documented})`).
+A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its call and records no count finding, and note the error in the Coverage Analysis section. §5b records each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an Info `multi-denominator` gap. They describe data quality and change no denominator.
 
 ## Docs-Only Run
 
-**A docs-only run** measures documentation completeness as its Export Coverage, with `analysis_confidence` `docs-only`. It runs only §1, §1a and §1b, the docs-only guard of §2b, §2c's `docsOnly` branch, §4's `Denominator: docs-only completeness` annotation, §5, §5b and §6. Step 5 passes `docsOnly: true` to the scoring script, which skips Signature Accuracy and Type Coverage at any tier.
+**A docs-only run** measures documentation completeness as its Export Coverage, with `analysis_confidence` `docs-only`. It runs only §1, §1a and §1b, the docs-only guard of §2b, §2c's `docsOnly` branch, §5 (its render writes `Denominator: docs-only completeness`), §5b and §6. Step 5 passes `docsOnly: true` to the scoring script, which skips Signature Accuracy and Type Coverage at any tier.
 
 "**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than source code coverage."
 
