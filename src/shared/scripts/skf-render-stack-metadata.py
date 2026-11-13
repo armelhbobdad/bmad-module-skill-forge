@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""SKF Render Stack Metadata: a stack's export labels, library tiers, pair tiers, metadata.json fields and provenance entries.
+"""SKF Render Stack Metadata: a stack's export labels, library tiers, pair tiers, metadata.json fields, provenance entries, reference files and evidence report.
 
 create-stack-skill relabels its code-mode export records and sets each
 library's tier from them (parallel-extract section 3a), gives each
@@ -12,9 +12,13 @@ compile-stack sections 3 and 4), writes the counted and ranked fields of
 metadata.json (generate-output section 6) and writes the provenance map from
 the run's files in either mode: its entries, its integrations, each with the
 detection method of its qualifier, and, in compose mode, its constituents
-(generate-output section 7). This helper holds those rules once, so no step
-file restates them, and skf-validate-output.py --skill-type stack recomputes
-the dominant tier with dominant_tier here.
+(generate-output section 7). It also renders the Library Reference Index
+(compile-stack section 6), writes the fixed parts of each reference and pair
+file (generate-output sections 3 and 4) and writes the evidence report
+(generate-output section 8b), so the step writes only their prose. This
+helper holds those rules once, so no step file restates them, and
+skf-validate-output.py --skill-type stack recomputes the dominant tier with
+dominant_tier here.
 
 Rules:
   Tiers, from the strongest: T1, T1-low, T2, T3.
@@ -190,6 +194,75 @@ Subcommands:
               skill_dir, never computed. It prints
                 {"target": "<path>", "entry_count": N, "integration_count": M}
               with "constituent_count": K added in compose mode.
+  references  the Library Reference Index (compile-stack section 6) and, with
+              --out, the fixed parts of each reference and pair file
+              (generate-output sections 3 and 4), from the extraction bundle
+              --bundle, whose mode --mode must name, and, in code mode, the
+              records --records and, with --out, --pairs (a compose-mode
+              bundle refuses both). It writes, in the bundled template's form,
+              {out}/{library}.md for each library: its title, `**Version:**`
+              (`unknown` when it has none), `**Import count:** {file_count}
+              files` (0 when it has none; compose mode: `**Export count:** {n}
+              exports`), `**Confidence:**` its tier, `## Key Exports` (each
+              record of the library in records order, `name(params) ->
+              return_type` in a code span, `(params)` for a function or class
+              and the return type for a function, then *its type* and
+              (source_file:source_line); compose mode: each `exports` name, its
+              `signatures` entry when there is one, then [from skill:
+              {library}]) and, only when its `temporal` holds an item,
+              `## Migration & Deprecation`, each deprecated_exports,
+              migration_notes and version_warnings item as written, in that
+              order; and {out}/integrations/{a}-{b}.md for each pair: its
+              title, `**Type:**`, `**Co-import files:**` (its intersection_count
+              in --pairs, the pair matched in either order; 0 in compose mode),
+              `**Confidence:** {tier} ({qualifier})`, in compose mode with
+              [composed] ([inferred from shared domain] for that qualifier) and
+              [VS: Risky] or [VS: Blocked] for those pair verdicts, and `## Key
+              Files` (its key_files; compose mode: its evidence lines, its
+              reference line and, when its vs is set, `VS overall: {overall}`
+              and `VS pair: {pair}`). An empty list writes `none recorded`,
+              and each value is written on one line, its whitespace runs, a
+              newline included, as one space.
+              Each part the step writes is a marker line
+              `<!-- skf:fill {slot} -->`: usage-patterns and common-imports in
+              a library file, integration-pattern and usage-convention in a
+              pair file. It creates the folders a name such as @scope/pkg
+              needs, and refuses a name that would land outside --out
+              (absolute, or with a `\\` or a `..` part) or two files on one
+              path. It prints
+                {"mode": "<mode>",
+                 "index": {"header": ["<table head>", "<separator>"],
+                           "rows": [{"library": "<library>",
+                                     "inline": "<row, [ref](references/{name}.md)>",
+                                     "catalog": "<row, [ref]({name}.md)>"}, ...]},
+                 "written": [{"path": "<relative to --out>",
+                              "placeholders": ["<slot>", ...]}, ...]}
+              the rows in library_order, compose mode naming Export Count in
+              place of Imports, each row's Key Exports the first five export
+              names in code spans, then `, +N more`; "written" is [] without
+              --out.
+  evidence-report
+              writes evidence-report.md to --target atomically (generate-output
+              section 8b): the libraries of --bundle in library_order (status,
+              version, tier, file_count or, in compose mode, the number of its
+              exports, the entries of the map --provenance whose
+              source_library it is, the number of its usage_patterns and of
+              its temporal items, its warnings), its failed[], each pair (its
+              type, its Confidence label as `references` writes it and its
+              co-import file count from --pairs, which code mode needs and
+              compose mode refuses), each warning and each decision of the run
+              sink in --run-dir on one line (warnings.jsonl and
+              headless-decisions.jsonl, read by skf-emit-result-envelope.py's
+              rules: a line that is not a non-empty JSON string or object is
+              named as sink_line_unreadable, a missing file is none, and a
+              missing folder an input error), the scope gate's dropped libraries and
+              prior_kept included, and the map entries binned by
+              signature_source with skf-render-metadata-stats.py --shape stack
+              beside this script, or "not computed: {reason}" when that helper
+              is missing or the map cannot be read. It prints
+                {"target": "<path>", "library_count": N, "failed_count": F,
+                 "integration_count": M, "warning_count": W, "decision_count": D,
+                 "confidence_distribution": {"t1": 0, ...} or null}
 
 CLI:
   uv run skf-render-stack-metadata.py relabel --records export-records.json
@@ -202,6 +275,11 @@ CLI:
       --pairs pair-intersect.json --input - --target provenance-map.json
   uv run skf-render-stack-metadata.py provenance --records compose-entries.json --bundle extraction-bundle.json \\
       --inventory stack-inventory.json --skills-root skills --project-root . --input - --target provenance-map.json
+  uv run skf-render-stack-metadata.py references --mode code --bundle extraction-bundle.json \\
+      --records export-records.json --pairs pair-intersect.json --out references
+  uv run skf-render-stack-metadata.py references --mode compose --bundle extraction-bundle.json
+  uv run skf-render-stack-metadata.py evidence-report --bundle extraction-bundle.json --run-dir run \\
+      --provenance provenance-map.json --pairs pair-intersect.json --target evidence-report.md
 
 Exit codes:
   0  the JSON is printed (relabel: the records pass the label check)
@@ -224,7 +302,7 @@ import re
 import secrets
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 # Tiers from the strongest to the weakest: T1-low is weaker than T1, T2 than
 # T1-low, T3 than T2.
@@ -890,6 +968,533 @@ def stack_metadata(mode: str, libraries: list[dict], pairs: list[tuple[str, str]
 
 
 # --------------------------------------------------------------------------
+# Reference files, the Library Reference Index and the evidence report
+# --------------------------------------------------------------------------
+
+# A part of a reference or pair file the step writes: one marker line per slot.
+FILL_MARKER = "<!-- skf:fill {slot} -->"
+LIBRARY_SLOTS = ("usage-patterns", "common-imports")
+PAIR_SLOTS = ("integration-pattern", "usage-convention")
+# The lists of a library's `temporal`, in the order its Migration & Deprecation section writes them.
+TEMPORAL_LISTS = ("deprecated_exports", "migration_notes", "version_warnings")
+# The export names a Library Reference Index row shows before `, +N more`.
+INDEX_EXPORTS = 5
+# What a Key Exports or Key Files section with no item, or an index row with no export, writes.
+NONE_RECORDED = "none recorded"
+# The Library Reference Index head of each mode, as the stack template writes it.
+INDEX_HEADER = {
+    "code": ("| Library | Imports | Key Exports | Confidence | Reference |",
+             "|---------|---------|-------------|------------|-----------|"),
+    "compose": ("| Library | Export Count | Key Exports | Confidence | Reference |",
+                "|---------|--------------|-------------|------------|-----------|"),
+}
+# The compose qualifier whose label takes `[inferred from shared domain]` in
+# place of `[composed]`, and the [VS] pair verdicts that annotate a label.
+_INFERRED_QUALIFIER = "inferred-shared-domain"
+_VS_FLAGGED = ("Risky", "Blocked")
+# The run sink create-stack-skill records its decisions and warnings in, read
+# by the rules of skf-emit-result-envelope.py's read_sink.
+SINK_DECISIONS = "headless-decisions.jsonl"
+SINK_WARNINGS = "warnings.jsonl"
+# The title of an evidence report whose map names no skill.
+_REPORT_FALLBACK_TITLE = "Stack"
+
+
+def _marker(slot: str) -> str:
+    return FILL_MARKER.format(slot=slot)
+
+
+def _string_list(value, where: str) -> list[str]:
+    """`value`, an array of strings, or [] when it is absent (null). Raises InputError."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise InputError(f"{where} must be an array of strings; got {value!r}")
+    return value
+
+
+def _optional_string(value, where: str) -> str | None:
+    """`value` stripped, or None when it is absent, null or blank. Raises InputError on a non-string."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise InputError(f"{where} must be a string or null; got {value!r}")
+    return value.strip() or None
+
+
+def _code_span(text: str) -> str:
+    """`text` as a Markdown code span, its fence longer than any backtick run inside."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
+def _flat(text: str) -> str:
+    """`text` on one line: each whitespace run, a newline included, as one space."""
+    return " ".join(text.split())
+
+
+def _cell(text: str) -> str:
+    """`text` as one Markdown table cell: whitespace runs as one space, `|` escaped."""
+    return _flat(text).replace("|", "\\|")
+
+
+def library_details(bundle, mode: str) -> dict[str, dict]:
+    """What each library's reference file and evidence report row take from its
+    per_library_extractions[] entry, by library: version (None when absent),
+    status, file_count (0 when absent), usage_patterns, warnings, the items of
+    its `temporal` lists in TEMPORAL_LISTS order and, in compose mode, its
+    `exports` and the non-empty string `signatures`. Takes a bundle
+    bundle_stack has read. Raises InputError naming the field."""
+    out: dict[str, dict] = {}
+    for i, entry in enumerate(bundle["per_library_extractions"]):
+        where = f"the bundle's per_library_extractions[{i}]"
+        temporal = entry.get("temporal")
+        if temporal is None:
+            temporal = {}
+        if not isinstance(temporal, dict):
+            raise InputError(f"{where}.temporal must be an object; got {temporal!r}")
+        detail = {
+            "version": _optional_string(entry.get("version"), f"{where}.version"),
+            "status": _optional_string(entry.get("status"), f"{where}.status"),
+            "file_count": entry.get("file_count") or 0,
+            "usage_patterns": _string_list(entry.get("usage_patterns"), f"{where}.usage_patterns"),
+            "warnings": _string_list(entry.get("warnings"), f"{where}.warnings"),
+            "temporal": [item for name in TEMPORAL_LISTS
+                         for item in _string_list(temporal.get(name), f"{where}.temporal.{name}")],
+        }
+        if mode == "compose":
+            signatures = entry.get("signatures")
+            if signatures is None:
+                signatures = {}
+            if not isinstance(signatures, dict):
+                raise InputError(f"{where}.signatures must be an object; got {signatures!r}")
+            detail["exports"] = list(dict.fromkeys(_string_list(entry.get("exports"), f"{where}.exports")))
+            detail["signatures"] = {name: value.strip() for name, value in signatures.items()
+                                    if isinstance(value, str) and value.strip()}
+        out[entry["library"]] = detail
+    return out
+
+
+def library_records(entries: list[dict], names: list[str]) -> dict[str, list[dict]]:
+    """The export records of each library of `names`, in records order. Raises
+    InputError on a record that names no library of the bundle or holds a
+    field of the wrong type."""
+    found: dict[str, list[dict]] = {name: [] for name in names}
+    for i, record in enumerate(entries):
+        where = f"entries[{i}]"
+        library = record.get("source_library")
+        if not isinstance(library, str) or library not in found:
+            raise InputError(f"{where}.source_library {library!r} is not a library of the bundle's "
+                             f"per_library_extractions")
+        name = record.get("export_name")
+        if not isinstance(name, str) or not name.strip():
+            raise InputError(f"{where}.export_name must be a non-empty string; got {name!r}")
+        for field in ("export_type", "return_type", "source_file"):
+            _optional_string(record.get(field), f"{where}.{field}")
+        _string_list(record.get("params"), f"{where}.params")
+        line = record.get("source_line")
+        if line is not None and (isinstance(line, bool) or not isinstance(line, int)):
+            raise InputError(f"{where}.source_line must be a whole number or null; got {line!r}")
+        found[library].append(record)
+    return found
+
+
+def export_line(record: dict) -> str:
+    """A code-mode Key Exports line: the export's name, `(params)` for a
+    function or class and ` -> {return_type}` for a function, in a code span,
+    then its type in italics and its `(source_file:source_line)`."""
+    kind = _optional_string(record.get("export_type"), "export_type")
+    signature = record["export_name"].strip()
+    if kind and kind.lower() in ("function", "class"):
+        signature += "(" + ", ".join(record.get("params") or []) + ")"
+    return_type = _optional_string(record.get("return_type"), "return_type")
+    if kind and kind.lower() == "function" and return_type:
+        signature += f" -> {return_type}"
+    line = f"- {_code_span(_flat(signature))}"
+    if kind:
+        line += f" *{_flat(kind)}*"
+    source = _optional_string(record.get("source_file"), "source_file")
+    if source:
+        number = record.get("source_line")
+        line += f" ({_flat(source)}:{number})" if isinstance(number, int) else f" ({_flat(source)})"
+    return line
+
+
+def compose_export_line(name: str, signatures: dict[str, str], library: str) -> str:
+    """A compose-mode Key Exports line: the export's signature, or its name, then its constituent."""
+    return f"- {_code_span(_flat(signatures.get(name, name)))} [from skill: {library}]"
+
+
+def pair_counts(data) -> dict[frozenset[str], int]:
+    """Each pair's `intersection_count` in a skf-pair-intersect.py result, keyed
+    by its two libraries. Raises InputError on a result pair_files refuses or a
+    count that is not a whole number."""
+    pair_files(data)
+    counts: dict[frozenset[str], int] = {}
+    for i, pair in enumerate(data["pairs"]):
+        count = pair.get("intersection_count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise InputError(f"the pair-intersect result's pairs[{i}].intersection_count must be a whole number; "
+                             f"got {count!r}")
+        counts[frozenset((pair["a"], pair["b"]))] = count
+    return counts
+
+
+def bundle_pairs(bundle, mode: str, counts: dict[frozenset[str], int] | None = None) -> list[dict]:
+    """The bundle's integrations[], in its order, as the pair files and the
+    evidence report write them: a, b, type, tier, qualifier (canonical),
+    description, key_files, evidence, reference, vs ({overall, pair} or None)
+    and co_import_files, its pair's intersection_count in `counts` in code mode
+    (None without `counts`) and 0 in compose mode. Takes a bundle bundle_stack
+    has read. Raises InputError naming the field, or a code-mode pair `counts`
+    has no entry for."""
+    out = []
+    for i, pair in enumerate(bundle.get("integrations", [])):
+        where = f"the bundle's integrations[{i}]"
+        if not isinstance(pair.get("type"), str) or not pair["type"].strip():
+            raise InputError(f"{where}.type must be a non-empty string; got {pair.get('type')!r}")
+        detection_method(mode, pair.get("qualifier"), where)
+        qualifier = _token(pair.get("qualifier"), tuple(DETECTION_METHODS[mode]), f"{where}.qualifier")
+        vs = pair.get("vs")
+        if vs is not None:
+            if not isinstance(vs, dict) or not all(isinstance(vs.get(key), str) and vs[key].strip()
+                                                   for key in ("overall", "pair")):
+                raise InputError(f"{where}.vs must be null or an object with string `overall` and `pair`; got {vs!r}")
+            verdict = vs["pair"].strip()
+            vs = {"overall": vs["overall"].strip(),
+                  "pair": next((flag for flag in _VS_FLAGGED if flag.lower() == verdict.lower()), verdict)}
+        co_import_files: int | None = 0
+        if mode == "code":
+            co_import_files = None
+            if counts is not None:
+                co_import_files = counts.get(frozenset((pair["a"], pair["b"])))
+                if co_import_files is None:
+                    raise InputError(f"{where} ({pair['a']} + {pair['b']}) has no entry in the pair-intersect "
+                                     f"result (--pairs)")
+        out.append({
+            "a": pair["a"], "b": pair["b"], "type": pair["type"].strip(),
+            "tier": _token(pair.get("tier"), TIERS, f"{where}.tier"),
+            "qualifier": qualifier,
+            "description": _optional_string(pair.get("description"), f"{where}.description"),
+            "key_files": _string_list(pair.get("key_files"), f"{where}.key_files"),
+            "evidence": _string_list(pair.get("evidence"), f"{where}.evidence"),
+            "reference": _optional_string(pair.get("reference"), f"{where}.reference"),
+            "vs": vs,
+            "co_import_files": co_import_files,
+        })
+    return out
+
+
+def pair_label(mode: str, pair: dict) -> str:
+    """A pair's Confidence label: `{tier} ({qualifier})`, in compose mode with
+    `[composed]` (`[inferred from shared domain]` for that qualifier) and a
+    `[VS: Risky]` or `[VS: Blocked]` annotation for those pair verdicts."""
+    label = f"{pair['tier']} ({pair['qualifier']})"
+    if mode == "compose":
+        label += " [inferred from shared domain]" if pair["qualifier"] == _INFERRED_QUALIFIER else " [composed]"
+        if pair["vs"] is not None and pair["vs"]["pair"] in _VS_FLAGGED:
+            label += f" [VS: {pair['vs']['pair']}]"
+    return label
+
+
+def library_file(mode: str, name: str, tier: str, detail: dict, records: list[dict] | None) -> str:
+    """A library's references/{name}.md: the header, Key Exports and, when its
+    `temporal` holds an item, Migration & Deprecation, with a marker line for
+    each part the step writes (LIBRARY_SLOTS)."""
+    if mode == "code":
+        count = f"**Import count:** {detail['file_count']} files"
+        exports = [export_line(record) for record in records or []]
+    else:
+        count = f"**Export count:** {len(detail['exports'])} exports"
+        exports = [compose_export_line(export, detail["signatures"], name) for export in detail["exports"]]
+    lines = [f"# {name} Reference", "", f"**Version:** {_flat(detail['version'] or 'unknown')}", count,
+             f"**Confidence:** {tier}", "", "## Key Exports", "", *(exports or [NONE_RECORDED]), "",
+             "## Usage Patterns", "", _marker("usage-patterns"), ""]
+    if detail["temporal"]:
+        lines += ["## Migration & Deprecation", "", *(f"- {_flat(item)}" for item in detail["temporal"]), ""]
+    lines += ["## Common Imports", "", _marker("common-imports")]
+    return "\n".join(lines) + "\n"
+
+
+def pair_file(mode: str, pair: dict) -> str:
+    """A pair's references/integrations/{a}-{b}.md: the header and Key Files
+    (code mode: its key_files; compose mode: its evidence and reference lines
+    and, with a [VS] verdict, its VS lines), with a marker line for each part
+    the step writes (PAIR_SLOTS)."""
+    if mode == "code":
+        key_files = list(pair["key_files"])
+    else:
+        key_files = [*pair["evidence"], *([pair["reference"]] if pair["reference"] else [])]
+        if pair["vs"] is not None:
+            key_files += [f"VS overall: {pair['vs']['overall']}", f"VS pair: {pair['vs']['pair']}"]
+    lines = [f"# {pair['a']} + {pair['b']} Integration", "", f"**Type:** {_flat(pair['type'])}",
+             f"**Co-import files:** {pair['co_import_files'] or 0}", f"**Confidence:** {pair_label(mode, pair)}", "",
+             "## Integration Pattern", "", _marker("integration-pattern"), "",
+             "## Key Files", "", *([f"- {_flat(item)}" for item in key_files] or [NONE_RECORDED]), "",
+             "## Usage Convention", "", _marker("usage-convention")]
+    return "\n".join(lines) + "\n"
+
+
+def index_row(name: str, count: int, tier: str, exports: list[str], link: str) -> str:
+    """A Library Reference Index row: the first INDEX_EXPORTS export names in
+    code spans, then `, +N more`."""
+    names = list(dict.fromkeys(exports))
+    shown = ", ".join(_code_span(export) for export in names[:INDEX_EXPORTS]) or NONE_RECORDED
+    if len(names) > INDEX_EXPORTS:
+        shown += f", +{len(names) - INDEX_EXPORTS} more"
+    return f"| {_cell(name)} | {count} | {_cell(shown)} | {tier} | [ref]({link}) |"
+
+
+def _check_name(name: str, where: str) -> None:
+    """Refuse a name whose `{name}.md` would land outside --out: an absolute
+    one, one with a `\\`, a NUL or an empty, `.` or `..` part."""
+    if ("\\" in name or "\0" in name or PurePosixPath(name).is_absolute() or PureWindowsPath(name).drive
+            or any(part in ("", ".", "..") for part in name.split("/"))):
+        raise InputError(f"{where} {name!r} would write outside --out: a name is relative, with no `\\`, "
+                         f"no empty part and no `.` or `..` part")
+
+
+def reference_files(mode: str, libraries: list[dict], details: dict[str, dict],
+                    records: dict[str, list[dict]] | None, pairs: list[dict]) -> list[tuple[str, str, list[str]]]:
+    """(path relative to --out, text, slots) of each library file, then each
+    pair file. Raises InputError on a name that would escape --out, or two
+    files that would land on one path (compared case-folded, as a Windows or
+    macOS file system does)."""
+    files = []
+    for i, library in enumerate(libraries):
+        name = library["name"]
+        _check_name(name, f"the bundle's per_library_extractions[{i}].library")
+        files.append((f"{name}.md", library_file(mode, name, library["confidence"], details[name],
+                                                 None if records is None else records[name]), list(LIBRARY_SLOTS)))
+    for pair in pairs:
+        files.append((f"integrations/{pair['a']}-{pair['b']}.md", pair_file(mode, pair), list(PAIR_SLOTS)))
+    seen: dict[str, str] = {}
+    for path, _text, _slots in files:
+        key = path.casefold()
+        if key in seen:
+            raise InputError(f"two files would be written to one path: {seen[key]!r} and {path!r}")
+        seen[key] = path
+    return files
+
+
+def _write_files(out: Path, files: list[tuple[str, str, list[str]]]) -> None:
+    """Write each file under `out`, creating its folders. Raises WriteError
+    after removing what this call wrote and the folders it created."""
+    written: list[Path] = []
+    created: list[Path] = []
+    try:
+        for relative, text, _slots in files:
+            path = out.joinpath(*relative.split("/"))
+            missing, folder = [], path.parent
+            while not folder.exists():
+                missing.append(folder)
+                if folder.parent == folder:
+                    break
+                folder = folder.parent
+            created.extend(reversed(missing))
+            _write_text_atomic(path, text)
+            written.append(path)
+    except WriteError:
+        for path in written:
+            with contextlib.suppress(OSError):
+                path.unlink()
+        for folder in reversed(created):
+            with contextlib.suppress(OSError):
+                folder.rmdir()
+        raise
+
+
+def references(mode: str, libraries: list[dict], pairs_of_order: list[tuple[str, str]], details: dict[str, dict],
+               records: dict[str, list[dict]] | None) -> dict:
+    """The Library Reference Index of the stack: its head and one row per
+    library in library_order, each in its inline and its catalog form."""
+    tiers = {library["name"]: library["confidence"] for library in libraries}
+    rows = []
+    for name in library_order(mode, libraries, pairs_of_order):
+        detail = details[name]
+        if mode == "code":
+            count = detail["file_count"]
+            exports = [record["export_name"].strip() for record in (records or {}).get(name, [])]
+        else:
+            count, exports = len(detail["exports"]), detail["exports"]
+        rows.append({
+            "library": name,
+            "inline": index_row(name, count, tiers[name], exports, f"references/{name}.md"),
+            "catalog": index_row(name, count, tiers[name], exports, f"{name}.md"),
+        })
+    return {"header": list(INDEX_HEADER[mode]), "rows": rows}
+
+
+def bundle_failed(bundle) -> list[dict]:
+    """The bundle's failed[], each {library, reason}; [] when absent. Raises InputError."""
+    failed = bundle.get("failed")
+    if failed is None:
+        return []
+    if not isinstance(failed, list):
+        raise InputError("the bundle's `failed` must be an array of {library, reason} objects")
+    out = []
+    for i, item in enumerate(failed):
+        where = f"the bundle's failed[{i}]"
+        if not isinstance(item, dict) or not isinstance(item.get("library"), str) or not item["library"].strip():
+            raise InputError(f"{where} must be an object with a non-empty string `library`; got {item!r}")
+        out.append({"library": item["library"],
+                    "reason": _optional_string(item.get("reason"), f"{where}.reason") or "no reason recorded"})
+    return out
+
+
+# Keep the rules identical to skf-emit-result-envelope.py's read_sink (a test
+# runs both on one sink), so the report lists what the envelope carries.
+def read_sink(run_dir: Path) -> tuple[list[dict], list[str], dict[str, list[str]]]:
+    """(decisions, warnings, problems by sink file) of a run folder, by the
+    rules of skf-emit-result-envelope.py's read_sink: lines end at a newline
+    only, a decision is a non-empty JSON object and a warning a non-empty JSON
+    string, and any other line, such as a write cut short, is named in
+    problems as `sink_line_unreadable: <file>:<line>`. A missing file holds
+    nothing."""
+    decisions: list[dict] = []
+    warnings: list[str] = []
+    problems: dict[str, list[str]] = {SINK_DECISIONS: [], SINK_WARNINGS: []}
+    for name, kind in ((SINK_DECISIONS, dict), (SINK_WARNINGS, str)):
+        try:
+            text = (run_dir / name).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError) as exc:
+            problems[name].append(f"sink_line_unreadable: {name}: {exc}")
+            continue
+        for number, line in enumerate(text.split("\n"), 1):
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                value = None
+            if not isinstance(value, kind) or not value:
+                problems[name].append(f"sink_line_unreadable: {name}:{number}")
+            elif kind is dict:
+                decisions.append(value)
+            else:
+                warnings.append(value.strip())
+    return decisions, warnings, problems
+
+
+def _read_map(path: str) -> tuple[dict | None, str | None]:
+    """(the provenance map, None), or (None, why it cannot be read)."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, f"cannot read the provenance map {path}: {exc}"
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return None, f"the provenance map {path} is not valid JSON: {exc}"
+    if not isinstance(data, dict):
+        return None, f"the provenance map {path} is not a JSON object"
+    return data, None
+
+
+def map_distribution(prov: dict | None, reason: str | None) -> tuple[dict | None, str | None]:
+    """(the map entries' confidence_distribution by signature_source, None), as
+    skf-render-metadata-stats.py --shape stack bins them, or (None, why not)."""
+    if prov is None:
+        return None, reason
+    try:
+        stats = _load_stats_rules()
+        return stats.derive_stats(prov, {}, _STATS_SHAPE)["confidence_distribution"], None
+    except ImportError as exc:
+        return None, str(exc)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        return None, f"{_STATS_HELPER} cannot bin the map: {exc}"
+
+
+def _value(value) -> str:
+    """A sink value as text on one line: a string as it stands, anything else as JSON."""
+    return _flat(value if isinstance(value, str) else json.dumps(value, ensure_ascii=False))
+
+
+def decision_line(decision: dict) -> str:
+    """An Auto-Decisions line: the gate, the action taken and why, then the
+    scope gate's dropped libraries and prior_kept when its evidence holds them."""
+    line = (f"- {_code_span(_value(decision.get('gate')))}: {_value(decision.get('taken_action'))} "
+            f"({_value(decision.get('reason'))})")
+    evidence = decision.get("evidence")
+    if isinstance(evidence, dict):
+        if "dropped" in evidence:
+            dropped = evidence["dropped"] if isinstance(evidence["dropped"], list) else [evidence["dropped"]]
+            names = [f"{_value(item.get('library'))} ({_value(item.get('reason'))})" if isinstance(item, dict)
+                     else _value(item) for item in dropped]
+            line += f"; dropped: {', '.join(names) or 'none'}"
+        if "prior_kept" in evidence:
+            kept = evidence["prior_kept"] if isinstance(evidence["prior_kept"], list) else [evidence["prior_kept"]]
+            line += f"; prior_kept: {', '.join(_value(item) for item in kept) or 'none'}"
+    return line
+
+
+def evidence_report(mode: str, libraries: list[dict], pairs_of_order: list[tuple[str, str]],
+                    details: dict[str, dict], failed: list[dict], pairs: list[dict], prov: dict | None,
+                    sink: tuple[list[dict], list[str], dict[str, list[str]]],
+                    distribution: dict | None, reason: str | None) -> str:
+    """evidence-report.md: the libraries (failed[] included), the pairs, the
+    run's warnings and auto-decisions, and the map entries per tier."""
+    decisions, warnings, problems = sink
+    skill_name = prov.get("skill_name") if prov is not None else None
+    title = _flat(skill_name) if isinstance(skill_name, str) and skill_name.strip() else _REPORT_FALLBACK_TITLE
+    entries = prov.get("entries") if prov is not None else None
+    map_counts: dict[str, int] | None = None
+    if prov is not None:
+        map_counts = {}
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("source_library"), str):
+                map_counts[entry["source_library"]] = map_counts.get(entry["source_library"], 0) + 1
+    tiers = {library["name"]: library["confidence"] for library in libraries}
+    lines = [f"# {title} Evidence Report", "",
+             f"**Mode:** {mode} | **Libraries:** {len(libraries)} extracted, {len(failed)} failed | "
+             f"**Integration pairs:** {len(pairs)}", "", "## Libraries", ""]
+    if libraries:
+        lines += [f"| Library | Status | Version | Tier | {'Imports' if mode == 'code' else 'Exports'} | Map entries "
+                  f"| Usage patterns | T2 items | Warnings |",
+                  "|---------|--------|---------|------|---------|-------------|----------------"
+                  "|----------|----------|"]
+        for name in library_order(mode, libraries, pairs_of_order):
+            detail = details[name]
+            count = detail["file_count"] if mode == "code" else len(detail["exports"])
+            in_map = "n/a" if map_counts is None else str(map_counts.get(name, 0))
+            cells = [name, detail["status"] or "n/a", detail["version"] or "unknown", tiers[name], str(count), in_map,
+                     str(len(detail["usage_patterns"])), str(len(detail["temporal"])),
+                     "; ".join(detail["warnings"]) or "none"]
+            lines.append("| " + " | ".join(_cell(cell) for cell in cells) + " |")
+    else:
+        lines.append("none")
+    failures = "; ".join(f"{item['library']}: {item['reason']}" for item in failed) or "none"
+    lines += ["", f"**Failed:** {' '.join(failures.split())}", "", "## Integrations", ""]
+    if pairs:
+        lines += ["| Pair | Type | Confidence | Co-import files |", "|------|------|------------|-----------------|"]
+        for pair in pairs:
+            cells = [f"{pair['a']} + {pair['b']}", pair["type"], pair_label(mode, pair),
+                     str(pair["co_import_files"] or 0)]
+            lines.append("| " + " | ".join(_cell(cell) for cell in cells) + " |")
+    else:
+        lines.append("none")
+    lines += ["", "## Warnings", ""]
+    warning_lines = [f"- {_flat(warning)}" for warning in warnings]
+    warning_lines += [f"- {_flat(problem)}" for problem in problems[SINK_WARNINGS]]
+    lines += warning_lines or ["none"]
+    lines += ["", "## Auto-Decisions", ""]
+    decision_lines = [decision_line(decision) for decision in decisions]
+    decision_lines += [f"- {_flat(problem)}" for problem in problems[SINK_DECISIONS]]
+    lines += decision_lines or ["none"]
+    lines += ["", "## Confidence Distribution", ""]
+    head = "Provenance entries by `signature_source` (`metadata.json` counts libraries): "
+    if distribution is None:
+        lines.append(f"{head}not computed: {' '.join(str(reason).split())}")
+    else:
+        lines.append(head + ", ".join(f"{tier}: {distribution.get(key, 0)}" for key, tier in _DISTRIBUTION_BINS))
+    return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -907,10 +1512,17 @@ def _read_input(source: str):
 
 
 def _write_atomic(path: Path, data: dict) -> None:
-    """Write `data` as JSON to `path` atomically: a temp file of its own beside
-    it, then a rename. Raises WriteError, leaving `path` as it was."""
+    """Write `data` as JSON to `path` atomically. Raises WriteError, leaving
+    `path` as it was."""
+    _write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    """Write `text` to `path` as UTF-8, `\\n` line ends on every OS, atomically:
+    a temp file of its own beside it, then a rename. Raises WriteError,
+    leaving `path` as it was."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}-{secrets.token_hex(4)}.skf-tmp")
-    payload = (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    payload = text.encode("utf-8")
     # O_EXCL: never write into another writer's temp file. O_BINARY (Windows
     # only; 0 elsewhere) keeps the \n line ends.
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
@@ -1032,6 +1644,67 @@ def _cmd_provenance(args: argparse.Namespace) -> dict:
     return result
 
 
+def _cmd_references(args: argparse.Namespace) -> dict:
+    bundle = _read_input(_records_file(args.bundle, "references", "--bundle"))
+    mode = bundle_mode(bundle)
+    if args.mode != mode:
+        raise InputError(f"--mode is {args.mode}, but the bundle's mode is {mode}")
+    if mode == "compose":
+        given = [flag for flag, value in (("--records", args.records), ("--pairs", args.pairs)) if value is not None]
+        if given:
+            raise InputError(f"{' and '.join(given)} is for a code-mode bundle; this bundle's mode is compose")
+    elif args.records is None:
+        raise InputError("a code-mode bundle needs --records, the export records each library's key exports come from")
+    elif args.out is not None and args.pairs is None:
+        raise InputError("--out on a code-mode bundle needs --pairs, the skf-pair-intersect.py result that holds "
+                         "each pair's co-import file count")
+    _mode, libraries, pairs_of_order = bundle_stack(bundle)
+    details = library_details(bundle, mode)
+    records = None
+    if mode == "code":
+        records = library_records(parse_records(_read_input(_records_file(args.records, "references"))),
+                                  [library["name"] for library in libraries])
+    counts = None
+    if args.pairs is not None:
+        counts = pair_counts(_read_input(_records_file(args.pairs, "references", "--pairs")))
+    pairs = bundle_pairs(bundle, mode, counts)
+    result = {"mode": mode, "index": references(mode, libraries, pairs_of_order, details, records), "written": []}
+    if args.out is not None:
+        files = reference_files(mode, libraries, details, records, pairs)
+        _write_files(Path(args.out), files)
+        result["written"] = [{"path": path, "placeholders": slots} for path, _text, slots in files]
+    return result
+
+
+def _cmd_evidence_report(args: argparse.Namespace) -> dict:
+    bundle = _read_input(_records_file(args.bundle, "evidence-report", "--bundle"))
+    mode = bundle_mode(bundle)
+    if mode == "code" and args.pairs is None:
+        raise InputError("a code-mode bundle needs --pairs, the skf-pair-intersect.py result that holds each "
+                         "pair's co-import file count")
+    if mode == "compose" and args.pairs is not None:
+        raise InputError("--pairs is for a code-mode bundle; this bundle's mode is compose")
+    _mode, libraries, pairs_of_order = bundle_stack(bundle)
+    details = library_details(bundle, mode)
+    failed = bundle_failed(bundle)
+    counts = None
+    if args.pairs is not None:
+        counts = pair_counts(_read_input(_records_file(args.pairs, "evidence-report", "--pairs")))
+    pairs = bundle_pairs(bundle, mode, counts)
+    run_dir = Path(args.run_dir)
+    if not run_dir.is_dir():
+        raise InputError(f"--run-dir {args.run_dir} is not a folder")
+    sink = read_sink(run_dir)
+    prov, reason = _read_map(args.provenance)
+    distribution, reason = map_distribution(prov, reason)
+    target = Path(args.target)
+    _write_text_atomic(target, evidence_report(mode, libraries, pairs_of_order, details, failed, pairs, prov, sink,
+                                               distribution, reason))
+    return {"target": str(target), "library_count": len(libraries), "failed_count": len(failed),
+            "integration_count": len(pairs), "warning_count": len(sink[1]), "decision_count": len(sink[0]),
+            "confidence_distribution": distribution}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-render-stack-metadata",
@@ -1046,7 +1719,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "library that records none), with its hub libraries and library "
             "order, and write its provenance map from the records, the extraction "
             "bundle (each pair's detection_method from its qualifier) and, in code "
-            "mode, the pair-intersect result or, in compose mode, the stack inventory."
+            "mode, the pair-intersect result or, in compose mode, the stack inventory, "
+            "the fixed parts of its reference and pair files with their Library "
+            "Reference Index rows, and its evidence report."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1113,6 +1788,33 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     command.add_argument("--target", required=True, help="the provenance-map.json to write")
     command.set_defaults(func=_cmd_provenance)
+    text = ("print the Library Reference Index rows and, with --out, write the fixed parts of each "
+            "per-library and pair reference file, a marker line for each part the step writes")
+    command = sub.add_parser("references", help=text, description=text)
+    command.add_argument("--mode", required=True, choices=MODES, help="the run's mode, which the bundle's must match")
+    command.add_argument("--bundle", required=True, help="path to the extraction bundle JSON")
+    command.add_argument(
+        "--records", help="code mode: path to the export records JSON ({entries: [...]}), each library's key exports")
+    command.add_argument(
+        "--pairs", help="code mode, needed with --out: path to the skf-pair-intersect.py result, which holds each "
+                        "pair's intersection_count")
+    command.add_argument(
+        "--out", help="the package's references/ folder to write {library}.md and integrations/{a}-{b}.md into; "
+                      "without it nothing is written")
+    command.set_defaults(func=_cmd_references)
+    text = ("write evidence-report.md from the extraction bundle, the run sink and the provenance map, "
+            "atomically")
+    command = sub.add_parser("evidence-report", help=text, description=text)
+    command.add_argument("--bundle", required=True, help="path to the extraction bundle JSON")
+    command.add_argument(
+        "--run-dir", required=True, help="the run folder that holds warnings.jsonl and headless-decisions.jsonl")
+    command.add_argument(
+        "--provenance", required=True, help="path to the provenance-map.json whose entries the report bins by tier")
+    command.add_argument(
+        "--pairs", help="code mode: path to the skf-pair-intersect.py result, which holds each pair's "
+                        "intersection_count")
+    command.add_argument("--target", required=True, help="the evidence-report.md to write")
+    command.set_defaults(func=_cmd_evidence_report)
     return parser
 
 

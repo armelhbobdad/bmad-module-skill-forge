@@ -75,9 +75,14 @@ The conventions the extractions show recurring across libraries, each cited as �
 
 ### 6. Compile Library Reference Index
 
-Per the template and §4's placement, its rows in §1's `{library_order}` (**in compose-mode**: replace the Imports column with Export Count, the number of its bundle entry's `exports`, since import counts are not available).
+The §1 helper renders the index from `{bundleFile}` and, in code mode, `{exportRecordsFile}`, its rows in §1's `{library_order}` (compose mode names Export Count, the number of a bundle entry's `exports`, in place of Imports). Run the call of the run's mode:
 
-The Reference column follows the §4 link rule: `[ref](references/{name}.md)` when the index stays in SKILL.md, `[ref]({name}.md)` when it goes to `references/stack-catalog.md`.
+```bash
+uv run {renderStackMetadataHelper} references --mode code --bundle "{bundleFile}" --records "{exportRecordsFile}"
+uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}"
+```
+
+Write its `index.header` lines, then each `index.rows[]` entry's `inline` line, `[ref](references/{name}.md)`, when the index stays in SKILL.md, or its `catalog` line, `[ref]({name}.md)`, when §4's placement moves it to `references/stack-catalog.md`. On exit `2`, fix the bundle or record field its stderr names and run it again.
 
 ### 7. Write the Draft and Its Stats
 
@@ -115,4 +120,4 @@ Display: **Select:** [C] Continue to Output Generation | [P] Preview the full dr
 - IF C: The draft files as they stand on disk, the user's own edits included, are the approved compilation. Load, read entire file, then execute {nextStepFile}
 - IF P: Display the full draft files, then [Redisplay Menu Options](#8-present-menu-options)
 - IF X: HALT (exit 6, `halt_reason: "user-cancelled"`, phase `compile-stack:review`): leave any existing committed stack package untouched, emit the envelope, then delete the run folder (`rm -rf "{run_dir}"`), the draft and the bundle with it
-- IF Any other: Process it as feedback: apply it to the draft files in `{draftFolder}`. When it drops a library or a pair, drop it from `{bundleFile}` too (a library with its pairs, and its records from `{exportRecordsFile}`), so step 7 writes no file the draft no longer covers; then run the §1 helper call again, rebinding the counts, `{hubs}` and `{library_order}`, and rewrite the draft's `description`, its Hub Library Connections list and its library order with them. Show the stats again, then [Redisplay Menu Options](#8-present-menu-options)
+- IF Any other: Process it as feedback: apply it to the draft files in `{draftFolder}`. When it drops a library or a pair, drop it from `{bundleFile}` too (a library with its pairs, and its records from `{exportRecordsFile}`), so step 7 writes no file the draft no longer covers; then run the §1 helper call again, rebinding the counts, `{hubs}` and `{library_order}`, and rewrite the draft's `description`, its Hub Library Connections list and its library order with them, and run §6's call again and rewrite the index from its rows. Show the stats again, then [Redisplay Menu Options](#8-present-menu-options)

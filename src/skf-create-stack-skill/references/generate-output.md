@@ -15,9 +15,6 @@ verifyProvenanceCompletenessProbeOrder:
 namesPresentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-names-present.py'
   - '{project-root}/src/shared/scripts/skf-names-present.py'
-renderMetadataStatsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
-  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 renderStackMetadataProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
   - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
@@ -125,13 +122,22 @@ cp "{draftFolder}/SKILL.md" "{skill_staging}/SKILL.md"
 
 ### 3. Stage Per-Library Reference Files
 
-For each library of `{bundleFile}`'s `per_library_extractions[]`, write `{skill_staging}/references/{library_name}.md` in the references structure of `{stackSkillTemplatePath}` from its bundle entry (its Import count is its `file_count`; compose mode: its export count, and its `version`), with its records in `{exportRecordsFile}` as its key exports (compose mode: its `exports`). When the entry's `temporal` holds an item, its `## Migration & Deprecation` section lists each `deprecated_exports`, `migration_notes` and `version_warnings` item as written, label and citation included; with none, the file has no such section.
+Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate resolves, invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:references` for its HALT. Otherwise run the call of the run's mode:
+
+```bash
+uv run {renderStackMetadataHelper} references --mode code --bundle "{bundleFile}" --records "{exportRecordsFile}" --pairs "{pairsFile}" --out "{skill_staging}/references"
+uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}" --out "{skill_staging}/references"
+```
+
+It writes `references/{library_name}.md` for each library of `{bundleFile}`'s `per_library_extractions[]` in the references structure of the bundled `assets/stack-skill-template.md`: its title, `**Version:**`, Import count (its `file_count`; compose mode: its export count), `**Confidence:**` and Key Exports (its records in `{exportRecordsFile}`; compose mode: its `exports`). When the entry's `temporal` holds an item, its `## Migration & Deprecation` section lists each `deprecated_exports`, `migration_notes` and `version_warnings` item as written, label and citation included; with none, the file has no such section. It writes §4's pair files too. On exit `2` its stderr names the input it refused (fix that bundle, record or pair field and run it again) or the write that failed (invoke the rollback contract from §1).
+
+In each library file its `written[]` lists, replace the `<!-- skf:fill usage-patterns -->` line with the entry's `usage_patterns`, each cited as compile-stack §4 cites, and the `<!-- skf:fill common-imports -->` line with the most frequent import statements. When `{stackSkillTemplatePath}` is a house-style copy that adds a section to the references structure, write that section into each library file where the copy places it.
 
 If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skill_staging}/references/stack-catalog.md` too; its per-library links stay file-relative, `[ref]({name}.md)`.
 
 ### 4. Stage Integration Pair Reference Files
 
-For each entry of `{bundleFile}`'s `integrations[]`, write `{skill_staging}/references/integrations/{a}-{b}.md` in the integrations structure of `{stackSkillTemplatePath}` from the entry (`type`, its pair's `intersection_count` in `{pairsFile}` as the co-import file count, 0 in compose mode, `description` with its `key_files` citations, `tier`). In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` lines in place of `key_files` citations, and, when its `vs` is set, the VS lines and annotation of its SKILL.md entry.
+§3's call wrote `references/integrations/{a}-{b}.md` for each entry of `{bundleFile}`'s `integrations[]` in the integrations structure of the bundled `assets/stack-skill-template.md`: its title, `**Type:**`, `**Co-import files:**` (its pair's `intersection_count` in `{pairsFile}`, 0 in compose mode), its `**Confidence:**` label and Key Files (its `key_files`; in compose mode the entry's `evidence` and `reference` lines and, when its `vs` is set, its VS lines). In each pair file its `written[]` lists, replace the `<!-- skf:fill integration-pattern -->` line with the entry's `description` and its `key_files` citations (in compose mode its `description`, citing the Key Files lines without repeating them), and the `<!-- skf:fill usage-convention -->` line with how the project structures the integration. A section a house-style `{stackSkillTemplatePath}` adds to the integrations structure goes into each pair file where the copy places it.
 
 ### 5. Stage context-snippet.md
 
@@ -145,13 +151,13 @@ While `{token_estimate}` exceeds **120**, apply the next trim and measure again:
 
 ### 6. Stage metadata.json
 
-Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← the `forge_tier` of `{runFile}`, the run tier step 1 saved. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}` and run:
+Write `{skill_staging}/metadata.json` to `assets/metadata-contract.md`, with `version` ← `{version}` and `forge_tier` ← the `forge_tier` of `{runFile}`, the run tier step 1 saved. Run the helper §3 resolved:
 
 ```bash
 uv run {renderStackMetadataHelper} metadata --bundle "{bundleFile}"
 ```
 
-It reads every library of `{bundleFile}`, with its `per_library_extractions[].confidence` and, in compose mode, the constituent's authority step 4 wrote, and every pair of its `integrations[]`, each named as its `references/integrations/{a}-{b}.md` file is: write the fields the contract takes from it verbatim. On exit `2`, fix the bundle field its stderr names and run it again. If no candidate resolves, invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata` for its HALT.
+It reads every library of `{bundleFile}`, with its `per_library_extractions[].confidence` and, in compose mode, the constituent's authority step 4 wrote, and every pair of its `integrations[]`, each named as its `references/integrations/{a}-{b}.md` file is: write the fields the contract takes from it verbatim. On exit `2`, fix the bundle field its stderr names and run it again; any other failure invokes the rollback contract from §1.
 
 ### 7. Write Forge Data Artifacts (Workspace)
 
@@ -210,14 +216,14 @@ When its `absent[]` is empty, go on to §8b. Otherwise rename each absent entry 
 
 ### 8b. Write the Evidence Report (Workspace)
 
-With the §8 gate's warnings recorded, bin the final map's entries by `signature_source` with `{renderMetadataStatsHelper}` (from `{renderMetadataStatsProbeOrder}`), then write `evidence-report.md`; if the write fails, invoke the rollback contract from §1:
+With the §8 gate's warnings recorded, write `evidence-report.md` with the helper §3 resolved, running the call of the run's mode:
 
 ```bash
-echo '{}' | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json --shape stack
-<md-content> | python3 {atomicWriteHelper} write --target {forge_version}/evidence-report.md
+uv run {renderStackMetadataHelper} evidence-report --bundle "{bundleFile}" --run-dir "{run_dir}" --provenance "{forge_version}/provenance-map.json" --pairs "{pairsFile}" --target "{forge_version}/evidence-report.md"
+uv run {renderStackMetadataHelper} evidence-report --bundle "{bundleFile}" --run-dir "{run_dir}" --provenance "{forge_version}/provenance-map.json" --target "{forge_version}/evidence-report.md"
 ```
 
-**evidence-report.md** lists each library's extraction summary and tier from `{bundleFile}` (its `failed[]` included); each pair's integration result; every `workflow_warnings[]` entry, each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds; each auto-decision of `{run_dir}/headless-decisions.jsonl` as its `gate`, `taken_action` and `reason` (the scope gate's dropped libraries and `prior_kept` included), or "none"; and the helper's `confidence_distribution`, one count per entry (`metadata.json` counts libraries), or "not computed" when the helper is missing or exits `2`.
+**evidence-report.md** lists each library's extraction summary and tier from `{bundleFile}` (its `failed[]` included); each pair's integration result; every `workflow_warnings[]` entry, each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds; each auto-decision of `{run_dir}/headless-decisions.jsonl` as its `gate`, `taken_action` and `reason` (the scope gate's dropped libraries and `prior_kept` included), or "none"; and the final map's entries binned by `signature_source` with `skf-render-metadata-stats.py`, one count per entry (`metadata.json` counts libraries), or "not computed" with its reason when that helper is missing or the map cannot be read. On exit `2` its stderr names the input it refused (fix it and run the call again) or the write that failed; when the write fails or the call cannot run, invoke the rollback contract from §1.
 
 ### 9. Commit Staging Directory
 

@@ -501,6 +501,10 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/compose-pairs.md", "skf-comention-pairs.py", "infer"),
     ("src/skf-create-stack-skill/references/compile-stack.md", "skf-render-stack-metadata.py", "metadata"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "provenance"),
+    # The index step 6 compiles, and the reference files and evidence report step 7 writes, with it (#1156).
+    ("src/skf-create-stack-skill/references/compile-stack.md", "skf-render-stack-metadata.py", "references"),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "references"),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "evidence-report"),
 ]
 
 
@@ -530,8 +534,6 @@ FLAG_ONLY_MUST_FIND = [
     ("src/skf-create-skill/references/compile.md", "skf-render-metadata-stats.py", ()),
     ("src/skf-create-skill/references/validate.md", "skf-render-metadata-stats.py", ("--check",)),
     ("src/skf-update-skill/references/write.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
-    ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-metadata-stats.py",
-     ("--shape", "stack")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
      ("--provenance", "--skill-dir")),
     # audit-skill's re-index runs the recipe runner over its scan list (#589), with the scope type of a

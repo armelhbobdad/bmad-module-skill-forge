@@ -71,8 +71,11 @@ on_complete = ""
 # and name it as {project-root}/<path to the copy>. It covers the SKILL.md,
 # context snippet, catalog and reference-file structures; the metadata.json
 # contract (assets/metadata-contract.md) carries SKF's ownership markers, so
-# no override replaces it. The copy may reword the prose and add optional
-# sections, and must keep:
+# no override replaces it. skf-render-stack-metadata.py writes the header
+# lines, Key Exports and Key Files of each reference and pair file and the
+# Library Reference Index rows in the bundled form, so in those a copy
+# shapes only the prose the steps fill and any section it adds. The copy
+# may reword the prose and add optional sections, and must keep:
 #   - its six `##` headings, which the steps find by name:
 #     `## SKILL.md Section Structure`, `## Sizing Guidance for Large Stacks`,
 #     `## context-snippet.md Format (Vercel-Aligned)`,

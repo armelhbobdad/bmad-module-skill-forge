@@ -170,6 +170,14 @@ compose branch of the sections they govern.
   rest. Each Conventions bullet and Usage pattern line cites its file and
   line, or its constituent in compose mode, and the validator flags an
   uncited Conventions bullet `low` (#1155).
+- Step 7 §3 resolves skf-render-stack-metadata.py and writes each reference
+  and pair file with its `references` call, the step filling only the
+  marker lines §3 and §4 name; step 6 §6 takes the index rows from the same
+  call without `--out`, and its feedback rerun takes them again; §8b writes
+  the evidence report with its `evidence-report` call, which bins the final
+  map as the stats helper does and lists the recorded warnings and
+  decisions, the scope gate's dropped libraries and `prior_kept` included
+  (#1156).
 
 The step calls run as written, on small fixtures.
 
@@ -183,7 +191,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import io
 import json
 import os
 import posixpath
@@ -258,10 +265,12 @@ PAIR_INTERSECT_RE = re.compile(r"pairIntersect|skf-pair-intersect")
 GATE_RUN_RE = re.compile(r"^[ \t]*(?:uv run|python3) \{frontmatterValidator\}", re.MULTILINE)
 EVIDENCE_REPORT = "evidence-report.md"
 # Instructions that change a file: the atomic writer's subcommands, the
-# skill-check writes and a directory create. A flag counts only whole, so
-# the inventory's read-only `--write-check` is not a write.
+# stack helper's evidence report, the skill-check writes and a directory
+# create. A flag counts only whole, so the inventory's read-only
+# `--write-check` is not a write.
 WRITE_OP_RE = re.compile(
     r"\{atomicWriteHelper\}\s+(?:write|stage-dir|commit-dir|flip-link)\b"
+    r"|\{renderStackMetadataHelper\}\s+evidence-report\b|\{renderStackMetadataHelper\}\s+references\b[^\n]*--out\b"
     r"|--fix(?![\w-])|--write(?![\w-])|\bsplit-body\b|\bmkdir -p\b"
 )
 # Rules wording that forbids every write, or every change to what a step reads.
@@ -1140,29 +1149,121 @@ def test_the_run_shows_libraries_per_tier(path, number):
     assert "QMD" not in line, "a library tier is not a temporal annotation"
 
 
-def test_the_evidence_report_bins_the_final_map(tmp_path, monkeypatch, capsys):
-    text = _read(GENERATE)
-    assert _probe_script(text, "renderMetadataStats") == STATS_HELPER
-    report = _sections(_body(text))["8b"]
-    call = _call(report, "renderMetadataStatsHelper")
-    assert "{forge_version}/provenance-map.json" in call and "--shape stack" in call, call
-    assert report.index(call) < report.index("{atomicWriteHelper} write"), "the report is written before it is binned"
-    assert "counts libraries" in report
-    # A compose-mode map: each entry carries its constituent's tier.
+def _mode_calls(section: str, subcommand: str) -> dict[str, str]:
+    """The two fenced `{renderStackMetadataHelper} <subcommand>` calls of a section, by the mode each runs:
+    its `--mode`, or, with none, code mode for the call that passes `--pairs`."""
+    calls = [line for line in _fence_lines(section) if f"{{renderStackMetadataHelper}} {subcommand} " in line]
+    found = {}
+    for call in calls:
+        mode = re.search(r"--mode (\w+)", call)
+        found[mode.group(1) if mode else ("code" if "--pairs" in call else "compose")] = call
+    assert len(calls) == 2 and set(found) == {"code", "compose"}, calls
+    return found
+
+
+T2_FUTURE_ITEM = "get_config: cached per process from 3.0 (T2-future) [QMD:liba-temporal:changelog]"
+
+
+def _step_7_run(run_dir: Path, mode: str) -> dict[str, str]:
+    """The run folder step 7 reads, as the values of a documented call's placeholders: the bundle step 5 completed
+    (in code mode with a failed library, liba's T2-future item and a pair the pair helper names the other way round;
+    in compose mode with its evidence and a Blocked [VS] verdict), the records and the saved pairs."""
+    if mode == "code":
+        libraries = [
+            {"library": "liba", "status": "success", "version": "2.1.0", "confidence": "T1-low", "file_count": 4,
+             "usage_patterns": ["connect at startup (src/app.py:3)"], "warnings": [],
+             "temporal": {"deprecated_exports": [T2_FUTURE_ITEM], "migration_notes": [], "version_warnings": []}},
+            {"library": "libb", "status": "partial", "version": "1.0.0", "confidence": "T1-low", "file_count": 2,
+             "usage_patterns": [], "warnings": ["extraction budget reached"], "temporal": {}},
+        ]
+        pair = {"a": "liba", "b": "libb", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
+                "key_files": ["src/app.py:3"], "description": "liba feeds libb"}
+    else:
+        libraries = [
+            {"library": "liba", "skill_dir": "liba", "version": "2.1.0", "confidence": "T1",
+             "exports": ["connect", "Client"], "signatures": {"connect": "connect(url: str) -> Client"},
+             "usage_patterns": ["connect once (src/app.py:3)"]},
+            {"library": "libb", "skill_dir": "libb", "version": "1.0.0", "confidence": "T2", "exports": ["serve"],
+             "signatures": {}, "usage_patterns": []},
+        ]
+        pair = {"a": "liba", "b": "libb", "type": "adapter", "tier": "T2", "qualifier": "architecture-co-mention",
+                "key_files": [], "evidence": ["[from skill: liba] connect(url: str) -> Client",
+                                              "[from skill: libb] serve(app)"],
+                "reference": '**Architecture reference:** "libb serves what liba connects" (architecture doc line 4)',
+                "vs": {"pair": "Blocked", "overall": "CONDITIONALLY_FEASIBLE"}}
+    bundle = run_dir / "extraction-bundle.json"
+    bundle.write_text(json.dumps({
+        "mode": mode, "scope": ["liba", "libb"], "per_library_extractions": libraries,
+        "failed": [{"library": "libc", "reason": "no usable data"}] if mode == "code" else [],
+        "integrations": [pair], "cross_cutting": []}), encoding="utf-8")
+    records = run_dir / "export-records.json"
+    records.write_text(json.dumps({"entries": _liba_records()}), encoding="utf-8")
+    pairs = run_dir / "pair-intersect.json"
+    pairs.write_text(json.dumps({"pairs": [{"a": "libb", "b": "liba", "intersection_count": 2, "files": [
+        {"path": "src/app.py", "line_a": 1, "line_b": 2}]}], "truncated": False, "total_pairs": 1}), encoding="utf-8")
+    return {"{bundleFile}": str(bundle), "{exportRecordsFile}": str(records), "{pairsFile}": str(pairs),
+            "{run_dir}": str(run_dir)}
+
+
+def _run_call(call: str, values: dict[str, str]) -> dict:
+    """Run a documented stack helper call as written, its placeholders filled; its printed JSON."""
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(call, values)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+# What step 3's scope gate and step 4 record in the run sink, through the emitter's record command.
+SCOPE_EVIDENCE = {"scope": ["liba", "libb"], "dropped": [{"library": "lodash", "reason": "dev only"}],
+                  "prior_kept": ["libd"]}
+STEP_4_WARNING = '[step-04/warn] extraction-partial: libb: `extraction budget reached` $(not run)'
+
+
+def _evidence_report(run_dir: Path, tmp_path: Path, mode: str, entries: list[dict] | None = None) -> tuple[dict, str]:
+    """Run §8b's call of `mode` as written on a run folder whose sink holds the scope decision and a step 4 warning,
+    recorded as the steps record them, and a final map; the call's JSON and the report."""
+    values = _step_7_run(run_dir, mode)
+    decision = dict(_decision("rank-and-confirm.scope"), evidence=SCOPE_EVIDENCE)
+    for args, stdin in ((["--workflow", "skf-create-stack-skill", "--decision"], json.dumps(decision)),
+                        (["--warning", STEP_4_WARNING], None)):
+        recorded = subprocess.run([sys.executable, str(EMITTER), "record", "--run-dir", str(run_dir), *args],
+                                  input=stdin, capture_output=True, text=True)
+        assert recorded.returncode == 0, recorded.stderr
     forge_version = tmp_path / "forge" / "demo-stack" / "1.0.0"
-    forge_version.mkdir(parents=True)
+    forge_version.mkdir(parents=True, exist_ok=True)
+    if entries is None:
+        entries = [dict(record, signature_source=record["confidence"]) for record in _liba_records()]
+    (forge_version / "provenance-map.json").write_text(
+        json.dumps({"skill_name": "demo-stack", "skill_type": "stack", "entries": entries}), encoding="utf-8")
+    call = _mode_calls(_sections(_body(_read(GENERATE)))["8b"], "evidence-report")[mode]
+    out = _run_call(call, dict(values, **{"{forge_version}": str(forge_version)}))
+    return out, (forge_version / "evidence-report.md").read_text(encoding="utf-8")
+
+
+def test_the_evidence_report_bins_the_final_map(run_dir, tmp_path):
+    """#528, #1156: §8b writes the report with the stack helper, which bins the final map's entries as
+    skf-render-metadata-stats.py --shape stack does, so the step resolves the stats helper no more."""
+    text = _read(GENERATE)
+    assert "renderMetadataStatsProbeOrder" not in _frontmatter(text) and "{renderMetadataStatsHelper}" not in text
+    report = _sections(_body(text))["8b"]
+    assert "counts libraries" in report
+    for mode, call in _mode_calls(report, "evidence-report").items():
+        assert '--target "{forge_version}/evidence-report.md"' in call, call
+        assert '--provenance "{forge_version}/provenance-map.json"' in call, call
+        assert ('--pairs "{pairsFile}"' in call) == (mode == "code"), call
+    # A compose-mode map: each entry carries its constituent's tier.
     entries = [
         {"export_name": name, "source_library": library, "extraction_method": "compose-from-skill",
          "confidence": tier, "signature_source": tier}
-        for name, library, tier in (("connect", "liba", "T1"), ("Client", "liba", "T1"), ("render", "libb", "T3"))
+        for name, library, tier in (("connect", "liba", "T1"), ("Client", "liba", "T1"), ("serve", "libb", "T3"))
     ]
-    (forge_version / "provenance-map.json").write_text(
-        json.dumps({"skill_type": "stack", "entries": entries}), encoding="utf-8")
-    argv = _argv(call, "renderMetadataStatsHelper", {"{forge_version}": str(forge_version)})
-    monkeypatch.setattr(sys, "stdin", io.StringIO(re.search(r"echo '(.*?)' \|", call).group(1)))
-    stats = _load(STATS_HELPER, "skf_render_metadata_stats_report")
-    assert stats.main(argv) == 0
-    assert json.loads(capsys.readouterr().out)["confidence_distribution"] == {"t1": 2, "t1_low": 0, "t2": 0, "t3": 1}
+    out, written = _evidence_report(run_dir, tmp_path, "compose", entries)
+    assert out["confidence_distribution"] == {"t1": 2, "t1_low": 0, "t2": 0, "t3": 1}
+    stats = subprocess.run([sys.executable, str(STATS_HELPER), out["target"].replace("evidence-report.md",
+                                                                                    "provenance-map.json"),
+                            "--shape", "stack"], input="{}", capture_output=True, text=True)
+    assert json.loads(stats.stdout)["confidence_distribution"] == out["confidence_distribution"]
+    assert written.endswith("(`metadata.json` counts libraries): T1: 2, T1-low: 0, T2: 0, T3: 1\n")
 
 
 # --- #534: compose tiers come from each constituent's own evidence ----------------
@@ -1276,11 +1377,11 @@ def test_a_missing_tier_helper_halts_with_its_envelope():
     three = _sections(_body(_read(DETECT)))["3"]
     halt = _slice(three, "If no candidate exists, HALT", "When at least one pair qualifies")
     assert '(exit 3, `halt_reason: "helper-missing"`, phase `detect-integrations:pair-tiers`)' in halt
-    # Step 7 §6 resolves the same helper after staging: it rolls back with the same code, not as a write failure.
-    six = _sections(_body(_read(GENERATE)))["6"]
-    assert 'invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase' in six
+    # Step 7 §3 resolves the same helper after staging: it rolls back with the same code, not as a write failure.
+    three = _sections(_body(_read(GENERATE)))["3"]
+    assert 'invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase' in three
     (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
-    assert "`skf-render-stack-metadata.py` (step 4 §3a, step 5 §3, step 6 §1, step 7 §6)" in row
+    assert "`skf-render-stack-metadata.py` (step 4 §3a, step 5 §3, step 6 §1, step 7 §3)" in row
 
 
 def test_step_2_records_the_authority_step_7_projects():
@@ -1689,7 +1790,7 @@ def test_a_vs_rated_pair_keeps_the_label_the_validator_reads():
     assert "[VS:" not in _fill_evidence(None)
 
 
-def test_the_compose_evidence_reaches_the_package():
+def test_the_compose_evidence_reaches_the_package(run_dir, tmp_path):
     """Step 5b run 2 architecture-1: step 5 keeps each compose pair's evidence and VS verdicts in its bundle
     entry, step 6 renders the pair from them in the fixed-path evidence format, and step 7 carries them into
     the pair file, so neither a [VS: Blocked] flag nor the [from skill: ...] lines dead-end at step 5."""
@@ -1713,9 +1814,78 @@ def test_the_compose_evidence_reaches_the_package():
                    "a compose pair has no key files"):
         assert needle in goal, needle
     pair_file = _sections(_body(_read(GENERATE)))["4"]
-    for needle in ("In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` "
-                   "lines", "when its `vs` is set"):
+    for needle in ("in compose mode the entry's `evidence` and `reference` lines", "when its `vs` is set",
+                   "(in compose mode its `description`, citing the Key Files lines without repeating them)"):
         assert needle in pair_file, needle
+    # #1156: §3's compose call writes them into the pair file, its label keeping the marker test-skill reads.
+    call = _mode_calls(_sections(_body(_read(GENERATE)))["3"], "references")["compose"]
+    staging = tmp_path / "demo-stack.skf-tmp"
+    _run_call(call, dict(_step_7_run(run_dir, "compose"), **{"{skill_staging}": str(staging)}))
+    written = (staging / "references" / "integrations" / "liba-libb.md").read_text(encoding="utf-8")
+    assert "**Confidence:** T2 (architecture-co-mention) [composed] [VS: Blocked]\n" in written
+    for line in ("- [from skill: liba] connect(url: str) -> Client", "- [from skill: libb] serve(app)",
+                 '- **Architecture reference:** "libb serves what liba connects" (architecture doc line 4)',
+                 "- VS overall: CONDITIONALLY_FEASIBLE", "- VS pair: Blocked"):
+        assert f"\n{line}\n" in written, line
+
+
+# --- #1156: step 7 §3 writes the reference files, step 6 §6 the index rows, from the helper ---
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_step_7_writes_the_reference_files_with_the_helper(mode, run_dir, tmp_path):
+    """§3 resolves the stack helper, and one call of the run's mode writes each library and pair file but the marker
+    lines §3 and §4 fill; the files land in the staging folder §1 made, under `references/`."""
+    sections = _sections(_body(_read(GENERATE)))
+    three, four = sections["3"], sections["4"]
+    assert three.index("{renderStackMetadataProbeOrder}") < three.index("uv run {renderStackMetadataHelper}")
+    assert "Resolve `{renderStackMetadataHelper}`" not in sections["6"] and "the helper §3 resolved" in sections["6"]
+    call = _mode_calls(three, "references")[mode]
+    assert '--out "{skill_staging}/references"' in call and ('--pairs "{pairsFile}"' in call) == (mode == "code")
+    staging = tmp_path / "demo-stack.skf-tmp"
+    out = _run_call(call, dict(_step_7_run(run_dir, mode), **{"{skill_staging}": str(staging)}))
+    assert out["written"] == [
+        {"path": "liba.md", "placeholders": ["usage-patterns", "common-imports"]},
+        {"path": "libb.md", "placeholders": ["usage-patterns", "common-imports"]},
+        {"path": "integrations/liba-libb.md", "placeholders": ["integration-pattern", "usage-convention"]}]
+    for where, slots in ((three, ("usage-patterns", "common-imports")),
+                         (four, ("integration-pattern", "usage-convention"))):
+        for slot in slots:
+            assert f"`<!-- skf:fill {slot} -->`" in where, slot
+    liba = (staging / "references" / "liba.md").read_text(encoding="utf-8")
+    if mode == "code":
+        # Every record of the library, and the Deep finding the bundle kept (#1155).
+        assert "- `connect()` *function* (libs/liba/api.py:6)" in liba and "`Client()` *class*" in liba
+        assert f"## Migration & Deprecation\n\n- {T2_FUTURE_ITEM}\n" in liba
+        pair = (staging / "references" / "integrations" / "liba-libb.md").read_text(encoding="utf-8")
+        assert "**Co-import files:** 2\n" in pair, "the pair helper's count, the pair matched in either order"
+    else:
+        assert "**Export count:** 2 exports" in liba and "- `connect(url: str) -> Client` [from skill: liba]" in liba
+        assert "## Migration & Deprecation" not in liba
+
+
+@pytest.mark.parametrize("mode", ["code", "compose"])
+def test_step_6_takes_the_index_rows_from_the_helper(mode, run_dir):
+    """§6 runs the helper without `--out`, before the package exists, and writes its header and each row in the
+    form §4's placement picks; the rows follow §1's library order."""
+    sections = _sections(_body(_read(COMPILE)))
+    six = sections["6"]
+    call = _mode_calls(six, "references")[mode]
+    assert "--out" not in call and "--pairs" not in call, "step 6 writes no file and needs no pair counts"
+    for needle in ("`index.header`", "`index.rows[]`", "`inline`", "`catalog`"):
+        assert needle in six, needle
+    values = _step_7_run(run_dir, mode)
+    before = sorted(path.name for path in run_dir.iterdir())
+    out = _run_call(call, values)
+    assert out["written"] == [] and sorted(path.name for path in run_dir.iterdir()) == before
+    order = _run_call(_call(sections["1"], "renderStackMetadataHelper", "metadata"), values)["library_order"]
+    assert [row["library"] for row in out["index"]["rows"]] == order
+    (liba,) = [row for row in out["index"]["rows"] if row["library"] == "liba"]
+    assert liba["inline"].endswith("| [ref](references/liba.md) |") and liba["catalog"].endswith("| [ref](liba.md) |")
+    assert out["index"]["header"][0].split("|")[2].strip() == ("Imports" if mode == "code" else "Export Count")
+    # A dropped library or pair changes the rows: the feedback rerun takes them again.
+    (feedback,) = [line for line in _read(COMPILE).splitlines() if line.startswith("- IF Any other:")]
+    assert "run §6's call again and rewrite the index from its rows" in feedback
 
 
 # --- #590: the [VS] report is located and read through the helper -----------------
@@ -2391,6 +2561,10 @@ def test_blanket_rule_pattern_matches_a_no_write_rule(rule):
     "npx skill-check check <skill-dir> --fix --format json --no-security-scan",
     "npx skill-check split-body <skill-dir> --write",
     "mkdir -p {forge_version}",
+    'uv run {renderStackMetadataHelper} evidence-report --bundle "{bundleFile}" --run-dir "{run_dir}" '
+    '--provenance "{forge_version}/provenance-map.json" --target "{forge_version}/evidence-report.md"',
+    'uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}" '
+    '--out "{skill_staging}/references"',
 ])
 def test_write_pattern_matches_a_write(line):
     assert WRITE_OP_RE.search(line)
@@ -2400,6 +2574,7 @@ def test_write_pattern_matches_a_write(line):
     "uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check",
     "npx skill-check check <skill-dir> --format json",
     "timeout 10s npx --no-install skill-check -h",
+    'uv run {renderStackMetadataHelper} references --mode compose --bundle "{bundleFile}"',
 ])
 def test_write_pattern_skips_a_read(line):
     assert not WRITE_OP_RE.search(line)
@@ -2415,7 +2590,7 @@ def test_in_file_anchor_links_name_a_heading(path):
 
 # --- #593 (create-stack part): every halt through the emitter, helper-missing ------
 
-# The halts a missing shared helper raises, by phase (generate-output §6's goes
+# The halts a missing shared helper raises, by phase (generate-output §3's goes
 # through the rollback contract and is checked on its own).
 HELPER_MISSING_PHASES = {
     "init:emitter", "init:stack-name", "init:mode", "init:run-state", "compose-skills:enumerate",
@@ -2473,8 +2648,8 @@ def test_every_halt_reason_is_raised_and_listed():
 def test_a_missing_helper_halts_helper_missing():
     phases = {phase for halts in _step_halts().values() for _, reason, phase in halts if reason == "helper-missing"}
     assert phases == HELPER_MISSING_PHASES
-    six = _sections(_body(_read(GENERATE)))["6"]
-    assert 'with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata`' in six
+    three = _sections(_body(_read(GENERATE)))["3"]
+    assert 'with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:references`' in three
     (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
     for helper in ("skf-emit-result-envelope.py", "skf-validate-frontmatter.py", "skf-scan-manifests.py",
                    "skf-enumerate-stack-skills.py", "skf-count-imports.py", "skf-render-stack-metadata.py",
@@ -2587,7 +2762,7 @@ def test_every_headless_gate_records_its_decision(gate, tmp_path):
     assert RECORD_DECISION in _read(GATES[gate])
 
 
-def test_the_scope_gate_records_the_libraries_it_drops():
+def test_the_scope_gate_records_the_libraries_it_drops(run_dir, tmp_path):
     evidence = _decision("rank-and-confirm.scope")["evidence"]
     assert set(evidence) == {"scope", "dropped", "prior_kept"} and set(evidence["dropped"][0]) == {"library", "reason"}
     assert isinstance(evidence["prior_kept"], list), "#1152: one stable shape, [] when nothing was kept"
@@ -2596,6 +2771,10 @@ def test_the_scope_gate_records_the_libraries_it_drops():
     report = _sections(_body(_read(GENERATE)))["8b"]
     assert "`{run_dir}/headless-decisions.jsonl`" in report and "dropped libraries" in report
     assert "`prior_kept`" in report
+    # #1156: §8b's call reads the decision the gate recorded and lists the libraries it dropped and kept.
+    out, written = _evidence_report(run_dir, tmp_path, "code")
+    assert out["decision_count"] == 1
+    assert "; dropped: lodash (dev only); prior_kept: libd\n" in written
     described = _schema()["properties"]["headless_decisions"]["items"]["properties"]["evidence"]["description"]
     assert "prior_kept" in described and "'in v<version>: '" in described
 
@@ -3110,7 +3289,7 @@ def test_every_step_that_warns_records_in_the_sink(path):
     assert "Workflow state contract shows" not in text, f"{path.name} defers the rule to SKILL.md"
 
 
-def test_evidence_report_facts_are_recorded_warnings():
+def test_evidence_report_facts_are_recorded_warnings(run_dir, tmp_path):
     """No step keeps a fact for the evidence report in memory: each is a warning in the sink."""
     detect, extract, pairs = _read(DETECT), _read(EXTRACT), _read(COMPOSE_PAIRS)
     for code, text in (("pair-cap-truncated", detect), ("infer-cap-truncated", pairs),
@@ -3124,6 +3303,11 @@ def test_evidence_report_facts_are_recorded_warnings():
     assert "each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds" in eight_b
     assert "as its `gate`, `taken_action` and `reason`" in eight_b
     assert "decoded as the JSON string it holds" in _sections(_body(_read(REPORT)))["1"]
+    # #1156: §8b's call lists the recorded warning decoded, and the decision as its gate, action and reason.
+    out, written = _evidence_report(run_dir, tmp_path, "code")
+    assert out["warning_count"] == 1 and f"## Warnings\n\n- {STEP_4_WARNING}\n" in written
+    decision = _decision("rank-and-confirm.scope")
+    assert f"- `{decision['gate']}`: {decision['taken_action']} ({decision['reason']})" in written
 
 
 def test_the_import_counts_live_in_the_run_folder():
