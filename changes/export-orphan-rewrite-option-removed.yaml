@@ -1,0 +1,5 @@
+type: changed
+scope: skf-export-skill
+summary: |
+  Export Skill's orphaned context file question no longer offers (c) rewrite. That option rewrote the orphaned file with `.agents/skills/` in every row's `root:` path, though `CLAUDE.md` and `.cursorrules` have skill folders of their own, and the next export asked about the file again, since no IDE in `config.yaml` targets it. To keep such a file current, choose (b) keep, then add its IDE back to `ides` in `config.yaml` and run the export again. To refresh it once, run the export with `--context-file CLAUDE.md`, which writes that one file with the skill root the IDE mapping gives it; a later export without that option asks about the file again.
+issues: [1165]

@@ -1,0 +1,5 @@
+type: added
+scope: skf-export-skill
+summary: |
+  Export Skill's result contract now records every orphan choice in `deviations`: `drop_external_skills` when you drop managed-section rows that no export manifest entry backs, each skill with its version and the context files it was found in, and `clear_orphan_context` with the context files the run cleared, beside the `preserve_external_skills` entry that keeping those rows already wrote. A run that dropped rows or cleared a file used to leave `deviations` out, so its result read as an export that changed nothing outside the canonical path.
+issues: [1165]

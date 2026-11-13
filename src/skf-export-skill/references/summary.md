@@ -36,6 +36,7 @@ To present a complete export summary showing all files written, token counts, an
 | context-snippet.md | {✅ written / ⚠️ skipped (passive off) / 👁️ previewed} | ~{t} |
 | {target-file-1} managed section | {✅ updated ({case}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
 | {target-file-N} managed section | {✅ updated ({case}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
+| {each file in `orphans_cleared`} managed section | ✅ cleared | n/a |
 | Package structure | ✅ validated | ~{t} total |
 
 **Total context cost:** ~{always-on-tokens} tokens always-on, ~{on-trigger-tokens} tokens on-trigger"
@@ -164,21 +165,30 @@ The emitter derives `exit_code` (0) and `halt_reason` (null) and sets `result_pa
 
 `outputs` holds one `skill` entry per file in `snippets_written` (step 3 §9c), one `config` entry per file in `context_files_updated` and the `manifest` entry. In `summary`, `always_on_tokens` is the managed section's `tokens` step 4 measured (`null` when step 4 found no managed section, as with passive context off), and `on_trigger_tokens` maps each skill to its `SKILL.md` `tokens` from step 4.
 
-**`deviations[]` field (export-skill-specific extension):** when step 3 §4c.1 detected manifest-orphan managed rows and the operator (or `{headless_mode}`) chose **(b) Preserve verbatim**, also include a `deviations[]` array in `result_contract`. Each entry has the shape:
+**`deviations[]` field (export-skill-specific extension):** the one place a run records each choice that left the canonical export path. Add to `result_contract` one entry per kind below whose variable is not empty, in this order:
+
+- `preserve_external_skills` from `orphans_preserved`: the orphaned managed-section rows step 3 §4c.1 kept verbatim (orphan-row (b), the headless default)
+- `drop_external_skills` from `orphans_dropped`: the orphaned rows step 3 §4c.1 left out (orphan-row (a))
+- `clear_orphan_context` from `orphans_cleared`: the orphaned context files step 3 §9 cleared after orphan-context (a)
 
 ```json
-{
-  "kind": "preserve_external_skills",
-  "skills": [
-    {"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md", ".cursorrules"]}
-  ],
-  "rationale": "managed-section row exists but no manifest entry / no source draft"
-}
+[
+  {
+    "kind": "preserve_external_skills",
+    "skills": [
+      {"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md", ".cursorrules"]}
+    ],
+    "rationale": "managed-section row exists but no manifest entry / no source draft"
+  },
+  {
+    "kind": "drop_external_skills",
+    "skills": [{"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md"]}]
+  },
+  {"kind": "clear_orphan_context", "files": ["AGENTS.md"]}
+]
 ```
 
-`source_files` per skill records the prior context files the orphan was found in (the §4c.1 multi-file scan deduplicates by `(skill, version)` and tracks which target context files originally carried the row — useful when an operator later debugs which IDE's managed section first introduced the external skill).
-
-Other workflow choices that diverge from the strict spec path may add their own entries with a distinct `kind` value — auditors then have one place to look for "what did this run choose to do differently from the canonical flow." Omit the field when there are no deviations rather than writing an empty array, so the absence is readable as "ran the canonical path."
+Each `skills` entry is one `orphan_rows` entry: its `skill_name` as `name`, its `version`, and its `source_files`, the context files the row was found in. `orphan_rows` gives each as its full path: write it as its `{context_file}`, relative to `{project-root}` (`CLAUDE.md`). Each `files` entry is a cleared file's `{context_file}`. Leave the field out when no kind applies rather than writing an empty array, so its absence reads as "ran the canonical path."
 
 ### 6b. Post-Export Hook (Optional)
 

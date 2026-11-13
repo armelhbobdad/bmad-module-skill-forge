@@ -1,9 +1,6 @@
 ---
 nextStepFile: 'update-context.md'
 snippetFormatData: '{snippetFormatPath}'
-# SKILL.md's On Activation resolved {countTokensHelper}, which measures the
-# staged draft in §4, and {rebuildManagedSectionsHelper}, whose `gotchas`
-# action reads the prior snippet in §2.5 and places the gotchas in §3a.
 ---
 
 <!-- Config: communicate in {communication_language}. Generate snippet content in {document_output_language}. -->

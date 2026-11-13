@@ -1,15 +1,5 @@
 ---
 nextStepFile: 'generate-snippet.md'
-# SKILL.md's On Activation resolved {manifestOpsHelper},
-# {skillInventoryHelper}, {rebuildManagedSectionsHelper} and
-# {validateOutputHelper}. §1 runs the inventory's `exportable` action to list
-# the skills that `--all` and the menu offer (deprecated ones left out). §2
-# runs the inventory's `resolve` action to choose
-# the version to export and bind its paths (the Manifest-lag guard included),
-# and runs it with `--skill` before a flat skill moves: only a flat skill
-# whose metadata.json carries an SKF marker (`flat_skf`) is migrated.
-# Resolve `{findTestReportHelper}` to the first existing path. §4b runs its
-# `find` action for the newest finished test report of the version §2 chose.
 findTestReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
   - '{project-root}/src/shared/scripts/skf-find-test-report.py'

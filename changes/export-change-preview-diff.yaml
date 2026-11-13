@@ -1,0 +1,5 @@
+type: changed
+scope: skf-export-skill
+summary: |
+  Export Skill's context file preview now comes from the new `diff` action of `skf-rebuild-managed-sections.py`, where the model used to compare the old managed section with the new one by eye. For each target file it shows the `[SKF Skills]` header line before and after, each skill row added, removed or changed (with its old and new version, and its old and new `root:` path when that moved), and a unified diff of the section, or `No change to the section.` when the section stays the same. `diff` takes the context file and the staged section in `--content-file`, writes nothing, and prints `case`, `header`, `rows` and `unified` as JSON. A preview the helper cannot build stops the run with exit `4` (`context-rebuild-failed`) before any file is written.
+issues: [1165]

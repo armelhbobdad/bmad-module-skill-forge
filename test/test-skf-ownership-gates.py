@@ -1293,10 +1293,30 @@ def test_a_known_context_file_that_no_ide_names_is_checked_with_the_helper():
     assert "`{other_context_files}` ← `other_context_files`" in _read(EXPORT_LOAD)
     for rel in (EXPORT_UPDATE, DROP_EXECUTE, RENAME_EXECUTE):
         assert "`<!-- SKF:BEGIN -->` marker" not in _read(rel), rel
-    # The gate it loads names the sections update-context.md has now.
+    # #1165: the gate it loads only lists a file to clear; §9 clears it after [C] and after the targets, so a
+    # cancel or a halt before §9 leaves the file as it was. Its keep option sends a refresh through the IDE mapping.
     gate = _read("src/skf-export-skill/references/orphan-context-detection.md")
-    assert "`{rebuildManagedSectionsHelper}` is the path SKILL.md's On Activation resolved" in gate
-    assert "§9a" not in gate and gate.count("§4 to §9") == 3
+    clear_call = re.compile(r"\{rebuildManagedSectionsHelper\}\s+\S+\s+clear\b")
+    for text in (orphaned, gate):
+        assert not clear_call.search(text), "nothing is cleared before the §8 gate"
+        assert "skills/" not in text, "the IDE mapping gives a refreshed file its skill root"
+    assert "`orphans_to_clear`" in orphaned and "`orphans_to_clear`" in gate
+    assert "`--context-file {context_file}`" in gate and "add its IDE back to `ides` in `config.yaml`" in gate
+    update = _read(EXPORT_UPDATE)
+    writes = _section(update, "### 9. Write and Verify", "### 9b. ")
+    assert [m.start() for m in clear_call.finditer(update)] == [update.index(writes) + m.start()
+                                                                for m in clear_call.finditer(writes)]
+    clear = 'python3 {rebuildManagedSectionsHelper} "{context_path}" clear'
+    assert writes.index(clear) > writes.index('python3 {rebuildManagedSectionsHelper} "{context_path}" replace')
+    # A failed clear halts before §9b and §9c: its halt says how to finish the export.
+    assert "the export manifest and the snippets are not written: re-run `[EX] Export Skill` on the batch" in \
+        writes[writes.index(clear):]
+    assert "`.claude/skills/`" in _section(update, "### 9b. Update Export Manifest", "### 9c. ")
+    for path in sorted((SRC / "skf-export-skill").rglob("*")):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            for stale in ("orphans_rewritten", "rewrite_context_files", "rewrite_orphan_context", "(c) rewrite"):
+                assert stale not in text, f"{path.relative_to(REPO).as_posix()}: {stale}"
     assert "updated ({case})" in _read("src/skf-export-skill/references/summary.md")
 
 
@@ -1380,8 +1400,7 @@ def test_export_step_4_deletes_the_stage_folder_on_every_exit():
     helpers = _section(_read(EXPORT_UPDATE), "### 2. Stage Folder", "### 3. ")
     assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) "
             "Cancel and every HALT in this step") in helpers
-    cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel",
-                      "## Downstream contract")
+    cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel", None)
     assert "- Delete the `{export_stage_dir}` folder" in cancel
 
 

@@ -20,6 +20,16 @@ Actions:
                 `case`: create (no file), append (no section: insert),
                 regenerate (a section: replace), or, with status "error",
                 malformed or unreadable
+  diff --content-file FILE
+                Compare the section between the markers (empty for create
+                and append) with the body FILE holds: `case` as check gives
+                it, `header` {old, new} (each body's `[SKF Skills]` line or
+                null), `rows` {added, removed, changed} (rows pair by skill
+                name, or by name and version when a name has several rows on
+                one side; a changed pair gives both versions and both `root:`
+                values), and `unified`, a unified diff of the two bodies ("" when
+                they are equal). check's errors are its own; a FILE that is
+                missing, a folder or not UTF-8 text is an error too.
 
 replace and insert take only the body that goes between the markers: they
 write `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` around it
@@ -159,6 +169,7 @@ Action-first actions (the action name comes first):
 from __future__ import annotations
 
 import argparse
+import difflib
 import importlib.util
 import json
 import os
@@ -561,6 +572,108 @@ def parse_managed_rows(body):
             }
         )
     return rows
+
+
+def _row_root(snippet_text):
+    """The `root:` value of a row's first line as written, else None."""
+    match = SNIPPET_ROOT_PATTERN.search(snippet_text.split("\n", 1)[0])
+    return match.group("root") if match else None
+
+
+def _section_header(body):
+    """The first line of `body` that starts with `[SKF Skills]`, else None."""
+    return next((line for line in body.split("\n") if line.startswith("[SKF Skills]")), None)
+
+
+def _pair_rows(old_rows, new_rows):
+    """(added, removed, changed) between two bodies' rows, each in skill-name order.
+
+    Rows pair by skill name. A name with several rows on one side pairs by name
+    and version instead, and its rows left without a partner are added or
+    removed. A pair whose text differs is changed.
+    """
+
+    def by_name(rows):
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(row["skill_name"], []).append(row)
+        return grouped
+
+    def lone(row):
+        return {"skill_name": row["skill_name"], "version": row["version"], "root": _row_root(row["snippet_text"])}
+
+    old_by_name, new_by_name = by_name(old_rows), by_name(new_rows)
+    added, removed, changed = [], [], []
+    for name in sorted(set(old_by_name) | set(new_by_name)):
+        olds, news = old_by_name.get(name, []), new_by_name.get(name, [])
+        if len(olds) == 1 and len(news) == 1:
+            pairs, left_old, left_new = [(olds[0], news[0])], [], []
+        else:
+            pairs, left_old, left_new = [], list(olds), []
+            for new in news:
+                at = next((i for i, old in enumerate(left_old) if old["version"] == new["version"]), None)
+                if at is None:
+                    left_new.append(new)
+                else:
+                    pairs.append((left_old.pop(at), new))
+        for old, new in pairs:
+            if old["snippet_text"] != new["snippet_text"]:
+                changed.append(
+                    {
+                        "skill_name": name,
+                        "old_version": old["version"],
+                        "new_version": new["version"],
+                        "old_root": _row_root(old["snippet_text"]),
+                        "new_root": _row_root(new["snippet_text"]),
+                    }
+                )
+        removed += [lone(row) for row in left_old]
+        added += [lone(row) for row in left_new]
+    return added, removed, changed
+
+
+def cmd_diff(file_path, content_file):
+    """Compare the managed section of `file_path` with the body in `content_file`.
+
+    `case` and its errors are check's. The old body is the section between the
+    markers without the newline after the BEGIN marker and the one before the
+    END marker, as replace writes it, and empty for create and append. The
+    unified diff runs it on to the last END marker section_end takes in, so it
+    shows the nested marker lines an older rebuild left that replace removes;
+    the rows come from the body the first marker pair holds.
+    """
+    checked = cmd_check(file_path)
+    if checked["status"] != "ok":
+        return checked
+    new, err = read_context_file(content_file)
+    if err:
+        return {"status": "error", "error": err}
+    old = section = ""
+    if checked["case"] == "regenerate":
+        content, err = read_context_file(file_path)
+        if err:
+            return {"status": "error", "error": err}
+        match = find_managed_section(content)
+        if match:
+            old = match.group(2).removeprefix("\n").removesuffix("\n")
+            end = section_end(content, match) - len(END_MARKER)
+            section = content[match.start(2) : end].removeprefix("\n").removesuffix("\n")
+    added, removed, changed = _pair_rows(parse_managed_rows(old), parse_managed_rows(new))
+    name = Path(file_path).name
+    unified = difflib.unified_diff(
+        section.split("\n") if section else [],
+        new.split("\n") if new else [],
+        fromfile=f"{name} (current)",
+        tofile=f"{name} (new)",
+        lineterm="",
+    )
+    return {
+        "status": "ok",
+        "case": checked["case"],
+        "header": {"old": _section_header(old), "new": _section_header(new)},
+        "rows": {"added": added, "removed": removed, "changed": changed},
+        "unified": "\n".join(unified),
+    }
 
 
 def _scan_rows(context_files, known_names):
@@ -1620,8 +1733,8 @@ def main():
         sys.exit(code)
 
     if len(sys.argv) < 3:
-        print("Usage: python3 skf-rebuild-managed-sections.py <context-file> <action> [--content <text>]", file=sys.stderr)
-        print("Actions: read, replace, clear, insert, check", file=sys.stderr)
+        print("Usage: python3 skf-rebuild-managed-sections.py <context-file> <action> [--content <text>] [--content-file <file>]", file=sys.stderr)
+        print("Actions: read, replace, clear, insert, check, diff", file=sys.stderr)
         print("   or: python3 skf-rebuild-managed-sections.py {" + ",".join(ACTION_FIRST) + "} ...", file=sys.stderr)
         sys.exit(1)
 
@@ -1655,6 +1768,17 @@ def main():
             result = cmd_replace(file_path, content_arg)
     elif action == "clear":
         result = cmd_clear(file_path)
+    elif action == "diff":
+        # Read by hand, as --content is: `"--content" in sys.argv` never matches it.
+        content_file = None
+        if "--content-file" in sys.argv:
+            idx = sys.argv.index("--content-file")
+            if idx + 1 < len(sys.argv):
+                content_file = sys.argv[idx + 1]
+        if not content_file:
+            result = {"status": "error", "error": "diff requires --content-file <file>"}
+        else:
+            result = cmd_diff(file_path, content_file)
     elif action == "insert":
         if content_arg is None or not content_arg.strip():
             result = {"status": "error", "error": "insert requires non-empty --content or stdin"}

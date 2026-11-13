@@ -692,6 +692,117 @@ def test_the_9c_copy_publishes_the_carried_draft_byte_for_byte(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# #1165: every orphan choice reaches deviations[], and each reference holds what a run needs
+# --------------------------------------------------------------------------
+
+# Each variable an orphan choice binds, and the deviations[] kind summary §6 records it as, in §6's order.
+DEVIATION_KINDS = {"orphans_preserved": "preserve_external_skills", "orphans_dropped": "drop_external_skills",
+                   "orphans_cleared": "clear_orphan_context"}
+MANIFEST_REBUILD = "references/manifest-rebuild.md"
+# Each gated reference: the start of the sentence that states its purpose, and its headings.
+GATED = {ORPHAN_CONTEXT: ("update-context.md §3b loads this gate when", ["## Gate Protocol", "## Choice handling"]),
+         ORPHAN_ROWS: ("update-context.md §4c.1 loads this gate when", ["## Gate Protocol", "## Choice handling"]),
+         MANIFEST_REBUILD: ("The v2 shape of `{skills_output_folder}/.export-manifest.json`",
+                            ["## v2 Schema", "## Status enum"])}
+
+
+def _deviations() -> str:
+    return _section(_read(SUMMARY), "**`deviations[]` field", "### 6b. ")
+
+
+def test_every_orphan_choice_reaches_the_deviations_list():
+    """architecture-1 and architecture-5: summary §6 names each variable an orphan choice binds, with its kind."""
+    update = _read(UPDATE)
+    bound = set()
+    for text in (_read(ORPHAN_CONTEXT), _read(ORPHAN_ROWS), _section(update, "### 9. Write and Verify", "### 9b. ")):
+        bound |= set(re.findall(r"`(orphans_\w+)`", text))
+    assert bound - {"orphans_to_clear"} == set(DEVIATION_KINDS)
+    deviations = _deviations()
+    for var, kind in DEVIATION_KINDS.items():
+        [line] = [line for line in deviations.splitlines() if f"`{var}`" in line]
+        assert line.startswith(f"- `{kind}` from `{var}`: "), line
+    starts = [deviations.index(f"- `{kind}` from ") for kind in DEVIATION_KINDS.values()]
+    assert starts == sorted(starts)
+    [block] = _fenced_blocks(deviations)
+    entries = json.loads("\n".join(block))
+    assert [entry["kind"] for entry in entries] == list(DEVIATION_KINDS.values())
+    assert [sorted(entry) for entry in entries] == [["kind", "rationale", "skills"], ["kind", "skills"],
+                                                   ["files", "kind"]]
+    for entry in entries[:2]:
+        assert [sorted(skill) for skill in entry["skills"]] == [["name", "source_files", "version"]]
+    assert ("Each `skills` entry is one `orphan_rows` entry: its `skill_name` as `name`, its `version`, and its "
+            "`source_files`, the context files the row was found in.") in deviations
+    assert "Leave the field out when no kind applies" in deviations
+    # One path form across deviations[]: each source_files path as its {context_file}, as files gives a cleared one.
+    assert "`orphan_rows` gives each as its full path: write it as its `{context_file}`" in deviations
+    # A file §9 cleared is in context_files_updated, so the Files Written table lists it too.
+    assert "| {each file in `orphans_cleared`} managed section | ✅ cleared | n/a |" in _read(SUMMARY)
+    # The list orphan-context (a) fills is shown at §7 and §8 and cleared at §9 only.
+    for start, end in (("### 7. ", "### 8. "), ("### 8. ", "### 9. "), ("### 9. Write and Verify", "### 9b. ")):
+        assert "`orphans_to_clear`" in _section(update, start, end), start
+    assert "`orphans_to_clear`" in _section(_read(ORPHAN_CONTEXT), "### (a) clear", "### (b) keep")
+    # The headless defaults: keep binds nothing, so a headless run records preserve_external_skills alone.
+    assert "orphans_" not in _section(_read(ORPHAN_CONTEXT), "### (b) keep", None)
+    rows = _read(ORPHAN_ROWS)
+    assert "Bind `orphans_preserved` ← `orphan_rows`" in _section(rows, "### (b) Preserve verbatim", "### (c) ")
+    assert "bind `orphans_dropped` ← `orphan_rows`" in _section(rows, "### (a) Drop", "### (b) ")
+
+
+def test_each_orphan_rule_has_one_home():
+    """leanness-6: the deviations shape, the keep-the-row reasoning and the symmetry outcome are each stated once."""
+    homes = {"the row is often the only copy of that skill's snippet": UPDATE, "become symmetric": ORPHAN_ROWS,
+             '"kind": "preserve_external_skills"': SUMMARY}
+    for phrase, home in homes.items():
+        holders = {path.relative_to(EXPORT).as_posix(): path.read_text(encoding="utf-8").count(phrase)
+                   for path in sorted(EXPORT.rglob("*.md")) if phrase in path.read_text(encoding="utf-8")}
+        assert holders == {home: 1}, (phrase, holders)
+    for path in sorted(EXPORT.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if path.name == "summary.md":
+            text = text.replace(_deviations(), "")
+        assert not [b for b in _fenced_blocks(text) if '"kind"' in "\n".join(b)], path.name
+
+
+def test_the_exit_4_row_names_the_preview_and_the_clear():
+    exit_4 = next(line for line in _read(ENVELOPE).splitlines() if line.startswith("| 4 "))
+    assert ("step 3 §4b (the body cannot be built, for example a context file that is not UTF-8 text), §6 (the "
+            "change preview cannot be built) or §9 (a write fails its check, or an orphaned file's clear fails) → "
+            "`context-rebuild-failed`") in exit_4
+    assert "§3b" not in exit_4, "§3b runs nothing that can fail on a clear"
+
+
+@pytest.mark.parametrize("rel, keys", [(LOAD, ["nextStepFile", "findTestReportProbeOrder"]),
+                                       (SNIPPET, ["nextStepFile", "snippetFormatData"]),
+                                       (UPDATE, ["nextStepFile"])])
+def test_the_step_frontmatters_hold_no_comment(rel, keys):
+    """leanness-9: a step's frontmatter holds its keys; its body says what each helper does where it runs it."""
+    text = _read(rel)
+    assert text.startswith("---\n")
+    frontmatter = text[len("---\n"):text.index("\n---\n")]
+    assert [line for line in frontmatter.splitlines() if line.lstrip().startswith("#")] == []
+    assert re.findall(r"^([A-Za-z]+):", frontmatter, re.M) == keys
+
+
+@pytest.mark.parametrize("rel", sorted(GATED))
+def test_the_gated_references_hold_what_a_run_needs(rel):
+    """leanness-9: one purpose sentence opens each, with no load comment, Purpose, Inputs or closing recap."""
+    purpose, headings = GATED[rel]
+    text = _read(rel)
+    assert text.startswith("<!-- Config: ")
+    after_title = text.split("\n# ", 1)[1].split("\n\n")
+    assert after_title[1].startswith(purpose) and after_title[1].count(". ") == 0, after_title[1]
+    assert re.findall(r"^## .+$", text, re.M) == headings
+    for stale in ("Static reference", "## Purpose", "## Inputs", "## Downstream contract", "## Scope note",
+                  "v1 → v2 migration", "Integrity invariant", "Strict ADR-K would silently drop",
+                  "Silent drop under automation", "```json\n{\n  \"kind\""):
+        assert stale not in text, stale
+    conventions = _section(_read(SKILL_MD), "## Conventions", "## Role")
+    assert ("`update-context.md` loads `orphan-context-detection.md` and `orphan-row-detection.md`); "
+            "`manifest-rebuild.md`, the v2 manifest shape `update-context.md` §9b names, which no step loads;") \
+        in conventions
+
+
+# --------------------------------------------------------------------------
 # #583 and determinism-2: the version and the test report come from helpers
 # --------------------------------------------------------------------------
 

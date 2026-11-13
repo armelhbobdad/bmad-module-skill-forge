@@ -454,14 +454,29 @@ def test_update_context_asks_once_naming_every_target_with_its_case():
                   "write changes to all targets"):
         assert stale not in update, stale
     preview = _section(update, "### 7. Present Change Preview", "### 8. ")
-    assert "then one block per target" in preview
-    assert '"**Target:** `{context_file}` ({case})\n**Skills in index:** {n_single} skills, {n_stack} stack' in preview
+    assert "then one block per target, in the order §3 set, from its `{section_diff}`" in preview
+    # #1165: the helper's diff gives the header line, the rows and the unified diff; no count is bound by hand.
+    assert ('"**Target:** `{context_file}` ({case})\n**Header:** `{header.old}` → `{header.new}`\n'
+            "**Rows:** {each `rows.added` entry as added `{skill_name} v{version}`, each `rows.removed` entry as "
+            "removed `{skill_name} v{version}`, and each `rows.changed` entry as changed `{skill_name}` "
+            "v{old_version} → v{new_version}, with root `{old_root}` → `{new_root}` when the two differ") in preview
+    # Four backticks: a section line of three backticks shows as a context line that would close a three-backtick fence.
+    assert "\n````diff\n{unified}\n````\n" in preview
+    assert "show the version once when `old_version` equals `new_version`" in preview
+    assert "and a null root as `(none)`" in preview
+    assert '"No change to the section." in place of the `diff` fence when `unified` is `""`' in preview
     assert "**Content outside markers:** {preserved / n/a (new file)}" in preview
+    assert "{n_single}" not in update and "{n_stack}" not in update
+    # An orphaned file orphan-context (a) listed gets its own block after the targets, and the prompt names it.
+    clear = ('"**Target:** `{context_file}` (clear)\nIts managed section and both markers are removed; the content '
+             'outside them stays."')
+    assert preview.index("Then one block per file in `orphans_to_clear`") > preview.index("```diff") and clear in preview
     selects = [line for line in update.splitlines() if "**Select:**" in line]
     assert len(selects) == 1, selects
     real = _section(update, "**If NOT dry-run:**", "#### Gate handling")
     assert selects[0] in real
-    assert ("[C] Continue: write changes to {each target as `{context_file}` ({case}), comma-separated} | "
+    assert ("[C] Continue: write changes to {each target as `{context_file}` ({case}), then each file in "
+            "`orphans_to_clear` as `{context_file}` (clear), comma-separated} | "
             "[X] Cancel and exit (or type `cancel` / `exit` / `:q`)") in selects[0]
     assert "**[DRY RUN] No files will be written." in _section(update, "**If dry-run mode:**", "**If NOT dry-run:**")
 
