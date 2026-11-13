@@ -123,8 +123,22 @@ Subcommands:
       (`unsupported-ecosystem`). `edges` is the `skf-find-cycles.py find
       --edges` input as it is (that helper reads only the `edges` key).
 
+  units-from --units-file <file> --project-path <path>
+             [--module <unit name>=<import name>]...
+
+      Print the --units input of one project path from the units file
+      analyze-source's identify-units writes (skf-disqualify-candidates.py
+      units): {"units": [...]}, one entry per unit of that project path
+      whose status is not `deferred`, with its `name` and `path`, and the
+      `manifest_name` and `ecosystem` of its own `manifest` (each left out
+      when null). --module (repeatable, split on the first `=`) adds an
+      import name to a listed unit's `modules`: a folder without a manifest
+      that code imports by name. The project path is read without a leading
+      `./` or trailing `/`. The entries pass parse_units. A project path
+      with no unit in the file, or a --module naming no listed unit, exits 1.
+
   summary <imports-file-or-'-'> [--manifests <json-file-or-'-'>]
-          [--max-files N]
+          [--max-files N] [--format json|markdown]
 
       Print the unit graph of a saved `count --units` envelope without the
       file lists a reader of the graph does not need (on a large monorepo
@@ -156,7 +170,12 @@ Subcommands:
       `skf-scan-manifests.py scan` envelope (present only with it), each
       manifest with the fields the cohesion triggers read. `warnings` is
       the envelope's, present only when it has some. Only one of the two
-      inputs may read stdin.
+      inputs may read stdin. `--format markdown` prints, as UTF-8, the
+      cross-reference matrix alone under `**Cross-reference matrix:**`:
+      `| Unit | Imports From | Imported By | Import Sites | External Deps |`,
+      one row per unit (`imports_from` and `imported_by` joined with `, `,
+      an empty one `--`; `file_count`; `external_dep_count`, `--` for 0),
+      or `None.` with no unit.
 
 Resolution of a dependency's import names (`resolution`):
   exact     the ecosystem's own rule: an npm package is imported by its name,
@@ -1704,6 +1723,70 @@ def summarize(result: object, manifests: object | None = None, max_files: int = 
     return out
 
 
+def _cell(value: object) -> str:
+    """A markdown table cell: a list joined with `, ` (an empty one `--`),
+    `|` escaped, line breaks as spaces."""
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(str(v) for v in value)
+    text = "" if value is None else str(value)
+    text = " ".join(text.split("\r\n")).replace("\r", " ").replace("\n", " ")
+    return text.replace("|", "\\|") if text.strip() else "--"
+
+
+def render_matrix(summary: dict) -> str:
+    """The cross-reference matrix of a summary as a markdown table."""
+    header = ("Unit", "Imports From", "Imported By", "Import Sites", "External Deps")
+    lines = ["**Cross-reference matrix:**", ""]
+    if not summary["units"]:
+        return "\n".join([*lines, "None."]) + "\n"
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("|" + "|".join("---" for _ in header) + "|")
+    for u in summary["units"]:
+        row = (u["name"], u["imports_from"], u["imported_by"], u["file_count"], u["external_dep_count"] or None)
+        lines.append("| " + " | ".join(_cell(v) for v in row) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def _bare_path(value: str) -> str:
+    """A project path read without a leading `./` or a trailing `/`."""
+    text = value[2:] if value.startswith("./") else value
+    return text.rstrip("/") or text
+
+
+def units_from(units_file: object, project_path: str, modules: list[str] | None = None) -> dict:
+    """The --units input of one project path from analyze-source's units
+    file (see `units-from`). Raises InputError."""
+    rows = units_file.get("units") if isinstance(units_file, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise InputError("the units file holds no `units` list of objects")
+    key = _bare_path(project_path)
+    mine = [row for row in rows if isinstance(row.get("project_path"), str) and _bare_path(row["project_path"]) == key]
+    if not mine:
+        raise InputError(f"the units file holds no unit of the project path {project_path!r}")
+    entries: list[dict] = []
+    for row in mine:
+        if row.get("status") == "deferred":
+            continue
+        entry = {"name": row.get("name"), "path": row.get("path")}
+        manifest = row.get("manifest")
+        if isinstance(manifest, dict):
+            for field, value in (("manifest_name", manifest.get("name")), ("ecosystem", manifest.get("ecosystem"))):
+                if value is not None:
+                    entry[field] = value
+        entries.append(entry)
+    by_name = {entry["name"]: entry for entry in entries}
+    for spec in modules or []:
+        name, sep, module = spec.partition("=")
+        if not sep or not name.strip() or not module.strip():
+            raise InputError(f"--module {spec!r} is not <unit name>=<import name>")
+        entry = by_name.get(name.strip())
+        if entry is None:
+            raise InputError(f"--module {spec!r} names no unit listed for {project_path!r}")
+        entry.setdefault("modules", []).append(module.strip())
+    parse_units(entries)
+    return {"units": entries}
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -1766,7 +1849,33 @@ def _cmd_summary(args: argparse.Namespace) -> int:
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if args.format == "markdown":
+        _write_utf8(render_matrix(output))
+        return 0
     json.dump(output, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def _write_utf8(text: str) -> None:
+    """Print `text` as UTF-8 whatever the console's encoding (`?` for a
+    file name byte that is not UTF-8)."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        sys.stdout.write(text)
+        return
+    sys.stdout.flush()
+    buffer.write(text.encode("utf-8", errors="replace"))
+    buffer.flush()
+
+
+def _cmd_units_from(args: argparse.Namespace) -> int:
+    try:
+        output = units_from(_read_json_source(args.units_file, "--units-file"), args.project_path, args.module)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
 
@@ -1852,7 +1961,36 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help=f"files listed per edge_files entry (default {SUMMARY_MAX_FILES})",
     )
+    p_summary.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="the JSON summary (default) or the cross-reference matrix as a markdown table",
+    )
     p_summary.set_defaults(func=_cmd_summary)
+
+    p_units_from = sub.add_parser(
+        "units-from",
+        help="print one project path's --units input from analyze-source's units file",
+    )
+    p_units_from.add_argument(
+        "--units-file",
+        required=True,
+        help="the units file skf-disqualify-candidates.py units wrote, or '-' for stdin",
+    )
+    p_units_from.add_argument(
+        "--project-path",
+        required=True,
+        help="the project path whose units to print",
+    )
+    p_units_from.add_argument(
+        "--module",
+        action="append",
+        default=[],
+        metavar="NAME=IMPORT",
+        help="an import name of a listed unit without a manifest (repeatable)",
+    )
+    p_units_from.set_defaults(func=_cmd_units_from)
 
     return parser
 

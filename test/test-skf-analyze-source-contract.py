@@ -61,6 +61,11 @@ fixtures:
   documented parser line and the record check run on a fixture. Step E
   counts the demo files and scores the registry candidates by
   skf-detect-registry.py, and the heuristics name those outputs.
+- #1126: identify-units section 3's units call detects each unit's language
+  with no workspace signal, as section 4 says, and map-and-detect and [D]
+  build each project path's units JSON from the units file with
+  skf-count-imports.py units-from, then print the summary and the
+  cross-reference matrix: the documented blocks run on a fixture.
 """
 
 from __future__ import annotations
@@ -752,11 +757,17 @@ def test_the_auto_path_has_no_grep_pre_filter_and_no_echoed_tree():
 
 
 def test_identify_units_passes_no_workspace_signal():
+    """#1126: section 3's units call detects each unit's language from its own listing, with no workspace
+    signal, as section 4 says."""
     text = _read(IDENTIFY)
-    calls = [line for block in _fenced(text, "bash") for line in block.split("\n") if "{detectLanguageHelper}" in line]
-    assert calls and not any("--workspace-signal" in line for line in calls)
-    assert "Pass no `--workspace-signal` here" in text
-    assert "`.source_language`" in text
+    assert "{detectLanguageHelper}" not in text
+    call = _one_command(_section(text, "### 3. Build Unit Classification Table", "### 4."),
+                        "{disqualifyCandidatesHelper} units")
+    assert "workspace" not in call
+    language = _section(text, "### 4. Detect Primary Language Per Unit", "### 5.")
+    assert ("It passes no workspace signal: a workspace root's language would answer for every unit of the "
+            "workspace") in language
+    assert "`.source_language`" in language
 
 
 def _git(*args: str, cwd: Path) -> None:
@@ -1231,9 +1242,8 @@ def test_the_per_boundary_brief_rules_are_stated_once():
 # --------------------------------------------------------------------------
 
 GRAPH_STEPS = (
-    pytest.param(MAP, "{source_root}", "<one entry per qualifying unit under {source_root}>", "imports-1.json",
-                 id="map-and-detect"),
-    pytest.param(DISCOVER, "{scan_root}", "<one entry per new unit that is not deferred>", "discover-1-imports.json",
+    pytest.param(MAP, "{source_root}", "units-1.json", "imports-1.json", id="map-and-detect"),
+    pytest.param(DISCOVER, "{scan_root}", "discover-1-units.json", "discover-1-imports.json",
                  id="discover-additional-source"),
 )
 
@@ -1247,11 +1257,17 @@ def _graph_block(path: Path) -> str:
 def test_the_import_graph_is_read_through_the_summary(path, root, units, imports):
     """The import envelope is kept in the run folder, never printed whole: the step reads the summary line."""
     block = _graph_block(path)
-    for gone in ("mktemp", "trap ", "$work", "cat \""):
+    for gone in ("mktemp", "trap ", "$work", "cat ", "SKF_UNITS"):
         assert gone not in block, gone
-    [summary] = [line for line in block.split("\n") if "{countImportsHelper} summary" in line]
-    assert summary == (f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports.replace("1", "{i}", 1)}" '
-                       '--manifests "{run_dir}/manifests-{i}.json"')
+    imports = imports.replace("1", "{i}", 1)
+    first = block.strip().split("\n")[0]
+    assert first == ('uv run {countImportsHelper} units-from --units-file "{unitsFile}" --project-path '
+                     f'"{{project_path}}" > "{{run_dir}}/{units.replace("1", "{i}", 1)}"')
+    summaries = [line for line in block.split("\n") if "{countImportsHelper} summary" in line]
+    assert summaries == [
+        f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports}" --manifests "{{run_dir}}/manifests-{{i}}.json"',
+        f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports}" --format markdown',
+    ]
     for line in block.strip().split("\n"):
         if line.startswith("uv run {countImportsHelper} count"):
             assert f'count "{root}"' in line and " > " in line, line
@@ -1263,8 +1279,9 @@ def test_the_import_graph_is_read_through_the_summary(path, root, units, imports
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
 @pytest.mark.parametrize("path, root, units, imports", GRAPH_STEPS)
 def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root, units, imports):
-    """The block, run as documented on two packages that import each other: the summary line, the cycle and
-    the pairs reach the step, and the import envelope stays in its file."""
+    """The block, run as documented on two packages that import each other: the units JSON comes from the
+    units file (its deferred unit left out), the summary line, the matrix, the cycle and the pairs reach the
+    step, and the import envelope stays in its file."""
     source = tmp_path / "mono"
     files = {
         "package.json": b'{"name": "acme", "private": true, "workspaces": ["packages/*"]}\n',
@@ -1281,13 +1298,19 @@ def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root
                           capture_output=True, timeout=60)
     assert scan.returncode == 0, scan.stderr
     (run_dir / "manifests-1.json").write_bytes(scan.stdout)
-    entries = [{"name": name, "path": f"packages/{name}", "manifest_name": f"@acme/{name}", "ecosystem": "npm"}
-               for name in ("a", "b")]
-    script = _graph_block(path).replace(f"[{units}]", json.dumps(entries)).replace(root, source.as_posix())
+    units_file = tmp_path / "forge" / "analyze-source-units-mono.json"
+    units_file.parent.mkdir(parents=True)
+    units_file.write_bytes(json.dumps({"units": [
+        {"name": name, "project_path": "https://github.com/acme/mono", "path": f"packages/{name}", "status": status,
+         "manifest": {"path": f"packages/{name}/package.json", "ecosystem": "npm", "name": f"@acme/{name}",
+                      "private": False}}
+        for name, status in (("a", "new"), ("b", "briefed"), ("c", "deferred"))], "dropped": []}).encode("utf-8"))
+    script = _graph_block(path).replace(root, source.as_posix())
     helpers = {"countImportsHelper": "skf-count-imports.py", "findCyclesHelper": "skf-find-cycles.py",
                "pairIntersectHelper": "skf-pair-intersect.py"}
     for placeholder, name in helpers.items():
         script = script.replace(f"uv run {{{placeholder}}}", f'"{sys.executable}" "{SCRIPTS / name}"')
+    script = script.replace("{unitsFile}", units_file.as_posix()).replace("{project_path}", "https://github.com/acme/mono/")
     script = script.replace("{run_dir}", run_dir.as_posix()).replace("{i}", "1")
     assert not re.findall(r"\{[A-Za-z_]+\}", script), script
     proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=120)
@@ -1298,6 +1321,11 @@ def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root
     assert [(u["name"], u["imports_from"], u["external_dep_count"]) for u in summary["units"]] == \
         [("a", ["b"], 1), ("b", ["a"], 0)]
     assert {m["name"]: m["internal_deps"] for m in summary["manifests"]}["@acme/a"] == ["@acme/b"]
+    assert [u["name"] for u in json.loads((run_dir / units).read_text(encoding="utf-8"))["units"]] == ["a", "b"]
+    lines = out.splitlines()
+    matrix = lines[lines.index("**Cross-reference matrix:**"):]
+    assert matrix[2:6] == ["| Unit | Imports From | Imported By | Import Sites | External Deps |",
+                           "|---|---|---|---|---|", "| a | b | b | 1 | 1 |", "| b | a | a | 1 | -- |"]
     assert '"dependencies"' not in out and '"import_names"' not in out, "the envelope stays in its file"
     assert '"cycles"' in out and '"pairs"' in out
     assert "dependencies" in json.loads((run_dir / imports).read_text(encoding="utf-8"))

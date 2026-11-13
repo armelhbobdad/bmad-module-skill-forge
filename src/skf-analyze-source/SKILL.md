@@ -61,7 +61,7 @@ These rules apply to every step in this workflow:
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier: activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path` naming one target. |
 | **Gates** | one per step: steps 2 to 4 [C] (step 4 also takes composite merges, default accept); step 5 [C] after the decisions (default: confirm every card, flag every stack skill candidate); step 6 [Y] (write briefs). Headless takes each default and records it in `headless_decisions`. Auto mode: only the step 1a coexistence gate (default [A]longside) |
-| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit) and the run's result files, written by every run that ends, zero confirmed units included; final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
+| **Outputs** | analysis-report.md (and, in a step-by-step analysis, the units file `analyze-source-units-{project_name}.json` beside it), skill-brief.yaml files (one per recommended unit) and the run's result files, written by every run that ends, zero confirmed units included; final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
 | **Exit codes** | Envelope, emitter, result files, `halt_reason` enum and exit codes: `references/headless-contract.md` |
 
 ## On Activation

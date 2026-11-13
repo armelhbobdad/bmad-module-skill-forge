@@ -111,9 +111,10 @@ its record carries `tree_file`: the listing skf-detect-language.py
 caller. A file name that is not UTF-8 is written with `?` for each byte
 that is not, so the listing stays one UTF-8 file.
 
-Subcommand:
+Subcommands:
   filter --boundaries <json-file-or--for-stdin> [--source-root <path>]
                      [--tree-dir <folder>] [--min-files N] [--min-loc N]
+                     [--project-path <path>]
 
       Read a boundaries JSON of the shape:
         [
@@ -124,6 +125,7 @@ Subcommand:
         ]
       and emit:
         {
+          "project_path": "<path>",          // with --project-path only
           "kept":    [<record>, ...],
           "dropped": [<record> + {"reason": "<too-few-files|too-low-loc|"
                                              "generated-code|"
@@ -155,12 +157,69 @@ Subcommand:
   and, when that does not exist, against
   `<source-root>/<boundary-path>/<file-rel>`. A file listed twice counts
   once. Missing files read as empty files; the boundary is still subject
-  to the count and LoC thresholds.
+  to the count and LoC thresholds. --project-path names the project path
+  the boundaries were found under, which `units` reads from the envelope.
+
+  units --filter <file> [--filter <file> ...] --names <file>
+        --judgments <json-file-or--for-stdin> --out <file> [--add]
+
+      Merge the saved `filter --project-path --tree-dir` envelopes (one
+      --filter per project path), the saved `skf-skill-inventory.py
+      derive-name --from` output and the model's judgments into the units
+      file analyze-source's step-by-step chain carries from identify-units
+      to map-and-detect, and print its tables. A judgment is
+        {"project_path": "...", "path": "<record path>",
+         "status": "new|briefed|deferred|dropped",
+         "boundary_type": "...", "scope_type": "...",
+         "confidence": "high|medium|low", "rationale": "...",
+         "reason": "...",      // a dropped one
+         "name": "...",        // optional: replaces the derived name
+         "language": "..."}    // optional: replaces the detected language
+      new, briefed and deferred keep a record (they need boundary_type,
+      scope_type, confidence and rationale); dropped drops it (it needs
+      reason and rationale). Every kept[] record needs one; a dropped[]
+      record without one stays dropped with the script's reason and
+      context, and one with a kept status is restored. A unit's name is
+      the names[] entry whose `target` is its path (its project path for
+      `.`, both read without a leading `./` or trailing `/`) and whose
+      `manifest_name` is its manifest.name (null without a manifest); a
+      judgment's `name` replaces it, and is required when that entry's
+      name is null or not exactly one entry matches. Each unit's language
+      is skf-detect-language.py's detect() over its tree_file (no
+      workspace signal), unless its judgment names one (in lower case when
+      that is a language scope_patterns() knows), and its `scope` the
+      include and exclude scope_patterns() gives for that language
+      (`unknown`'s for a language it does not know). The file is
+        {"units": [{"name", "project_path", "path", "status",
+                    "boundary_type", "scope_type", "confidence",
+                    "rationale", "files_count", "loc_total", "manifest",
+                    "generated_files", "generated_ratio", "signals",
+                    "tree_file", "language",
+                    "language_detection": {"language", "confidence",
+                                           "detection_source",
+                                           "detected_languages",
+                                           "source_language"},
+                    "scope": {"include", "exclude"}}, ...],
+         "dropped": [{"project_path", "path", "name", "reason",
+                      "context", "rationale"}, ...]}
+      project paths in --filter order, each one's units in filter order
+      (kept, then restored) and its drops in filter order (kept records
+      judged dropped, then the script's drops). It is written through a
+      temporary file and os.replace, with `?` for each file name byte that
+      is not UTF-8. Without --add it holds this call's
+      project paths only; with --add the units and drops the file already
+      holds for other project paths stay first. Stdout gets three
+      markdown tables of this call's project paths, as UTF-8: Identified
+      units, Language and scope, and Disqualified.
 
 CLI examples:
   uv run skf-disqualify-candidates.py filter --boundaries boundaries.json
   cat boundaries.json | uv run skf-disqualify-candidates.py filter \\
-      --boundaries - --source-root /path/to/project --tree-dir /tmp/trees
+      --boundaries - --source-root /path/to/project --tree-dir /tmp/trees \\
+      --project-path https://github.com/acme/mono > filter-1.json
+  uv run skf-disqualify-candidates.py units --filter filter-1.json \\
+      --names unit-names.json --judgments unit-judgments.json \\
+      --out analyze-source-units-acme.json
 
 Exit codes:
   0  operation succeeded (including: empty input, which gives empty kept
@@ -169,7 +228,17 @@ Exit codes:
      boundary path that is absolute or leaves the source root, a boundary
      path to list that is no folder, a --tree-dir that cannot be
      written), or no skf-scan-manifests.py beside this script that loads
-     (it needs Python 3.11 for tomllib, hence this script's floor)
+     (it needs Python 3.11 for tomllib, hence this script's floor). For
+     `units`: a kept record without a judgment, a judgment that names no
+     record, a record judged twice, a judgment missing a field or with an
+     unknown status or confidence, a filter envelope without
+     `project_path` or a `kept` or `dropped` list, a record without
+     `tree_file`, a boundary one filter lists twice, two --filter files of
+     one project path, a names file holding a derive-name error or no
+     `names` list, an --add file without `units` and `dropped` lists, a
+     unit without a name or two units sharing one, a tree file that cannot be read, or
+     no skf-detect-language.py beside this script that loads; stderr
+     names each, and nothing is written
 """
 
 from __future__ import annotations
@@ -181,6 +250,7 @@ import os
 import posixpath
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -284,6 +354,12 @@ SCAN_MANIFESTS = Path(__file__).resolve().parent / "skf-scan-manifests.py"
 _SCAN_MODULE = None
 _MANIFEST_FILENAMES: frozenset[str] = frozenset()
 _MANIFEST_FILENAMES_LC: frozenset[str] = frozenset()
+
+# The language detector beside this script: `units` takes each unit's
+# language and scope patterns from its detect() and scope_patterns(), the
+# functions its CLI runs, so no unit's language result is typed.
+DETECT_LANGUAGE = Path(__file__).resolve().parent / "skf-detect-language.py"
+_DETECT_LANGUAGE_MODULE = None
 
 # The git runner beside this script (no hooks, no git location variables,
 # never a git shim in the current folder), which lists a boundary's files.
@@ -548,6 +624,26 @@ def manifest_filenames() -> frozenset[str]:
     """
     scan_manifests_module()
     return _MANIFEST_FILENAMES
+
+
+def detect_language_module():
+    """skf-detect-language.py, loaded once from beside this script.
+    Raises ImportError when it cannot be loaded.
+    """
+    global _DETECT_LANGUAGE_MODULE
+    if _DETECT_LANGUAGE_MODULE is None:
+        spec = importlib.util.spec_from_file_location(
+            "skf_detect_language", DETECT_LANGUAGE
+        )
+        if spec is None or spec.loader is None or not DETECT_LANGUAGE.is_file():
+            raise ImportError(f"cannot load {DETECT_LANGUAGE}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for name in ("detect", "scope_patterns", "read_tree_file", "_SCOPE_RULES"):
+            if not hasattr(module, name):
+                raise ImportError(f"{DETECT_LANGUAGE} has no {name}")
+        _DETECT_LANGUAGE_MODULE = module
+    return _DETECT_LANGUAGE_MODULE
 
 
 def _basename(file_path: str) -> str:
@@ -1052,6 +1148,376 @@ def filter_boundaries(
 
 
 # --------------------------------------------------------------------------
+# The units file: the filter's records, their names and the model's judgments
+# --------------------------------------------------------------------------
+
+
+KEPT_STATUSES = ("new", "briefed", "deferred")
+STATUSES = (*KEPT_STATUSES, "dropped")
+CONFIDENCES = ("high", "medium", "low")
+# What a judgment of each kind must give, beyond project_path, path and status.
+KEPT_JUDGMENT_FIELDS = ("boundary_type", "scope_type", "confidence", "rationale")
+DROPPED_JUDGMENT_FIELDS = ("reason", "rationale")
+# The filter record fields a unit carries as they are.
+UNIT_RECORD_FIELDS = ("files_count", "loc_total", "manifest", "generated_files",
+                      "generated_ratio", "signals", "tree_file")
+DETECTION_FIELDS = ("language", "confidence", "detection_source",
+                    "detected_languages", "source_language")
+
+
+class UnitsError(ValueError):
+    """What stops `units` from writing the units file, one problem per entry,
+    each naming its project path and path."""
+
+    def __init__(self, problems: list[str]):
+        super().__init__("; ".join(problems))
+        self.problems = problems
+
+
+def bare_path(value: str) -> str:
+    """A derive-name target or a project path, read without a leading `./`
+    or a trailing `/`."""
+    text = value[2:] if value.startswith("./") else value
+    return text.rstrip("/") or text
+
+
+def _text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _filter_records(source: str, envelope: object, problems: list[str]) -> dict | None:
+    """One --filter envelope as {"project_path", "records"}, each record with
+    its `kind` (kept or dropped) and normalized `path`; None when it has no
+    project path."""
+    if not isinstance(envelope, dict) or not _text(envelope.get("project_path")):
+        problems.append(f"{source}: the filter envelope has no `project_path` (run filter with --project-path)")
+        return None
+    project_path = envelope["project_path"]
+    records: list[dict] = []
+    seen: set[str] = set()
+    for kind in ("kept", "dropped"):
+        rows = envelope.get(kind)
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            problems.append(f"{project_path}: {source} holds no `{kind}` list of records")
+            continue
+        for rec in rows:
+            raw = rec.get("path")
+            if not isinstance(raw, str):
+                problems.append(f"{project_path}: a {kind}[] record of {source} has no `path`")
+                continue
+            try:
+                path = normalize_boundary_path(str(rec.get("name") or raw), raw)
+            except ValueError as exc:
+                problems.append(f"{project_path}: {exc}")
+                continue
+            if not _text(rec.get("tree_file")):
+                problems.append(f"{project_path} {path}: the record has no `tree_file` (run filter with --tree-dir)")
+            if path in seen:
+                problems.append(f"{project_path} {path}: {source} lists the boundary twice")
+            seen.add(path)
+            records.append({"kind": kind, "path": path, "record": rec})
+    return {"project_path": project_path, "records": records}
+
+
+def _read_judgments(judgments: object, problems: list[str]) -> tuple[dict[tuple[str, str], dict], set]:
+    """The judgments by (bare project path, normalized path), and the keys
+    of those with a problem (each reported in `problems`)."""
+    rows = judgments.get("judgments") if isinstance(judgments, dict) else judgments
+    if not isinstance(rows, list):
+        problems.append("the judgments are not a JSON array of judgments")
+        return {}, set()
+    judged: dict[tuple[str, str], dict] = {}
+    bad: set[tuple[str, str]] = set()
+    for idx, row in enumerate(rows):
+        where = f"judgments[{idx}]"
+        if not isinstance(row, dict):
+            problems.append(f"{where} is not an object")
+            continue
+        project_path, raw = row.get("project_path"), row.get("path")
+        if not _text(project_path) or not isinstance(raw, str):
+            problems.append(f"{where} needs `project_path` and `path`")
+            continue
+        try:
+            path = normalize_boundary_path(where, raw)
+        except ValueError as exc:
+            problems.append(f"{project_path}: {exc}")
+            continue
+        label = f"{project_path} {path}"
+        key = (bare_path(project_path), path)
+        if key in judged:
+            problems.append(f"{label}: the record is judged twice")
+            continue
+        judged[key] = row
+        before = len(problems)
+        status = row.get("status")
+        if status not in STATUSES:
+            problems.append(f"{label}: unknown status {status!r} (new, briefed, deferred or dropped)")
+        else:
+            needed = KEPT_JUDGMENT_FIELDS if status in KEPT_STATUSES else DROPPED_JUDGMENT_FIELDS
+            missing = [field for field in needed if not _text(row.get(field))]
+            if missing:
+                problems.append(f"{label}: a {status} judgment needs {', '.join(missing)}")
+            if status in KEPT_STATUSES and _text(row.get("confidence")) and row["confidence"] not in CONFIDENCES:
+                problems.append(f"{label}: unknown confidence {row['confidence']!r} (high, medium or low)")
+        for field in ("name", "language"):
+            if row.get(field) is not None and not _text(row.get(field)):
+                problems.append(f"{label}: `{field}` must be a non-empty string when given")
+        if len(problems) > before:
+            bad.add(key)
+    return judged, bad
+
+
+def _name_entries(names: object, problems: list[str]) -> list[dict]:
+    """The `names[]` of a saved derive-name --from output."""
+    if isinstance(names, dict) and names.get("status") not in (None, "ok"):
+        problems.append(f"the names file holds a derive-name error: {names.get('error') or names.get('code')}")
+        return []
+    entries = names.get("names") if isinstance(names, dict) else names
+    if not isinstance(entries, list):
+        problems.append("the names file holds no `names` list (the derive-name --from output)")
+        return []
+    return [e for e in entries if isinstance(e, dict) and isinstance(e.get("target"), str)]
+
+
+def _matched_name(entries: list[dict], project_path: str, path: str, manifest: object) -> tuple[str | None, str]:
+    """(the name of the one names[] entry for this record, or None, and why
+    there is none)."""
+    target = bare_path(project_path if path == "." else path)
+    manifest_name = manifest.get("name") if isinstance(manifest, dict) else None
+    hits = [e for e in entries if bare_path(e["target"]) == target and e.get("manifest_name") == manifest_name]
+    if len(hits) == 1 and _text(hits[0].get("name")):
+        return hits[0]["name"], ""
+    if not hits:
+        return None, "no names[] entry has its target and manifest name"
+    if len(hits) == 1:
+        return None, "its names[] entry has no name"
+    return None, f"{len(hits)} names[] entries have its target and manifest name"
+
+
+def _language_of(detector, record: dict, language: str | None) -> dict:
+    """The unit's language, its detection and its scope patterns, from its
+    tree_file. Raises ValueError (or OSError) for a tree file that cannot be
+    read."""
+    tree = detector.read_tree_file(record["tree_file"])[0]
+    detected = detector.detect({"tree": tree})
+    chosen = language or detected["language"]
+    if chosen.lower() in detector._SCOPE_RULES:
+        chosen = chosen.lower()  # a judged `TypeScript` is `typescript`
+    patterns = detector.scope_patterns(tree, chosen if chosen in detector._SCOPE_RULES else "unknown")
+    return {
+        "language": chosen,
+        "language_detection": {field: detected.get(field) for field in DETECTION_FIELDS},
+        "scope": {"include": patterns["include"], "exclude": patterns["exclude"]},
+    }
+
+
+def _scalar(value: object) -> str:
+    return json.dumps(value) if isinstance(value, (bool, type(None))) else str(value)
+
+
+def drop_evidence(rationale: str | None, record: dict) -> str:
+    """The Evidence cell of a drop: its rationale, else the script's
+    `context` as key=value pairs and, with generated files, the
+    generated_ratio and the first one."""
+    if rationale:
+        return rationale
+    context = record.get("context")
+    parts = [f"{k}={_scalar(v)}" for k, v in context.items()] if isinstance(context, dict) else []
+    generated = record.get("generated_files")
+    if isinstance(generated, list) and generated:
+        parts.append(f"generated_ratio={_scalar(record.get('generated_ratio'))}")
+        first = generated[0]
+        parts.append(str(first.get("path")) if isinstance(first, dict) else str(first))
+    return ", ".join(parts)
+
+
+def merge_units(
+    filters: list[tuple[str, object]],
+    names: object,
+    judgments: object,
+    *,
+    existing: object = None,
+    detector=None,
+) -> tuple[dict, list[dict], list[dict]]:
+    """The units file and this call's units and drops (each drop with its
+    `evidence`), from the --filter envelopes (source, envelope), the saved
+    derive-name output and the judgments; with `existing`, the units file
+    already there (--add). Raises UnitsError naming every problem.
+    """
+    detector = detector or detect_language_module()
+    problems: list[str] = []
+    groups: list[dict] = []
+    keys: set[str] = set()
+    for source, envelope in filters:
+        group = _filter_records(source, envelope, problems)
+        if group is None:
+            continue
+        key = bare_path(group["project_path"])
+        if key in keys:
+            problems.append(f"{group['project_path']}: two --filter files give this project path")
+            continue
+        keys.add(key)
+        groups.append(group)
+    judged, bad = _read_judgments(judgments, problems)
+    entries = _name_entries(names, problems)
+
+    units: list[dict] = []
+    drops: list[dict] = []
+    for group in groups:
+        project_path, key = group["project_path"], bare_path(group["project_path"])
+        kept_units, restored, judged_drops, script_drops = [], [], [], []
+        for item in group["records"]:
+            rec, path, kind = item["record"], item["path"], item["kind"]
+            label = f"{project_path} {path}"
+            row = judged.pop((key, path), None)
+            if row is None and kind == "kept":
+                problems.append(f"{label}: the kept record has no judgment")
+                continue
+            if (key, path) in bad:
+                continue  # already reported
+            matched, why = _matched_name(entries, project_path, path, rec.get("manifest"))
+            name = (row or {}).get("name") or matched
+            if row is None or row["status"] == "dropped":
+                drop = {
+                    "project_path": project_path,
+                    "path": path,
+                    "name": name,
+                    "reason": row["reason"] if row is not None else rec.get("reason"),
+                    "context": rec.get("context") if kind == "dropped" else None,
+                    "rationale": row["rationale"] if row is not None else None,
+                }
+                evidence = drop_evidence(drop["rationale"], rec)
+                (judged_drops if kind == "kept" else script_drops).append((drop, evidence))
+                continue
+            if not name:
+                problems.append(f"{label}: the unit has no name ({why}): give it one in its judgment's `name`")
+                continue
+            if not _text(rec.get("tree_file")):
+                continue  # already reported
+            try:
+                language = _language_of(detector, rec, row.get("language"))
+            except (ValueError, OSError) as exc:
+                problems.append(f"{label}: {exc}")
+                continue
+            unit = {"name": name, "project_path": project_path, "path": path}
+            unit.update({field: row[field] for field in ("status", *KEPT_JUDGMENT_FIELDS)})
+            unit.update({field: rec.get(field) for field in UNIT_RECORD_FIELDS})
+            unit.update(language)
+            (kept_units if kind == "kept" else restored).append(unit)
+        units += kept_units + restored
+        drops += [{**drop, "evidence": evidence} for drop, evidence in judged_drops + script_drops]
+    for (_, path), row in judged.items():
+        problems.append(f"{row['project_path']} {path}: the judgment names no record of the --filter files")
+
+    other_units: list[dict] = []
+    other_drops: list[dict] = []
+    if existing is not None:
+        if (not isinstance(existing, dict) or not isinstance(existing.get("units"), list)
+                or not isinstance(existing.get("dropped"), list)):
+            problems.append("the --out file holds no `units` and `dropped` lists to add to")
+        else:
+            def other(entry: object) -> bool:
+                return isinstance(entry, dict) and bare_path(str(entry.get("project_path") or "")) not in keys
+            other_units = [u for u in existing["units"] if other(u)]
+            other_drops = [d for d in existing["dropped"] if other(d)]
+    taken = {u.get("name"): f"{u.get('project_path')} {u.get('path')}" for u in other_units}
+    for unit in units:
+        label = f"{unit['project_path']} {unit['path']}"
+        if unit["name"] in taken:
+            problems.append(f"{label}: the name {unit['name']!r} is the name of {taken[unit['name']]} too")
+        else:
+            taken[unit["name"]] = label
+    if problems:
+        raise UnitsError(problems)
+    data = {
+        "units": other_units + units,
+        "dropped": other_drops + [{k: v for k, v in d.items() if k != "evidence"} for d in drops],
+    }
+    return data, units, drops
+
+
+def _cell(value: object) -> str:
+    """A markdown table cell: a list joined with `, ` (an empty one, None
+    and an empty string `--`), `|` escaped, line breaks as spaces."""
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(str(v) for v in value)
+    elif isinstance(value, bool):
+        value = "true" if value else "false"
+    text = "" if value is None else str(value)
+    text = " ".join(text.split("\r\n")).replace("\r", " ").replace("\n", " ")
+    return text.replace("|", "\\|") if text.strip() else "--"
+
+
+def _table(title: str, header: tuple[str, ...], rows: list[list[object]]) -> list[str]:
+    lines = [f"**{title}:**", ""]
+    if not rows:
+        return [*lines, "None."]
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("|" + "|".join("---" for _ in header) + "|")
+    lines += ["| " + " | ".join(_cell(v) for v in row) + " |" for row in rows]
+    return lines
+
+
+def _manifest_cell(manifest: object) -> str:
+    if not isinstance(manifest, dict) or not manifest.get("path"):
+        return "--"
+    inside = ", ".join(str(v) for v in (manifest.get("name"), manifest.get("ecosystem")) if v)
+    return f"{manifest['path']} ({inside})" if inside else str(manifest["path"])
+
+
+def render_units_tables(units: list[dict], drops: list[dict]) -> str:
+    """The Identified units, Language and scope and Disqualified tables."""
+    identified = _table(
+        "Identified units",
+        ("Unit Name", "Project Path", "Path", "Boundary Type", "Scope Type", "Files", "Own Manifest",
+         "Signals", "Confidence", "Status"),
+        [[u["name"], u["project_path"], u["path"], u["boundary_type"], u["scope_type"], u["files_count"],
+          _manifest_cell(u["manifest"]), u["rationale"], u["confidence"], u["status"]] for u in units],
+    )
+    language = _table(
+        "Language and scope",
+        ("Unit Name", "Language", "Detected", "Language Confidence", "Include", "Exclude", "tree_file"),
+        [[u["name"], u["language"], u["language_detection"]["detected_languages"],
+          u["language_detection"]["confidence"], u["scope"]["include"], u["scope"]["exclude"], u["tree_file"]]
+         for u in units],
+    )
+    disqualified = _table(
+        "Disqualified",
+        ("Project Path", "Path", "Reason", "Evidence"),
+        [[d["project_path"], d["path"], d["reason"], d["evidence"]] for d in drops],
+    )
+    return "\n".join([*identified, "", *language, "", *disqualified]) + "\n"
+
+
+def write_units_file(path: Path, data: dict) -> None:
+    """Write the units file through a temporary file beside it and os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write((json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8", errors="replace"))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _write_utf8(text: str) -> None:
+    """Print `text` as UTF-8 whatever the console's encoding (`?` for a
+    file name byte that is not UTF-8)."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        sys.stdout.write(text)
+        return
+    sys.stdout.flush()
+    buffer.write(text.encode("utf-8", errors="replace"))
+    buffer.flush()
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1130,8 +1596,61 @@ def _cmd_filter(args: argparse.Namespace) -> int:
     except OSError as exc:
         print(f"error: cannot write a tree file under {tree_dir}: {exc}", file=sys.stderr)
         return 1
+    if args.project_path is not None:
+        result = {"project_path": args.project_path, **result}
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
+    return 0
+
+
+def _read_json_input(source: str, what: str, *, stdin: bool = False) -> object:
+    """A JSON input from a file, or from stdin for `-` when `stdin` is true.
+    Raises ValueError naming it."""
+    if stdin and source == "-":
+        buffer = getattr(sys.stdin, "buffer", None)
+        try:
+            text = buffer.read().decode("utf-8-sig") if buffer is not None else sys.stdin.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"cannot read {what} from stdin: {exc}") from exc
+    else:
+        try:
+            text = Path(source).read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"cannot read {what} {source}: {exc}") from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{what} {source} is not valid JSON: {exc}") from exc
+
+
+def _cmd_units(args: argparse.Namespace) -> int:
+    out = Path(args.out)
+    try:
+        filters = [(source, _read_json_input(source, "--filter")) for source in args.filter]
+        names = _read_json_input(args.names, "--names")
+        judgments = _read_json_input(args.judgments, "--judgments", stdin=True)
+        existing = _read_json_input(str(out), "--out") if args.add and out.exists() else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    try:
+        detector = detect_language_module()
+    except (ImportError, OSError, SyntaxError, AttributeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    try:
+        data, units, drops = merge_units(filters, names, judgments, existing=existing, detector=detector)
+    except UnitsError as exc:
+        for problem in exc.problems:
+            print(f"error: {problem}", file=sys.stderr)
+        print(f"error: nothing was written to {out}", file=sys.stderr)
+        return 1
+    try:
+        write_units_file(out, data)
+    except OSError as exc:
+        print(f"error: cannot write {out}: {exc}", file=sys.stderr)
+        return 1
+    _write_utf8(render_units_tables(units, drops))
     return 0
 
 
@@ -1143,7 +1662,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "disqualification list (generated-code and auto-generated-tag "
             "when every source file is generated, too-few-files, "
             "too-low-loc), with each boundary's generated files and "
-            "detection signals as evidence."
+            "detection signals as evidence, and merge the saved results "
+            "with their names and judgments into analyze-source's units file."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -1200,7 +1720,64 @@ def _build_parser() -> argparse.ArgumentParser:
             f"(default {MIN_LOC}; matches unit-detection-heuristics.md)"
         ),
     )
+    p_filter.add_argument(
+        "--project-path",
+        default=None,
+        help=(
+            "the project path the boundaries were found under, written to "
+            "the envelope's project_path for `units`"
+        ),
+    )
     p_filter.set_defaults(func=_cmd_filter)
+
+    p_units = sub.add_parser(
+        "units",
+        help=(
+            "merge saved filter envelopes, derive-name output and judgments "
+            "into the units file and print its tables"
+        ),
+    )
+    p_units.add_argument(
+        "--filter",
+        action="append",
+        required=True,
+        metavar="FILE",
+        help=(
+            "a saved `filter --project-path --tree-dir` envelope; repeat it "
+            "once per project path"
+        ),
+    )
+    p_units.add_argument(
+        "--names",
+        required=True,
+        metavar="FILE",
+        help="the saved `skf-skill-inventory.py derive-name --from` output",
+    )
+    p_units.add_argument(
+        "--judgments",
+        required=True,
+        metavar="FILE",
+        help=(
+            "the judgments JSON, or '-' for stdin: a list of {project_path, "
+            "path, status, boundary_type, scope_type, confidence, rationale, "
+            "reason?, name?, language?}"
+        ),
+    )
+    p_units.add_argument(
+        "--out",
+        required=True,
+        metavar="FILE",
+        help="the units file to write",
+    )
+    p_units.add_argument(
+        "--add",
+        action="store_true",
+        help=(
+            "keep the units and drops the --out file holds for other project "
+            "paths, before this call's"
+        ),
+    )
+    p_units.set_defaults(func=_cmd_units)
 
     return parser
 

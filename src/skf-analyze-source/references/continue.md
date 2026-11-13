@@ -1,5 +1,6 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
+unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'
 nextStepOptions:
   step 2: 'scan-project.md'
   step 3: 'identify-units.md'
@@ -47,6 +48,8 @@ Map the last completed step to the next step file:
 | identify-units | map-and-detect |
 | map-and-detect | recommend |
 | recommend | generate-briefs |
+
+A report whose last completed step is identify-units and that has no {unitsFile} beside it (an older SKF wrote it) goes back to identify-units, whose §7 then replaces what its Identified Units section holds.
 
 ### 5. Update and Route
 

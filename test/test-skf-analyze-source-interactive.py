@@ -21,6 +21,17 @@ run the commands it documents, filled in as an agent fills them:
   scope-patterns, a composite's from the union of its constituents', and
   reach the recommendation card and the brief; Step E counts the demo files
   and scores the registry candidates with skf-detect-registry.py (#1125).
+- #1126: identify-units saves Step A's records and Step C's names to the
+  run folder, and section 3's skf-disqualify-candidates.py units call
+  merges them with the model's judgments into the units file, with each
+  unit's language and scope patterns, and prints the unit tables;
+  map-and-detect reads that file and builds each project path's units JSON
+  with skf-count-imports.py units-from, and the import matrix and the
+  scan catalogs are helper output: the documented calls run on fixtures, and
+  no unit, catalog or matrix table is typed. Step A prints no record shape,
+  Step B points at the heuristics' rules 3 and 4, map-and-detect section 2
+  is one sentence, and continue.md sends a report without a units file back
+  to identify-units.
 - Every step-by-step gate keeps one menu and records its headless default
   in the run sink; each documented decision passes the envelope schema's
   gate enum through the emitter and reaches `headless_decisions`.
@@ -57,7 +68,6 @@ SCRIPTS = SRC / "shared" / "scripts"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 WRITER = SCRIPTS / "skf-write-skill-brief.py"
 DISQUALIFY = SCRIPTS / "skf-disqualify-candidates.py"
-LANGUAGE = SCRIPTS / "skf-detect-language.py"
 REGISTRY = SCRIPTS / "skf-detect-registry.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 SCHEMA = json.loads((SCRIPTS / "schemas" / "skf-analyze-result-envelope.v1.json").read_text(encoding="utf-8"))
@@ -217,13 +227,32 @@ def test_each_brief_gets_its_unit_ref_and_project_path(tmp_path, ref):
 # --------------------------------------------------------------------------
 
 
+def _fill(text: str, values: dict) -> str:
+    return re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], text)
+
+
+def _run_saved(call: str, values: dict, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    """Run a documented `<command> > "<file>" [<<'HEREDOC']` line, `stdin` the heredoc, and save its stdout
+    where the line sends it."""
+    command, _, out = call.partition(" <<")[0].partition(" > ")
+    proc = _run(command, values, stdin=stdin)
+    assert proc.returncode == 0, proc.stderr
+    target = Path(_fill(out.strip().strip('"'), values))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(proc.stdout)
+    return proc
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_the_documented_step_a_and_language_calls_run_on_a_scan_root(tmp_path):
-    """identify-units Step A lists each boundary under the scan root and §4
-    reads the list from the record's tree_file: no file list is typed."""
+def test_the_documented_step_a_naming_and_units_calls_run_on_a_scan_root(tmp_path):
+    """#1126: identify-units Step A saves each boundary's record (listed under the scan root), Step C saves
+    the names, and §3's call merges them with the judgments into the units file, with the unit's language
+    and scope patterns from its tree_file, and prints its row: no file list, record or row is typed."""
     text = _read(IDENTIFY)
-    [step_a] = [line for line in _bash_lines(text) if "{disqualifyCandidatesHelper}" in line]
-    command = step_a.partition(" <<")[0]
+    lines = _bash_lines(text)
+    [step_a] = [line for line in lines if "{disqualifyCandidatesHelper} filter" in line]
+    [naming] = [line for line in lines if "{skillInventoryHelper} derive-name" in line]
+    [units_call] = [line for line in lines if "{disqualifyCandidatesHelper} units" in line]
     scan_root = tmp_path / "source-1"
     for rel, data in {"packages/auth/package.json": b'{"name": "@acme/auth"}\n',
                       "packages/auth/tsconfig.json": b"{}\n",
@@ -236,26 +265,38 @@ def test_the_documented_step_a_and_language_calls_run_on_a_scan_root(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=scan_root, check=True, capture_output=True, timeout=60)
     run_dir = _run_dir(tmp_path)
     values = {"disqualifyCandidatesHelper": str(DISQUALIFY), "scan_root": str(scan_root),
-              "run_dir": str(run_dir), "i": "1", "detectLanguageHelper": str(LANGUAGE),
-              "detectRegistryHelper": str(REGISTRY)}
-    proc = _run(command, values, stdin=json.dumps([{"name": "auth", "path": "packages/auth"}]).encode("utf-8"))
-    assert proc.returncode == 0, proc.stderr
-    [record] = json.loads(proc.stdout)["kept"]
+              "run_dir": str(run_dir), "i": "1", "skillInventoryHelper": str(INVENTORY),
+              "detectRegistryHelper": str(REGISTRY), "project_path": "https://github.com/acme/mono",
+              "unitsFile": str(tmp_path / "forge" / "analyze-source-units-mono.json")}
+    _run_saved(step_a, values, stdin=json.dumps([{"name": "auth", "path": "packages/auth"}]).encode("utf-8"))
+    envelope = json.loads((run_dir / "filter-1.json").read_text(encoding="utf-8"))
+    assert envelope["project_path"] == "https://github.com/acme/mono"
+    [record] = envelope["kept"]
     assert record["manifest"]["name"] == "@acme/auth" and record["files_count"] == 3
-    calls = [line.replace("{the unit's tree_file}", record["tree_file"]) for line in _bash_lines(text)
-             if "{detectLanguageHelper}" in line or "{detectRegistryHelper}" in line]
-    [language_call] = [line for line in calls if "{detectLanguageHelper} --tree-file" in line]
-    language = _run(language_call, values)
-    assert language.returncode == 0, language.stderr
-    out = json.loads(language.stdout)
-    assert (out["language"], out["confidence"]) == ("typescript", "high")
-    # #1125: §4 takes the unit's scope patterns from the same list, rooted at its folder.
-    [patterns_call] = [line for line in calls if "scope-patterns" in line]
-    patterns = _run(patterns_call, {**values, "language": out["language"]})
-    assert patterns.returncode == 0, patterns.stderr
-    scope = json.loads(patterns.stdout)
-    assert scope["include"] == ["packages/auth/src/**/*.ts"]
-    assert "**/*.test.ts" in scope["exclude"]
+    # Step C names it from its record, into the file §3 reads.
+    entry = {"target": record["path"], "manifest_name": record["manifest"]["name"],
+             "private": record["manifest"]["private"]}
+    _run_saved(naming, values, stdin=json.dumps([entry]).encode("utf-8"))
+    assert json.loads((run_dir / "unit-names.json").read_text(encoding="utf-8"))["names"][0]["name"] == "acme-auth"
+    # §3: the judgment, then the merge. The language and the scope patterns come from the record's tree_file.
+    judgment = {"project_path": values["project_path"], "path": "packages/auth", "status": "new",
+                "boundary_type": "package", "scope_type": "full-library", "confidence": "high",
+                "rationale": "strong: 2; demo 0/6"}
+    (run_dir / "unit-judgments.json").write_bytes(json.dumps([judgment]).encode("utf-8"))
+    proc = _run(units_call, values)
+    assert proc.returncode == 0, proc.stderr
+    [unit] = json.loads(Path(values["unitsFile"]).read_text(encoding="utf-8"))["units"]
+    assert (unit["name"], unit["language"], unit["language_detection"]["confidence"]) == ("acme-auth", "typescript",
+                                                                                         "high")
+    assert unit["scope"]["include"] == ["packages/auth/src/**/*.ts"]
+    assert "**/*.test.ts" in unit["scope"]["exclude"]
+    rows = proc.stdout.decode("utf-8").splitlines()
+    assert ("| acme-auth | https://github.com/acme/mono | packages/auth | package | full-library | 3 | "
+            "packages/auth/package.json (@acme/auth, npm) | strong: 2; demo 0/6 | high | new |") in rows
+    assert any(row.startswith("| acme-auth | typescript | typescript | high | packages/auth/src/**/*.ts |")
+               for row in rows)
+    calls = [line.replace("{the unit's tree_file}", record["tree_file"]) for line in lines
+             if "{detectRegistryHelper}" in line]
     # Step E counts the demo files and scores the registry candidates of the same list.
     demo_call, registry_call = [line for line in calls if "{detectRegistryHelper}" in line]
     demo = _run(demo_call, values)
@@ -266,19 +307,85 @@ def test_the_documented_step_a_and_language_calls_run_on_a_scan_root(tmp_path):
     assert (json.loads(registry.stdout)["candidates"], json.loads(registry.stdout)["selected"]) == ([], None)
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_the_documented_discover_calls_add_the_new_path_to_the_units_file(tmp_path):
+    """#1126: [D] section 3 saves the new path's records and names, its units call adds the new units to the
+    units file, which keeps the report's other units, and section 4's units-from builds the new path's units
+    JSON from it, with its import graph run only for a new unit that is not deferred."""
+    text = _read(DISCOVER)
+    lines = _bash_lines(_section(text, "### 3. Classify and Name the New Units", "### 4."))
+    [filter_call] = [line for line in lines if "{disqualifyCandidatesHelper} filter" in line]
+    [naming] = [line for line in lines if "{skillInventoryHelper} derive-name" in line]
+    [units_call] = [line for line in lines if "{disqualifyCandidatesHelper} units" in line]
+    graph = _section(text, "### 4. Map the New Units", "### 5.")
+    [units_from] = [line for line in _bash_lines(graph) if " units-from " in line]
+    assert "Run this block only when §3 kept a new unit that is not deferred" in graph
+    scan_root = tmp_path / "source-2"
+    for rel, data in {"packages/web/package.json": b'{"name": "@acme/web"}\n',
+                      "packages/web/tsconfig.json": b"{}\n",
+                      **{f"packages/web/src/{n}.ts": b"export const x = 1;\n" * 40 for n in "abc"}}.items():
+        (scan_root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (scan_root / rel).write_bytes(data)
+    subprocess.run(["git", "init", "-q"], cwd=scan_root, check=True, capture_output=True, timeout=60)
+    run_dir = _run_dir(tmp_path)
+    units_file = tmp_path / "forge" / "analyze-source-units-mono.json"
+    units_file.parent.mkdir(parents=True)
+    earlier = {"name": "core", "project_path": "/r", "path": ".", "status": "new", "manifest": None}
+    units_file.write_bytes(json.dumps({"units": [earlier], "dropped": []}).encode("utf-8"))
+    values = {"disqualifyCandidatesHelper": str(DISQUALIFY), "skillInventoryHelper": str(INVENTORY),
+              "countImportsHelper": str(SCRIPTS / "skf-count-imports.py"), "scan_root": str(scan_root),
+              "run_dir": str(run_dir), "i": "2", "project_path": "https://github.com/acme/web",
+              "unitsFile": str(units_file)}
+    _run_saved(filter_call, values, stdin=json.dumps([{"name": "web", "path": "packages/web"}]).encode("utf-8"))
+    envelope = json.loads((run_dir / "filter-2.json").read_text(encoding="utf-8"))
+    assert envelope["project_path"] == values["project_path"]
+    [record] = envelope["kept"]
+    entry = {"target": record["path"], "manifest_name": record["manifest"]["name"],
+             "private": record["manifest"]["private"]}
+    _run_saved(naming, values, stdin=json.dumps([entry]).encode("utf-8"))
+    judgment = {"project_path": values["project_path"], "path": "packages/web", "status": "new",
+                "boundary_type": "package", "scope_type": "full-library", "confidence": "high",
+                "rationale": "strong: 2; demo 0/5"}
+    (run_dir / "discover-2-judgments.json").write_bytes(json.dumps([judgment]).encode("utf-8"))
+    proc = _run(units_call, values)
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(units_file.read_text(encoding="utf-8"))
+    assert [(u["project_path"], u["name"]) for u in data["units"]] == [
+        ("/r", "core"), ("https://github.com/acme/web", "acme-web")]
+    assert data["units"][1]["language"] == "typescript"
+    assert any(row.startswith("| acme-web | https://github.com/acme/web | packages/web |")
+               for row in proc.stdout.decode("utf-8").splitlines())
+    _run_saved(units_from, values)
+    assert json.loads((run_dir / "discover-2-units.json").read_text(encoding="utf-8")) == {"units": [
+        {"name": "acme-web", "path": "packages/web", "manifest_name": "@acme/web", "ecosystem": "npm"}]}
+
+
 def test_a_composite_card_holds_the_union_of_its_constituents_patterns(tmp_path):
-    """#1125: two crates' scope patterns, from the documented call on each one's file list, and the
-    composite's patterns as map-and-detect section 5 states them: both includes, the shared exclude once."""
-    [call] = [line for line in _bash_lines(_read(IDENTIFY)) if "scope-patterns" in line]
-    scopes = []
+    """#1125: two crates' scope patterns, from the documented units call on each one's file list (#1126), and
+    the composite's patterns as map-and-detect section 5 states them: both includes, the shared exclude once."""
+    [call] = [line for line in _bash_lines(_read(IDENTIFY)) if "{disqualifyCandidatesHelper} units" in line]
+    run_dir = _run_dir(tmp_path)
+    records = []
     for crate in ("a", "b"):
-        tree_file = tmp_path / f"boundary-{crate}.txt"
+        tree_file = run_dir / f"boundary-{crate}.txt"
         tree_file.write_bytes("".join(f"crates/{crate}/{rel}\n" for rel in (
             "Cargo.toml", "src/lib.rs", "src/parse.rs", "tests/it.rs")).encode("utf-8"))
-        proc = _run(call.replace("{the unit's tree_file}", tree_file.as_posix()),
-                    {"detectLanguageHelper": str(LANGUAGE), "language": "rust"})
-        assert proc.returncode == 0, proc.stderr
-        scopes.append(json.loads(proc.stdout))
+        records.append({"name": crate, "path": f"crates/{crate}", "files_count": 2, "loc_total": 200,
+                        "generated_files": [], "generated_ratio": 0.0, "signals": {}, "tree_file": tree_file.as_posix(),
+                        "manifest": {"path": f"crates/{crate}/Cargo.toml", "ecosystem": "rust",
+                                     "name": f"crate-{crate}", "private": False}})
+    (run_dir / "filter-1.json").write_bytes(json.dumps({"project_path": "/w", "kept": records, "dropped": []}).encode())
+    (run_dir / "unit-names.json").write_bytes(json.dumps({"names": [
+        {"target": f"crates/{c}", "manifest_name": f"crate-{c}", "name": f"crate-{c}"} for c in "ab"]}).encode())
+    (run_dir / "unit-judgments.json").write_bytes(json.dumps([
+        {"project_path": "/w", "path": f"crates/{c}", "status": "new", "boundary_type": "package",
+         "scope_type": "full-library", "confidence": "high", "rationale": "strong: 1"} for c in "ab"]).encode())
+    units_file = tmp_path / "units.json"
+    proc = _run(call, {"disqualifyCandidatesHelper": str(DISQUALIFY), "run_dir": str(run_dir), "i": "1",
+                       "unitsFile": str(units_file)})
+    assert proc.returncode == 0, proc.stderr
+    scopes = [u["scope"] for u in json.loads(units_file.read_text(encoding="utf-8"))["units"]]
+    assert [u["language"] for u in json.loads(units_file.read_text(encoding="utf-8"))["units"]] == ["rust", "rust"]
     assert [s["include"] for s in scopes] == [["crates/a/src/**/*.rs"], ["crates/b/src/**/*.rs"]]
     assert scopes[0]["exclude"] == scopes[1]["exclude"]
     rule = next(line for line in _read(MAP).splitlines() if line.startswith("   - **Scope patterns:**"))
@@ -293,14 +400,20 @@ def test_each_unit_takes_its_scope_patterns_and_its_component_library_evidence_f
     """#1125 determinism-3 and -6: the card and the brief carry the patterns
     scope-patterns computed, a composite their union, and Step E cites the
     demo count and the scored registry candidates, which the heuristics name."""
-    patterns_call = ('uv run {detectLanguageHelper} scope-patterns --tree-file "{the unit\'s tree_file}" '
-                     '--language {language}')
-    for path, section, end in ((IDENTIFY, "### 4. Detect Primary Language Per Unit", "### 5."),
-                               (DISCOVER, "### 3. Classify and Name the New Units", "### 4.")):
+    units_call = ('uv run {disqualifyCandidatesHelper} units --filter "{run_dir}/filter-{i}.json" '
+                  '--names "{run_dir}/%s" --judgments "{run_dir}/%s" --out "{unitsFile}"')
+    for path, section, end, call in (
+            (IDENTIFY, "### 3. Build Unit Classification Table", "### 5.",
+             units_call % ("unit-names.json", "unit-judgments.json")),
+            (DISCOVER, "### 3. Classify and Name the New Units", "### 4.",
+             units_call % ("discover-{i}-names.json", "discover-{i}-judgments.json") + " --add")):
         body = _section(_read(path), section, end)
-        assert patterns_call in _bash_lines(body), path.name
+        assert call in _bash_lines(body), path.name
         assert "passes `unknown`" in body, path.name
+        assert "{detectLanguageHelper}" not in _read(path) and "scope-patterns" not in _read(path), path.name
         frontmatter = _frontmatter(_read(path))
+        assert "unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'" in frontmatter, path.name
+        assert "detectLanguageProbeOrder" not in frontmatter, path.name
         assert "detectRegistryProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'" \
             in frontmatter, path.name
         text = _read(path)
@@ -318,6 +431,7 @@ def test_each_unit_takes_its_scope_patterns_and_its_component_library_evidence_f
     other = next(line for line in identify.splitlines() if line.startswith("- IF Any other:"))
     for needle in ("adds or restores from the Disqualification table takes its language and scope patterns by §4",
                    "its demo and registry counts by Step E",
+                   "its name by Step C's call run again with its entry added to the others",
                    "a unit given another language takes its scope patterns again for that language"):
         assert needle in other, needle
     heuristics = _section(_read(HEURISTICS), "### Component Library Boundary", "### Composite Boundary")
@@ -637,7 +751,8 @@ def test_one_statement_of_the_per_unit_export_mapping():
         assert needle in shared, needle
     assert "the `files_count` of its §3 record" in _read(DISCOVER)
     assert "its language from §3" in _read(DISCOVER)
-    assert "its language and its file count from Identified Units" in _read(MAP)
+    assert "its scope type, language and file count from {unitsFile}" in _read(MAP)
+    assert "from {unitsFile}" in _section(_read(DISCOVER), "### 4. Map the New Units", "**Import graph.**")
 
 
 def test_no_unit_is_surveyed_for_scripts_and_assets():
@@ -663,6 +778,75 @@ def test_the_discover_file_leaves_map_and_detect_sections_to_its_section_7():
     assert "refs: {add the new path: its ref, when §1 gave it one}" in merge
     handler = next(line for line in _read(MAP).splitlines() if line.startswith("- IF D:"))
     assert "§7 writes the Export Map and Integration Points with them" in handler
+
+
+def test_no_unit_catalog_or_matrix_table_is_typed():
+    """#1126 determinism-7: the unit tables, the catalogs and the matrix are helper output, and no units JSON
+    is written in a heredoc: map-and-detect and [D] build it with units-from from the units file."""
+    for path in (SCAN, IDENTIFY, MAP, DISCOVER):
+        text = _read(path)
+        for gone in ("| {name} | {imports_from} |", "| 1 | {name} | {its project path} |", "| {path} | {manifest_type} |",
+                     "| {path} | {config_type} |", "| {path} | {disqualification reason} |", "| # | Unit Name",
+                     "SKF_UNITS", "Language Indicator", "from its Identified Units row",
+                     "**Build cross-reference matrix:**"):
+            assert gone not in text, (path.name, gone)
+    for path, start, end, units, imports in (
+            (MAP, "### 3. Map Import Graph", "### 4.", "units-{i}.json", "imports-{i}.json"),
+            (DISCOVER, "### 4. Map the New Units", "### 5.", "discover-{i}-units.json", "discover-{i}-imports.json")):
+        lines = _bash_lines(_section(_read(path), start, end))
+        assert lines[0] == (f'uv run {{countImportsHelper}} units-from --units-file "{{unitsFile}}" '
+                            f'--project-path "{{project_path}}" > "{{run_dir}}/{units}"'), path.name
+        assert f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports}" --format markdown' in lines, path.name
+        assert "--module <unit name>=<import name>" in _section(_read(path), start, end), path.name
+    graph = _section(_read(MAP), "### 3. Map Import Graph", "### 4.")
+    assert "the second `summary` line's table, as printed" in graph
+    assert "per project path with a qualifying unit" in graph
+    front = _frontmatter(_read(MAP))
+    assert "unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'" in front
+    load = _section(_read(MAP), "### 1. Load Context", "### 2.")
+    assert "Read {unitsFile} to obtain the qualifying units" in load and "Identified Units section" not in load
+
+
+def test_step_a_shows_no_record_and_map_and_detect_section_2_is_one_sentence():
+    """#1126 leanness-8 and leanness-7."""
+    identify = _read(IDENTIFY)
+    step_a = _section(identify, "**Step A: Run the disqualification helper (script).**", "**Step B:")
+    assert "```json" not in step_a and "1. The script" not in step_a and "**Stash the results**" not in step_a
+    assert "Each `kept[]` and `dropped[]` record gives `files_count`" in step_a
+    assert "Read the file: its `kept[]` is the candidate pool" in step_a
+    step_b = _section(identify, "**Step B: Judge what the script cannot.**", "**Step C:")
+    assert "{heuristicsFile}'s Disqualification Rules 3 and 4" in step_b
+    for gone in ("**Pure configuration**", "**Test-only**", "LLM-judged"):
+        assert gone not in step_b, gone
+    assert "Each drop and each restore here is a judgment §3 records" in step_b
+    mapping = _read(MAP)
+    assert "do not shortcut" not in mapping and "Subagent fan-out protocol" not in mapping
+    rules = _section(mapping, "## Rules", "## MANDATORY SEQUENCE")
+    assert "- Delegate per-unit deep analysis to a subagent when available" in rules
+    fan_out = _section(mapping, "### 2. Map Export Surfaces Per Unit (Subagent Fan-Out)",
+                       "**Per-unit export summary")
+    assert re.search(r"^\d\. ", fan_out, flags=re.M) is None, "no numbered protocol"
+    assert ("Load, read the entire file, then execute {unitExportsFile} for the qualifying units, leaving out the "
+            "deferred units, each with `{unit_root}` its path under the scan root of its project path and its scope "
+            "type, language and file count from {unitsFile}: its checked records are `per_unit_findings[]`, which "
+            "sections 3 to 6 read.") in fan_out
+    for gone in ("recommend.md, generate-briefs.md", "Aggregate."):
+        assert gone not in mapping, gone
+
+
+def test_a_report_without_a_units_file_goes_back_to_identify_units():
+    """#1126: no fallback reads the Identified Units table; identify-units section 7 rewrites it."""
+    text = _read(REFS / "continue.md")
+    assert "unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'" in _frontmatter(text)
+    route = _section(text, "### 4. Determine Next Step", "### 5.")
+    assert ("A report whose last completed step is identify-units and that has no {unitsFile} beside it (an older "
+            "SKF wrote it) goes back to identify-units, whose §7 then replaces what its Identified Units section "
+            "holds.") in route
+    write = _section(_read(IDENTIFY), "### 7. Append to Report and Continue", None)
+    assert "when continue.md sent back a report without {unitsFile}, what its Identified Units section holds" in write
+    assert "The three tables §3's call printed last, as printed" in write
+    outputs = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Outputs** |"))
+    assert "`analyze-source-units-{project_name}.json`" in outputs
 
 
 def test_the_discover_file_leaves_out_an_aggregating_root():
@@ -727,6 +911,17 @@ def test_the_project_scan_runs_its_documented_commands_on_a_scan_root(tmp_path):
     members = {c["path"]: c["workspace_member"] for c in envelope["candidates"]}
     assert members == {"deploy": False, "packages/auth": True, "packages/web": True, "services/api": False}
     assert not any(line.startswith("grep ") for line in lines), "the scan lists the service definitions"
+    # #1126: section 4's catalogs are the helper's tables, as printed.
+    catalog = _section(_read(SCAN), "### 4. Catalog Manifests and Service Configurations", "### 5.")
+    [call] = _bash_lines(catalog)
+    assert call == 'uv run {scanManifestsHelper} scan "{scan_root}" --format markdown'
+    proc = _run(call, values)
+    assert proc.returncode == 0, proc.stderr
+    rows = proc.stdout.decode("utf-8").splitlines()
+    for row in ("| packages/auth/package.json | npm | @acme/auth | no |", "| package.json | npm | root | yes |",
+                "| deploy/docker-compose.yaml | compose |", "| services/api/Dockerfile | docker |"):
+        assert row in rows, row
+    assert "Language Indicator" not in catalog and "| {path} |" not in catalog
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")

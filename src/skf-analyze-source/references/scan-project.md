@@ -87,17 +87,11 @@ Each project path's candidate boundaries are its scan's `candidates[]` ({heurist
 
 ### 4. Catalog Manifests and Service Configurations
 
-Create a structured catalog:
+Print each project path's two catalogs with the scan helper: every manifest (its path, ecosystem, package name and private flag) and every service configuration (its path and kind: `docker`, `compose` or `serverless`), which §5 shows and §6 writes as printed:
 
-**Manifests found:**
-| Path | Type | Language Indicator |
-|------|------|-------------------|
-| {path} | {manifest_type} | {language} |
-
-**Service configurations found:**
-| Path | Type |
-|------|------|
-| {path} | {config_type} |
+```bash
+uv run {scanManifestsHelper} scan "{scan_root}" --format markdown
+```
 
 ### 5. Present the Scan and Confirm
 

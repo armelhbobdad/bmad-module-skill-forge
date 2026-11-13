@@ -1,0 +1,5 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  The step-by-step Analyze Source chain now keeps its units in `analyze-source-units-<project>.json` beside the report. A script writes that file from the helpers' output (each boundary's disqualification record, its derived name, and its language and scope globs) and the model's judgments (boundary type, scope type, confidence, status and the signals behind them), and prints the report's unit tables from it. The export and import mapping reads its units from that file, and builds each project path's import-graph input with `skf-count-imports.py units-from` instead of a units list retyped from the report. The report's manifest and service configuration catalogs and its import matrix are printed by the helpers too (`skf-scan-manifests.py scan --format markdown`, `skf-count-imports.py summary --format markdown`). A report an older SKF left after unit identification resumes at unit identification, which writes the file.
+issues: [1126]
