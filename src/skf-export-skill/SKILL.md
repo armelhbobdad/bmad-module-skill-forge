@@ -76,9 +76,9 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
 4. **Resolve the helpers and create the run folder.** Resolve each helper to the first of its two paths that exists, the installed module first, all in parallel:
 
    - `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (every envelope, result file and headless record).
-   - `{manifestOpsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py`, else `{project-root}/src/shared/scripts/skf-manifest-ops.py` (steps 1, 2 and 3).
+   - `{manifestOpsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py`, else `{project-root}/src/shared/scripts/skf-manifest-ops.py` (steps 1 and 3).
    - `{skillInventoryHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py`, else `{project-root}/src/shared/scripts/skf-skill-inventory.py` (step 1).
-   - `{rebuildManagedSectionsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py`, else `{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py` (steps 1 and 3).
+   - `{rebuildManagedSectionsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py`, else `{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py` (steps 1, 2 and 3).
    - `{validateOutputHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py`, else `{project-root}/src/shared/scripts/skf-validate-output.py` (step 1).
    - `{countTokensHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py`, else `{project-root}/src/shared/scripts/skf-count-tokens.py` (steps 2 and 4).
 

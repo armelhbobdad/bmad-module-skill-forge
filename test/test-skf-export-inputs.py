@@ -177,6 +177,30 @@ def test_activation_resolves_every_helper_the_steps_cannot_run_without():
     assert skill.index("4. **Resolve the helpers") < skill.index(LOAD_STEP)
 
 
+# The step each reference file that names an activation helper belongs to.
+REFERENCE_STEPS = {"load-skill.md": 1, "preflight-snippet-root-probe.md": 1, "generate-snippet.md": 2,
+                   "update-context.md": 3, "orphan-context-detection.md": 3, "orphan-row-detection.md": 3,
+                   "token-report.md": 4, "summary.md": 5}
+
+
+def test_each_helper_lists_the_steps_that_run_it():
+    """#1164: the steps On Activation lists beside a helper are the steps whose files name it (step 2 now runs the
+    rebuild helper's `gotchas` action and no longer reads the manifest)."""
+    resolve = _section(_read(SKILL_MD), "4. **Resolve the helpers and create the run folder.**",
+                       "5. **Pre-flight write check.**")
+    for name in ACTIVATION_HELPERS:
+        if name == "emitEnvelopeHelper":
+            continue  # every envelope, whatever the step
+        [line] = [line for line in resolve.splitlines() if line.lstrip().startswith(f"- `{{{name}}}` ←")]
+        listed = re.search(r"\((steps? [\d, and]+)\)\.$", line.rstrip())
+        assert listed, line
+        files = [path.name for path in sorted((EXPORT / "references").glob("*.md"))
+                 if f"{{{name}}}" in path.read_text(encoding="utf-8")]
+        assert set(files) <= set(REFERENCE_STEPS), (name, files)
+        assert {int(step) for step in re.findall(r"\d+", listed.group(1))} == \
+            {REFERENCE_STEPS[file] for file in files}, (name, files)
+
+
 def test_the_append_entries_run_after_the_pre_flight_halts():
     """#1111: On Activation step 3 runs only the prepend entries; step 6, after the exit-4 checks of steps 4 and 5,
     runs the append entries and then loads load-skill.md, as customize.toml says."""
@@ -701,10 +725,19 @@ def test_snippet_format_path_names_the_lines_scripts_parse():
     comment = _comment_above(toml, "snippet_format_path")
     for fixed in ("assets/snippet-format.md", "`[{skill-name} v{version}]|root: {skill_root}{skill-name}/`",
                   "skipped_malformed_snippet", "`|IMPORTANT:`", "`writing {skill-name} code`",
-                  "`|gotchas:`", "`[CARRIED]`", "bare `|`",
-                  "quick-start, api and key-types lines, and the stack and integrations"):
+                  "`|gotchas:`", "`[CARRIED]`", "bare `|`"):
         assert fixed in comment.replace("\n# ", " ").replace("\n#   ", " "), fixed
-    assert "`snippet_format_path` in `customize.toml`" in _read(SNIPPET_FORMAT)
+    # #1164: the `|api:` label and the gotchas separator are parsed too, by the rebuild helper's `gotchas` action.
+    flat = _flat_comment(toml, "snippet_format_path")
+    assert ("- the `|api:` label, and the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker: the "
+            "rebuild helper's `gotchas` action reads them back in step 2") in flat
+    assert ("The quick-start and key-types lines, and the stack and integrations lines, are free to change."
+            ) in flat
+    assert "quick-start, api and key-types" not in flat
+    note = _read(SNIPPET_FORMAT)
+    assert "`snippet_format_path` in `customize.toml`" in note
+    assert ("the `|api:` label, the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker, which the "
+            "rebuild helper's `gotchas` action reads back") in note
 
 
 def _template(heading: str) -> str:

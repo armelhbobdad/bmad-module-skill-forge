@@ -78,10 +78,12 @@ on_complete = ""
 #     word (a single skill's also says `writing {skill-name} code`):
 #     skf-validate-output.py checks the start, and rename-skill rewrites the
 #     name in each place;
-#   - the `|gotchas:` label and its `[CARRIED]` marker, which step 2 reads
-#     to carry gotchas forward for one export;
+#   - the `|api:` label, and the `|gotchas:` label with its `; ` separator
+#     and its `[CARRIED]` marker: the rebuild helper's `gotchas` action
+#     reads them back in step 2, to rank the prior api names first and to
+#     carry gotchas forward for one export;
 #   - no line that is a bare `|`, which splits rows in the managed section.
-# The quick-start, api and key-types lines, and the stack and integrations
+# The quick-start and key-types lines, and the stack and integrations
 # lines, are free to change. The managed-section format and the IDE mapping
 # have no override: drop-skill and rename-skill rebuild the same section
 # through the shared helper, so a copy only export read would put them out

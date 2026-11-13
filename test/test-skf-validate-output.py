@@ -1717,9 +1717,13 @@ class TestSnippetLengthBounds:
         [trim] = re.findall(r"^- If `\{count\}` is above (\d+),.*?until `\{count\}` is (\d+) or below", text, re.MULTILINE)
         assert {int(n) for n in trim} == {mod.SNIPPET_TOKEN_CEILING}
 
-    def test_snippet_format_states_the_validator_ceiling(self):
-        text = SNIPPET_FORMAT_MD.read_text(encoding="utf-8")
-        [ceiling] = re.findall(r"the hard ceiling is (\d+) tokens", text)
-        assert int(ceiling) == mod.SNIPPET_TOKEN_CEILING
-        [api_rule] = re.findall(r"above the (\d+)-token ceiling, names drop from the end", text)
-        assert int(api_rule) == mod.SNIPPET_TOKEN_CEILING
+    def test_only_generate_snippet_states_the_validator_ceiling(self):
+        """#1164: the token target and ceiling live in generate-snippet §4 alone; the snippet format states no
+        token number, so no second copy can drift from the validator."""
+        text = GENERATE_SNIPPET_MD.read_text(encoding="utf-8")
+        [target] = re.findall(r"^- Target: ~(\d+)-(\d+) tokens per skill", text, re.MULTILINE)
+        assert [int(n) for n in target] == [80, 120]
+        assert text.count("80-120") == 1, "the STEP GOAL no longer restates §4's target"
+        assert "drop api names from the end of the §3b ranking" in text
+        fmt = SNIPPET_FORMAT_MD.read_text(encoding="utf-8")
+        assert not re.search(r"\btokens?\b|\b\d+-token\b", fmt), "the snippet format states no token budget"

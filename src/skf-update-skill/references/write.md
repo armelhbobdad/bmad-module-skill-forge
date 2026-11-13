@@ -104,6 +104,12 @@ securityScanProbeOrder:
 shardBodyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-shard-body.py'
   - '{project-root}/src/shared/scripts/skf-shard-body.py'
+# Resolve `{rebuildManagedSectionsHelper}` to the first existing path: §5
+# reads and writes the snippet's gotchas line with its `gotchas` action.
+# HALT if neither exists.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 # `{extractPublicApiHelper}`: §2's public API counts, the runner's or those
 # `{entryPointsByHandData}` has it make; if neither exists, §2 halts.
 extractPublicApiProbeOrder:
@@ -410,7 +416,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`; see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 2 when the skill is exported. Do not choose an IDE-specific prefix in update-skill: that is an export-time decision that depends on config.yaml.
 
-Take the version from the updated metadata.json and the inline summaries from the merged SKILL.md. Rank the api names and verify the section anchors as `skf-export-skill/references/generate-snippet.md` §3b states, and derive the gotchas as its §3a states: the merged SKILL.md, this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote (`{forge_version}/provenance-map.json`, its `{forge_provenance_map}`) are the current sources, and the prior `context-snippet.md` gives `prior_api` and `prior_gotchas` (its §2.5). A prior pitfall no current source states takes a free slot with the `[CARRIED]` marker, or is dropped when already carried, by that file's carry-forward protocol (one-cycle limit).
+Take the version from the updated metadata.json and the inline summaries from the merged SKILL.md. Rank the api names and verify the section anchors as `skf-export-skill/references/generate-snippet.md` §3b states, and derive the gotchas as its §3a states: the merged SKILL.md, this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote (`{forge_version}/provenance-map.json`, its `{forge_provenance_map}`) are the current sources. That file's two `gotchas` calls read and write the line, on the prior snippet before the regenerated one replaces it, and the **Gotchas changed** trigger reads them too: resolve `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` and, from `{project-root}`, run `uv run {rebuildManagedSectionsHelper} gotchas prior "{skill_package}/context-snippet.md" --skills-folder "{skills_output_folder}" --skill {skill_name}` and bind `prior_api`, `prior_gotchas` and `is_first_export` as its §2.5 does; write the judgments its §3a gives to `{run_dir}/gotchas-judgments.json` with a file write, then run `uv run {rebuildManagedSectionsHelper} gotchas resolve "{skill_package}/context-snippet.md" --skills-folder "{skills_output_folder}" --skill {skill_name} --judgments "{run_dir}/gotchas-judgments.json"`, write its `line` as the `|gotchas:` value (leave the line out when it is null), and add each warning its §3a emits to `warnings[]`, recorded as **Warnings go to the run log** says. Until an export records the skill, `is_first_export` is true here too, so `resolve` writes an unbacked prior pitfall unmarked and marks it `[CARRIED]` only once the skill has been exported. When `resolve` exits non-zero, correct the judgments file as its `error` says and run it once more. When `prior` fails, or `resolve` fails again, HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:context-snippet"`, `path: "{skill_package}/context-snippet.md"`, `reason: "<its error>"`).
 
 Write the regenerated snippet to `{skill_package}/context-snippet.md`, preserving file permissions.
 

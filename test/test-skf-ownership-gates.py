@@ -1339,7 +1339,12 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
     assert ('HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): '
             '"**Export manifest is corrupt**') in parse
-    assert "`python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`" in _read(EXPORT_SNIPPET)
+    # #1164: step 2 reads the manifest through the rebuild helper's `gotchas prior`, which reads it as
+    # skf-manifest-ops.py does.
+    snippet = _read(EXPORT_SNIPPET)
+    assert ('python3 {rebuildManagedSectionsHelper} gotchas prior "{resolved_skill_package}/context-snippet.md" '
+            '--skills-folder "{skills_output_folder}" --skill {skill-name}') in snippet
+    assert "{manifestOpsHelper}" not in snippet
     assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
     verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 6. ")
