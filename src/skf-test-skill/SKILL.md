@@ -59,7 +59,7 @@ Headless callers: the full argument set (`Inputs`), the outputs, the exit codes 
 
 ## On Activation
 
-1. **Check the runtime, then load the config.** Every helper this workflow runs, the preflight included, runs through `uv run`, so first confirm that `uv` is on `$PATH` (`command -v uv`). If it is missing, HALT (`halt_reason: "runtime-missing"`, phase `on-activation:runtime`): "**test-skill needs `uv`, which is not on your PATH.** Install it (<https://docs.astral.sh/uv/getting-started/installation/>; it is a documented runtime prerequisite, see `docs/getting-started.md`), then re-run." Nothing is written.
+1. **Check the runtime, then load the config.** Every helper this workflow runs, the preflight included, runs through `uv run`, so first confirm that `uv` is on `$PATH` (`command -v uv`). If it is missing, HALT (`halt_reason: "runtime-missing"`, phase `on-activation:runtime`): "**test-skill needs `uv`, which is not on your PATH.** Install it (<https://docs.astral.sh/uv/getting-started/installation/>; it is a documented runtime prerequisite, see <https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/#prerequisites-full-reference>), then re-run." Nothing is written.
 
    Then bind `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists; init.md §0 binds the same path again), and load the config: `{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else `{project-root}/src/shared/scripts/skf-preflight.py` (the first that exists). Run it once:
 
@@ -69,12 +69,12 @@ Headless callers: the full argument set (`Inputs`), the outputs, the exit codes 
 
    It parses `{project-root}/_bmad/skf/config.yaml` and `{sidecar_path}/preferences.yaml` into one JSON object: bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its `config`, and `skills_output_folder`, `forge_data_folder` and `sidecar_path` from `config.<name>_resolved`, each folder's absolute path. With `sidecar.preferences_error` (a `preferences.yaml` that is there but does not load), display that error in one line and go on with the defaults. If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `on-activation:config`); if the call exits non-zero or prints no JSON, HALT (`halt_reason: "helper-failed"`, phase `on-activation:config`). Either displays "**test-skill cannot load its config.** {its `error` and `code`, such as `CONFIG_MISSING`, else its first stderr line, else: `skf-preflight.py` is missing, so re-install SKF.}" Nothing is written.
 
-   **Halt envelope.** Step 2 has not resolved `{headless_mode}` yet, so under `--headless` or `-H` each HALT of this step first prints its envelope, passing the payload on stdin (no run folder exists yet):
+   **Halt envelope.** Step 2 has not resolved `{headless_mode}` yet, so under `--headless` or `-H` each HALT of this step first prints its envelope. No run folder exists yet, and the config halt's message quotes preflight's error, which names an absolute path, so the halt passes its fields as options and the message on stdin in a quoted heredoc, never typed into JSON:
 
    ```bash
-   uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr <<'SKF_TS_HALT'
-   {"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}
-   SKF_TS_HALT
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' --halt-reason '<halt_reason>' --reason - <<'SKF_REASON'
+   <the halt message>
+   SKF_REASON
    ```
 
    The emitter needs only the standard library, so when `uv` is the missing tool, bind `{emitEnvelopeHelper}` as above first, and the command runs with `python3` in place of `uv run`. Display the line it prints as the run's last line, then stop. With no emitter path, or when the emitter exits non-zero or prints no line, display the halt message alone.

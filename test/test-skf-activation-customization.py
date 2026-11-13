@@ -64,6 +64,13 @@ COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
 BINDING = (f"Bind `{{resolveCustomizationHelper}}` ← `{{project-root}}/_bmad/skf/shared/scripts/{HELPER}`, "
            f"else `{{project-root}}/src/shared/scripts/{HELPER}` (the first that exists)")
 CORE_RESOLVER = "{project-root}/_bmad/scripts/resolve_customization.py"
+# #1117: Quick Skill binds the helper from the map its step 1 wrote, and step 1 halts when the script is
+# missing, so its warning names no reason for a missing script.
+HELPERS_BINDINGS = {"skf-quick-skill": ("Bind `{resolveCustomizationHelper}` ← `helpers.resolveCustomization` in "
+                                        "`{run_dir}/helpers.json`, which step 1 wrote (step 1 halts when the script "
+                                        "is missing)")}
+WARNING_OPENER = "When it exits non-zero, prints no JSON or is missing, print one line, "
+HELPERS_WARNING_OPENER = "When it exits non-zero or prints no JSON, print one line, "
 WARNING = "`[activation/warn] customization_resolver_unavailable: <reason>`"
 FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: "
             "the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
@@ -143,7 +150,8 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
     fences = re.findall(r"```bash\n(.*?)```", step, re.S)
     assert [line.strip() for fence in fences for line in fence.splitlines() if line.strip()] == [COMMAND], skill
     # #770: the helper is bound on one line, before its fence; core's resolver is never run directly.
-    [binding] = [line for line in step.splitlines() if BINDING in line]
+    [binding] = [line for line in step.splitlines() if HELPERS_BINDINGS.get(skill, BINDING) in line]
+    assert (BINDING in step) is (skill not in HELPERS_BINDINGS), skill
     assert step.index(binding) < step.index("```bash"), skill
     assert CORE_RESOLVER not in _skill_md(skill)
 
@@ -151,7 +159,8 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
 @pytest.mark.parametrize("skill", WORKFLOWS)
 def test_a_resolver_that_cannot_run_prints_one_warning_and_uses_the_defaults(skill):
     step = _flat(_step(skill))
-    assert step.count("When it exits non-zero, prints no JSON or is missing, print one line, " + WARNING) == 1
+    opener = HELPERS_WARNING_OPENER if skill in HELPERS_BINDINGS else WARNING_OPENER
+    assert step.count(opener + WARNING) == 1
     assert step.count(FALLBACK) == 1
     assert "fall back to reading `{skill-root}/customize.toml` directly" not in step
     # The warning comes first, then the fallback, then where the reason goes.

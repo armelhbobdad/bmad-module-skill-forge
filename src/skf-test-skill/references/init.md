@@ -71,7 +71,15 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr 
 SKF_TS_HALT
 ```
 
-Once §6b has created the run folder, write the same object, with `"report_path": "{report_file}"` once §6c created the report, to `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. The emitter sets `status: "error"`, derives `exit_code` from `halt_reason` and stamps `run_id`. Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. `references/invocation-contract.md` lists every `halt_reason`.
+A halt whose message quotes a helper's text (its `error`, its `message` or its stderr, which can hold the backslashes of a Windows path) passes its fields as options instead, so no step types that text into JSON: add `--skill-name "{skill_name}"` once §1 named the skill and `--path "<path>"` when the halt names one, and pass the message on stdin in a quoted heredoc:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' --halt-reason '<halt_reason>' --skill-name "{skill_name}" --reason - <<'SKF_REASON'
+<the halt message>
+SKF_REASON
+```
+
+Once §6b has created the run folder, write the stdin form's object, with `"report_path": "{report_file}"` once §6c created the report, to `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. The emitter sets `status: "error"`, derives `exit_code` from `halt_reason` and stamps `run_id`. Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. `references/invocation-contract.md` lists every `halt_reason`.
 
 ### 0. Resolve the Envelope Emitter
 
@@ -79,7 +87,7 @@ Resolve `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrd
 
 ### 0b. Check the Runtime
 
-Every step runs SKF's helpers through `uv run`, which also installs the dependencies each script declares (PEP 723); bare `python3` ignores them, so a helper such as the frontmatter validator fails on its PyYAML import. Confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HALT (`halt_reason: "runtime-missing"`, phase `init:runtime`): "**test-skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv`: <https://docs.astral.sh/uv/getting-started/installation/>; `python3`: <https://www.python.org/downloads/>; both are documented runtime prerequisites, see `docs/getting-started.md`), then re-run." Nothing is written. The emitter needs only the standard library, so when `uv` is the missing tool the envelope command runs with `python3` in place of `uv run`; with both missing, display the halt message alone.
+Every step runs SKF's helpers through `uv run`, which also installs the dependencies each script declares (PEP 723); bare `python3` ignores them, so a helper such as the frontmatter validator fails on its PyYAML import. Confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HALT (`halt_reason: "runtime-missing"`, phase `init:runtime`): "**test-skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv`: <https://docs.astral.sh/uv/getting-started/installation/>; `python3`: <https://www.python.org/downloads/>; both are documented runtime prerequisites, see <https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/#prerequisites-full-reference>), then re-run." Nothing is written. The emitter needs only the standard library, so when `uv` is the missing tool the envelope command runs with `python3` in place of `uv run`; with both missing, display the halt message alone.
 
 ### 1. Receive the Skill Name
 
@@ -302,7 +310,7 @@ The owner names no run id, so the helper adds one. Bind `{run_id}` ← `run_id` 
   mkdir -p "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
   ```
 
-  If it cannot be created, HALT (`halt_reason: "write-failed"`, phase `init:run-folder`, `"path"` the folder) with the first stderr line, releasing the run lock first as the **Halt envelope** paragraph says and passing the envelope's payload on stdin: there is no folder to stage it in. report.md §7 removes the folder when the run ends; a HALT leaves it for inspection.
+  If it cannot be created, HALT (`halt_reason: "write-failed"`, phase `init:run-folder`, `"path"` the folder) with the first stderr line, releasing the run lock first as the **Halt envelope** paragraph says and passing the halt's fields as options and that line on stdin, as it says for a helper's text: there is no folder to stage a payload in. report.md §7 removes the folder when the run ends; a HALT leaves it for inspection.
 - `acquired` is false (exit 3): another run holds a lock that has not gone stale. HALT (`halt_reason: "another-run-active"`, phase `init:run-lock`) with "**Another test-skill run is active for {skill_name}.** {message}": the helper's `message` names that run, the lock file to delete when no run is active, and the time the lock goes stale. This run holds no lock, so nothing is released.
 - The helper exits 1 or 2, or prints no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:run-lock`) with its stderr message (exit 2: the lock file could not be written, so check that `{forge_version}` is writable). This run holds no lock, so nothing is released.
 

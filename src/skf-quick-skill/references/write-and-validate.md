@@ -39,7 +39,7 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 - Write exactly what was compiled — do not modify content during writing or after validation
 - Community-tier validation (lighter than official requirements)
 - A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
-- Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`; every halt or fallback below for a helper with no path still applies.
+- Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires only when neither the file nor the probe order names a path that exists, as when the helper was removed after activation.
 
 ## Steps
 

@@ -1,7 +1,7 @@
 type: breaking
 scope: skf-quick-skill
 summary: |
-  Quick Skill now parses `_bmad/skf/config.yaml` and `preferences.yaml` with `skf-preflight.py`, the helper Setup Forge and Ferris use, instead of reading them by hand. A `config.yaml` that is missing or does not parse, or a `sidecar_path` that is missing or still holds a placeholder, stops Quick Skill with exit `3` (`resolution-failure`, phase `on-activation`) and the helper's message, which names the file and the fix, where it used to go on. A `preferences.yaml` that does not parse is named in one line and the run goes on with the defaults, so only `--headless` or `-H` makes that run headless.
+  Quick Skill now parses `_bmad/skf/config.yaml` and `preferences.yaml` with `skf-preflight.py`, the helper Setup Forge and Ferris use, instead of reading them by hand. A `config.yaml` that is missing or does not parse, or a `sidecar_path` that is missing or still holds a placeholder, stops Quick Skill with exit `3` (`resolution-failure`, phase `on-activation`) where it used to go on, and shows the helper's message, which names the file and the fix. Its `SKF_QUICK_SKILL_RESULT_JSON` line gives `Quick Skill cannot load its config.` as its message and the helper's code, such as `CONFIG_MISSING`, as `details.cause`. A `preferences.yaml` that does not parse is named in one line and the run goes on with the defaults, so only `--headless` or `-H` makes that run headless.
 migration: |
   If Quick Skill now stops with exit `3` naming `sidecar_path`, set `sidecar_path: _bmad/_memory/forger-sidecar` in `_bmad/skf/config.yaml` and run it again.
 issues: [1117]

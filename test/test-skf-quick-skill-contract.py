@@ -1388,8 +1388,10 @@ HELPERS_CALL = ('uv run {preflightHelper} "{project-root}" --allow-missing-sidec
 HELPERS_RULE = ("- Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` "
                 "SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds "
                 "it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array "
-                "above only when that file holds no `<stem>`; every halt or fallback below for a helper with no path "
-                "still applies.")
+                "above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe "
+                "order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires "
+                "only when neither the file nor the probe order names a path that exists, as when the helper was "
+                "removed after activation.")
 
 
 def _probe_stems() -> dict[str, set[str]]:
@@ -1541,6 +1543,18 @@ def test_a_config_the_preflight_cannot_load_halts_before_the_run_folder():
     assert "--run-dir" not in site[:site.index("Then create the run folder")]
     payload = _filled(_staged(site, "halt.json"))
     assert payload["details"]["cause"].startswith("<its code, preflight-missing with no path, or preflight-error")
+    # preflight's error names an absolute path, so only the display quotes it: the payload's reason is typed text.
+    assert payload["reason"] == "Quick Skill cannot load its config."
+    assert "The payload's `reason` is the message's first sentence alone" in site
+
+
+def test_the_run_folder_halt_stages_a_reason_it_wrote():
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == "SKILL.md" and "**Quick Skill cannot start: the run folder could not be created.**" in segment]
+    payload = _filled(_staged(site, "halt.json"))
+    assert (payload["halt_reason"], payload["reason"]) == (
+        "write-failure", "Quick Skill cannot start: the run folder could not be created.")
+    assert "that stderr line again in the display alone" in site
 
 
 def test_every_stage_binds_its_helpers_from_helpers_json():

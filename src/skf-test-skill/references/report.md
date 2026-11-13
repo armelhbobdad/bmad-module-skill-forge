@@ -128,7 +128,7 @@ For each prompt, PASS = `selected_skill == skill_name` (the skill under test), F
 
 Either gap has the SKILL.md frontmatter `description` as its Source, the misrouted prompts and the skills they reached as its Issue, and a Remediation that names the trigger phrases to add (§4b.4). Keep the prompts, the selected skills and the outcomes for the Discovery Quality table, which §4c writes after the Gap Report.
 
-**4b.4 Description optimization (secondary):** If `{run_dir}/external.json` (external-validators.md §4) holds a `descriptionIssues` of true (skill-check reported a description rule) or a `tesslDescriptionScore` below 90 (null when Tessl Review did not run), keep these remediation hints for the Discovery Quality subsection §4c writes:
+**4b.4 Description optimization (secondary):** If `{run_dir}/external.json` (`references/external-validators.md` §4) holds a `descriptionIssues` of true (skill-check reported a description rule) or a `tesslDescriptionScore` below 90 (null when Tessl Review did not run), keep these remediation hints for the Discovery Quality subsection §4c writes:
 - Third-person voice check
 - Explicit trigger keywords matching real user phrasing
 - Negative triggers ("NOT for: ...") to prevent false positives

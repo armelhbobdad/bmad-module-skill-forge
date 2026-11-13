@@ -35,9 +35,11 @@ Subcommands:
              knows (a skill name, a version). Needs --workflow. With
              --phase the emitter builds the payload from options instead,
              so a step types no JSON: {"phase", "reason"} plus
-             `halt_reason`, `path`, `old_name` and `new_name` for each of
-             --halt-reason, --path, --old-name and --new-name given
-             non-empty. --reason takes the text, or `-` to read it on
+             `halt_reason`, `path`, `skill_name`, `old_name` and
+             `new_name` for each of --halt-reason, --path, --skill-name,
+             --old-name and --new-name given non-empty, each where the
+             schema has the field.
+             --reason takes the text, or `-` to read it on
              stdin (UTF-8, a byte-order mark dropped, bytes that are not
              UTF-8 replaced), so a halt passes text that holds quotes,
              backticks or `$( )` through a quoted heredoc and never as a
@@ -2116,8 +2118,8 @@ def cmd_emit_blocked(args) -> None:
 
 
 # emit-halt's options that name a payload key, each set only when given non-empty.
-HALT_OPTION_KEYS = (("--halt-reason", "halt_reason"), ("--path", "path"), ("--old-name", "old_name"),
-                    ("--new-name", "new_name"))
+HALT_OPTION_KEYS = (("--halt-reason", "halt_reason"), ("--path", "path"), ("--skill-name", "skill_name"),
+                    ("--old-name", "old_name"), ("--new-name", "new_name"))
 
 
 def halt_payload(args) -> dict | None:
@@ -2233,6 +2235,8 @@ def main() -> None:
     p_halt.add_argument("--stderr-from", default=None, metavar="FILE|-",
                         help="The failed command's stderr, a file or - for stdin: its diagnostic fills "
                              "<message> in --reason.")
+    p_halt.add_argument("--skill-name", default=None,
+                        help="The envelope's skill_name (optional, with --phase).")
     p_halt.add_argument("--old-name", default=None, help="The envelope's old_name (optional, with --phase).")
     p_halt.add_argument("--new-name", default=None, help="The envelope's new_name (optional, with --phase).")
     p_blocked.add_argument("--phase", default=None,

@@ -604,10 +604,11 @@ def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
     flat = " ".join(item.split())
     assert ("It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-setup.toml` "
             "(team overrides, committed) and `.user.toml` (personal overrides, gitignored).") in flat
-    assert ("When it exits non-zero, prints no JSON or is missing, print one line, "
+    # Item 4 halts when the script is missing (#1117), so item 6 names no reason for that case.
+    assert ("When it exits non-zero or prints no JSON, print one line, "
             "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, "
-            "`SKF helper skf-resolve-customization.py not found` when the script is "
-            "missing, `no JSON` when it printed none).") in flat
+            "`no JSON` when it printed none).") in flat
+    assert "when the script is missing" not in flat and "is missing, print one line" not in flat
     assert ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: "
             "the `{project-root}/_bmad/custom/` overrides do not apply to this run.") in flat
     assert "Bind `{customization_resolver_unavailable}` ← that reason (null when the resolver ran)" in flat
@@ -627,18 +628,18 @@ def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
 # Item 6's sentence after the fallback: where `<reason>` is read, and the fixed reason the
 # file gets when the resolver printed none (#1119 review round 1).
 ITEM_6_FILE_RULE = ("The resolver's stderr is in `{run_dir}/resolver.err`, so read `<reason>` from that file "
-                    "(`(no error message)` when it is empty); when the script is missing, or exits 0 and prints "
+                    "(`(no error message)` when it is empty); when it exits 0 and prints "
                     "no JSON, first write that fixed reason into the file "
                     "(`printf '%s\\n' '<the fixed reason>' > \"{run_dir}/resolver.err\"`), so the file holds the "
                     "reason whenever `{customization_resolver_unavailable}` is bound.")
 
 
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
-@pytest.mark.parametrize("case", ["resolver-fails", "resolver-silent", "script-missing"])
+@pytest.mark.parametrize("case", ["resolver-fails", "resolver-silent", "resolver-no-json"])
 def test_item_6_leaves_the_reason_in_the_file_the_halts_read(tmp_path, case):
     """#1119 review round 1: item 6's documented command, run by bash with a resolver that
     fails, saves its stderr in resolver.err; a silent failure leaves `(no error message)`; a
-    missing script gets its fixed reason through the documented printf. Each later halt's
+    run that exits 0 with no JSON gets its fixed reason through the documented printf. Each later halt's
     emitter then warns with that reason, and nothing in it runs."""
     item = _section(_on_activation(_read(SKILL_MD)), "6. **Resolve workflow customization.**")
     [command] = [line.strip() for line in re.findall(r"```bash\n(.*?)```", item, re.S)[0].splitlines()
@@ -660,7 +661,7 @@ def test_item_6_leaves_the_reason_in_the_file_the_halts_read(tmp_path, case):
         assert ran.returncode == 1 and ran.stderr == b"", "the redirect sends the resolver's stderr to the file"
         expected = stderr_text or "(no error message)"
     else:
-        fixed = "SKF helper skf-resolve-customization.py not found"
+        fixed = "no JSON"
         shell = printf.replace("<the fixed reason>", fixed).replace("{run_dir}", run_dir.as_posix())
         assert subprocess.run(["bash", "-c", shell], timeout=20, cwd=tmp_path).returncode == 0
         expected = fixed

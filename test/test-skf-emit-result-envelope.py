@@ -2953,9 +2953,33 @@ def test_emit_halt_options_build_the_envelope_a_typed_payload_builds(tmp_path):
     assert "path" not in blank["error"] and blank["old_name"] is None
 
 
+def test_emit_halt_takes_the_skill_name_as_an_option(tmp_path):
+    """A Test Skill halt before its run folder exists, whose message quotes a helper's error, names the skill
+    with --skill-name, so its envelope keeps `skill_name` with no payload typed as JSON."""
+    done = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit-halt", "--workflow", "skf-test-skill",
+                           "--target", "stderr", "--phase", "init:resolve", "--halt-reason", "helper-failed",
+                           "--skill-name", "demo", "--reason", "-"],
+                          input=FREE_TEXT.encode("utf-8") + b"\n", capture_output=True, timeout=10, cwd=tmp_path)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stderr.decode("utf-8").splitlines()
+    env = json.loads(line.removeprefix("SKF_TEST_RESULT_JSON: "))
+    assert (env["skill_name"], env["halt_reason"], env["exit_code"]) == ("demo", "helper-failed", 1)
+    assert env["error"] == {"phase": "init:resolve", "reason": FREE_TEXT}
+    # Before §1 names the skill, an empty --skill-name is left out, as the halt names none.
+    blank = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit-halt", "--workflow", "skf-test-skill",
+                            "--target", "stderr", "--phase", "init:skill-name", "--halt-reason", "input-missing",
+                            "--skill-name", "", "--reason", "x"], capture_output=True, timeout=10, cwd=tmp_path)
+    assert blank.returncode == 0, blank.stderr.decode("utf-8", "replace")
+    assert json.loads(blank.stderr.decode("utf-8").removeprefix("SKF_TEST_RESULT_JSON: "))["skill_name"] is None
+
+
 @pytest.mark.parametrize("args,stdin,needle", [
     (("--reason", "x"), b"", "--reason needs --phase"),
     (("--old-name", "demo", "--stderr-from", "-"), b"", "--stderr-from and --old-name need --phase"),
+    (("--skill-name", "demo"), b"", "--skill-name needs --phase"),
+    # Rename's envelope has no skill_name, so the schema check refuses the option there.
+    (("--phase", "p", "--halt-reason", "copy-failed", "--skill-name", "demo", "--reason", "x"), b"",
+     "unexpected property 'skill_name'"),
     (("--phase", "p", "--halt-reason", "write-failed"), b"", "must be non-empty"),
     (("--phase", "p", "--halt-reason", "write-failed", "--reason", "-"), b"  \n", "must be non-empty"),
     (("--phase", "p", "--halt-reason", "write-failed", "--reason", "failed: <message>"), b"", "needs --stderr-from"),
@@ -2963,7 +2987,8 @@ def test_emit_halt_options_build_the_envelope_a_typed_payload_builds(tmp_path):
      "<message>"),
     (("--phase", "p", "--halt-reason", "write-failed", "--reason", "-", "--stderr-from", "-"), b"x <message>",
      "would both read stdin"),
-], ids=["reason-alone", "options-alone", "no-reason", "blank-stdin-reason", "placeholder-unfilled",
+], ids=["reason-alone", "options-alone", "skill-name-alone", "skill-name-off-schema", "no-reason",
+        "blank-stdin-reason", "placeholder-unfilled",
         "no-placeholder", "both-on-stdin"])
 def test_emit_halt_refuses_options_it_cannot_use(tmp_path, args, stdin, needle):
     done = _halt(tmp_path, *args, stdin=stdin)
@@ -3005,7 +3030,8 @@ def test_emit_halt_and_emit_blocked_share_the_reason_rule(tmp_path, reason, stde
 
 def test_emit_halt_options_are_documented():
     doc = _folded_doc()
-    for token in ("--halt-reason, --path, --old-name and --new-name", "--reason takes the text, or `-` to read it on",
+    for token in ("--halt-reason, --path, --skill-name, --old-name and --new-name",
+                  "--reason takes the text, or `-` to read it on",
                   "`-` for both --reason and --stderr-from is refused", "<<'SKF_REASON'"):
         assert token in doc, token
 

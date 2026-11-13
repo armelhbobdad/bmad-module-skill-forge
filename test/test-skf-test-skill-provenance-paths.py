@@ -937,10 +937,16 @@ def test_runtime_is_checked_before_the_first_helper_call():
 PREFLIGHT_CALL = 'uv run {preflightHelper} "{project-root}" --allow-missing-sidecar'
 EFFECTIVE_CALL = ('uv run {forgeTierRwHelper} effective --target "{sidecarFile}" '
                   '--preferences "{sidecar_path}/preferences.yaml"')
-# The heredoc a step 1 HALT passes the emitter, before any run folder exists.
-ACTIVATION_HALT = ("uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr <<'SKF_TS_HALT'\n"
-                   '{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}\n'
-                   "SKF_TS_HALT")
+# The command a step 1 HALT runs, before any run folder exists: its fields as options, its message in a heredoc.
+ACTIVATION_HALT = ("uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' "
+                   "--halt-reason '<halt_reason>' --reason - <<'SKF_REASON'\n"
+                   "<the halt message>\n"
+                   "SKF_REASON")
+# The same form in init.md, for a halt before §6b whose message quotes a helper's text.
+INIT_OPTION_HALT = ("uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' "
+                    "--halt-reason '<halt_reason>' --skill-name \"{skill_name}\" --reason - <<'SKF_REASON'\n"
+                    "<the halt message>\n"
+                    "SKF_REASON")
 FORGE_TIER_MISSING = ('HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) '
                       'with "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** '
                       'workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with '
@@ -949,6 +955,21 @@ FORGE_TIER_UNUSABLE = ('HALT (`halt_reason: "forge-tier-missing"`, phase `init:f
                        'with "**Cannot proceed.** forge-tier.yaml at `{sidecarFile}` cannot be read: {its `message`}. '
                        'Re-run the **setup** workflow to rewrite it, or re-run with `--tier=<Quick|Forge|Forge+|Deep>` '
                        'to bypass the sidecar."')
+
+
+def _emit_by_options(block: str, values: dict[str, str], message: str) -> dict:
+    """Run a documented option-form halt with `message` as its heredoc's body; the envelope it prints."""
+    first, body, end = block.splitlines()
+    assert first.endswith(" <<'SKF_REASON'") and (body, end) == ("<the halt message>", "SKF_REASON")
+    rest = first.removesuffix(" <<'SKF_REASON'").removeprefix("uv run {emitEnvelopeHelper} ")
+    for key, value in values.items():
+        rest = rest.replace(key, value)
+    assert not re.search(r"\{\w+\}|<[a-z][^>]*>", rest), f"unfilled placeholder in {rest!r}"
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{emitEnvelopeHelper}"]), *shlex.split(rest)],
+                          input=message + "\n", capture_output=True, text=True, encoding="utf-8", check=False,
+                          timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stderr.strip().removeprefix("SKF_TEST_RESULT_JSON: "))
 
 
 def _activation_step_1() -> str:
@@ -1047,17 +1068,43 @@ def test_activation_checks_uv_before_the_preflight_and_prints_each_halt_headless
             "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`") in flow
     assert _frontmatter(INIT)["emitEnvelopeProbeOrder"][1] == "{project-root}/src/shared/scripts/skf-emit-result-envelope.py"
     block = "\n".join(line[3:] for line in step1.splitlines() if line.startswith("   ")).strip()
-    assert ACTIVATION_HALT in block
-    # The documented payload, filled for the config halt, gives the envelope a headless caller reads.
-    message = "test-skill cannot load its config. SKF is not installed in this project (CONFIG_MISSING)"
-    payload = json.dumps({"phase": "on-activation:config", "reason": message, "halt_reason": "helper-failed"})
-    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{emitEnvelopeHelper}"]), "emit-halt", "--workflow",
-                           "skf-test-skill", "--target", "stderr"], input=payload, capture_output=True, text=True,
-                          check=False, timeout=30)
-    assert proc.returncode == 0, proc.stderr
-    envelope = json.loads(proc.stderr.strip().removeprefix("SKF_TEST_RESULT_JSON: "))
+    assert ACTIVATION_HALT in block and "<<'SKF_TS_HALT'" not in step1
+    # The documented command, filled for the config halt, gives the envelope a headless caller reads, even when
+    # preflight's error names a Windows path, whose backslashes a hand-typed JSON payload cannot hold.
+    message = ("test-skill cannot load its config. Cannot initialize. SKF is not installed in this project "
+               "(C:\\Users\\me\\demo\\_bmad\\skf\\config.yaml not found). CONFIG_MISSING")
+    envelope = _emit_by_options(ACTIVATION_HALT, {"<phase>": "on-activation:config",
+                                                  "<halt_reason>": "helper-failed"}, message)
     assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 1, "helper-failed")
     assert envelope["error"] == {"phase": "on-activation:config", "reason": message}
+    assert envelope["skill_name"] is None
+
+
+def test_a_halt_before_the_run_folder_passes_a_helpers_text_as_options():
+    """A halt before §6b whose message quotes a helper's text (migrate's `error`, the forge-tier helper's
+    `message`, a stderr line) passes its fields as options, so a Windows path never breaks a typed payload."""
+    rule = _slice(_read(INIT), "**Halt envelope.**", "### 0.")
+    assert INIT_OPTION_HALT in rule
+    flow = _flow(rule)
+    assert ("A halt whose message quotes a helper's text (its `error`, its `message` or its stderr, which can hold "
+            "the backslashes of a Windows path) passes its fields as options instead") in flow
+    assert (flow.index("<<'SKF_TS_HALT'") < flow.index("A halt whose message quotes")
+            < flow.index("Once §6b has created the run folder"))
+    message = 'Could not move entries back from C:\\Users\\me\\skills\\demo\\1.0.0.skf-migrate: "busy"'
+    envelope = _emit_by_options(INIT_OPTION_HALT, {"<phase>": "init:resolve", "<halt_reason>": "helper-failed",
+                                                   "{skill_name}": "demo"}, message)
+    assert (envelope["skill_name"], envelope["halt_reason"], envelope["exit_code"]) == ("demo", "helper-failed", 1)
+    assert envelope["error"] == {"phase": "init:resolve", "reason": message}
+
+
+def test_new_citations_name_paths_that_resolve():
+    """SKILL.md's bare-path rule (#1112): a stage cites another stage from the skill root, and a runtime halt
+    points at the published docs, since `docs/` is not installed with the skill."""
+    assert "`{run_dir}/external.json` (`references/external-validators.md` §4)" in _read(REPORT)
+    docs = "<https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/#prerequisites-full-reference>"
+    for path in (SKILL_MD, INIT):
+        assert "`docs/getting-started.md`" not in _read(path), path.name
+        assert docs in _read(path), path.name
 
 
 def _effective_values(sidecar: Path) -> dict[str, str]:
@@ -1720,6 +1767,10 @@ def test_the_run_folder_is_created_at_the_lock_and_removed_at_both_ends():
     assert f"bind `{{run_dir}}` ← `{RUN_FOLDER}`" in lock
     assert f'mkdir -p "{RUN_FOLDER}"' in lock
     assert "releasing the run lock first as the **Halt envelope** paragraph says" in lock
+    # The halt quotes mkdir's stderr and has no folder to stage a payload in, so it passes options (#1119).
+    assert ("passing the halt's fields as options and that line on stdin, as it says for a helper's text: there is "
+            "no folder to stage a payload in.") in lock
+    assert "payload on stdin" not in lock
     halt_envelope = _flow(_slice(_read(INIT), "**Halt envelope.**", "### 0."))
     assert f"Once §6a took the run lock, it releases the lock first, whatever the release prints: from `{{project-root}}`, run `{RELEASE}`" in halt_envelope
     section7 = _flow(_slice(_read(REPORT), "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
