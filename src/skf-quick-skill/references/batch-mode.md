@@ -105,7 +105,7 @@ SKF_JSON
 uv run {quickBatchHelper} summarize --run-dir "{batch_dir}" --output-dir "{batchOutputPath}" --target stderr
 ```
 
-The helper counts the targets, sets the batch status and exit code, writes the summary files below, appends the final status to the batch file (and removes the batch run folder when no target failed), and prints the `batch_summary` event on stderr: display it verbatim. Then print step 7's `start` event and load, read in full and execute `{healthCheckStepFile}`: the health check runs once per batch, here. The batch ends with the event's `exit_code`.
+The helper counts the targets, sets the batch status and exit code, writes the summary files below, appends the final status to the batch file (and removes the batch run folder when no target failed), and prints the `batch_summary` event on stderr: display it verbatim. Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow of the session bound, print step 7's `start` event, and load, read in full and execute `{healthCheckStepFile}`: the health check runs once per batch, here. The batch ends with the event's `exit_code`.
 
 If `summarize` exits non-zero (a target is still pending, or the batch file is gone or unreadable), it wrote no summary file: display "**The batch stopped:** {its `message`}" and HARD HALT with **exit code 4 (write-failure)**: the health check does not run. When an earlier `summarize` already printed the `batch_summary` event (a compaction came before the health check), that event stays the batch's result (**Reading a batch.** below). Emit with nothing to stage in, as §1 does:
 

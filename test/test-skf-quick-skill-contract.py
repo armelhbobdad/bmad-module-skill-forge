@@ -1845,6 +1845,9 @@ def test_every_target_of_a_batch_returns_to_batch_mode():
         assert needle in record, needle
     summary = _section(batch, "### 4. Batch Summary", "## Batch summary contract")
     assert "execute `{healthCheckStepFile}`: the health check runs once per batch, here" in summary
+    # #1113: a batch target binds no result line, so a line an earlier workflow of the session bound is cleared first.
+    empty = "Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow"
+    assert summary.index(empty) < summary.index("load, read in full and execute `{healthCheckStepFile}`")
     frontmatter = batch.split("---\n", 2)[1]
     assert "healthCheckStepFile: 'health-check.md'" in frontmatter
     assert ("quickBatchProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-quick-batch.py'\n"
