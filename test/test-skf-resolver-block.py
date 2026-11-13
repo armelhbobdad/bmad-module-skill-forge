@@ -218,7 +218,7 @@ def test_a_report_step_binds_a_lost_on_complete_before_its_hook(rel):
     right after the sentence and before the hook runs; a bound value, an empty one included, calls nothing, and
     an empty one still skips the hook. No pointer to the activation's binding is left."""
     text = _read(REPO / rel)
-    call = f"\n```bash\n{AC.COMMAND}.on_complete\n```\n"
+    call = f"\n```bash\n{RESOLVE_KEY}workflow.on_complete\n```\n"
     assert text.count(HOOK_BINDING) == 1 and text.count(call) == 1, rel
     sentence, fence, hook = text.index(HOOK_BINDING), text.index(call), text.index("{onCompleteCommand} --result-path")
     assert sentence < fence < hook, rel
