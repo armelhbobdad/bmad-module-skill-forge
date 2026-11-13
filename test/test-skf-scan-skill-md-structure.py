@@ -44,7 +44,8 @@ Covers:
     check reads instead of grepping SKILL.md (any heading level, outside
     fenced code), `missing` only when a folder exists without the section
   - integration-scan (#1187): a code-mode and a compose-mode stack, the
-    cross-cutting list items, the hub list left out, citations in fenced
+    cross-cutting list items and their need of no wiring evidence, the hub
+    list left out, citations in fenced
     code and URL ports not counted, no section, the CLI, and the headings
     read from skf-validate-output.py's stack template names
 """
@@ -2179,8 +2180,9 @@ class TestIntegrationScan:
         assert _scan_integration(plain)["stack_mode"] == "code"
 
     def test_cross_cutting_list_items_are_entries(self) -> None:
-        """A Cross-Cutting Patterns subsection with no `####` heading takes each list item as an entry; in a
-        compose stack, an entry whose name names no libraries is left to the caller."""
+        """A Cross-Cutting Patterns subsection with no `####` heading takes each list item as an entry. Only a
+        pair needs wiring evidence: create-stack-skill writes a cross-cutting entry from the bundle's
+        `cross_cutting`, which records none, so the entry meets the first criterion in either mode."""
         text = COMPOSE_STACK.replace("### Library Pair Integrations", (
             "### Cross-Cutting Patterns\n"
             "- Shared domain models across a, b and c\n"
@@ -2191,16 +2193,23 @@ class TestIntegrationScan:
         payload = _scan_integration(text)
         assert payload["patterns_documented"] == 3
         assert _entry_facts(payload) == [
-            ("Shared domain models across a, b and c", 6, "cross-cutting", None, []),
-            ("Request tracing", 8, "cross-cutting", None, []),
+            ("Shared domain models across a, b and c", 6, "cross-cutting", True, []),
+            ("Request tracing", 8, "cross-cutting", True, []),
             ("a + b", 12, "pair", False, ["no [from skill: …] line for b"]),
         ]
         assert payload["entries"][0]["libraries"] == []
         assert payload["entries"][0]["from_skill"] == [{"line": 7, "skill": "a", "text": "Model"}]
-        # code mode reads a cross-cutting entry's citations and asks no key files of it
+        # code mode reads a cross-cutting entry's citations and asks no citation or key files of it
         code = text.replace("T1 (x) [composed]", "T1").replace("  [from skill: a] Model", "  wired at src/trace.ts:4")
-        first = _scan_integration(code)["entries"][0]
-        assert (first["first_criterion"], first["missing"]) == (True, [])
+        first, second, pair = _scan_integration(code)["entries"]
+        assert first["citations"] == [{"line": 7, "text": "src/trace.ts:4"}]
+        assert [(e["first_criterion"], e["missing"]) for e in (first, second)] == [(True, []), (True, [])]
+        assert pair["missing"] == ["no file:line citation", "no **Key files:** line naming a file"]
+
+    def test_a_compose_pair_naming_no_libraries_is_left_to_the_caller(self) -> None:
+        [entry] = _scan_integration(COMPOSE_STACK.replace("#### a + b", "#### Shared data flow"))["entries"]
+        assert (entry["kind"], entry["libraries"]) == ("pair", [])
+        assert (entry["first_criterion"], entry["missing"]) == (None, [])
 
     def test_a_nested_list_item_is_part_of_its_entry(self) -> None:
         """A sub-item indented past the first-level items, by 2 spaces under `-` or 3 under `1.`, is not an
@@ -2216,8 +2225,8 @@ class TestIntegrationScan:
         tracing, config = payload["entries"][:2]
         assert (tracing["name"], tracing["first_criterion"]) == ("Request tracing across express, pino and otel", True)
         assert [c["text"] for c in tracing["citations"]] == ["src/app.ts:4", "src/log.ts:9"]
-        assert (config["name"], config["confidence"], config["missing"]) == (
-            "Shared config loader", "T2", ["no file:line citation"])
+        assert (config["name"], config["confidence"], config["first_criterion"], config["missing"]) == (
+            "Shared config loader", "T2", True, [])
 
     def test_cross_cutting_headings_win_over_list_items(self) -> None:
         text = COMPOSE_STACK.replace("### Library Pair Integrations", (

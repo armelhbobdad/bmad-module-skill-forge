@@ -120,7 +120,7 @@ An `evidence-report-fallback.md` in a version folder is an older test-skill run'
 
 ### Writing Workflows (CS, QS, SS, US)
 
-When writing artifacts, resolve `{version}` from the skill brief's `version` field (CS, SS), the extraction inventory (QS), or the updated metadata (US). Then:
+When writing artifacts, resolve `{version}` from the skill brief's `version` field (CS), the stack version the Version Commands below compute (SS), the extraction inventory (QS), or the updated metadata (US). Then:
 
 0. **Ownership check (CS, QS, SS).** Before creating anything, run `uv run skf-skill-inventory.py {skills_output_folder} --skill {skill-name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}` and continue only when `write_check.verdict` is `"ok"`; otherwise stop with that verdict as the halt reason (`not-skf-output` or `flat-layout`). Without the helper, write only when nothing exists at `{skill_group}`. See Ownership below.
 1. Create `{skill_group}` if it does not exist

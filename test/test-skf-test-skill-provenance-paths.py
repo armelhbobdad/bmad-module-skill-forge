@@ -66,11 +66,12 @@ writes the denominator record (#1186).
 
 They also keep coherence-check section 5 on the integration entries
 create-stack-skill emits (#544): only the cross-cutting and library-pair
-entries are integration points, the first criterion accepts the wiring
-evidence of the stack's mode (file:line citations and key files in code
-mode, a `[from skill: ...]` line citing each constituent's exports in
-compose mode, whatever the constituent's type) and needs no fenced code
-block, section 5 is the one home of that rule (scoring-rules.md points at
+entries are integration points, the first criterion accepts a pair's
+wiring evidence of the stack's mode (file:line citations and key files in
+code mode, a `[from skill: ...]` line citing each constituent's exports in
+compose mode, whatever the constituent's type), asks none of a
+cross-cutting entry, whose bundle record holds none, and needs no fenced
+code block, section 5 is the one home of that rule (scoring-rules.md points at
 it), and the producer formats the criterion names are pinned, so a change
 there fails here. Section 5 runs the scanner's integration-scan, which
 applies that rule, and the integration file built from its output feeds
@@ -1705,6 +1706,9 @@ def test_criterion_one_defines_the_evidence_of_each_mode():
     assert COMPOSE_EVIDENCE in compose
     assert "A fenced code block is not required in either mode" in wiring
     assert "a code block does not stand in for missing evidence" in wiring
+    # create-stack-skill writes a cross-cutting entry from `cross_cutting`, which holds no evidence (#1187).
+    assert "A library-pair entry meets the first criterion when it carries the evidence" in wiring
+    assert "A Cross-Cutting Patterns entry meets the first criterion as written" in wiring
     assert "`incomplete_patterns` issue" in wiring
     assert "`no [from skill: …] line for {skill name}`" in wiring
 

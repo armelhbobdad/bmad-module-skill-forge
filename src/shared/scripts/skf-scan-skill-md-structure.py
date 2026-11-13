@@ -333,13 +333,16 @@ Integration entries:
   extension; and `from_skill` each `[from skill: X]` with the text after
   it, up to the next marker or the line's end.
   The stack is `compose` when an entry's `confidence` holds `[composed]`,
-  `[composed,` or `[inferred from shared domain]`, else `code`. Code mode:
-  `missing` names `no file:line citation` for an entry with no citation
-  and, for a `pair`, `no **Key files:** line naming a file`. Compose mode:
-  for each of an entry's `libraries` that no `from_skill` line with
-  non-blank text names (case-insensitive, whitespace collapsed, backticks
-  and asterisks dropped), `no [from
-  skill: …] line for {library}`; an entry with no `libraries` has a
+  `[composed,` or `[inferred from shared domain]`, else `code`. Only a
+  `pair` needs wiring evidence: create-stack-skill writes a
+  `cross-cutting` entry from its bundle's `cross_cutting`, which records
+  none, so that entry's `first_criterion` is true and `missing` empty in
+  either mode. Code mode: `missing` names `no file:line citation` for a
+  pair with no citation and `no **Key files:** line naming a file`.
+  Compose mode: for each of a pair's `libraries` that no `from_skill`
+  line with non-blank text names (case-insensitive, whitespace collapsed,
+  backticks and asterisks dropped), `no [from
+  skill: …] line for {library}`; a pair with no `libraries` has a
   null `first_criterion`, which the caller decides from its `from_skill`
   lines. Otherwise `first_criterion` is true when nothing is `missing`.
   Whether a `[from skill:]` line cites something its skill exports is the
@@ -1388,14 +1391,15 @@ def _integration_entry(
 
 def _first_criterion(entry: dict, mode: str) -> None:
     """Fill the entry's `missing` and `first_criterion` by its stack's mode
-    (coherence-contextual.md §5's wiring evidence)."""
+    (coherence-contextual.md §5's wiring evidence); a cross-cutting entry
+    needs none."""
     missing: list[str] = []
-    if mode == "code":
+    if entry["kind"] == "cross-cutting":
+        pass
+    elif mode == "code":
         if not entry["citations"]:
             missing.append("no file:line citation")
-        if entry["kind"] == "pair" and not (
-            entry["key_files"] and entry["key_files"]["files"]
-        ):
+        if not (entry["key_files"] and entry["key_files"]["files"]):
             missing.append("no **Key files:** line naming a file")
     elif entry["libraries"]:
         cited = {
