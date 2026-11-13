@@ -557,16 +557,16 @@ GUARD_STEPS = {
         "compiled",
     ),
     "update-skill": (
-        REPO_ROOT / "src" / "skf-update-skill" / "references" / "write.md",
-        "### 1. Verify SKILL.md Write",
-        "§4",
+        REPO_ROOT / "src" / "skf-update-skill" / "references" / "verify-publish.md",
+        "**Description Guard population**",
+        "write.md §4",
         "merged",
     ),
 }
 # (start, end) of each step's Description Guard evidence-report populator
 POPULATORS = {
     "create-skill": ("**Description Guard population:**", "### 9. Auto-Proceed"),
-    "update-skill": ("**Description Guard population**", "### 5. Regenerate context-snippet.md"),
+    "update-skill": ("**Description Guard population**", "### 6. Provenance Completeness"),
 }
 
 def _read(path: Path) -> str:
@@ -1085,7 +1085,7 @@ class TestQuickSkillGuardProse:
 # Create Skill §2 and §4, Update Skill §7 (#951): the snapshot goes by file
 # --------------------------------------------------------------------------
 
-US_WRITE = REPO_ROOT / "src" / "skf-update-skill" / "references" / "write.md"
+US_WRITE = REPO_ROOT / "src" / "skf-update-skill" / "references" / "verify-publish.md"
 # (step file, section start, section end) of each guard block Create Skill and Update Skill run
 GUARD_SITES = {
     "create-skill §2": (REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md",
@@ -1134,7 +1134,7 @@ def test_no_step_passes_a_description_through_a_shell_string() -> None:
                 verifies.append(rel)
                 assert line.endswith('--captured-file "{run_dir}/description-guard.json"'), (rel, line)
     expected = ["src/skf-create-skill/references/validate.md"] * 2 + [
-        "src/skf-quick-skill/references/write-and-validate.md", "src/skf-update-skill/references/write.md"]
+        "src/skf-quick-skill/references/write-and-validate.md", "src/skf-update-skill/references/verify-publish.md"]
     assert captures == verifies == expected
 
 

@@ -14,7 +14,7 @@ Surgically updates existing skills when source code changes, preserving all [MAN
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `gapDrivenStepFile`, `noChangeReportFile` and `reportFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; stage files reference `knowledge/version-paths.md` and `knowledge/tool-resolution.md`, and the terminal step chains to `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `references/` holds the workflow stages, chained by each file's frontmatter `nextStepFile` (init.md §8 loads `gap-driven.md` through `gapDrivenStepFile` instead when `update_mode` is `gap-driven`), and the invocation contract; `scripts/` holds this skill's own helper.
+- `references/` holds the workflow stages, chained by each file's frontmatter `nextStepFile` (load-baseline.md §8 loads `gap-driven.md` through `gapDrivenStepFile` instead when `update_mode` is `gap-driven`), the invocation contract, and two sub-references a stage loads in place: `write-metadata.md` (write.md §3b) and `body-split.md` (verify-publish.md §7); `scripts/` holds this skill's own helper.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -43,12 +43,17 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load | references/init.md | No (confirm) |
-| 2 | Detect Changes | references/detect-changes.md | Conditional (§1b, §1c and §2.2 ask when triggered) |
-| 2g | Gap-Driven Repair (only when `update_mode` is gap-driven: in place of steps 2 and 3) | references/gap-driven.md | Conditional (§1 rule R1 asks [D]/[R] when a gap's remediation names removal) |
+| 1 | Initialize | references/init.md | Yes |
+| 1b | Load the Baseline | references/load-baseline.md | No (confirm) |
+| 2a | Reconcile the Brief's Scope | references/reconcile-scope.md | Conditional (§1b and §1c ask when triggered) |
+| 2 | Detect Changes | references/detect-changes.md | Conditional (§2.2 asks when triggered) |
+| 2g | Gap-Driven Repair (only when `update_mode` is gap-driven: with 3g, in place of steps 2a to 3) | references/gap-driven.md | Conditional (§1 rule R1 asks [D]/[R] when a gap's remediation names removal) |
+| 3g | Gap Spot-Check | references/gap-spot-check.md | Yes |
 | 3 | Re-Extract | references/re-extract.md | Yes |
 | 4 | Merge | references/merge.md | Conditional (§4 asks on a [MANUAL] conflict) |
+| 4b | Write the Merged Files | references/merge-write.md | Yes |
 | 5 | Write | references/write.md | Yes |
+| 5b | Verify and Publish | references/verify-publish.md | Yes |
 | 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 

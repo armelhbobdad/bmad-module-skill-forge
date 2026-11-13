@@ -40,7 +40,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
-INIT = REPO_ROOT / "src" / "skf-update-skill" / "references" / "init.md"
+# update-skill's §6 and §7, which load-baseline.md holds since #1196
+INIT = REPO_ROOT / "src" / "skf-update-skill" / "references" / "load-baseline.md"
 HELPER = SCRIPTS / "skf-source-tree.py"
 ATOMIC_WRITE = SCRIPTS / "skf-atomic-write.py"
 HYGIENE = SCRIPTS / "skf-ccc-git-hygiene.py"

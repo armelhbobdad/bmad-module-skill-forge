@@ -1054,7 +1054,7 @@ def test_the_hook_comments_name_the_steps_that_run_them():
 # --------------------------------------------------------------------------
 
 PROTOCOLS = REFS / "source-resolution-protocols.md"
-UPDATE_INIT = REPO / "src" / "skf-update-skill" / "references" / "init.md"
+UPDATE_INIT = REPO / "src" / "skf-update-skill" / "references" / "load-baseline.md"  # its §6c (#1196)
 EXTRACTOR = REPO / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
 
 

@@ -2607,7 +2607,8 @@ def test_write_sets_metadata_through_the_helper() -> None:
     assert '--metadata-in "{skill_package}/metadata.json"' in call
     assert '--lists-out "{run_dir}/metadata-lists.json"' in call
     two = write[write.index("### 2. Prepare the Write Inputs"):write.index("### 3. ")]
-    three_b = write[write.index("### 3b. Write Updated metadata.json"):write.index("### 4. ")]
+    # write.md §3b loads write-metadata.md, which holds its body since #1196
+    three_b = (UPDATE_REFS / "write-metadata.md").read_text(encoding="utf-8")
     meta = three_b[three_b.index("uv run {buildChangeManifestHelper} metadata"):]
     meta = meta[:meta.index("```")]
     for flag in ('--metadata "{skill_package}/metadata.json"', '--lists "{run_dir}/metadata-lists.json"',

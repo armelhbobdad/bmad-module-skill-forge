@@ -48,7 +48,7 @@ spec.loader.exec_module(mod)
 STEP_FILES = {
     "quick-skill": SRC / "skf-quick-skill" / "references" / "write-and-validate.md",
     "create-skill": SRC / "skf-create-skill" / "references" / "validate.md",
-    "update-skill": SRC / "skf-update-skill" / "references" / "write.md",
+    "update-skill": SRC / "skf-update-skill" / "references" / "verify-publish.md",
     "create-stack-skill": SRC / "skf-create-stack-skill" / "references" / "validate.md",
 }
 PROBE_ORDER = ["{project-root}/_bmad/skf/shared/scripts/skf-security-scan.py",

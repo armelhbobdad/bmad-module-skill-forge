@@ -711,7 +711,7 @@ def test_refine_architecture_documents_the_report_lookup_and_its_halt():
 
 def test_docs_describe_the_unconsumed_test_report_offer():
     """A plain update offers an unconsumed failing report; a headless one warns `unconsumed-test-report`."""
-    init = _read(SRC / "skf-update-skill" / "references" / "init.md")
+    init = _read(SRC / "skf-update-skill" / "references" / "load-baseline.md")
     for token in ("### 4b. Offer an Unconsumed Test Report", "`testResult` is `fail` or `pass-with-drift`",
                   "- **[G]:**", "- **[S]:**", "add `unconsumed-test-report: {unconsumed_test_report}`"):
         assert token in init, token
@@ -1164,10 +1164,11 @@ def test_troubleshooting_names_the_run_lock_halts():
                   '`status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`',
                   "Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true"):
         assert token in guard, token
-    # #1194: merge.md §6b renews the lock; nothing waits after it, so write.md renews nothing
-    merge = _read(refs / "merge.md")
+    # #1194: merge-write.md §6b renews the lock; nothing waits after it, so step 5 renews nothing
+    merge = _read(refs / "merge-write.md")
     assert '`phase: "merge:run-lock"`' in merge and '"run-lock-lost: ' in merge
-    assert "run-lock" not in _read(refs / "write.md").replace("run-lock-not-released", "")
+    for name in ("write.md", "verify-publish.md"):
+        assert "run-lock" not in _read(refs / name).replace("run-lock-not-released", ""), name
     doc = _read(TROUBLESHOOTING)
     update = _slice(doc, "### Update Skill stops with `halted-for-concurrent-run`", "\n### ")
     for token in ("`.skf-update.lock` in `<forge_data_folder>/<name>/`", "`init:concurrency-guard`",
