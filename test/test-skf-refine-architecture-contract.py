@@ -14,9 +14,11 @@ and pin the prose around them:
   envelope or defers it to SKILL.md (the bare "HALT with error" is gone);
 - On Activation reads the run's timestamp from the clock, and the stages
   read the run's bindings back from the RA state file: init writes its
-  `[RA-RUN]` block one `key=value` per line, so a path or a hook holding
-  spaces, `=` or quotes reads back whole, and each binding compile, report
-  and init's resume offer read back is a key that block maps (#1178);
+  `[RA-RUN]` block one `key=value` per line, so a path holding spaces, `=`
+  or quotes reads back whole, and each binding compile, report and init's
+  resume offer read back is a key that block maps (#1178); the block saves
+  no `on_complete` hook, which a personal `.user.toml` can set, and report.md
+  binds a lost one from the customization resolver;
 - an interactive run offers to resume a review that stopped before its [C]
   or [X] (#1178): init asks between its first section and the one that
   sets an earlier pass aside, only for the same document, unchanged since
@@ -799,7 +801,7 @@ def test_the_run_reads_its_clock_and_its_bindings_back():
 
 
 RUN_KEYS = ["run_dir", "timestamp", "architecture_doc", "architecture_doc_hash", "arch_project_name", "headless_mode",
-            "output_folder_path", "refinement_rules_path", "previous_pass", "on_complete"]
+            "output_folder_path", "refinement_rules_path", "previous_pass"]
 
 
 def _run_block() -> str:
@@ -822,8 +824,8 @@ def _run_block_keys() -> dict[str, str]:
 
 
 def test_the_run_block_gives_each_binding_back_whole(tmp_path):
-    """#1178 architecture-1: one `key=value` per line, the value everything after the first `=`, so a path or a hook
-    holding spaces, `=` or quotes reads back whole, and a run with no hook reads back an empty one."""
+    """#1178 architecture-1: one `key=value` per line, the value everything after the first `=`, so a path holding
+    spaces, `=` or quotes reads back whole, and a document §1b could not hash reads back an empty hash."""
     keys = _run_block_keys()
     assert list(keys) == RUN_KEYS
     reset = _section(_read(INIT), "### 3c. Reset RA State File", "### 4.")
@@ -842,11 +844,10 @@ def test_the_run_block_gives_each_binding_back_whole(tmp_path):
         "outputFolderPath": "/home/a user/app/docs/refined out",
         "refinementRulesPath": "/home/a user/app/_bmad/custom/rules=house.md",
         "previous_pass": "true",
-        "onCompleteCommand": "notify-send --app-name='SKF RA' \"refined = done\" --urgency=low",
     }
     assert set(values) == set(keys.values())
-    for hook in (values["onCompleteCommand"], ""):
-        bound = {**values, "onCompleteCommand": hook}
+    for doc_hash in (values["architecture_doc_hash"], ""):
+        bound = {**values, "architecture_doc_hash": doc_hash}
         block = _run_block()
         for binding, value in bound.items():
             block = block.replace("{" + binding + "}", value)
@@ -859,27 +860,48 @@ def test_the_run_block_gives_each_binding_back_whole(tmp_path):
 
 
 def test_every_binding_read_back_is_a_key_the_run_block_maps():
-    """#1178 architecture-1: compile reads back every binding but the hook and the document's hash, report the five
-    it uses, and init's resume offer the block's own keys, so none names a binding the block does not hold."""
+    """#1178 architecture-1: compile reads back every binding but the document's hash, report the four it uses, and
+    init's resume offer the block's own keys, so none names a binding the block does not hold."""
     keys = _run_block_keys()
     bindings = set(keys.values())
     recovery = _section(_read(COMPILE), "**Context recovery check:**", "\n\n")
     compiled = re.findall(r"`\{([A-Za-z_]+)\}`", _section(
         recovery, "read what is no longer in context from the RA state file: ", " from the `<!-- [RA-RUN] -->` block"))
     # Only init's resume offer compares the document's hash.
-    assert set(compiled) == bindings - {"onCompleteCommand", "architecture_doc_hash"}, compiled
+    assert set(compiled) == bindings - {"architecture_doc_hash"}, compiled
     numbers = _section(_read(REPORT), "### 1. Load the Run's Numbers", "### 2.")
     reported = re.findall(r"`\{([A-Za-z_]+)\}`", _section(numbers, "**Run recovery:** if ", " is no longer bound"))
-    assert reported == ["run_dir", "arch_project_name", "headless_mode", "outputFolderPath", "onCompleteCommand"]
+    assert reported == ["run_dir", "arch_project_name", "headless_mode", "outputFolderPath"]
     assert set(reported) <= bindings
-    hook = _section(_read(REPORT), "### 5. Post-Completion Hook", "### 6.")
-    assert "read again from the `[RA-RUN]` block when it is no longer bound" in hook
     resume = _section(_read(INIT), "### 1a. Resume a Stopped Review", "### 1b.")
     conditions = _section(resume, "Only an interactive run looks for a stopped review", "Show:")
     read = set(re.findall(r"(?:its|block's) `([a-z_]+)`", conditions))
     assert read == {"headless_mode", "architecture_doc", "architecture_doc_hash", "run_dir", "timestamp"}, read
     assert read <= set(keys)
     assert "bind each key of the block as §3c maps it" in resume
+
+
+def test_the_run_block_saves_no_hook_and_the_report_resolves_it_again():
+    """#1178: the state file sits in the forge data folder, which a project may commit, and a personal `.user.toml`
+    can set an `on_complete` hook holding a token, so the block saves no hook; report.md binds a lost
+    `{onCompleteCommand}` from the customization resolver, as the other report steps do (#1116)."""
+    block = _run_block()
+    assert "on_complete" not in block and "onCompleteCommand" not in block, block
+    reset = _section(_read(INIT), "### 3c. Reset RA State File", "### 4.")
+    assert "`on_complete` as `{onCompleteCommand}`" not in reset
+    assert "so Step 06 binds a lost `{onCompleteCommand}` from the customization resolver instead" in reset
+    assert ("resolveCustomizationProbeOrder:\n"
+            "  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'") in _frontmatter(_read(REPORT))
+    hook = _section(_read(REPORT), "### 5. Post-Completion Hook", "### 6.")
+    assert hook.split("\n\n")[1] == (
+        "When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the "
+        "one in `{skill-root}/customize.toml` when the resolver cannot run (resolve `{resolveCustomizationHelper}` "
+        "from `{resolveCustomizationProbeOrder}` when it is not bound, first existing path wins):")
+    assert hook.split("\n\n")[2] == ("```bash\nuv run {resolveCustomizationHelper} --skill {skill-root} "
+                                     "--project-root {project-root} --key workflow.on_complete\n```")
+    assert "[RA-RUN]" not in hook and "RA state file" not in hook
+    assert "onCompleteCommand" not in _section(_read(REPORT), "### 1. Load the Run's Numbers", "### 2.")
 
 
 def test_an_interactive_run_offers_to_resume_a_stopped_review():
@@ -906,7 +928,7 @@ def test_an_interactive_run_offers_to_resume_a_stopped_review():
         assert needle in resume, needle
     offer = _section(resume, '"**A review of this document stopped before it finished.**', "\n\n")
     for needle in ("Resuming rebuilds that draft from the plan and shows the review again with that run's settings: "
-                   "its scope, its [VS] report, its output folder, its refinement rules and its `on_complete` hook",
+                   "its scope, its [VS] report, its output folder and its refinement rules, so the report you chose",
                    "so the report you chose above and `--scope-skills` do not apply to it",
                    "A new run reads the skills again and builds a new draft, and leaves that run's folder as it is."):
         assert needle in offer, needle

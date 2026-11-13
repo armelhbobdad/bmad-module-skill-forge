@@ -2002,7 +2002,7 @@ def test_refine_architecture_documents_the_resume_of_a_stopped_review():
                   "[R] Resume the review of the draft from {stopped_timestamp} | [N] Start a new run",
                   "its `architecture_doc` names the same file as `{architecture_doc}`",
                   "equals the block's `architecture_doc_hash`",
-                  "its scope, its [VS] report, its output folder, its refinement rules and its `on_complete` hook",
+                  "its scope, its [VS] report, its output folder and its refinement rules, so the report you chose",
                   "Once §3c replaces the state file, that review can no longer be resumed."):
         assert token in resume, token
     assert "run §6's `apply` on the kept `{planFile}`" in _read(RA_REFS / "compile.md")
@@ -2014,8 +2014,7 @@ def test_refine_architecture_documents_the_resume_of_a_stopped_review():
                   "offers `[R]` to resume that review",
                   "rebuilds the draft from the kept plan", "without reading the skills again",
                   "`[N]` to start a new run",
-                  "`[R]` keeps that run's scope, Verify Stack report, output folder, refinement rules and "
-                  "`on_complete` hook",
+                  "`[R]` keeps that run's scope, Verify Stack report, output folder and refinement rules.",
                   "If you edited the document since, RA says so and starts a new run.",
                   "A headless run always starts a new run.",
                   "Any other RA run in between, on another document or headless, starts over too, and once it has "

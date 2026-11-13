@@ -148,7 +148,7 @@ Otherwise say nothing and go on to §1b. The one exception: when the first four 
 
 When they all hold, `{stopped_timestamp}` is the block's `timestamp` and `{stopped_run_dir}` its `run_dir` (`{timestamp}` and `{run_dir}` are still this run's). Show:
 
-"**A review of this document stopped before it finished.** Its draft, from the run of {stopped_timestamp}, is at `{draftFile}`, and its plan in `{stopped_run_dir}`. Resuming rebuilds that draft from the plan and shows the review again with that run's settings: its scope, its [VS] report, its output folder, its refinement rules and its `on_complete` hook, so the report you chose above and `--scope-skills` do not apply to it. A new run reads the skills again and builds a new draft, and leaves that run's folder as it is."
+"**A review of this document stopped before it finished.** Its draft, from the run of {stopped_timestamp}, is at `{draftFile}`, and its plan in `{stopped_run_dir}`. Resuming rebuilds that draft from the plan and shows the review again with that run's settings: its scope, its [VS] report, its output folder and its refinement rules, so the report you chose above and `--scope-skills` do not apply to it. A new run reads the skills again and builds a new draft, and leaves that run's folder as it is."
 
 Display: **Select:** [R] Resume the review of the draft from {stopped_timestamp} | [N] Start a new run
 
@@ -219,7 +219,7 @@ Create (or overwrite) `{forge_data_folder}/ra-state-{project_name}.md` with a fr
 
 Then append a `<!-- [RA-VS] ... -->` block: the `path`, `generatedAt`, `coveragePercentage` and `coverageMeasured` of `{vs_report}` when `vs_report_available` is true, or `none`. Step 03 reads the report again from that `path` and checks its `generatedAt`, and Step 05 reads the block back if context degrades on a long run.
 
-Then append the run's bindings as a `<!-- [RA-RUN] ... -->` block, one `key=value` per line, since a path or a command can hold spaces:
+Then append the run's bindings as a `<!-- [RA-RUN] ... -->` block, one `key=value` per line, since a path can hold spaces:
 
 ```markdown
 <!-- [RA-RUN]
@@ -232,11 +232,10 @@ headless_mode={headless_mode}
 output_folder_path={outputFolderPath}
 refinement_rules_path={refinementRulesPath}
 previous_pass={previous_pass}
-on_complete={onCompleteCommand}
 -->
 ```
 
-A key's value is everything after the first `=` of its line, empty when the line ends there (no `on_complete` hook, say). Each key reads back as the binding its line names: `output_folder_path` as `{outputFolderPath}`, `refinement_rules_path` as `{refinementRulesPath}`, `on_complete` as `{onCompleteCommand}`, and every other key as the binding of its own name. Steps 02 to 06 read these bindings back from the block when context degrades, since the run's records live in `{run_dir}`, and §1a reads a stopped run's.
+A key's value is everything after the first `=` of its line, empty when the line ends there (an `architecture_doc_hash` §1b could not compute, say). Each key reads back as the binding its line names: `output_folder_path` as `{outputFolderPath}`, `refinement_rules_path` as `{refinementRulesPath}`, and every other key as the binding of its own name. The block holds no `on_complete` hook: the forge data folder may be committed, and a personal hook in `_bmad/custom/skf-refine-architecture.user.toml` can hold a token, so Step 06 binds a lost `{onCompleteCommand}` from the customization resolver instead. Steps 02 to 06 read these bindings back from the block when context degrades, since the run's records live in `{run_dir}`, and §1a reads a stopped run's.
 
 On a write failure: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:state-file`, with `"path"` set to the state file, naming the captured error.
 

@@ -9,6 +9,10 @@ preservationScript: 'scripts/skf-check-preservation.py'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# The customization helper §5 binds a lost `{onCompleteCommand}` with.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the user-facing summary in {document_output_language}. -->
@@ -38,7 +42,7 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Load the Run's Numbers
 
-**Run recovery:** if `{run_dir}`, `{arch_project_name}`, `{headless_mode}`, `{outputFolderPath}` or `{onCompleteCommand}` is no longer bound, read it from the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md`, as Step 01 §3c maps its keys.
+**Run recovery:** if `{run_dir}`, `{arch_project_name}`, `{headless_mode}` or `{outputFolderPath}` is no longer bound, read it from the `<!-- [RA-RUN] -->` block of `{forge_data_folder}/ra-state-{project_name}.md`, as Step 01 §3c maps its keys.
 
 Stage the result contract's payload from the records of step 1's check for an earlier pass, step 5's build of the draft and its promotion to `{outputFile}`:
 
@@ -99,13 +103,19 @@ It writes `{outputFolderPath}/refine-architecture-result-{YYYYMMDD-HHmmss}.json`
 
 ### 5. Post-Completion Hook (optional)
 
-Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`, and read again from the `[RA-RUN]` block when it is no longer bound, as §1 says) is empty, the bundled default. When `{result_path}` is null, skip it too, with one line saying no result file was written for the hook to read. Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record, so a notifier, indexer or chained pipeline sees a complete record:
+When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run (resolve `{resolveCustomizationHelper}` from `{resolveCustomizationProbeOrder}` when it is not bound, first existing path wins):
+
+```bash
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+When `{onCompleteCommand}` is not empty and `{result_path}` is not null, invoke it now from `{project-root}`, after the emitter wrote the per-run record, so a notifier, indexer or chained pipeline sees a complete record:
 
 ```bash
 {onCompleteCommand} --result-path="{result_path}"
 ```
 
-Run it with a bounded timeout. On success, continue. On a non-zero exit, a timeout or any other failure, display "**Warning:** on_complete failed: {reason}" (for example `exit {N}: {stderr_first_line}`) on its own line of this report, in headless too, and continue: the hook never fails the workflow, since the refined document and its result contract are already written. The warning is in neither the envelope nor the result file: the hook reads the result file, so both are written before it runs.
+Run it with a bounded timeout. On success, continue. On a non-zero exit, a timeout or any other failure, display "**Warning:** on_complete failed: {reason}" (for example `exit {N}: {stderr_first_line}`) on its own line of this report, in headless too, and continue: the hook never fails the workflow, since the refined document and its result contract are already written. The warning is in neither the envelope nor the result file: the hook reads the result file, so both are written before it runs. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely. When `{result_path}` is null, skip it too, with one line saying no result file was written for the hook to read.
 
 ### 6. Hand Off to the Health Check
 

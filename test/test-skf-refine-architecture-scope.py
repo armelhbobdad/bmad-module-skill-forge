@@ -76,7 +76,8 @@ through the shared helpers (#590, #598):
   `coverageMeasured` as the plan's `vs_report`, never read from the report
   file;
 - the helper calls fit the helpers' CLIs and quote every placeholder they
-  pass, and every key the steps read is one the feasibility helper emits.
+  pass (but the customization resolver call every workflow shares), and
+  every key the steps read is one the feasibility helper emits.
 
 And it pins the split of the rules a team may swap from the ones it may not
 (#596, #599, #600):
@@ -915,6 +916,9 @@ def test_feasibility_helper_calls_fit_its_cli():
 
 
 HELPER_CALL_RE = re.compile(r"^uv run \{[A-Za-z]+Helper\} (.+)$", re.M)
+# The customization resolver call report.md binds a lost `{onCompleteCommand}` with: the words every workflow's
+# activation and report steps share, which test-skf-resolver-block.py pins and runs, so it is not checked here.
+RESOLVER_CALL = "--skill {skill-root} --project-root {project-root} --key workflow.on_complete"
 
 
 def test_helper_calls_quote_every_placeholder():
@@ -922,8 +926,10 @@ def test_helper_calls_quote_every_placeholder():
     # exits 2 with no JSON, which step 1 would read as an unusable report.
     calls = [call for path in sorted(REFS.glob("*.md")) for call in HELPER_CALL_RE.findall(_read(path))]
     assert len(calls) >= 6, calls
+    assert calls.count(RESOLVER_CALL) == 1, calls
     for call in calls:
-        assert "{" not in re.sub(r'"[^"]*"', "", call), f"quote each placeholder of: {call}"
+        if call != RESOLVER_CALL:
+            assert "{" not in re.sub(r'"[^"]*"', "", call), f"quote each placeholder of: {call}"
 
 
 # The report JSON keys the steps name; each must be one the helper emits.
