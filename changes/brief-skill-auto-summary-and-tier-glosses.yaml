@@ -1,0 +1,5 @@
+type: changed
+scope: skf-brief-skill
+summary: |
+  The summary an `[auto]` Brief Skill run shows, as the `forge-auto` pipeline runs it, no longer shows a `Pipeline: forge-auto (<tier> tier)` line, which repeated the `Forge Tier` line above it; the `SKF_BRIEF_RESULT_JSON` envelope is unchanged. The tier glosses at the start of an interactive run now read as the brief review's do, such as "text-only extraction; AST and semantic discovery off" for `Quick`. The brief review no longer adds a note that the scripts and assets intent fires no scan for a `docs-only` or `public-api` scope.
+issues: [1135]
