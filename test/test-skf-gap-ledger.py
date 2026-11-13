@@ -3764,7 +3764,9 @@ class TestExternalAdapter:
                                   ("Info", "external-validator", "skill-check not run: timeout-120s", "SKILL.md", None)]
         gap = records[-1]
         assert (gap["group"], gap["remediation"]) == ("External", mod.SKILL_CHECK_NOT_RUN_FIX)
-        for step in ("`npx skill-check -h` once", "within 120 seconds and prints JSON", "re-run Test Skill"):
+        # a probe that exited 127 (no `timeout`, as on stock macOS, or no `npx`) needs that command first
+        for step in ("`npx skill-check -h` once", "exited 127 found no `timeout` or no `npx` command",
+                     "within 120 seconds and prints JSON", "re-run Test Skill"):
             assert step in gap["remediation"], step
         again = json.loads(from_file(ledger, "external-validators", "external", result,
                                      skill_check_not_run=reason).stdout)

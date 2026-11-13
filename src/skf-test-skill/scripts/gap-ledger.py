@@ -2468,7 +2468,8 @@ def _suggestions(result: dict, key: str) -> list[str]:
 # What restores a skill-check that did not run (external-validators.md §2 kept the reason).
 SKILL_CHECK_NOT_RUN_FIX = (
     "Make skill-check available: run `npx skill-check -h` once, so npx can run it without a download, or install "
-    "it. Check that `npx skill-check check` on the skill finishes within 120 seconds and prints JSON, then re-run "
+    "it. A probe that exited 127 found no `timeout` or no `npx` command: install GNU coreutils or Node.js first. "
+    "Check that `npx skill-check check` on the skill finishes within 120 seconds and prints JSON, then re-run "
     "Test Skill.")
 
 

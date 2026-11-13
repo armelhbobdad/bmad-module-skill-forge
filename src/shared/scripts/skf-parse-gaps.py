@@ -1065,7 +1065,8 @@ NOT_ROUTED_REASONS = {
     "discovery": "a person improves the skill's description so realistic prompts route to it, or runs the discovery "
                  "test Test Skill skipped",
     "description": "a person edits the description in the SKILL.md frontmatter as the gap suggests",
-    "external-validator": "a person applies the skill-check diagnostic or Tessl Review suggestion to SKILL.md",
+    "external-validator": ("a person applies the skill-check diagnostic or Tessl Review suggestion to SKILL.md, or "
+                           "makes skill-check run again when the gap says it did not run"),
 }
 NO_REPAIR = "update-skill has no repair for this category, so a person follows the gap's remediation"
 NO_EXPORT = "it names no export for update-skill to repair, so a person follows the gap's remediation"
