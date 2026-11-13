@@ -4,20 +4,24 @@
 Step prose is not executed by any test, so these checks pin it and run the
 commands it documents:
 
-- #594: On Activation resolves every helper steps 1 to 5 cannot run without,
+- #594: On Activation resolves every helper steps 1 to 4 cannot run without,
   the skill inventory included, before any prompt or write, and no step
   resolves one again (the test-report lookup is advisory and stays in step
   1); every flag the contract lists is parsed, `--context-file` included;
   the snippet-root probe takes only roots an earlier export chose as
   evidence, asks one layout question when there is none, and resolves a
   mismatch headless by the folder on disk that holds the skills; option (d)
-  binds the root steps 3 and 4 read.
+  binds the root steps 2 and 3 read.
 - #596: the `on_complete` and `snippet_format_path` comments say what runs and
   which snippet lines scripts parse, and the helpers agree with them.
 - #599: no step keeps a by-hand fallback for a helper activation resolved.
 - #600: the headless contract lives in references/invocation-contract.md
-  behind a one-line pointer, package.md renders the export-gate verdict
-  without restating it, and the description names its object.
+  behind a one-line pointer, load-skill.md §5 renders the export-gate
+  verdict without restating it, and the description names its object.
+- #1162: the export gate's `package` object feeds step 1's confirm screen,
+  one table with the version and the package status of every skill, §1c
+  states step 1's batch rules, and update-context.md asks one question
+  that names every target with its case.
 - The export-gate halt names the Section 7b heading the gate matched.
 - #1111: the `activation_steps_append` entries run in step 6, after the
   exit-4 checks of steps 4 and 5, not in step 3.
@@ -44,7 +48,6 @@ SKILL_MD = "SKILL.md"
 CONTRACT = "references/invocation-contract.md"
 LOAD = "references/load-skill.md"
 PROBE = "references/preflight-snippet-root-probe.md"
-PACKAGE = "references/package.md"
 SNIPPET = "references/generate-snippet.md"
 UPDATE = "references/update-context.md"
 TOKENS = "references/token-report.md"
@@ -145,7 +148,7 @@ def test_every_contract_flag_is_parsed_and_every_parsed_flag_is_listed():
 def test_the_contract_gates_name_each_headless_default():
     gates = _row(_read(CONTRACT), "Gates")
     for gate in ("step 1 §1b", "the layout question", "(headless: [I]", "the mismatch gate", "checks the disk",
-                 "step 1 §6", "step 4 §3b", "§4c.1", "step 4 §8"):
+                 "step 1 §6", "step 3 §3b", "§4c.1", "step 3 §8"):
         assert gate in gates, gate
 
 
@@ -226,20 +229,211 @@ def test_no_step_keeps_a_by_hand_fallback_for_a_resolved_helper():
 
 
 # --------------------------------------------------------------------------
-# #600 leanness: package.md renders the verdict and restates none of it
+# #600 leanness and #1162: step 1 §5 renders the verdict and restates none of it
 # --------------------------------------------------------------------------
 
+VALIDATE_PY = SRC / "shared" / "scripts" / "skf-validate-output.py"
+COUNT_TOKENS_PY = SRC / "shared" / "scripts" / "skf-count-tokens.py"
+CONFIRM_HEADER = "| # | Name | Version | Type | Authority | Confidence | Exports | References | Generated | Test | Package |"
 
-def test_package_renders_the_export_gate_verdict_without_restating_it():
-    package = _read(PACKAGE)
-    assert "├──" not in package, "the layout tree drives no check"
-    for restated in ("generation_date", "source_authority", "Enum membership", "NOT READY", "ProbeOrder"):
-        assert restated not in package, restated
-    assert "Step 1 §2 halts on `NOT_READY`" in package
+
+def _summary_section() -> str:
+    return _section(_read(LOAD), "### 5. Present Skill Summary", "### 6. Confirmation Gate")
+
+
+def test_the_confirm_screen_renders_the_export_gate_verdict_without_restating_it():
+    summary = _summary_section()
+    assert "├──" not in summary, "the layout tree drives no check"
+    for restated in ("Enum membership", "NOT READY", "ProbeOrder", "metadata.json`:", "`.md` files"):
+        assert restated not in summary, restated
+    assert "§2 halts on `NOT_READY`, so `export_status` is `READY` or `WARNINGS` here." in summary
     for field in ("`export_status`", "`validation.metadata.recommended_missing`", "`validation.crossref_7b.orphans`"):
-        assert field in package, field
-    assert "python3 {validateOutputHelper} {resolved_skill_package} --export-gate" in package
-    assert "Only when it is not in context" in package
+        assert field in summary, field
+    # The verdict lost from context: §5 runs the gate again on that package.
+    assert ("Only when it is not in context, run `python3 {validateOutputHelper} {resolved_skill_package} "
+            "--export-gate` again: the same package gives the same verdict.") in summary
+    gate = _section(_read(LOAD), "**Validation (the export gate):**", "### 3. Read Skill Metadata")
+    assert "**Retain this JSON as the export verdict**: §5 renders each skill's package status from it" in gate
+    assert "`package`, the metadata fields and the reference count §3 binds" in gate
+
+
+def test_step_1_confirms_with_one_table_holding_the_version_and_the_package_status():
+    """leanness-4, enhancement-2: one field list in one table, a row per skill, then the configuration
+    once and one question; no single-skill and batch templates side by side."""
+    summary = _summary_section()
+    tables = [line for line in summary.splitlines() if line.startswith("| # |")]
+    assert tables == [CONFIRM_HEADER]
+    [row] = [line for line in summary.splitlines() if line.startswith("| {i} |")]
+    assert row.count("|") == CONFIRM_HEADER.count("|"), "a cell per column"
+    assert "{export_status} |" in row and "{Version}" in row
+    for stale in ("Single-skill mode", "Multi-skill mode", "**Top Exports:**", "(applies to all)",
+                  "Is this the correct skill", "Are these the correct skills"):
+        assert stale not in summary, stale
+    assert summary.count("**Export Configuration:**") == 1
+    assert summary.count('**Export {this skill / these N skills}?**"') == 1
+    assert '"**{N} skill(s) loaded and validated.**' in summary
+    cells = summary[summary.index("Fill the capitalized cells"):]
+    for rule in ("- **Version:** `v{resolved_version}`, with ` (migrated from the flat layout)` when §2 migrated",
+                 "`flat layout, would migrate` when `{resolved_version}` is null (a flat skill in a dry run)",
+                 "for a stack, `stack ({components_count} libraries, {integrations_count} integrations)`",
+                 "- **Confidence:** `{confidence_tier}`, with ` (forge {forge_tier})` when `{forge_tier}` is set.",
+                 "- **References:** `{references_count}`, or `none` when it is 0.",
+                 "`{testResult} ({score}%)`", "`{testResult}` alone when its score is null", "`no verdict`",
+                 "`none` when no report was found", "`not checked`"):
+        assert rule in cells, rule
+    # The Warnings line appears only for a WARNINGS skill and never stops the export.
+    assert ("{For each skill whose `export_status` is `WARNINGS`:}\n**Warnings for {name}** (none of them stops "
+            "the export)") in summary
+    # The dry-run rung leaves the version null, which the Version cell names.
+    assert "`{resolved_version}` and `{forge_version}` stay null" in _section(
+        _read(LOAD), "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
+
+
+def test_the_confirmation_gate_continues_to_snippet_generation():
+    load = _read(LOAD)
+    gate = _section(load, "### 6. Confirmation Gate", None)
+    assert ('"**Select:** [C] Continue to snippet generation | [X] Cancel and exit (or type `cancel` / `exit` / '
+            '`:q`)"') in gate
+    assert 'display "Cancelled: no snippet or context file writes were performed."' in gate
+    assert "packaging" not in load.lower(), "no Package stage remains"
+    assert "nextStepFile: 'generate-snippet.md'" in _frontmatter(load)
+
+
+def test_section_1c_states_step_1s_batch_rules():
+    """architecture-4: the batch matrix drifted from each stage's own rule; §1c keeps only step 1's."""
+    batch = _section(_read(LOAD), "### 1c. ", "### 2. ")
+    assert "references/" not in batch and "matrix" not in batch, "§1c loads no batch reference"
+    assert "§2 to §5 run for each skill in `skill_batch`, in order" in batch
+    assert "§5 shows every skill in one table, a row per skill, so §6 asks once for the whole batch" in batch
+    halt = next(line for line in batch.splitlines() if "fails §2" in line)
+    assert "`not-skf-output`" in halt and "HALT as §2 states for that skill" in halt
+    assert "no skill of the batch is exported" in halt
+    assert "halt_reason" not in batch, "§2 names each halt's reason and phase"
+    assert "each later stage's Rules state its own" in batch
+    row = _row(_read(CONTRACT), "Multi-skill mode")
+    assert "`references/load-skill.md` §1c holds step 1's batch rules, and each later stage's Rules hold its own" in row
+    for path in sorted((EXPORT / "references").glob("*.md")):
+        assert "See step 1 §1c." not in path.read_text(encoding="utf-8"), path.name
+
+
+def _write_package(root: Path, meta: dict, *, refs: tuple[str, ...] = (), files: tuple[str, ...] = ()) -> Path:
+    package = root / meta["name"] / meta["version"] / meta["name"]
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_bytes(f"---\nname: {meta['name']}\ndescription: demo\n---\n\n# demo\n".encode("utf-8"))
+    (package / "metadata.json").write_bytes(json.dumps(meta).encode("utf-8"))
+    for rel in refs + files:
+        (package / rel).parent.mkdir(parents=True, exist_ok=True)
+        (package / rel).write_bytes(b"x\n")
+    return package
+
+
+def _run_documented_gate(package: Path) -> dict:
+    gate = _section(_read(LOAD), "**Validation (the export gate):**", "### 3. Read Skill Metadata")
+    [call] = [line for line in _fenced_lines(gate) if "--export-gate" in line]
+    words = shlex.split(call)
+    assert words[:3] == ["python3", "{validateOutputHelper}", "{resolved_skill_package}"], call
+    proc = subprocess.run([sys.executable, str(VALIDATE_PY), str(package), *words[3:]], capture_output=True,
+                          text=True, encoding="utf-8", timeout=60)
+    assert proc.stdout, proc.stderr
+    return json.loads(proc.stdout)
+
+
+SINGLE_META = {"name": "zod", "version": "3.23.8", "skill_type": "single", "source_authority": "official",
+               "exports": ["z", {"name": "ZodType", "type": "class"}, {"type": "function"}, "parse",
+                           {"name": "safeParse", "type": "function"}, "infer", "ZodError"],
+               "generation_date": "2026-11-01", "confidence_tier": "Forge+", "description": "zod",
+               "source_repo": "https://github.com/colinhacks/zod", "language": "typescript",
+               "tool_versions": {"skf": "3.0.0"}}
+STACK_META = {"name": "web-stack", "version": "1.0.0", "skill_type": "stack", "source_authority": "community",
+              "exports": [], "generation_date": "2026-11-02", "confidence_tier": "T1-low", "forge_tier": "Deep",
+              "library_count": 3, "integration_count": 2, "libraries": ["a", "b", "c"],
+              "integration_pairs": [["a", "b"], ["b", "c"]], "language": "typescript",
+              "tool_versions": {"skf": "3.0.0"}}
+
+
+@pytest.mark.parametrize("meta, expected", [
+    (SINGLE_META, {"exports_count": 7, "top_exports": ["z", "ZodType", "parse", "safeParse", "infer"],
+                   "references_count": 3, "components_count": None, "integrations_count": None,
+                   "forge_tier": None}),
+    (STACK_META, {"exports_count": 0, "top_exports": [], "references_count": 0, "components_count": 3,
+                  "integrations_count": 2, "forge_tier": "Deep"}),
+], ids=["single", "stack"])
+def test_each_section_3_binding_reads_a_field_the_documented_gate_prints(tmp_path, meta, expected):
+    """determinism-6: §3 binds the gate's `package` object instead of reading metadata.json by hand."""
+    refs = ("references/a.md", "references/sub/b.md", "references/data.json") if meta is SINGLE_META else ()
+    package = _write_package(tmp_path, meta, refs=refs)
+    out = _run_documented_gate(package)
+    read = _section(_read(LOAD), "### 3. Read Skill Metadata", "### 4. ")
+    bindings = re.findall(r"`\{(\w+)\}` ← `package\.(\w+)`", read)
+    assert {field for _, field in bindings} == set(out["package"]), "§3 binds every field the gate prints"
+    bound = {name: out["package"][field] for name, field in bindings}
+    for name in ("skill_type", "source_authority", "confidence_tier"):
+        assert f"{{{name}}}" in _read("references/summary.md") and name in bound, name
+    assert {k: bound[k] for k in expected} == expected
+    assert (bound["name"], bound["version"], bound["skill_type"]) == (meta["name"], meta["version"],
+                                                                       meta["skill_type"])
+    # The References cell is the count the token report gives for the same package.
+    proc = subprocess.run([sys.executable, str(COUNT_TOKENS_PY), str(package)], capture_output=True, text=True,
+                          encoding="utf-8", timeout=60)
+    assert json.loads(proc.stdout)["references_total"]["count"] == bound["references_count"]
+    # Every placeholder §5 fills from §3 is one §3 binds.
+    cells = _summary_section()[_summary_section().index("Fill the capitalized cells"):]
+    used = set(re.findall(r"\{(\w+)\}", cells)) - {"resolved_version", "testResult", "score"}
+    assert used <= set(bound), used - set(bound)
+    assert out["result"] == "PASS" and "metadata.json`:" not in read
+
+
+def test_a_warnings_package_names_the_field_and_the_orphan(tmp_path):
+    """A missing recommended field and a Section 7b orphan: WARNINGS, and §5's Warnings line reads both."""
+    meta = {k: v for k, v in SINGLE_META.items() if k != "language"}
+    package = _write_package(tmp_path, meta, files=("scripts/run.sh",))
+    out = _run_documented_gate(package)
+    assert (out["result"], out["export_status"]) == ("PASS", "WARNINGS")
+    assert [i["field"] for i in out["validation"]["metadata"]["recommended_missing"]] == ["language"]
+    assert out["validation"]["crossref_7b"]["orphans"] == ["scripts/run.sh"]
+    warnings = next(line for line in _summary_section().splitlines() if line.startswith("- **Warnings:**"))
+    assert "the `field` of each `validation.metadata.recommended_missing` entry" in warnings
+    assert "each path in `validation.crossref_7b.orphans`" in warnings
+
+
+def test_the_stages_run_1_to_6_and_each_heading_matches_its_row():
+    """#1162: the Package stage is gone, so the six stages renumber and no file names a seventh."""
+    stages = _section(_read(SKILL_MD), "## Stages", "## Invocation Contract")
+    rows = re.findall(r"^\| (\d) \| ([^|]+?) \| (references/[a-z-]+\.md) \|", stages, re.M)
+    assert [int(n) for n, _, _ in rows] == [1, 2, 3, 4, 5, 6]
+    assert [name for _, name, _ in rows] == ["Load Skill", "Generate Snippet", "Update Context", "Token Report",
+                                             "Summary", "Workflow Health Check"]
+    for number, name, rel in rows:
+        assert f"\n# Step {number}: {name}\n" in _read(rel), rel
+    chain = [rel.split("/")[1] for _, _, rel in rows]
+    for here, there in zip(chain, chain[1:]):
+        assert f"nextStepFile: '{there}'" in _frontmatter(_read(f"references/{here}")), here
+    # Every other reference is one a stage loads by name (test-skf-export-terminal.py checks each route).
+    loaded = set(re.findall(r"`references/([a-z-]+\.md)`", _read(SKILL_MD) + _read(LOAD) + _read(UPDATE)))
+    for path in sorted((EXPORT / "references").glob("*.md")):
+        assert path.name in set(chain) | loaded, f"{path.name}: no stage runs or loads it"
+    for path in sorted(EXPORT.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"(?i)\bstep[ -]0?7\b|\bStep 02\b", text), path.name
+
+
+def test_update_context_asks_once_naming_every_target_with_its_case():
+    """leanness-4: one preview block per target and one prompt, with no counter that contradicts it."""
+    update = _read(UPDATE)
+    for stale in ("platform {i}", "{total}", "Multi-target behavior", "Ready to write changes",
+                  "write changes to all targets"):
+        assert stale not in update, stale
+    preview = _section(update, "### 7. Present Change Preview", "### 8. ")
+    assert "then one block per target" in preview
+    assert '"**Target:** `{context_file}` ({case})\n**Skills in index:** {n_single} skills, {n_stack} stack' in preview
+    assert "**Content outside markers:** {preserved / n/a (new file)}" in preview
+    selects = [line for line in update.splitlines() if "**Select:**" in line]
+    assert len(selects) == 1, selects
+    real = _section(update, "**If NOT dry-run:**", "#### Gate handling")
+    assert selects[0] in real
+    assert ("[C] Continue: write changes to {each target as `{context_file}` ({case}), comma-separated} | "
+            "[X] Cancel and exit (or type `cancel` / `exit` / `:q`)") in selects[0]
+    assert "**[DRY RUN] No files will be written." in _section(update, "**If dry-run mode:**", "**If NOT dry-run:**")
 
 
 # --------------------------------------------------------------------------
@@ -273,7 +467,7 @@ def test_the_layout_question_and_the_mismatch_gate_have_headless_defaults():
     assert "drop-skill and rename-skill read only `config.yaml`" in choices
 
 
-def test_option_d_binds_the_root_steps_3_and_4_read():
+def test_option_d_binds_the_root_steps_2_and_3_read():
     """architecture-1: (d) used to set a run-only root no stage read."""
     root = _section(_read(SNIPPET), "### 2.7. Resolve Skill Root Path", "### 2.8. ")
     assert "**If `{snippet_skill_root_override}` is set** (by `config.yaml`, or for this run by step 1's " \
@@ -347,6 +541,8 @@ def test_the_export_gate_halt_names_the_section_7b_heading():
     assert ("Section 7b is the `{validation.crossref_7b.heading}` heading at line "
             "{validation.crossref_7b.heading_line}") in validation
     assert "Run create-skill to generate a complete skill first." not in validation
+    # In a batch the halt names the skill that failed, so the operator knows which one to fix.
+    assert '"**Export cannot proceed for `{skill-name}`.** Missing or invalid:' in validation
 
 
 # --------------------------------------------------------------------------
@@ -504,7 +700,7 @@ def test_two_ides_give_each_context_file_its_own_skill_root(tmp_path, override):
     targets = json.loads(proc.stdout)["targets"]
     assert [(t["context_file"], t["skill_root"]) for t in targets] == [
         ("CLAUDE.md", ".claude/skills/"), ("AGENTS.md", ".agents/skills/")]
-    # Step 3 binds the snippet's root once, from the first target; step 4 must not reuse it.
+    # Step 2 binds the snippet's root once, from the first target; step 3 must not reuse it.
     values["skill_root"] = targets[0]["skill_root"]
     values["target_paths"] = [str(tmp_path / t["context_file"]) for t in targets]
     [assemble] = _joined_calls(_section(_read(UPDATE), "#### 4b. Assemble One Body per Target", "#### 4c. "),
@@ -522,12 +718,12 @@ def test_two_ides_give_each_context_file_its_own_skill_root(tmp_path, override):
 
 
 def test_the_snippet_root_is_the_snippets_only():
-    """Step 3's {skill_root} roots the snippet; step 4 passes each target's own root."""
+    """Step 2's {skill_root} roots the snippet; step 3 passes each target's own root."""
     snippet = _read(SNIPPET)
     assert "§2.7 resolves `{skill_root}`, the snippet's root only" in snippet
     root = _section(snippet, "### 2.7. Resolve Skill Root Path", "### 2.8. ")
     assert "it is the snippet's root only" in root
-    assert "step 4 builds each context file's managed section with that target's own skill root" in root
+    assert "step 3 builds each context file's managed section with that target's own skill root" in root
     update = _read(UPDATE)
     targets = _section(update, "### 3. Determine Target Files", "#### 3b.")
     assert "its skill root `{target_skill_root}` is that entry's own `skill_root`" in targets

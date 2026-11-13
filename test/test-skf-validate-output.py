@@ -1174,6 +1174,7 @@ class TestSkfValidateOutputExportGate:
             # None of the export-gate-only keys leak into the legacy output.
             assert "export_status" not in r
             assert "mode" not in r
+            assert "package" not in r
             assert "crossref_7b" not in r["validation"]
             # Legacy individual-mode output shape is intact.
             assert r["result"] == "PASS"
@@ -1397,6 +1398,161 @@ class TestExportGateConfidenceTier:
         assert [i["field"] for i in required_issues] == ["skill_type"]
         assert enum_issues == []
         assert recommended_missing == []
+
+
+COUNT_TOKENS = SCRIPT.parent / "skf-count-tokens.py"
+PACKAGE_FIELDS = ["name", "version", "skill_type", "source_authority", "confidence_tier", "forge_tier",
+                  "generation_date", "exports_count", "top_exports", "references_count", "components_count",
+                  "integrations_count"]
+
+
+def _count_tokens_module():
+    count_spec = importlib.util.spec_from_file_location("skf_count_tokens", COUNT_TOKENS)
+    module = importlib.util.module_from_spec(count_spec)
+    count_spec.loader.exec_module(module)
+    return module
+
+
+class TestExportGatePackage:
+    """--export-gate: the `package` object load-skill.md §3 binds and §5 renders (#1162)."""
+
+    def test_references_count_is_the_token_counters_count(self):
+        """Every file under references/, at any depth and of any kind, as skf-count-tokens.py counts them."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp)
+            (pkg / "references" / "sub").mkdir(parents=True)
+            for rel in ("references/a.md", "references/sub/b.md", "references/data.json"):
+                (pkg / rel).write_bytes(b"x\n")
+            package = validate_skill_package(str(pkg), export_gate=True)["package"]
+            assert package["references_count"] == 3
+            counted = _count_tokens_module().count_package(pkg)["references_total"]["count"]
+            assert package["references_count"] == counted
+
+    def test_no_references_folder_counts_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp)
+            package = validate_skill_package(str(pkg), export_gate=True)["package"]
+            assert package["references_count"] == 0
+            assert _count_tokens_module().count_package(pkg)["references_total"]["count"] == 0
+
+    def test_a_single_skill_gives_its_metadata_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = validate_skill_package(str(make_export_gate_package(tmp)), export_gate=True)
+            assert list(r["package"]) == PACKAGE_FIELDS
+            assert r["package"] == {
+                "name": "demo", "version": "1.0.0", "skill_type": "single", "source_authority": "community",
+                "confidence_tier": "Forge+", "forge_tier": None, "generation_date": "2026-07-13",
+                "exports_count": 2, "top_exports": ["foo", "bar"], "references_count": 0,
+                "components_count": None, "integrations_count": None,
+            }
+
+    def test_mixed_exports_give_the_count_and_the_first_five_names(self):
+        """Strings and `{name, type}` dicts; a dict without a string `name` is skipped."""
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        meta["exports"] = ["z", {"name": "ZodType", "type": "class"}, {"type": "function"}, {"name": 7},
+                           "parse", {"name": "safeParse", "type": "function"}, "infer", "extra"]
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert package["exports_count"] == 8
+            assert package["top_exports"] == ["z", "ZodType", "parse", "safeParse", "infer"]
+
+    def test_seven_exports_list_five(self):
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        meta["exports"] = ["a", {"name": "b", "type": "class"}, "c", {"name": "d", "type": "type"}, "e", "f", "g"]
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert (package["exports_count"], package["top_exports"]) == (7, ["a", "b", "c", "d", "e"])
+
+    def test_a_stack_gives_its_library_and_integration_counts(self):
+        meta = dict(STACK_TEMPLATE_META, library_count=3, integration_count=2)
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert (package["components_count"], package["integrations_count"]) == (3, 2)
+            assert (package["confidence_tier"], package["forge_tier"]) == ("T1-low", "Deep")
+
+    def test_a_stack_without_counts_falls_back_to_its_lists(self):
+        meta = {k: v for k, v in STACK_TEMPLATE_META.items() if k not in ("library_count", "integration_count")}
+        meta["libraries"] = ["lib-a", "lib-b", "lib-c"]
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert (package["components_count"], package["integrations_count"]) == (3, 1)
+            meta["library_count"] = "3"  # not an int: the list decides
+            pkg = make_export_gate_package(tmp, meta=meta, name="other")
+            assert validate_skill_package(str(pkg), export_gate=True)["package"]["components_count"] == 3
+
+    def test_a_stack_with_neither_key_nor_list_counts_null(self):
+        meta = {k: v for k, v in STACK_TEMPLATE_META.items()
+                if k not in ("library_count", "integration_count", "libraries", "integration_pairs")}
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert (package["components_count"], package["integrations_count"]) == (None, None)
+
+    def test_a_single_skill_has_no_stack_counts(self):
+        meta = dict(EXPORT_GATE_META, library_count=3, integration_count=2)
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert (package["components_count"], package["integrations_count"]) == (None, None)
+
+    @pytest.mark.parametrize("text", [None, "{not valid json", "[]"], ids=["missing", "not-json", "not-an-object"])
+    def test_broken_metadata_gives_null_fields_and_still_counts_references(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            (pkg / "references").mkdir(parents=True)
+            (pkg / "references" / "a.md").write_bytes(b"x\n")
+            (pkg / "SKILL.md").write_text(EXPORT_GATE_SKILL_MD, encoding="utf-8")
+            if text is not None:
+                (pkg / "metadata.json").write_text(text, encoding="utf-8")
+            r = validate_skill_package(str(pkg), export_gate=True)
+            assert r["export_status"] == "NOT_READY"
+            assert list(r["package"]) == PACKAGE_FIELDS
+            assert r["package"] == {field: None for field in PACKAGE_FIELDS} | {"references_count": 1}
+
+    def test_a_field_metadata_lacks_is_null(self):
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        del meta["generation_date"]
+        meta["version"] = 3
+        meta["exports"] = "foo"
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert (package["generation_date"], package["version"]) == (None, None)
+            assert (package["exports_count"], package["top_exports"]) == (None, None)
+
+    @pytest.mark.parametrize("value", ["", "  "], ids=["empty", "whitespace"])
+    def test_a_required_text_field_is_null_only_when_the_gate_flags_it(self, value):
+        """The gate and `package` read a required field with one test, so a passed package names its version."""
+        meta = dict(EXPORT_GATE_META, version=value)
+        with tempfile.TemporaryDirectory() as tmp:
+            r = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)
+            flagged = {i["field"] for i in r["validation"]["metadata"]["issues"] if i["severity"] == "high"}
+            assert (r["package"]["version"] is None) == ("version" in flagged)
+            assert r["package"]["version"] == (None if value == "" else value)
+
+    def test_a_blank_forge_tier_and_blank_export_names_are_left_out(self):
+        meta = dict(STACK_TEMPLATE_META, forge_tier="", exports=["", " ", "z", {"name": " "}])
+        with tempfile.TemporaryDirectory() as tmp:
+            package = validate_skill_package(str(make_export_gate_package(tmp, meta=meta)), export_gate=True)["package"]
+            assert package["forge_tier"] is None
+            assert (package["exports_count"], package["top_exports"]) == (4, ["z"])
+
+    def test_a_bool_library_count_is_not_a_count(self):
+        """`library_count: true` is no count of 1: the `libraries` list decides, else null."""
+        meta = {k: v for k, v in STACK_TEMPLATE_META.items() if k not in ("libraries", "library_count")}
+        meta["library_count"] = True
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp, meta=meta)
+            assert validate_skill_package(str(pkg), export_gate=True)["package"]["components_count"] is None
+            meta["libraries"] = ["lib-a", "lib-b"]
+            pkg = make_export_gate_package(tmp, meta=meta, name="other")
+            assert validate_skill_package(str(pkg), export_gate=True)["package"]["components_count"] == 2
+
+    def test_the_cli_prints_the_package_object(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp)
+            proc = subprocess.run([sys.executable, str(SCRIPT), str(pkg), "--export-gate"],
+                                  capture_output=True, text=True, encoding="utf-8", timeout=60)
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+            out = json.loads(proc.stdout)
+            assert out["package"] == validate_skill_package(str(pkg), export_gate=True)["package"]
 
 
 class TestExportGateRecommendedFields:

@@ -9,9 +9,9 @@
 
 ## Purpose
 
-Decide where the managed section points each skill before step 3 writes a `root:` path. A consuming project points at its IDE's skill folder (`.claude/skills/`, `.cursor/skills/` and so on), where `npx skills add` installs each skill. An authoring repo keeps its skills in one shared folder, such as `skills/`, and sets `snippet_skill_root_override` in `config.yaml`. Only a root an earlier export chose shows the layout: create-skill, create-stack-skill, quick-skill and update-skill write the draft root `skills/{skill-name}/` into every snippet they build, whatever the layout. So a repo whose skills live in `skills/` sets `snippet_skill_root_override: skills/`: a `skills/{skill-name}/` root an earlier export wrote reads as a draft root, and without the override the probe asks the Layout Question, whose headless default is the IDE skill folder.
+Decide where the managed section points each skill before step 2 writes a `root:` path. A consuming project points at its IDE's skill folder (`.claude/skills/`, `.cursor/skills/` and so on), where `npx skills add` installs each skill. An authoring repo keeps its skills in one shared folder, such as `skills/`, and sets `snippet_skill_root_override` in `config.yaml`. Only a root an earlier export chose shows the layout: create-skill, create-stack-skill, quick-skill and update-skill write the draft root `skills/{skill-name}/` into every snippet they build, whatever the layout. So a repo whose skills live in `skills/` sets `snippet_skill_root_override: skills/`: a `skills/{skill-name}/` root an earlier export wrote reads as a draft root, and without the override the probe asks the Layout Question, whose headless default is the IDE skill folder.
 
-`{reference_root}` is `target_context_files[0].skill_root`, the root step 3 writes when nothing overrides it.
+`{reference_root}` is `target_context_files[0].skill_root`, the root step 2 writes when nothing overrides it.
 
 ## Probe
 
@@ -29,7 +29,7 @@ The helper reads each snippet's `root:` prefix and leaves out a snippet that is 
 
 ## Layout Question
 
-> **Where should the managed section point your skills?** No earlier export has chosen yet. By default each row points at `{reference_root}{skill-name}/`, your IDE's skill folder, where `npx skills add` installs the skill (step 6 prints the command).
+> **Where should the managed section point your skills?** No earlier export has chosen yet. By default each row points at `{reference_root}{skill-name}/`, your IDE's skill folder, where `npx skills add` installs the skill (step 5 prints the command).
 >
 > - **[I] IDE skill folder** (default): point at `{reference_root}`.
 > - **[S] Shared skills folder**: point at the skills where SKF writes them, for a repo that keeps them there. Export, drop-skill and rename-skill read that choice from `config.yaml`.
@@ -74,6 +74,6 @@ SKF_JSON
 ### Choice handling
 
 - **(a) Set override**: display "Add `snippet_skill_root_override: {observed_prefix}` to `{project-root}/_bmad/skf/config.yaml`, then re-run the export." and HALT (exit code 6, `halt_reason: "user-cancelled"`): the workflow never edits `config.yaml`.
-- **(b) Proceed with IDE mapping**: return to load-skill.md §1b. Step 4 writes `{reference_root}` as every row's root.
+- **(b) Proceed with IDE mapping**: return to load-skill.md §1b. Step 3 writes `{reference_root}` as every row's root.
 - **(c) Cancel**: HALT (exit code 6, `halt_reason: "user-cancelled"`). Nothing was written.
-- **(d) Use the observed prefix for this run only**: bind `{snippet_skill_root_override}` ← the observed prefix for this run, without editing `config.yaml`. Step 3 §2.7 and step 4 §4b read it as they read the `config.yaml` value, so every snippet and row keeps that root. Display "Persist `snippet_skill_root_override: {observed_prefix}` in `{project-root}/_bmad/skf/config.yaml` to skip this question next time: drop-skill and rename-skill read only `config.yaml` when they rebuild the section." Return to load-skill.md §1b.
+- **(d) Use the observed prefix for this run only**: bind `{snippet_skill_root_override}` ← the observed prefix for this run, without editing `config.yaml`. Step 2 §2.7 and step 3 §4b read it as they read the `config.yaml` value, so every snippet and row keeps that root. Display "Persist `snippet_skill_root_override: {observed_prefix}` in `{project-root}/_bmad/skf/config.yaml` to skip this question next time: drop-skill and rename-skill read only `config.yaml` when they rebuild the section." Return to load-skill.md §1b.

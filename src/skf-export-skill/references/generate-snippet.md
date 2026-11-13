@@ -8,7 +8,7 @@ snippetFormatData: '{snippetFormatPath}'
 
 <!-- Config: communicate in {communication_language}. Generate snippet content in {document_output_language}. -->
 
-# Step 3: Generate Snippet
+# Step 2: Generate Snippet
 
 ## STEP GOAL:
 
@@ -18,7 +18,7 @@ To generate or update context-snippet.md for the skill in the Vercel-aligned ind
 
 - Focus only on generating the context-snippet.md content — T1-now only, no T2 annotations
 - If `passive_context: false` was detected in step 1, skip this step entirely
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2 to 5 per skill. Each skill has its own prior snippet state (§2.5: its `prior_gotchas` carry-forward and its `prior_api`): do not share state across skills. §2.7 resolves `{skill_root}`, the snippet's root only, and §2.8 creates the stage folder once for the run (neither depends on the skill). See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2 to 5 per skill. Each skill has its own prior snippet state (§2.5: its `prior_gotchas` carry-forward and its `prior_api`): do not share state across skills. §2.7 resolves `{skill_root}`, the snippet's root only, and §2.8 creates the stage folder once for the run (neither depends on the skill).
 - Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
@@ -31,7 +31,7 @@ To generate or update context-snippet.md for the skill in the Vercel-aligned ind
 
 Auto-proceed immediately to {nextStepFile}.
 
-**If `passive_context: true` (default):** Continue to step 2.
+**If `passive_context: true` (default):** Continue to §2.
 
 ### 2. Load Snippet Format
 
@@ -56,7 +56,7 @@ Before generating new snippet content, check for a prior snippet:
 
 **Otherwise (default):** Using the first entry in `target_context_files` (resolved in step 1), take its `skill_root` value. This is the IDE's actual skill directory (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`).
 
-Store `{skill_root}` for use in snippet generation: it is the snippet's root only, the `root:` path of the context-snippet.md this step stages. It is not a context file's root: step 4 builds each context file's managed section with that target's own skill root, so with `ides` [claude-code, codex] the AGENTS.md rows take `.agents/skills/` while the snippet keeps `.claude/skills/`.
+Store `{skill_root}` for use in snippet generation: it is the snippet's root only, the `root:` path of the context-snippet.md this step stages. It is not a context file's root: step 3 builds each context file's managed section with that target's own skill root, so with `ides` [claude-code, codex] the AGENTS.md rows take `.agents/skills/` while the snippet keeps `.claude/skills/`.
 
 ### 2.8. Stage Folder
 
@@ -66,7 +66,7 @@ Once per run (skip this when `{export_stage_dir}` is already bound, as for the s
 python3 -c "import tempfile; print(tempfile.mkdtemp(prefix='skf-export-'))"
 ```
 
-§4 stages each skill's snippet draft there, under `drafts/{skill-name}/`, and step 4 stages each context file's new section there, under `previews/`, so a dry run leaves nothing beside a skill package or a context file. Step 4 deletes the folder on every exit, cancels and halts included.
+§4 stages each skill's snippet draft there, under `drafts/{skill-name}/`, and step 3 stages each context file's new section there, under `previews/`, so a dry run leaves nothing beside a skill package or a context file. Step 3 deletes the folder on every exit, cancels and halts included.
 
 ### 3. Generate Snippet Content
 
@@ -82,7 +82,7 @@ A gotcha the current SKILL.md states is therefore derived even when the evidence
 
 **Detect first-export state before applying carry-forward logic.** The `[CARRIED]` one-cycle expiry is meaningful only on a *re-export*. On a first export, the prior `context-snippet.md` was written by the workflow that built or updated the skill (create-skill, create-stack-skill, quick-skill or update-skill) inside the same forge cycle: those gotchas are freshly derived, not "left over from a previous export." Treating them as carry-forward primes them for premature expiry on the second export.
 
-Read the skill's manifest entry: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. When it returns `not_found`, or an `entry` none of whose `versions` records a `last_exported`, this is a first export: set `is_first_export = true`. Otherwise `is_first_export = false`. The helper returns the entry in the v2 shape whatever is on disk, so a v1 manifest reads the same here as in step 4.
+Read the skill's manifest entry: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. When it returns `not_found`, or an `entry` none of whose `versions` records a `last_exported`, this is a first export: set `is_first_export = true`. Otherwise `is_first_export = false`. The helper returns the entry in the v2 shape whatever is on disk, so a v1 manifest reads the same here as in step 3.
 
 Resolve the gotchas line by this decision tree. The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives (`|gotchas: {pitfall-1}; {pitfall-2}; {pitfall-3}`). A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or carried included, write a `; ` outside a code span as `, ` (a code span keeps its `; `). A prior pitfall no current source states is **unbacked**.
 
@@ -109,7 +109,7 @@ Stack skills: apply the gotchas decision tree above unchanged, including the fir
 
 ### 4. Verify Token Count
 
-Write the generated snippet to `{export_stage_dir}/drafts/{skill-name}/context-snippet.md` with your file-write tool, and measure the draft with `{countTokensHelper}`, the count step 5's token report uses:
+Write the generated snippet to `{export_stage_dir}/drafts/{skill-name}/context-snippet.md` with your file-write tool, and measure the draft with `{countTokensHelper}`, the count step 4's token report uses:
 
 ```bash
 python3 {countTokensHelper} "{export_stage_dir}/drafts/{skill-name}"
@@ -125,7 +125,7 @@ When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT 
 
 ### 5. Preview the Snippet
 
-Nothing is written to a skill package in this step: step 4 copies each measured draft into its package after its [C] gate (§9c), and a dry run never does.
+Nothing is written to a skill package in this step: step 3 copies each measured draft into its package after its [C] gate (§9c), and a dry run never does.
 
 **If dry-run mode:**
 
@@ -141,7 +141,7 @@ Nothing is written to a skill package in this step: step 4 copies each measured 
 
 **If NOT dry-run:**
 
-"**context-snippet.md staged.** Step 4 writes it to `{resolved_skill_package}/context-snippet.md` once its context-update gate passes.
+"**context-snippet.md staged.** Step 3 writes it to `{resolved_skill_package}/context-snippet.md` once its context-update gate passes.
 **Estimated tokens:** {count}"
 
 ### 6. Proceed to Context Update

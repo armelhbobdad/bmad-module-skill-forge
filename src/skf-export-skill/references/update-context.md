@@ -9,7 +9,7 @@ nextStepFile: 'token-report.md'
 
 <!-- Config: communicate in {communication_language}. Render the change preview and managed section in {document_output_language}. -->
 
-# Step 4: Update Context
+# Step 3: Update Context
 
 ## STEP GOAL:
 
@@ -20,7 +20,7 @@ To update the SKF managed section in each target context file (CLAUDE.md, AGENTS
 - The helper builds and writes the section: never type a snippet, a marker or a date into a context file, and never change the content outside the markers
 - Do not write a context file without user confirmation (§8): this modifies shared project files, and a dry run writes none
 - If `passive_context: false` was detected in step 1, skip to §9b: the export manifest still records the export
-- **Multi-skill mode:** this step runs once for the whole batch: each body lists every skill in `skill_batch` (§4a), one gate confirms every target (§8), §9b records every skill, and §9c writes each skill's snippet. See step 1 §1c.
+- **Multi-skill mode:** this step runs once for the whole batch: each body lists every skill in `skill_batch` (§4a), one gate confirms every target (§8), §9b records every skill, and §9c writes each skill's snippet.
 - Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
@@ -37,7 +37,7 @@ Run §9b, then auto-proceed to {nextStepFile}.
 
 ### 2. Stage Folder
 
-Step 3 bound `{export_stage_dir}`, the run's folder outside the project that holds each skill's snippet draft under `drafts/`. This step stages each target's new section body under its `previews/` folder, so nothing lands beside a context file before the §8 gate, and deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) Cancel and every HALT in this step.
+Step 2 bound `{export_stage_dir}`, the run's folder outside the project that holds each skill's snippet draft under `drafts/`. This step stages each target's new section body under its `previews/` folder, so nothing lands beside a context file before the §8 gate, and deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) Cancel and every HALT in this step.
 
 ### 3. Determine Target Files
 
@@ -63,7 +63,7 @@ A file whose `case` is `regenerate` holds a managed section: add `{context_file,
 
 #### 4a. The Skills It Lists
 
-`assemble` lists each skill of the export manifest whose active version is not deprecated and, through `--include`, every skill in `skill_batch` at the version in its `{resolved_skill_package}/metadata.json`, so a first export, a batch member the manifest does not list yet, and a skill the step 1 manifest-lag guard resolved to a newer version all appear at the version this export publishes. Bind `{batch_includes}` to the comma-joined `{skill-name}@{version}` of every skill in `skill_batch`. `--snippet-dir` hands it the drafts step 3 staged, so a batch skill's row is its new snippet.
+`assemble` lists each skill of the export manifest whose active version is not deprecated and, through `--include`, every skill in `skill_batch` at the version in its `{resolved_skill_package}/metadata.json`, so a first export, a batch member the manifest does not list yet, and a skill the step 1 manifest-lag guard resolved to a newer version all appear at the version this export publishes. Bind `{batch_includes}` to the comma-joined `{skill-name}@{version}` of every skill in `skill_batch`. `--snippet-dir` hands it the drafts step 2 staged, so a batch skill's row is its new snippet.
 
 #### 4b. Assemble One Body per Target
 
@@ -133,10 +133,9 @@ Bind `{old_section}` ← `content` for that target; §7 shows it beside the new 
 
 ### 7. Present Change Preview
 
-"**Context update prepared.{if multi-platform: ' (platform {i}/{total}: {platform})'}**
+Display "**Context update prepared.**", then one block per target, in the order §3 set:
 
-**Target:** `{context_file}`
-**Case:** {Create / Append / Regenerate}
+"**Target:** `{context_file}` ({case})
 **Skills in index:** {n_single} skills, {n_stack} stack
 
 **Changes:**
@@ -146,9 +145,7 @@ Bind `{old_section}` ← `content` for that target; §7 shows it beside the new 
 - For Append: `...existing content preserved...` followed by the section
 - For Regenerate: `{old_section}` beside the new body, with the content outside the markers preserved
 
-**Content outside markers:** {preserved / n/a (new file)}
-
-**Ready to write changes?**"
+**Content outside markers:** {preserved / n/a (new file)}"
 
 ### 8. Present MENU OPTIONS
 
@@ -164,14 +161,7 @@ List every skill in `skill_batch`, and give `{ides_written}` as §9b defines it,
 
 **If NOT dry-run:**
 
-Display: "**Select:** [C] Continue: write changes to {context_file} | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)"
-
-**Multi-target behavior:** When processing multiple context files, present all previews together before asking for a single confirmation. After confirmation, write all target files sequentially, verifying each one.
-
-"**Targets:** {list each context_file with its case}
-**Ready to write changes to all targets?**"
-
-Display: "**Select:** [C] Continue — write changes to all targets | [X] Cancel and exit"
+Display one prompt that names every target: "**Select:** [C] Continue: write changes to {each target as `{context_file}` ({case}), comma-separated} | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 #### Gate handling
 
@@ -221,7 +211,7 @@ For each skill, run `set`, with `--ides` only when `ides_written` is not empty:
 python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [--ides {ides_written}]
 ```
 
-`{ides_written}` is comma-joined. `set` does the whole update, migrating a v1 manifest first, and writes the manifest atomically (the v2 shape is in `references/manifest-rebuild.md`). It exits 0 with `status: "ok"` only once the manifest is written, so that result confirms the write. Once every `set` has exited 0, bind `{manifest_path}` ← `{skills_output_folder}/.export-manifest.json`, which step 6 reports; it stays null on a dry run and after a failed write.
+`{ides_written}` is comma-joined. `set` does the whole update, migrating a v1 manifest first, and writes the manifest atomically (the v2 shape is in `references/manifest-rebuild.md`). It exits 0 with `status: "ok"` only once the manifest is written, so that result confirms the write. Once every `set` has exited 0, bind `{manifest_path}` ← `{skills_output_folder}/.export-manifest.json`, which step 5 reports; it stays null on a dry run and after a failed write.
 
 **Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**" (list every skill in `skill_batch`; `ides_written` is empty with passive context off, so show `none`). A dry run with passive context on displayed this line at §8 and never reaches this section. Then auto-proceed to {nextStepFile}.
 
@@ -229,15 +219,15 @@ python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [-
 
 ### 9c. Write the Snippets
 
-**This section runs last, after §9b, and only when step 3 staged the snippets**: a run with passive context off has none, and a dry run never reaches it.
+**This section runs last, after §9b, and only when step 2 staged the snippets**: a run with passive context off has none, and a dry run never reaches it.
 
-For each skill in `skill_batch`, copy its measured draft into its package, byte for byte, so the count step 3 measured is the count of the written file:
+For each skill in `skill_batch`, copy its measured draft into its package, byte for byte, so the count step 2 measured is the count of the written file:
 
 ```bash
 cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" "{resolved_skill_package}/context-snippet.md"
 ```
 
-Report "**{skill-name}: context-snippet.md written** to `{resolved_skill_package}/context-snippet.md`." and add the file to `snippets_written`, which step 6 lists in the result contract.
+Report "**{skill-name}: context-snippet.md written** to `{resolved_skill_package}/context-snippet.md`." and add the file to `snippets_written`, which step 5 lists in the result contract.
 
 On a failed copy, HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9c`) and report `{skill-name}: context-snippet.md was not written: {error}`. The context files, the export manifest and the snippets copied before it stay written: re-run `[EX] Export Skill` on the skills whose snippet was not written (this one and the ones after it).
 

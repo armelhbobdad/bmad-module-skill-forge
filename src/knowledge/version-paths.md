@@ -147,7 +147,7 @@ When reading artifacts, resolve the skill path using the export manifest:
 
 **Stack rosters (VS, RA, SS compose-mode)** read through `skf-enumerate-stack-skills.py` instead: for each skill folder it takes the version the `active` link names, else the highest version, else a flat root `SKILL.md`. Only a package whose `metadata.json` carries an SKF marker counts (see Ownership). Its `enumerate` command never reads the export manifest; `candidates`, which picks create-stack-skill's compose-mode constituents, reads the manifest only to pick them, and the package of each one it keeps still comes from the roster.
 
-### Manifest-Driven Snippet Scanning (EX Step-04)
+### Manifest-Driven Snippet Scanning (EX Step-03)
 
 Replace the glob-based snippet scan (`{skills_output_folder}/*/context-snippet.md`) with manifest-driven resolution:
 

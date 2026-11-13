@@ -1,0 +1,5 @@
+type: changed
+scope: skf-export-skill
+summary: |
+  Export Skill's first confirmation now shows what the run will publish before you answer: one table with a row per skill that names its version (`v3.23.8`, `migrated from the flat layout` when the run just moved a flat skill, or `flat layout, would migrate` in a dry run) and its package status (`READY` or `WARNINGS`), with a warnings line under the table for each `WARNINGS` skill, then the export settings once and one question. It used to show neither, and reported the package status only after you had confirmed. A batch and a single skill now share that one table. The export gate reads the fields the table shows from `metadata.json` itself and prints them as a `package` object, and it counts every file under `references/`, as the token report does, where the count used to take only `.md` files. The separate Package stage is gone, so the stages are now numbered 1 to 6, and the context-file confirmation shows one preview per target file and asks once, naming each file with its case (create, append or regenerate).
+issues: [1162]

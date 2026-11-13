@@ -176,7 +176,7 @@ def test_the_gate_scan_finds_the_known_gates():
     found = {w: {r["number"] + r["letter"] for r in _stages(w) if _gates(w, r)} for w in WORKFLOWS}
     assert found["skf-test-skill"] == set()
     assert {"2", "3", "4", "5", "6"} <= found["skf-analyze-source"]
-    assert {"1", "4"} <= found["skf-export-skill"]
+    assert {"1", "3"} <= found["skf-export-skill"]
     assert {"1", "3c", "3d"} <= found["skf-create-skill"]
     assert found["skf-setup"] == {"3"}
     assert {"1", "4", "9"} <= found["skf-campaign"]

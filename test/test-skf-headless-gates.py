@@ -342,7 +342,7 @@ EXPORT_GATES = {
                                "references/orphan-context-detection.md", "## Gate Protocol", "{}"),
     "orphaned rows": (r"§4c\.1 orphaned managed-section rows \(headless: (\w+)\)",
                       "references/orphan-row-detection.md", "## Gate Protocol", "{}"),
-    "step 4 confirm": (r"step 4 §8: one Confirm Gate \[[A-Z]\][^|]*?\(headless: \[([A-Z])\]\)",
+    "step 3 confirm": (r"step 3 §8: one Confirm Gate \[[A-Z]\][^|]*?\(headless: \[([A-Z])\]\)",
                        "references/update-context.md", "### 8.", "[{}]"),
 }
 RECORD_COMMAND = 'record --workflow skf-export-skill --run-dir "{run_dir}" --decision'

@@ -31,11 +31,12 @@ Two package shapes are supported via --skill-type (default: individual):
                metadata.json's forge_tier against the run's tier.
 
 The --export-gate flag selects a third, self-contained mode used by
-skf-export-skill's publishing gate (load-skill.md §2; package.md renders the
-verdict). It is additive and orthogonal to --skill-type: it does NOT touch the
-individual/stack code path above, so existing callers keep byte-identical
-output. Under the flag the script emits the deterministic verdict the export
-prompt previously derived by hand each run:
+skf-export-skill's publishing gate (load-skill.md §2 runs it, §3 binds its
+`package` object and §5 renders the verdict). It is additive and orthogonal
+to --skill-type: it does NOT touch the individual/stack code path above, so
+existing callers keep byte-identical output. Under the flag the script emits
+the deterministic verdict the export prompt previously derived by hand each
+run:
   - metadata.json required-field presence for the full agentskills.io set
     (name, version, skill_type, source_authority, exports, generation_date,
     confidence_tier) as high-severity issues under validation.metadata.issues;
@@ -62,7 +63,17 @@ prompt previously derived by hand each run:
     and its line (both null when SKILL.md has no Section 7b);
   - a deterministic export_status ∈ READY / WARNINGS / NOT_READY alongside the
     existing PASS/FAIL result (NOT_READY on any high issue, WARNINGS when only
-    medium/low issues remain, READY when clean).
+    medium/low issues remain, READY when clean);
+  - a `package` object, always present, with the fields load-skill.md's
+    confirm screen shows (see export_gate_package): name, version,
+    skill_type, source_authority, confidence_tier, forge_tier and
+    generation_date as metadata.json holds them; exports_count and
+    top_exports (the first 5 names); references_count, the files under
+    references/ at any depth, the count skf-count-tokens.py gives as
+    references_total.count; and, for a stack, components_count and
+    integrations_count. A field metadata.json lacks is null, and every
+    field but references_count is null when metadata.json is missing, does
+    not parse or is not a JSON object.
 
 CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --generated-by quick-skill
@@ -400,6 +411,86 @@ def validate_metadata_export_gate(data):
             })
 
     return required_issues, enum_issues, recommended_missing
+
+
+# The number of export names the export gate's `package.top_exports` lists.
+_EXPORT_GATE_TOP_EXPORTS = 5
+
+
+def count_reference_files(skill_dir):
+    """The number of files under the package's references/ at any depth.
+
+    It walks references/ as skf-count-tokens.py's measure_reference_files
+    does (rglob, then is_file), so it equals that script's
+    references_total.count. 0 when references/ is absent.
+    """
+    references = Path(skill_dir) / "references"
+    if not references.is_dir():
+        return 0
+    return sum(1 for path in references.rglob("*") if path.is_file())
+
+
+def _export_name(item):
+    """An exports item's name, or None.
+
+    The item when it is a non-blank string, else a dict item's non-blank
+    string `name`.
+    """
+    if isinstance(item, dict):
+        item = item.get("name")
+    return item if isinstance(item, str) and item.strip() else None
+
+
+def _stack_count(data, count_key, list_key):
+    """A stack's count: `count_key` when it is an int, else the length of the `list_key` list, else None."""
+    count = data.get(count_key)
+    if isinstance(count, int) and not isinstance(count, bool):
+        return count
+    items = data.get(list_key)
+    return len(items) if isinstance(items, list) else None
+
+
+def export_gate_package(meta, references_count):
+    """The export gate's `package` object, which load-skill.md §3 binds and §5 renders.
+
+    `meta` is the parsed metadata.json, or None when it is missing, does not
+    parse or is not a JSON object: every field but `references_count` is then
+    null. A text field is null unless metadata.json holds it as a non-empty
+    string, the test validate_metadata_export_gate puts each required field
+    to, so a package the gate passes has every required field set.
+    `exports_count` is the length of the `exports` array and `top_exports`
+    its first 5 names (a non-blank string item, or a dict item's non-blank
+    string `name`; another item is skipped), both null when `exports` is not
+    an array. A stack's `components_count` is `library_count` when it is an int,
+    else the length of `libraries`, and its `integrations_count` is
+    `integration_count`, else the length of `integration_pairs`; both are
+    null for any other skill_type.
+    """
+    data = meta if isinstance(meta, dict) else {}
+
+    def text(field):
+        val = data.get(field)
+        return val if isinstance(val, str) and val else None
+
+    exports = data.get("exports")
+    names = None
+    if isinstance(exports, list):
+        names = [name for name in map(_export_name, exports) if name is not None]
+    stack = data.get("skill_type") == "stack"
+    return {
+        "name": text("name"),
+        "version": text("version"),
+        "skill_type": text("skill_type"),
+        "source_authority": text("source_authority"),
+        "confidence_tier": text("confidence_tier"),
+        "forge_tier": text("forge_tier"),
+        "generation_date": text("generation_date"),
+        "exports_count": len(exports) if isinstance(exports, list) else None,
+        "top_exports": names[:_EXPORT_GATE_TOP_EXPORTS] if names is not None else None,
+        "references_count": references_count,
+        "components_count": _stack_count(data, "library_count", "libraries") if stack else None,
+        "integrations_count": _stack_count(data, "integration_count", "integration_pairs") if stack else None,
+    }
 
 
 def _section_7b_bounds(skill_md_text):
@@ -1186,13 +1277,14 @@ def _validate_export_gate(skill_dir):
     """Export-gate validation for skf-export-skill's publishing gate.
 
     Self-contained: does not run the individual/stack passes. Emits the
-    deterministic verdict load-skill.md §2 and package.md previously
-    derived in-prompt: SKILL.md presence/non-emptiness; metadata.json as a
-    valid JSON object, with required-field presence and enum membership;
+    deterministic verdict load-skill.md §2 and §5 previously derived
+    in-prompt: SKILL.md presence/non-emptiness; metadata.json as a valid JSON
+    object, with required-field presence and enum membership;
     recommended-field presence by skill_type (low,
     validation.metadata.recommended_missing); and the SKILL.md Section 7b <->
     on-disk scripts/assets cross-reference. It adds a deterministic
-    export_status ∈ READY / WARNINGS / NOT_READY.
+    export_status ∈ READY / WARNINGS / NOT_READY, and the `package` object
+    load-skill.md §3 binds (export_gate_package).
     """
     skill_dir = Path(skill_dir)
     skill_name = skill_dir.name
@@ -1232,6 +1324,7 @@ def _validate_export_gate(skill_dir):
     # 2. metadata.json must exist, parse as a JSON object, and satisfy the
     #    required-field presence + enum-membership contract; missing
     #    recommended fields for its skill_type are low warnings.
+    meta_object = None
     if not meta_path.exists():
         meta_issues = [{"severity": "high", "field": "metadata.json", "message": "metadata.json not found"}]
         result["validation"]["metadata"] = {"issues": meta_issues, "enum_issues": [], "recommended_missing": []}
@@ -1246,6 +1339,7 @@ def _validate_export_gate(skill_dir):
             _record(meta_issues)
         else:
             if isinstance(meta, dict):
+                meta_object = meta
                 required_issues, enum_issues, recommended_missing = validate_metadata_export_gate(meta)
             else:
                 # Valid JSON that is not an object (e.g. `[]`) has no fields to read.
@@ -1297,6 +1391,9 @@ def _validate_export_gate(skill_dir):
     else:
         result["export_status"] = "READY"
     result["result"] = "PASS" if by_sev["high"] == 0 else "FAIL"
+
+    # 4. The fields load-skill.md's confirm screen shows, read once here.
+    result["package"] = export_gate_package(meta_object, count_reference_files(skill_dir))
 
     return result
 

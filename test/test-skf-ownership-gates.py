@@ -339,8 +339,9 @@ def test_export_discovery_keeps_only_skf_skills():
     assert "`{not_skf_output}` ← `not_skf_output`" in discovery
     # On Activation halts when the helper is missing, so discovery has no scan without it.
     assert "no helper candidate" not in discovery and "skip the flat path" not in discovery
-    halt = _section(_read("src/skf-export-skill/references/multi-skill-mode.md"), "## Halt semantics", None)
-    assert "not-skf-output" in halt
+    # A batch halts whole when one skill is not SKF output (load-skill.md §1c).
+    halt = _section(text, "### 1c. ", "### 2. ")
+    assert "`not-skf-output`" in halt and "no skill of the batch is exported" in halt
 
 
 @pytest.mark.parametrize("rel, flag, key", [
@@ -1312,7 +1313,7 @@ def test_export_records_the_manifest_with_passive_context_off():
     assert "also when `passive_context` is off" in _read("src/skf-export-skill/references/invocation-contract.md")
     exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_4 = next(line for line in exit_codes.splitlines() if line.startswith("| 4 "))
-    assert "step 4 §9b manifest write → `manifest-write-failed`" in exit_4
+    assert "step 3 §9b manifest write → `manifest-write-failed`" in exit_4
 
 
 def test_export_reads_the_manifest_only_through_the_helper():
@@ -1326,7 +1327,7 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
             '--forge-data-folder "{forge_data_folder}"') in load, "§2 chooses the version through the helper"
     # A run that names its skill reads the manifest first too, so a file that does not parse halts
-    # with exit 3 at step 1, before the §1b probe, the §2 `resolve` or step 4 §9c writes a snippet.
+    # with exit 3 at step 1, before the §1b probe, the §2 `resolve` or step 3 §9c writes a snippet.
     parse = _section(load, "### 1. Parse Export Arguments", "### 1b. ")
     assert "**Read the export manifest** on every run" in parse and "whenever this section needs it" not in parse
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
@@ -1354,13 +1355,13 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert "`{countTokensHelper}` ←" in _read(EXPORT_SKILL), "On Activation resolves the counter before any prompt"
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
     assert "so a dry run leaves nothing beside a skill package or a context file" in stage
-    assert "Step 4 deletes the folder on every exit, cancels and halts included." in stage
+    assert "Step 3 deletes the folder on every exit, cancels and halts included." in stage
     assert 'print(tempfile.mkdtemp(prefix=\'skf-export-\'))' in text, "the stage folder lies outside the project"
     copy = ('cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" '
             '"{resolved_skill_package}/context-snippet.md"')
-    assert copy not in text, "step 3 only stages the snippet"
+    assert copy not in text, "step 2 only stages the snippet"
     assert copy in _section(_read(EXPORT_UPDATE), "### 9c. Write the Snippets", None), (
-        "step 4 section 9c copies the snippet into the package only after its gate")
+        "step 3 section 9c copies the snippet into the package only after its gate")
 
 
 def test_export_step_4_deletes_the_stage_folder_on_every_exit():
@@ -1383,7 +1384,7 @@ def test_export_halts_on_a_malformed_target_before_the_orphan_gate():
     assert "`unreadable`" not in check, "§4b's assemble already halts on a context file SKF cannot read"
     exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_5 = next(line for line in exit_codes.splitlines() if line.startswith("| 5 "))
-    assert "step 4 §4b or §5" in exit_5
+    assert "step 3 §4b or §5" in exit_5
 
 
 def test_rename_rolls_back_only_up_to_the_manifest_rekey():
@@ -1536,7 +1537,7 @@ def _run_lifecycle(root: Path, skill: str, override: str | None) -> dict:
               "batch_includes": "alpha@1.0.0", "orphan_mode": "keep", "export_stage_dir": str(root / "stage")}
     targets = _run_documented(_call(skill, "resolve", "resolve-targets"), values, override)["targets"]
     values["target_paths"] = [str(root / t["context_file"]) for t in targets]
-    if skill == "export":  # step 3 staged the draft the package snippet was copied from
+    if skill == "export":  # step 2 staged the draft the package snippet was copied from
         draft = skills / "alpha" / "1.0.0" / "alpha" / "context-snippet.md"
         _write_bytes(root / "stage" / "drafts" / "alpha" / "context-snippet.md", draft.read_text(encoding="utf-8"))
     bodies = {}

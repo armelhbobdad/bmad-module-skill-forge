@@ -4,7 +4,7 @@
 # `[skill-name v...]` rows of the current managed sections whose skill
 # neither the export manifest nor this run's batch holds). The
 # reference carries the (a)/(b)/(c) gate protocol, headless default,
-# deviations[] contract, and step 6 result-contract integration; the
+# deviations[] contract, and step 5 result-contract integration; the
 # trigger itself stays inline in §4c.1 so the LLM knows when to invoke
 # this protocol.
 ---
@@ -65,13 +65,13 @@ Run update-context.md §4b again for every target with `--orphans drop`, so no r
 orphans_dropped = [{skill_name, version}, …]
 ```
 
-in workflow context for the step 6 result contract.
+in workflow context for the step 5 result contract.
 
 ### (b) Preserve verbatim
 
 Keep the bodies §4b staged: `assemble` already wrote each orphan's `snippet_text` into them verbatim, sorted with the other rows by skill name, **once** per section, and counted it as a stack skill when its row has a `|stack:` line. Nothing is merged by hand.
 
-Append the following entry to the `deviations[]` array in the step 6 result contract:
+Append the following entry to the `deviations[]` array in the step 5 result contract:
 
 ```json
 {

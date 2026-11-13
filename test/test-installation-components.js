@@ -371,15 +371,7 @@ async function runTests() {
       references: ['refinement-rules.md'],
     },
     'export-skill': {
-      steps: [
-        'load-skill.md',
-        'package.md',
-        'generate-snippet.md',
-        'update-context.md',
-        'token-report.md',
-        'summary.md',
-        'health-check.md',
-      ],
+      steps: ['load-skill.md', 'generate-snippet.md', 'update-context.md', 'token-report.md', 'summary.md', 'health-check.md'],
       assets: ['managed-section-format.md', 'snippet-format.md'],
     },
     'rename-skill': {

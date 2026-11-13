@@ -7,7 +7,7 @@ nextStepFile: 'summary.md'
 
 <!-- Config: communicate in {communication_language}. Render the token report in {document_output_language}. -->
 
-# Step 5: Token Report
+# Step 4: Token Report
 
 ## STEP GOAL:
 
@@ -17,7 +17,7 @@ To calculate approximate token counts for all exported artifacts and present a c
 
 - Focus only on token counting and reporting — read-only measurement
 - Auto-proceed when complete
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), run the helper once per skill, then present one aggregate table with one row per skill (context-snippet.md, SKILL.md, metadata.json, references/, package total) and the Context Budget Impact per skill (its `context_budget.on_trigger`, `full_disclosure` and `snippet`). The `managed_section` and `context_budget.always_on` values are identical across runs (same target files): measure and report them once for the run. See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), run the helper once per skill, then present one aggregate table with one row per skill (context-snippet.md, SKILL.md, metadata.json, references/, package total) and the Context Budget Impact per skill (its `context_budget.on_trigger`, `full_disclosure` and `snippet`). The `managed_section` and `context_budget.always_on` values are identical across runs (same target files): measure and report them once for the run.
 
 ## MANDATORY SEQUENCE
 

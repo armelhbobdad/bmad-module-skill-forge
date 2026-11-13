@@ -13,10 +13,10 @@ commands it documents:
   timestamp in the result file. The exit-code table lives beside the halt
   command in references/result-envelope.md, not in SKILL.md.
 - #585: a --dry-run writes no result file and fires no on_complete hook, and
-  manifest_path stays null until step 4 §9b wrote the manifest. The §8 dry-run
+  manifest_path stays null until step 3 §9b wrote the manifest. The §8 dry-run
   branch shows the manifest line, and On Activation checks the skills folder
   without writing under --dry-run.
-- #587: step 3 only stages the snippet; step 4 §9c copies it into the package
+- #587: step 2 only stages the snippet; step 3 §9c copies it into the package
   after the §8 gate, the context files and the manifest, so a cancel, a dry run
   or a halt before §9c never spends a carried gotchas line's `[CARRIED]` cycle.
 - #583 and determinism-2: step 1 §2 binds the version, its package and its
@@ -53,7 +53,7 @@ commands it documents:
   line gave it, `()` or bare, whatever its provenance `export_type`, and the
   map's kind sets `()` only for a name new to the line, so a re-export of an
   unchanged surface writes the same line. The snippet format's api line rule
-  points to step 3 for `()`, its single-skill template's `|api:` placeholder
+  points to step 2 for `()`, its single-skill template's `|api:` placeholder
   and Line 4 bullet send the marks to that rule instead of giving functions
   `()`, and update-skill's headline-exports trigger no longer counts a listed
   name's kind change; its regeneration takes no `()` rule from create-skill's
@@ -234,7 +234,7 @@ def test_the_schema_names_the_workflow_and_its_exit_codes():
     rows = {line.split("|")[1].strip(): line for line in exit_codes.splitlines() if re.match(r"\| \d ", line)}
     for reason, code in META["exit_codes"].items():
         assert f"`{reason}`" in rows[str(code)], (reason, code)
-    assert "step 4 §9c (a snippet write fails) → `write-failed`" in rows["4"]
+    assert "step 3 §9c (a snippet write fails) → `write-failed`" in rows["4"]
     # The table sits beside the halt command, and the headless contract in its own
     # reference, so the always-loaded SKILL.md keeps a pointer only.
     skill = _read(SKILL_MD)
@@ -416,7 +416,7 @@ def test_a_dry_run_writes_no_result_file_and_fires_no_hook():
     dry = next(line for line in result.splitlines() if line.startswith("- **With `--dry-run`:**"))
     assert "leave out `--result-dir` and `result_contract`" in dry and "`manifest_path: null`" in dry
     real = next(line for line in result.splitlines() if line.startswith("- **Without `--dry-run`:**"))
-    assert "pass `--result-dir`" in real and "the `{manifest_path}` step 4 §9b bound" in real
+    assert "pass `--result-dir`" in real and "the `{manifest_path}` step 3 §9b bound" in real
     hook = _section(summary, "### 6b. Post-Export Hook (Optional)", "### 7. ")
     assert hook.startswith("### 6b. Post-Export Hook (Optional)\n\nSkip this section on a dry run")
     assert '{onCompleteCommand} --result-path="{result_path}"' in hook, "a path with a space stays one argument"
@@ -443,11 +443,11 @@ def test_manifest_path_is_bound_only_once_the_manifest_is_written():
 
 def test_a_step_4_halt_reports_the_batch_and_what_it_wrote():
     """A field a halt leaves out reads as empty, so every halt passes the batch it resolved,
-    and the fields step 4 writes follow the run's state, stated once (leanness-4)."""
+    and the fields step 3 writes follow the run's state, stated once (leanness-4)."""
     halt = _section(_read(ENVELOPE), "## Emitting a Halt", "## Exit Codes")
     assert "Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`" in halt
-    assert ("Add `context_files_updated`, the context files step 4 §9 wrote before the halt, once it has "
-            "written one, and `manifest_path`, the `{manifest_path}` step 4 §9b bound, once the manifest is "
+    assert ("Add `context_files_updated`, the context files step 3 §9 wrote before the halt, once it has "
+            "written one, and `manifest_path`, the `{manifest_path}` step 3 §9b bound, once the manifest is "
             "written") in halt
     assert "the emitter gives `context_files_updated` `[]` and `manifest_path` `null`" in halt
     update = _read(UPDATE)
@@ -565,7 +565,7 @@ def test_conventions_route_every_reference_file():
     assert not (EXPORT / "scripts").exists() and "`scripts/`" not in conventions
     assert "`assets/` holds the snippet and managed-section templates." in conventions
     assert sorted(p.name for p in (EXPORT / "assets").iterdir()) == ["managed-section-format.md", "snippet-format.md"]
-    routes = {"load-skill.md": ("multi-skill-mode.md", "preflight-snippet-root-probe.md"),
+    routes = {"load-skill.md": ("preflight-snippet-root-probe.md",),
               "update-context.md": ("orphan-context-detection.md", "orphan-row-detection.md", "manifest-rebuild.md")}
     for loader, files in routes.items():
         for name in files:
@@ -582,7 +582,7 @@ def test_conventions_route_every_reference_file():
 
 
 def test_the_dry_run_shows_the_manifest_line_where_it_runs():
-    """architecture-2: a dry run with passive context on leaves step 4 at §8, so §8 shows the line too."""
+    """architecture-2: a dry run with passive context on leaves step 3 at §8, so §8 shows the line too."""
     update = _read(UPDATE)
     line = "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**"
     menu = _section(update, "### 8. Present MENU OPTIONS", "**If NOT dry-run:**")
@@ -601,7 +601,7 @@ def test_activation_checks_the_skills_folder_without_writing_under_dry_run():
 
 
 # --------------------------------------------------------------------------
-# #587: the snippet is written after the step-4 gate, as the run's last write
+# #587: the snippet is written after the step-3 gate, as the run's last write
 # --------------------------------------------------------------------------
 
 SNIPPET_COPY = 'cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" "{resolved_skill_package}/context-snippet.md"'
@@ -617,15 +617,15 @@ def _writes_into_the_package(text: str) -> list[str]:
     return hits
 
 
-def test_step_3_stages_the_snippet_and_writes_nothing_into_the_package():
+def test_step_2_stages_the_snippet_and_writes_nothing_into_the_package():
     text = _read(SNIPPET)
     assert _writes_into_the_package(text) == []
     preview = _section(text, "### 5. Preview the Snippet", "### 6. ")
     assert "Nothing is written to a skill package in this step" in preview
-    assert "step 4 copies each measured draft into its package after its [C] gate (§9c)" in preview
+    assert "step 3 copies each measured draft into its package after its [C] gate (§9c)" in preview
 
 
-def test_step_4_writes_the_snippets_last_after_the_gate():
+def test_step_3_writes_the_snippets_last_after_the_gate():
     update = _read(UPDATE)
     assert _writes_into_the_package(update) == [SNIPPET_COPY]
     order = [update.index(marker) for marker in ("### 8. Present MENU OPTIONS", "### 9. Write and Verify",
@@ -641,17 +641,16 @@ def test_step_4_writes_the_snippets_last_after_the_gate():
     assert "the end of §9c" in _section(update, "### 2. Stage Folder", "### 3. ")
     rules = _section(_read(SKILL_MD), "## Workflow Rules", "## Stages")
     decision = next(line for line in rules.splitlines() if line.startswith("- **Snippet timing:**"))
-    assert "after its [C] gate, as step 4's last write" in decision and "`[CARRIED]`" in decision
+    assert "after its [C] gate, as step 3's last write" in decision and "`[CARRIED]`" in decision
     assert "A cancel, a dry run or a halt before §9c leaves every snippet" in decision, (
         "a §9c halt keeps the snippets copied before it")
     for path in sorted(EXPORT.rglob("*.md")):
         assert "the run's last write" not in path.read_text(encoding="utf-8"), (
-            f"{path.name}: step 6 writes the result files after §9c")
+            f"{path.name}: step 5 writes the result files after §9c")
 
 
-# Every step file and protocol a run reads before step 4 §9c, in run order.
-BEFORE_9C = ("references/load-skill.md", PROBE, "references/multi-skill-mode.md", "references/package.md",
-             SNIPPET, ORPHAN_CONTEXT, ORPHAN_ROWS)
+# Every step file and protocol a run reads before step 3 §9c, in run order.
+BEFORE_9C = ("references/load-skill.md", PROBE, SNIPPET, ORPHAN_CONTEXT, ORPHAN_ROWS)
 
 
 def test_nothing_before_9c_writes_into_a_package():
@@ -691,7 +690,7 @@ def test_the_9c_copy_publishes_the_carried_draft_byte_for_byte(tmp_path):
 
 def test_load_skill_resolves_the_version_through_the_inventory_helper():
     load = _read(LOAD)
-    step = _section(load, "### 2. Load and Validate Skill Artifacts", "Load all files from `{resolved_skill_package}`:")
+    step = _section(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
     resolve = ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
                '--forge-data-folder "{forge_data_folder}"')
     assert [line for block in _fenced_blocks(step) for line in block] == [resolve]
@@ -779,7 +778,7 @@ def test_the_documented_calls_read_the_report_of_the_version_being_exported(tmp_
     values = {"skillInventoryHelper": INVENTORY.as_posix(), "findTestReportHelper": FIND_REPORT.as_posix(),
               "skills_output_folder": skills.as_posix(), "skill-name": "zod",
               "forge_data_folder": forge.as_posix()}
-    step = _section(load, "### 2. Load and Validate Skill Artifacts", "Load all files")
+    step = _section(load, "### 2. Load and Validate Skill Artifacts", "**Validation (the export gate):**")
     [[resolve_call]] = _fenced_blocks(step)
     proc = _run(_argv(resolve_call, values))
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -844,7 +843,7 @@ NEW_NAME_CLAUSE = ("A name new to the line (one `prior_api` does not hold, every
                    "snippet) takes `()` when its `export_type` in the provenance map at `{forge_provenance_map}` is "
                    "a function, and is written bare for any other kind, or when that map is null or gives no kind "
                    "for the name.")
-FORMAT_MARK_CLAUSE = "Step 3's single-skill api ranking alone sets which names take `()`."
+FORMAT_MARK_CLAUSE = "Step 2's single-skill api ranking alone sets which names take `()`."
 
 
 def _generate() -> str:
@@ -955,7 +954,7 @@ def test_the_api_line_has_one_ranking():
                      "The first 10 for Deep tier, 5 for all other tiers", "names drop from the end",
                      FORMAT_MARK_CLAUSE, "Comma-separated.")
     assert "export_type" not in api_rule and "wrote it with `()`" not in api_rule, \
-        "#1093: the api line rule points to step 3 and keeps no `()` rule of its own"
+        "#1093: the api line rule points to step 2 and keeps no `()` rule of its own"
     five = _regeneration()
     assert "top exports" not in five and "top-K" not in five
     assert "Rank the api names and verify the section anchors as " \
@@ -1083,7 +1082,7 @@ def test_a_pitfall_never_holds_the_gotchas_separator():
     assert "reads the line back as the same pitfalls" not in shared, \
         "an unclosed `(` or an odd backtick count still joins a pitfall with the ones after it"
     rule = _line(_read(SNIPPET_FORMAT), "- **gotchas line**")
-    assert _in_order(rule, "At most 3 pitfalls, separated by `; ` (the separator step 3 splits a prior line on).",
+    assert _in_order(rule, "At most 3 pitfalls, separated by `; ` (the separator step 2 splits a prior line on).",
                      FORMAT_WRITE_CLAUSE, "Derived from the current sources")
 
 
@@ -1195,7 +1194,7 @@ FORMAT_MAIN_CLAIM_CLAUSE = ("SKILL.md says a pitfall when it states the pitfall'
 FORMAT_NEW_GOTCHAS_CLAUSE = ("New gotchas come only from the evidence report's T2-future annotations and those "
                              "SKILL.md places: a gotchas-type section's bullets, a deprecated or removed "
                              "`## Key API Summary` row and an async requirement the Quick Start shows.")
-FORMAT_JOINED_CLAUSE = ("A pitfall that joins several pitfalls, such as a value step 3 reads whole, is still stated "
+FORMAT_JOINED_CLAUSE = ("A pitfall that joins several pitfalls, such as a value step 2 reads whole, is still stated "
                         "only when one T2-future annotation or one of those bullets, rows or Quick Start calls "
                         "states it whole, not when SKILL.md states its pitfalls only apart or only in other prose, "
                         "and a prior pitfall one of those states is written once, never also as a new gotcha.")
@@ -1485,7 +1484,7 @@ def test_the_prior_api_line_sets_the_mark_of_each_name_it_lists():
                      "first the `prior_api` names", PRIOR_MARK_CLAUSE + ": " + KIND_REASON, NEW_NAME_CLAUSE)
     assert FORMAT_MARK_CLAUSE in _line(_read(SNIPPET_FORMAT), "- **api line**")
     assert "`{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the " \
-           "flat copy, else null), whose `export_type` gives step 3 the `()` of an api name new to the line." \
+           "flat copy, else null), whose `export_type` gives step 2 the `()` of an api name new to the line." \
            in _read(LOAD)
     exports = _line(_regeneration(), "- **Headline exports changed**")
     assert "differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, or a " \
@@ -1503,7 +1502,7 @@ def test_the_single_skill_template_gives_no_mark_rule_of_its_own():
     assert _line(template, "- **Line 4 (api):**") == TEMPLATE_LINE_4
     for text in (template, _line(fmt, "- **api line**")):
         assert "for functions" not in text and "export_type" not in text, \
-            "#1093: only step 3 says which api names take `()`"
+            "#1093: only step 2 says which api names take `()`"
 
 
 @pytest.mark.parametrize("prior_line", [UITRIPLED_API_A02403F, UITRIPLED_API_7A14E80], ids=["a02403f", "7a14e80"])

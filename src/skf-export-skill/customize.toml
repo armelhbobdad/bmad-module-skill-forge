@@ -47,7 +47,7 @@ persistent_facts = [
 ]
 
 # Optional post-export hook: a shell command run from {project-root}, not an
-# instruction. When non-empty, step 6 runs
+# instruction. When non-empty, step 5 runs
 # `<value> --result-path="<per-run result JSON>"` after it writes that file
 # (before the terminal health-check step); a --dry-run writes none and never
 # invokes it. Example, in {project-root}/_bmad/custom/skf-export-skill.toml:
@@ -64,7 +64,7 @@ on_complete = ""
 
 # --- Optional override. An empty string means the default named below. ---
 
-# The snippet template step 3 fills for each skill. Default:
+# The snippet template step 2 fills for each skill. Default:
 # assets/snippet-format.md, a path from the skill root. Keep a house-style
 # copy outside the skill folder, which every update overwrites, and name it
 # as {project-root}/<path to the copy>. Override it to restyle the free
@@ -78,7 +78,7 @@ on_complete = ""
 #     word (a single skill's also says `writing {skill-name} code`):
 #     skf-validate-output.py checks the start, and rename-skill rewrites the
 #     name in each place;
-#   - the `|gotchas:` label and its `[CARRIED]` marker, which step 3 reads
+#   - the `|gotchas:` label and its `[CARRIED]` marker, which step 2 reads
 #     to carry gotchas forward for one export;
 #   - no line that is a bare `|`, which splits rows in the managed section.
 # The quick-start, api and key-types lines, and the stack and integrations
