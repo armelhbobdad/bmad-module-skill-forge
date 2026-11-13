@@ -114,7 +114,7 @@
         "phase": {
           "type": "string",
           "minLength": 1,
-          "description": "Where the run halted: the step file and the check, for example 'detect-manifests:enumerate'."
+          "description": "Where the run halted: the step file and the check, for example 'detect-manifests:scan'."
         },
         "reason": {
           "type": "string",

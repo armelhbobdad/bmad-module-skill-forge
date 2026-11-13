@@ -1060,7 +1060,7 @@ def test_stack_rosters_read_only_skf_output(rel):
 
 
 def test_compose_mode_reads_only_confirmed_skf_skills():
-    detect = _read("src/skf-create-stack-skill/references/detect-manifests.md")
+    detect = _read("src/skf-create-stack-skill/references/compose-skills.md")
     assert "(`skill`, `stack`" not in detect, "SKF writes skill_type single, never skill"
     # Explicitly named skills pass the same roster gate as discovered ones: the
     # enumerate helper's candidates mode gates both, and no step joins by hand.
@@ -1075,7 +1075,7 @@ def test_compose_mode_reads_only_confirmed_skf_skills():
     assert "whose skill_type is single, individual or null (an early Quick Skill" in " ".join(helper.split())
     for stale in ("visited set", "try/except", "*/active/*/SKILL.md", "`{stack_roster}`"):
         assert stale not in detect, stale
-    extract = _read("src/skf-create-stack-skill/references/parallel-extract.md")
+    extract = _read("src/skf-create-stack-skill/references/compose-extract.md")
     for needle in ('"not_skf_output"', "Build a `per_library_extractions[]` entry for each confirmed skill",
                    "that name a confirmed skill", "If `cycles[]` names a confirmed skill",
                    "no longer an SKF skill package"):

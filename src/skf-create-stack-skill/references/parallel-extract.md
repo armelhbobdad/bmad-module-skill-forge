@@ -1,8 +1,5 @@
 ---
 nextStepFile: 'detect-integrations.md'
-enumerateStackSkillsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
-  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 renderStackMetadataProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
   - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
@@ -12,7 +9,6 @@ emitEnvelopeProbeOrder:
 bundleFile: '{run_dir}/extraction-bundle.json'
 exportRecordsFile: '{run_dir}/export-records.json'
 importCountsFile: '{run_dir}/import-counts.json'
-stackInventoryFile: '{run_dir}/stack-inventory.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -32,7 +28,7 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}", "mode": "<code|compose>", "stack_libraries": ["<confirmed library>", ...]}`, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}", "mode": "code", "stack_libraries": ["<confirmed library>", ...]}`, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -46,7 +42,7 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 
 ```json
 {
-  "mode": "code|compose",
+  "mode": "code",
   "scope": ["<confirmed library>"],
   "per_library_extractions": [
     {"library": "<name>", "status": "success|partial", "version": "<version>",
@@ -60,63 +56,7 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 }
 ```
 
-`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. A compose-mode entry also holds `skill_dir`, `skill_package_path`, `exports`, `exports_source` and `source_authority` (§0). A code-mode entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
-
-### 0. Check Compose Mode
-
-**If `compose_mode` is true:**
-
-"**Extraction data already available from individual skills. Skipping extraction phase.**"
-
-For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below): its usage patterns come from there.
-
-**Re-resolve at step 4 entry:** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
-
-Use `skill_package_path` directly — it points to the package the helper resolved.
-
-**Exports resolution order, script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
-
-**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:enumerate`) with "**Cannot proceed.** `skf-enumerate-stack-skills.py` is missing, so no constituent's exports can be read. Re-install SKF, then re-run."
-
-```bash
-uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} > "{stackInventoryFile}"
-```
-
-Its JSON, in `{stackInventoryFile}`, has the form:
-
-```json
-{
-  "skills": [
-    {
-      "name": "<skill-name>",
-      "path": "<rel-to-skills-root, forward-slash>",
-      "exports": ["..."],
-      "exports_source": "metadata|references|skill-md|unknown",
-      "confidence": "T1|T2|T1-low",
-      "evidence_tier": "T1|T1-low|T2|T3",
-      "metadata_hash": "sha256:..."
-    }
-  ],
-  "cycles": ["<skill-name>"],
-  "warnings": ["<text>"],
-  "not_skf_output": ["<skill-name>"]
-}
-```
-
-§0 reads this JSON from `{stackInventoryFile}`: each constituent's exports come from it, never from memory or from re-reading its `SKILL.md`, `metadata.json` or `references/`. Append to `workflow_warnings[]` the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable: HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:cycle`) with "composes cycle among the confirmed skills: {the `cycles[]` names}."
-
-Build a `per_library_extractions[]` entry for each confirmed skill, from the `skills[]` entry whose `name` is its `skill_dir`:
-- `library`: `inventory.skills[i].name`
-- `exports`: `inventory.skills[i].exports`
-- `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
-- `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`), the library's tier, which steps 5 and 7 read. Never `inventory.skills[i].confidence`: it only says where the export list came from.
-- No `metadata_hash`: step 7's provenance helper copies the anchor above from `{stackInventoryFile}` into `constituents[]`.
-- `skill_dir`, `skill_package_path`, `version` and `source_authority`: from step 2's entry, the path refreshed above.
-- `usage_patterns`: read from the constituent's `SKILL.md` loaded above, each with the file and line it cites there.
-
-Write `{bundleFile}`: `mode`, `scope` and these entries. Then report the loaded extractions: for each skill, export count, confidence tier, and load status. Then auto-proceed to the next step.
-
-**If not compose_mode:** Continue with section 1 (existing flow).
+`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. Each entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
 
 ### 1. Prepare Extraction Plan
 
@@ -235,7 +175,7 @@ Record each excluded library in the bundle's `failed[]` and append a `workflow_w
 
 ### 3a. Check the Export Labels
 
-Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here, from the file this section writes and keeps for the rest of the run.
+Steps 5 to 7 read the labels checked here, from the file this section writes and keeps for the rest of the run.
 
 Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{exportRecordsFile}`. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`) with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no export label can be checked and no library tier set. Re-install SKF, then re-run." Otherwise relabel the records:
 

@@ -7,11 +7,11 @@ description: Consolidated project stack skill with integration patterns — code
 
 ## Overview
 
-Produces a consolidated stack skill documenting how libraries connect. **Code-mode** analyzes dependency manifests and co-import patterns from actual source code. **Compose-mode** synthesizes from pre-generated individual skills and architecture documents when no codebase exists yet. Every finding must trace to actual code with file:line citations; in compose-mode, inferred integrations are permitted but must be labeled `[inferred from shared domain]`.
+Produces a consolidated stack skill documenting how libraries connect. **Code-mode** analyzes dependency manifests and co-import patterns from actual source code. **Compose-mode** synthesizes from pre-generated individual skills and architecture documents when no codebase exists yet. Every finding must trace to its source with file:line citations.
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` and `composeNextStepFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `knowledge/tool-resolution.md`, `knowledge/version-paths.md` and `shared/references/feasibility-report-schema.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
@@ -20,7 +20,7 @@ Produces a consolidated stack skill documenting how libraries connect. **Code-mo
 
 ## Role
 
-You are a dependency analyst and integration architect. You bring expertise in dependency analysis, cross-library integration patterns, and compositional architecture, while the user brings their project knowledge and scope preferences.
+You are a dependency analyst and integration architect; the user brings their project knowledge and scope preferences.
 
 ## Workflow Rules
 
@@ -45,10 +45,10 @@ Every step that emits a warning appends an entry to `workflow_warnings[]`, the o
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Initialize & Mode Detection | references/init.md | Conditional |
-| 2 | Detect Manifests | references/detect-manifests.md | Conditional (no manifest found) |
-| 3 | Rank & Confirm Libraries | references/rank-and-confirm.md | No (confirm) |
-| 4 | Parallel Extract | references/parallel-extract.md | Yes |
-| 5 | Detect Integrations | references/detect-integrations.md | Yes |
+| 2 | Detect Manifests | references/detect-manifests.md; compose: references/compose-skills.md | Conditional (no manifest found) |
+| 3 | Rank & Confirm Libraries | references/rank-and-confirm.md; compose: references/compose-scope.md first | No (confirm) |
+| 4 | Parallel Extract | references/parallel-extract.md; compose: references/compose-extract.md | Yes |
+| 5 | Detect Integrations | references/detect-integrations.md; compose: references/compose-pairs.md first | Yes |
 | 6 | Compile Stack | references/compile-stack.md | No (review) |
 | 7 | Generate Output | references/generate-output.md | Yes |
 | 8 | Validate | references/validate.md | Yes |

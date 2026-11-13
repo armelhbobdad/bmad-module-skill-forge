@@ -12,8 +12,8 @@ compose branch of the sections they govern.
 - validate.md's Rules drop "read-only" and name §3's writes, and no other
   section of the step writes to the committed package (#536).
 - detect-integrations §1 opens with the compose-mode guard, which skips to
-  §2 ahead of the pair-intersect pass that needs step 3's per-library file
-  lists (#537).
+  §3 ahead of the pair-intersect pass that needs step 3's per-library file
+  lists (#537, #1151).
 - report.md's Rules allow the result contract and keep the rest on the
   console; a missing atomic writer records a warning instead of halting
   (#539).
@@ -53,8 +53,8 @@ compose branch of the sections they govern.
   structure pass instead of checking headings, keys and labels by hand, and
   runs it again after §3 changes the package (#606).
 - Compose-mode pairs are candidates: the co-mention helper leaves out the
-  pairs a document only lists together and counts them, so step 5 §2
-  records one warning, confirms the rest from their excerpts, finds pairs
+  pairs a document only lists together and counts them, so compose-pairs.md
+  §1 records one warning, confirms the rest from their excerpts, finds pairs
   with no architecture document by docs mentions or shared keywords (never
   a shared language) and judges those too, writes each pair in an evidence
   format whose label the structure pass reads, and locates the [VS] report
@@ -128,6 +128,13 @@ compose branch of the sections they govern.
   shape and keeps no ticket tag. Step 1 saves its bindings to `run.json`,
   which step 2 updates and steps 7 and 8 read the tier from, and an
   interactive run can resume at step 6's review gate (#1150).
+- A compose-mode run reads its own stage files, routed by
+  `composeNextStepFile`, and passes through one guard in rank-and-confirm
+  and detect-integrations; a subagent reads each constituent's SKILL.md and
+  returns only its description keywords, usage patterns and signatures,
+  which step 5 reads from the bundle; compose-mode-rules keeps three
+  sections and compile-stack states §3 as one goal and §7 as one
+  invitation (#1151).
 
 The step calls run as written, on small fixtures.
 
@@ -166,6 +173,12 @@ REPORT = REFS / "report.md"
 EXTRACT = REFS / "parallel-extract.md"
 MANIFESTS = REFS / "detect-manifests.md"
 COMPOSE_RULES = REFS / "compose-mode-rules.md"
+# Steps 2 to 5 of a compose-mode run (#1151): rank-and-confirm.md and detect-integrations.md each hold one
+# compose guard, the scope gate and the pair classification staying their one home.
+COMPOSE_SKILLS = REFS / "compose-skills.md"
+COMPOSE_SCOPE = REFS / "compose-scope.md"
+COMPOSE_EXTRACT = REFS / "compose-extract.md"
+COMPOSE_PAIRS = REFS / "compose-pairs.md"
 STACK_SKILL = STACK / "SKILL.md"
 CONTRACT = REFS / "invocation-contract.md"
 METADATA_CONTRACT = STACK / "assets" / "metadata-contract.md"
@@ -468,22 +481,25 @@ def test_security_scan_notes_a_scan_that_could_not_run():
 
 
 def test_pair_intersect_pass_skips_in_compose_mode():
+    """#537, #1151: compose-pairs.md found the pairs, so the guard skips both co-import passes to §3."""
     sections = _sections(_body(_read(DETECT)))
-    first, second = sections["1"], sections["2"]
+    first, third = sections["1"], sections["3"]
     opening = first.split("\n", 1)[1].lstrip("\n").split("\n", 1)[0]
     assert "compose_mode" in opening, f"§1 does not open with the compose-mode guard: {opening!r}"
     helper = PAIR_INTERSECT_RE.search(first)
     assert helper, "§1 lost the pair-intersect pass"
-    heading = SECTION_HEADING_RE.match(second)
-    assert heading, "§2 has no numbered heading"
+    heading = SECTION_HEADING_RE.match(third)
+    assert heading, "§3 has no numbered heading"
     ahead = first[: helper.start()]
     assert _slug(f"{heading.group(1)}. {heading.group(2)}") in SKIP_LINK_RE.findall(ahead), (
-        "the compose guard does not skip to §2 ahead of the pair-intersect pass"
+        "the compose guard does not skip to §3 ahead of the pair-intersect pass"
     )
 
 
-def test_section_2_has_the_compose_branch_the_skip_lands_on():
-    assert "compose_mode" in _sections(_body(_read(DETECT)))["2"], "§2 has no compose-mode branch"
+def test_section_2_holds_no_compose_branch():
+    """#1151: the compose pairs come from compose-pairs.md, so §2 is the code-mode co-import pass alone."""
+    two = _sections(_body(_read(DETECT)))["2"]
+    assert not COMPOSE_MODE_RE.search(two), "§2 still holds a compose-mode branch"
 
 
 # --- #539: report.md writes only the result contract ----------------------------
@@ -732,7 +748,6 @@ def test_the_label_check_runs_between_extraction_and_the_summary():
     order = list(sections)
     assert order.index("3") + 1 == order.index("3a") == order.index("4") - 1
     check = sections["3a"]
-    assert "Code mode only" in check.split("\n\n")[1], "§3a does not open with its code-mode guard"
     call = _relabel_call()
     assert call.strip() == 'uv run {renderStackMetadataHelper} relabel --records "{exportRecordsFile}"', call
     for needle in ("`coherence.violations[]`", "`confidence_distribution`", "`relabeled[]`", "export-labels-relabeled",
@@ -971,9 +986,9 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
     entries, and the helper writes the integrations and the constituents, each hash copied from the
     inventory and each skill_path relative to the project root, so an audit of the stack finds every
     constituent fresh, under a skills folder that is not the default one."""
-    extract = _read(EXTRACT)
+    extract = _read(COMPOSE_EXTRACT)
     assert "stackInventoryFile: '{run_dir}/stack-inventory.json'" in _frontmatter(extract)
-    enumerate_call = _call(_sections(_body(extract))["0"], "enumerateStackSkillsHelper", "enumerate").strip()
+    enumerate_call = _call(_sections(_body(extract))["1"], "enumerateStackSkillsHelper", "enumerate").strip()
     enumerate_call, target = enumerate_call.split(" > ")
     assert target == '"{stackInventoryFile}"', "step 4 does not save its inventory in the run folder"
     seven = _sections(_body(_read(GENERATE)))["7"]
@@ -1114,11 +1129,11 @@ def test_the_evidence_report_bins_the_final_map(tmp_path, monkeypatch, capsys):
 
 
 def test_compose_constituent_tier_is_the_evidence_tier():
-    zero = _sections(_body(_read(EXTRACT)))["0"]
-    assert '"evidence_tier": "T1|T1-low|T2|T3"' in zero
-    (bullet,) = [line for line in zero.splitlines() if line.startswith("- `confidence`:")]
+    sections = _sections(_body(_read(COMPOSE_EXTRACT)))
+    assert '"evidence_tier": "T1|T1-low|T2|T3"' in sections["1"]
+    (bullet,) = [line for line in sections["3"].splitlines() if line.startswith("- `confidence`:")]
     assert bullet.startswith("- `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`)")
-    # The field §0 reads: the largest bin, ties to the weaker tier, T3
+    # The field §3 takes: the largest bin, ties to the weaker tier, T3
     # included, T1-low when nothing is recorded.
     enumerate_ = _load(ENUMERATE, "skf_enumerate_stack_skills_stack_rules")
     assert enumerate_.dominant_tier({"t1": 0, "t1_low": 0, "t2": 0, "t3": 12}) == "T3"
@@ -1135,7 +1150,7 @@ def test_compose_entries_carry_their_constituent_tier():
     # The helper sets the tier from the bundle: the model types only the cited fields (step 5b review).
     assert "The call below sets each entry's `confidence`" in bullet, bullet
     assert "are its constituent's tier" not in bullet
-    for path in (EXTRACT, SCHEMA):
+    for path in (EXTRACT, COMPOSE_EXTRACT, SCHEMA):
         assert "when it was forged" not in _read(path), f"{path.name} says a constituent checked the stack's labels"
 
 
@@ -1144,9 +1159,9 @@ def test_compose_pairs_take_the_helper_tier():
     rules = _h2_section(_read(COMPOSE_RULES), "## Confidence Tier Inheritance")
     assert "`skf-render-stack-metadata.py`" in rules and "`combine_pair_tier`" in rules
     assert not PAIR_CASE_RE.search(rules), "compose-mode-rules still works pair cases out by hand"
-    for path in (COMPOSE_RULES, DETECT):
+    for path in (COMPOSE_RULES, COMPOSE_PAIRS, DETECT):
         assert "+T2 annotations" not in _read(path), f"{path.name} still keeps a T2 pair at a stronger tier"
-    for path in (COMPOSE_RULES, DETECT, SCHEMA):
+    for path in (COMPOSE_RULES, COMPOSE_PAIRS, DETECT, SCHEMA):
         assert not OLD_MATRIX_RE.search(_read(path)), f"{path.name} still points at the old tier matrix"
     helper = _load(STACK_METADATA, "skf_render_stack_metadata_stack_rules")
     for mode in ("code", "compose"):
@@ -1176,12 +1191,15 @@ def test_the_ordering_pattern_matches_a_restatement(text):
 
 
 def test_the_integration_label_names_the_helper_tier():
-    (line,) = [line for line in _read(INTEGRATION_PATTERNS).splitlines() if line.lstrip().startswith("Confidence:")]
-    assert "skf-render-stack-metadata.py" in line and "weaker" not in line, line
-    detect_2 = _sections(_body(_read(DETECT)))["2"]
-    compose = detect_2[:detect_2.index("**If not compose_mode:**")]
-    assert "{renderStackMetadataHelper}" in compose, "§2's compose tier line does not point at the helper"
-    assert "Confidence Tier Inheritance" in compose
+    """#1151 leanness-4: integration-patterns.md holds the types only, its unused Output Format gone, and the
+    compose pair's tier line points at step 5 §3's helper call and the compose rules."""
+    patterns = _read(INTEGRATION_PATTERNS)
+    assert not [line for line in patterns.splitlines() if line.lstrip().startswith("Confidence:")]
+    assert "## Output Format" not in patterns
+    (item,) = [line for line in _sections(_body(_read(COMPOSE_PAIRS)))["1"].splitlines()
+               if line.startswith("6. ")]
+    assert "Its tier comes from the pair-tiers call of `references/detect-integrations.md` §3" in item, item
+    assert "Confidence Tier Inheritance" in item and "weaker" not in item
 
 
 def _pair_tiers_call() -> str:
@@ -1214,7 +1232,7 @@ def test_step_2_records_the_authority_step_7_projects():
     """§6 pipes each constituent's source_authority, so step 2 must still read it (#606)."""
     six = _sections(_body(_read(GENERATE)))["6"]
     assert '"source_authority": "<compose mode: the constituent\'s>"' in six
-    (read,) = [line for line in _sections(_body(_read(MANIFESTS)))["0"].splitlines()
+    (read,) = [line for line in _sections(_body(_read(COMPOSE_SKILLS)))["1"].splitlines()
                if line.startswith("3. Read `metadata.json` from `skill_package_path`")]
     assert "source_authority" in read, "step 2 no longer records each constituent's source_authority"
 
@@ -1353,8 +1371,8 @@ def test_section_3_tells_a_fix_from_the_file_hash():
 
 
 def _compose_branch() -> str:
-    two = _sections(_body(_read(DETECT)))["2"]
-    return two[:two.index("**If not compose_mode:**")]
+    """Step 5's compose-mode sequence, which compose-pairs.md holds (#1151)."""
+    return _body(_read(COMPOSE_PAIRS))
 
 
 def test_compose_candidates_are_judged_on_their_evidence():
@@ -1370,12 +1388,8 @@ def test_compose_candidates_are_judged_on_their_evidence():
     (empty,) = [line for line in branch.splitlines() if 'code: "comention-no-candidates"' in line]
     assert "{list_only_pair_count}" in empty, "the no-candidates warning does not give the list-only count"
     for stale in ("qualify automatically", "detected-integration-pair set", "same `language` field"):
-        assert stale not in _read(DETECT), stale
-    assert "the candidates §2 kept qualify" in _sections(_body(_read(DETECT)))["3"]
-    mapping = _h2_section(_read(COMPOSE_RULES), "## Architecture Integration Mapping")
-    for stale in ("A **co-mention** is detected when", "Complementary domain roles"):
-        assert stale not in mapping, stale
-    assert "`unit_excerpt`" in mapping
+        assert stale not in _read(DETECT) + _read(COMPOSE_PAIRS), stale
+    assert "the pairs `references/compose-pairs.md` wrote qualify" in _sections(_body(_read(DETECT)))["3"]
 
 
 def test_the_comention_call_runs_as_written(tmp_path):
@@ -1395,7 +1409,7 @@ def test_the_comention_call_runs_as_written(tmp_path):
     out = json.loads(result.stdout)
     pairs = {(p["a"], p["b"]): p for p in out["pairs"]}
     # prisma is only listed in the Tech Stack list and the Components table: its
-    # three pairs are counted, never emitted, so §2 item 4 records one warning.
+    # three pairs are counted, never emitted, so §1 item 4 records one warning.
     assert set(pairs) == {("express", "react"), ("express", "zod"), ("react", "zod")}
     assert out["list_only_pair_count"] == 3
     confirmed = pairs[("express", "zod")]
@@ -1413,11 +1427,6 @@ def test_the_comention_guards_are_fields_the_step_weighs(tmp_path):
     for needle in ("`excluded_section`", "`paragraph_count`", 'code: "comention-no-candidates"',
                    "`excluded_section` entry whose excerpt only names both confirms nothing"):
         assert needle in branch, needle
-    precision = _h2_section(_read(COMPOSE_RULES), "## Compose-mode Co-mention Precision")
-    for stale in ("Section filtering", "Two-paragraph minimum", "are excluded", "A single paragraph can be coincidental"):
-        assert stale not in precision, stale
-    for field in ("**`excluded_section`.**", "**`paragraph_count`.**", "weighs instead of filtering"):
-        assert field in precision, field
     call = _call(branch, "comentionHelper", "comention")
     doc = tmp_path / "architecture.md"
     doc.write_bytes(b"# Shop\n\n## Overview\n\nThe React client calls the Express API for every page.\n")
@@ -1469,9 +1478,6 @@ def test_no_document_pairs_come_from_docs_or_keywords(tmp_path):
     kinds = {(p["a"], p["b"]): [e["kind"] for e in p["evidence"]] for p in out["pairs"]}
     assert kinds == {("express", "passport"): ["docs-mention"], ("axios", "express"): ["shared-keywords"]}
     assert out["language_only_pair_count"] == 4  # the typescript pairs with no evidence
-    rules = _h2_section(_read(COMPOSE_RULES), "## Inferred Integrations (No Architecture Document)")
-    assert "never on a shared language alone" in rules
-    assert "Infer potential integrations from skills sharing the same `language` field" not in rules
 
 
 def _infer_bullet(kind: str) -> str:
@@ -1487,12 +1493,11 @@ def test_shared_keyword_candidates_are_judged(tmp_path):
     """
     shared = _infer_bullet("shared-keywords")
     for needle in ("Keep the pair as an `inferred-shared-domain` integration only when",
-                   "both skills' descriptions and exports show how that domain makes them work together",
+                   "both skills' `description_keywords`, `usage_patterns` and `exports` in `{bundleFile}` show how that "
+                   "domain makes them work together",
                    "never for two libraries that do the same job"):
         assert needle in shared, needle
     assert "Keep the pair as a `constituent-documented-contract` integration only when" in _infer_bullet("docs-mention")
-    assert "finds and judges these pairs" in _h2_section(_read(COMPOSE_RULES),
-                                                          "## Inferred Integrations (No Architecture Document)")
     call = _call(_compose_branch(), "comentionHelper", "infer")
     skills = [{"name": name, "keywords": keywords, "language": "typescript", "docs": []}
               for name, keywords in (("zod", ["validation", "schema"]), ("yup", ["validation", "schema"]),
@@ -1524,8 +1529,8 @@ WARNING_ENTRY_RE = re.compile(r"\(([^()]*`code: \"[a-z-]+\"`[^()]*)\)")
 
 
 def test_every_step_5_warning_names_its_step_and_severity():
-    """SKILL.md's workflow_warnings[] shape: {step, severity, code, message}."""
-    entries = WARNING_ENTRY_RE.findall(_body(_read(DETECT)))
+    """SKILL.md's workflow_warnings[] shape: {step, severity, code, message}, in both of step 5's files."""
+    entries = WARNING_ENTRY_RE.findall(_body(_read(DETECT)) + _body(_read(COMPOSE_PAIRS)))
     assert len(entries) >= 7, entries
     for entry in entries:
         assert '`step: "step-05"`' in entry and re.search(r'`severity: "(info|warn|error)"`', entry), entry
@@ -1552,7 +1557,7 @@ def _fill_evidence(vs_pair: str | None) -> str:
     filled = (block.replace("{Skill A name}", "liba").replace("{Skill B name}", "libb")
               .replace("{exported_function_signature}", "connect(url: str) -> Client")
               .replace("{unit_excerpt}", "liba feeds libb").replace("{unit_line}", "12")
-              .replace("{pattern type from integration-patterns.md}", "data-flow")
+              .replace("{the pair's type, assigned in step 5 §3 from {integrationPatternsPath}}", "data-flow")
               .replace("{pair tier}", "T1-low").replace("{qualifier}", "architecture-co-mention"))
     if vs_pair is None:
         return filled
@@ -1583,22 +1588,25 @@ def test_the_compose_evidence_reaches_the_package():
     """Step 5b run 2 architecture-1: step 5 keeps each compose pair's evidence and VS verdicts in its bundle
     entry, step 6 renders the pair from them in the fixed-path evidence format, and step 7 carries them into
     the pair file, so neither a [VS: Blocked] flag nor the [from skill: ...] lines dead-end at step 5."""
-    detect = _read(DETECT)
-    assert "§4 keeps them in the pair's bundle entry" in _sections(_body(detect))["2"]
-    four = _sections(_body(detect))["4"]
-    compose = four[four.index("In compose mode each entry also holds"):]
-    for field in ('`"evidence": ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"]`',
-                  '`"reference": "<its Architecture reference, Contract reference or Shared domain line>"`',
-                  '`"vs": {"pair": "<verdict>", "overall": "<overallVerdict>"}`',
-                  "`null` when no usable [VS] report rated the pair", "code mode leaves the three out"):
-        assert field in compose, field
+    pairs = _sections(_body(_read(COMPOSE_PAIRS)))
+    assert "§3 writes them to the pair's bundle entry" in pairs["1"]
+    entry = json.loads(_first_fence(pairs["3"]))
+    assert entry["evidence"] == ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"]
+    assert entry["reference"] == "<its Architecture reference, Contract reference or Shared domain line>"
+    assert entry["vs"] == {"pair": "<verdict>", "overall": "<overallVerdict>"}
+    assert "`vs` is `null` when no usable [VS] report rated the pair" in pairs["3"]
+    # Step 5 §4 completes the entry compose-pairs.md wrote and keeps its evidence (#1151).
+    four = _sections(_body(_read(DETECT)))["4"]
+    assert ("In compose mode each entry keeps the `evidence`, `reference` and `vs` `references/compose-pairs.md` "
+            "wrote; code mode leaves the three out.") in four
     compile_ = _read(COMPILE)
     assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(compile_)
     three = _sections(_body(compile_))["3"]
-    (branch,) = [line for line in three.splitlines() if line.startswith("- **In compose mode**")]
-    for needle in ("evidence format of `{composeModeRulesPath}`", "`evidence`, `reference`, `tier` and `qualifier`",
-                   "the entry's `vs` is set", "a compose pair has no key files"):
-        assert needle in branch, needle
+    (goal,) = [p for p in three.split("\n\n") if p.startswith("Otherwise fill the template's Integration Patterns")]
+    for needle in ("evidence format of `{composeModeRulesPath}`",
+                   "`type`, `evidence`, `reference`, `tier` and `qualifier`", "the entry's `vs` is set",
+                   "a compose pair has no key files"):
+        assert needle in goal, needle
     pair_file = _sections(_body(_read(GENERATE)))["4"]
     for needle in ("In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` "
                    "lines", "when its `vs` is set"):
@@ -1645,7 +1653,7 @@ def test_the_vs_report_is_located_through_the_helper(tmp_path):
     branch = _compose_branch()
     call = _call(branch, "validateFeasibilityReportHelper")
     assert "--locate" in call and '--project-name "{project_name}"' in call, call
-    for path in (DETECT, COMPOSE_RULES):
+    for path in (COMPOSE_PAIRS, DETECT, COMPOSE_RULES):
         assert "feasibility-report-{project_slug}" not in _read(path), f"{path.name} still builds the file name"
     for needle in ("`schemaVersionOk`", "schema-version-mismatch", "`unknownTokens`", "vs-report-unusable",
                    "`pairVerdicts`", 'status: "not-found"'):
@@ -2024,9 +2032,9 @@ def test_steps_2_3_and_5_stay_inside_the_scan_root():
     assert count == ('uv run {countImportsHelper} count {scan_root} --deps - --relative-to {project_root}'
                      ' > "{importCountsFile}"')
     sections = _sections(_body(_read(DETECT)))
-    assert "`{importCountsFile}`" in _from(sections["1"], "**If not compose_mode:**")
+    assert "`{importCountsFile}`" in sections["1"]
     # Pair files and CCC hits share the project-root base, so the guard compares paths as they stand.
-    assert "both paths are relative to `{project_root}`" in _from(sections["2"], "**If not compose_mode:**")
+    assert "both paths are relative to `{project_root}`" in sections["2"]
 
 
 def test_the_monorepo_note_points_back_to_step_1():
@@ -2039,9 +2047,9 @@ def test_the_monorepo_note_points_back_to_step_1():
 
 
 def test_compose_candidates_come_from_the_helper():
-    manifests = _read(MANIFESTS)
-    assert _probe_script(manifests, "enumerateStackSkills") == ENUMERATE
-    zero = _sections(_body(manifests))["0"]
+    skills = _read(COMPOSE_SKILLS)
+    assert _probe_script(skills, "enumerateStackSkills") == ENUMERATE
+    zero = _sections(_body(skills))["1"]
     call = _call(zero, "enumerateStackSkillsHelper", "candidates").strip()
     assert call == 'uv run {enumerateStackSkillsHelper} candidates {skills_output_folder} [--explicit "<names>"]'
     for field in ("`{skill_candidates}`", "`manifest_parse_error`", "`not_skf_output`", "`excluded[]`",
@@ -2067,7 +2075,7 @@ def test_compose_candidates_come_from_the_helper():
 
 
 def test_the_candidates_call_runs_as_written(tmp_path):
-    call = _call(_sections(_body(_read(MANIFESTS)))["0"], "enumerateStackSkillsHelper", "candidates").strip()
+    call = _call(_sections(_body(_read(COMPOSE_SKILLS)))["1"], "enumerateStackSkillsHelper", "candidates").strip()
     skills = tmp_path / "skills"
     for name, skill_type, generator in (("alpha", "single", "create-skill"),
                                         ("app-stack", "stack", "create-stack-skill")):
@@ -2105,7 +2113,7 @@ def test_the_candidates_call_runs_as_written(tmp_path):
 
 def test_step_3_counts_imports_with_the_helper():
     rank = _read(RANK)
-    code = _from(_sections(_body(rank))["1"], "**If not compose_mode:**")
+    code = _sections(_body(rank))["1"]
     found = HAND_COUNT_RE.search(code)
     assert found is None, f"step 3 still counts by hand: {found.group(0)!r}"
     for stale in ("{manifestPatternsPath}", "Exclude from counting", "Use subprocess Pattern 1"):
@@ -2139,7 +2147,7 @@ def test_step_2_shows_what_the_scanner_searched():
 
 def test_step_5_takes_co_imports_from_step_3s_counts():
     text = _read(DETECT)
-    code = _from(_sections(_body(text))["2"], "**If not compose_mode:**")
+    code = _sections(_body(text))["2"]
     found = HAND_COUNT_RE.search(code)
     assert found is None, f"step 5 still finds co-imports by hand: {found.group(0)!r}"
     for needle in ("`intersection_count` 2 or more", "`line_a`", "`line_b`",
@@ -2275,10 +2283,10 @@ def test_in_file_anchor_links_name_a_heading(path):
 # The halts a missing shared helper raises, by phase (generate-output §6's goes
 # through the rollback contract and is checked on its own).
 HELPER_MISSING_PHASES = {
-    "init:emitter", "init:stack-name", "init:mode", "init:run-state", "detect-manifests:enumerate",
+    "init:emitter", "init:stack-name", "init:mode", "init:run-state", "compose-skills:enumerate",
     "detect-manifests:scan",
-    "rank-and-confirm:count", "parallel-extract:enumerate", "parallel-extract:library-tiers",
-    "detect-integrations:pair-intersect", "detect-integrations:comention", "detect-integrations:pair-tiers",
+    "rank-and-confirm:count", "compose-extract:enumerate", "parallel-extract:library-tiers",
+    "detect-integrations:pair-intersect", "compose-pairs:comention", "detect-integrations:pair-tiers",
     "compile-stack:stats", "generate-output:atomic-writer",
 }
 HALT_COMMAND = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" '
@@ -2351,16 +2359,16 @@ def test_a_missing_helper_halts_helper_missing():
 
 def test_the_compose_branch_has_no_prose_fallback():
     """#599: a helper that halts when missing has no hand-run equivalent."""
-    text = _read(DETECT)
+    text = _read(DETECT) + _read(COMPOSE_PAIRS)
     assert "Graceful degradation" not in text and "perform the equivalent scan directly" not in text
     compose = _compose_branch()
-    assert compose.index("phase `detect-integrations:comention`") < compose.index("uv run {comentionHelper}")
+    assert compose.index("phase `compose-pairs:comention`") < compose.index("uv run {comentionHelper}")
     assert "when no candidate resolves or `uv` cannot run it" not in compose
 
 
 def test_an_unknown_verdict_token_halts_with_exit_2():
     (bullet,) = [line for line in _compose_branch().splitlines() if line.startswith("- **`unknownTokens`")]
-    assert _halts(bullet) == [(2, "unknown-verdict-token", "detect-integrations:vs-report")]
+    assert _halts(bullet) == [(2, "unknown-verdict-token", "compose-pairs:vs-report")]
 
 
 @pytest.mark.parametrize("path", [p for p in STEP_FILES if p != CONTRACT], ids=lambda p: p.name)
@@ -2461,8 +2469,13 @@ def test_the_scope_is_confirmed_at_one_gate():
     assert rank.count("**Select:**") == 1 and "Please confirm your scope" not in rank
     assert "ask for final confirmation" not in rank
     assert "Set `confirmed_dependencies` ← the recommended scope" in sections["2"]
-    compose = sections["1"][:sections["1"].index("**If not compose_mode:**")]
-    assert "Set `confirmed_dependencies` ←" in compose and "[Confirm the Scope](#3-confirm-the-scope)" in compose
+    # #1151: compose-scope.md sets the compose scope, and §1's guard sends a compose run to the one gate.
+    (guard,) = [line for line in sections["1"].splitlines() if "compose_mode" in line]
+    assert guard.startswith("**If `compose_mode` is true:** `references/compose-scope.md` set `confirmed_dependencies`")
+    assert guard.endswith("Skip to [Confirm the Scope](#3-confirm-the-scope).")
+    scope = _sections(_body(_read(COMPOSE_SCOPE)))["1"]
+    assert scope.rstrip().endswith("Set `confirmed_dependencies` ← that scope, with the overrides applied.")
+    assert "**Select:**" not in _read(COMPOSE_SCOPE), "compose-scope.md holds a second scope gate"
 
 
 # --- #587 (create-stack part): the run folder holds the run's state ---------------
@@ -2498,12 +2511,14 @@ def test_the_extraction_bundle_is_written_and_read_from_disk():
     assert set(bundle) == {"mode", "scope", "per_library_extractions", "failed", "integrations", "hubs",
                            "cross_cutting"}
     sections = _sections(_body(extract))
-    assert "Write `{bundleFile}`: `mode`, `scope` and these entries" in sections["0"]
     assert "write `{bundleFile}`: `mode`, `scope`" in sections["3"]
-    # Compose mode keeps each constituent's hash in the bundle, and its usage patterns from its SKILL.md.
-    zero = sections["0"]
-    assert "§1+" not in extract and "fan-out at" not in zero
-    assert "- `usage_patterns`: read from the constituent's `SKILL.md` loaded above" in zero
+    # Compose mode writes each constituent's entry, with what its subagent read, from compose-extract.md (#1151).
+    compose = _read(COMPOSE_EXTRACT)
+    three = _sections(_body(compose))["3"]
+    assert "Write `{bundleFile}`: `mode`, `scope` and these entries" in three
+    assert "§1+" not in compose + extract and "fan-out at" not in compose
+    assert ("- `description_keywords`, `usage_patterns` and `signatures`: what §2 returned for it, each usage pattern "
+            "with the file and line it cites.") in three
     detect_graph = _sections(_body(_read(DETECT)))["4"]
     assert "Write the graph into `{bundleFile}`" in detect_graph
     # The bundle carries no co-import file: they stay in the saved pairs, which step 7's helper reads.
@@ -2700,7 +2715,7 @@ def test_contract_settings_are_off_the_override_surface():
         if "{composeModeRulesPath}" in _read(path):
             # Steps 5 and 6 keep the name, each bound to the fixed file in its own frontmatter: no
             # override reaches it, so a team's stack_skill_template_path never drops the compose evidence.
-            assert path in (DETECT, COMPILE), path.name
+            assert path in (COMPOSE_PAIRS, DETECT, COMPILE), path.name
             assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(_read(path))
     assert "## metadata.json Structure" not in _read(TEMPLATE), "the template override still swaps the contract"
     six = _sections(_body(_read(GENERATE)))["6"]
@@ -2778,10 +2793,10 @@ def test_the_integration_patterns_comment_says_what_step_5_does_with_it():
 
 def test_the_constituent_hash_anchor_is_stated_once():
     homes = [path.name for path in sorted(STACK.rglob("*.md")) if "The provenance anchor is the hash" in _read(path)]
-    assert homes == ["parallel-extract.md"], homes
+    assert homes == ["compose-extract.md"], homes
     for path in sorted(STACK.rglob("*.md")):
         assert "manifest-detection" not in _read(path), path.name
-    four = [line for line in _sections(_body(_read(MANIFESTS)))["0"].splitlines()
+    four = [line for line in _sections(_body(_read(COMPOSE_SKILLS)))["1"].splitlines()
             if line.startswith("4. **Record the constituent metadata_hash")]
     assert len(four) == 1 and "Step-07" not in four[0] and "step 7" not in four[0]
     assert "never a fresh hash" in _sections(_body(_read(GENERATE)))["7"]
@@ -2792,7 +2807,7 @@ def test_the_lifted_contract_keeps_skill_md_short():
     for heading in ("## Exit Codes", "## Result Contract"):
         assert heading not in skill, heading
     assert "`references/invocation-contract.md`" in _from(skill, "## Invocation Contract")
-    # #1150: 8,590 characters measured 1,990 cl100k tokens, under the 2,000-token target; the ceiling is that
+    # #1151: 8,558 characters measured 1,996 cl100k tokens, under the 2,000-token target; the ceiling is that
     # length rounded up to 50, so a SKILL.md that grows past it is measured again.
     assert len(skill) < 8_600, len(skill)
     assert "| 1 | Initialize & Mode Detection | references/init.md | Conditional |" in skill
@@ -2882,14 +2897,14 @@ def test_every_step_that_warns_records_in_the_sink(path):
 
 def test_evidence_report_facts_are_recorded_warnings():
     """No step keeps a fact for the evidence report in memory: each is a warning in the sink."""
-    detect, extract = _read(DETECT), _read(EXTRACT)
-    for code, text in (("pair-cap-truncated", detect), ("infer-cap-truncated", detect),
+    detect, extract, pairs = _read(DETECT), _read(EXTRACT), _read(COMPOSE_PAIRS)
+    for code, text in (("pair-cap-truncated", detect), ("infer-cap-truncated", pairs),
                        ("ccc-files-dropped", detect), ("ast-degraded", extract)):
         (entry,) = [e for e in WARNING_ENTRY_RE.findall(text) if f'`code: "{code}"`' in e]
         assert re.search(r'`severity: "(info|warn|error)"`', entry), entry
     for stale in ("in context for the evidence report", "in workflow state for the evidence report",
                   "record the cap in the evidence report", "record the cap as §1 does"):
-        assert stale not in detect + extract, stale
+        assert stale not in detect + extract + pairs, stale
     eight_b = _sections(_body(_read(GENERATE)))["8b"]
     assert "each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds" in eight_b
     assert "as its `gate`, `taken_action` and `reason`" in eight_b
@@ -3014,7 +3029,7 @@ def test_skill_md_states_each_rule_once():
     assert lines[lead + 1] == "" and lines[lead + 5] == "", "the lead, a blank line, three bullets, a blank line"
     for line, (variable, key) in zip(lines[lead + 2: lead + 5], BOUND):
         assert line.startswith(f"   - `{{{variable}}}` ← `workflow.{key}`, else "), line
-    assert "Every finding must trace to actual code" in _h2_section(skill, "## Overview")
+    assert "Every finding must trace to its source with file:line citations." in _h2_section(skill, "## Overview")
     # The trace rule as a word: a later rule may say "traceback" or "tracing".
     assert not re.search(r"\btrace\b", _h2_section(skill, "## Workflow Rules"))
     (headless,) = [line for line in lines if line.startswith("2. **Resolve `{headless_mode}`**")]
@@ -3151,3 +3166,245 @@ def test_step_2_saves_a_binding_it_changes():
     assert "naming `scan_root` in place of `explicit_deps` after option 2" in save
     (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 4 ")]
     assert "step 1 §5 and step 2 §2: `run.json` cannot be written" in row
+
+
+# --- #1151: a compose run reads its own stage files; one home per integration rule ---
+
+NEXT_STEP_RE = re.compile(r"^(nextStepFile|composeNextStepFile): '([^']+)'$", re.MULTILINE)
+# The guard each shared stage opens §1 with, sending a compose run past the code-mode passes.
+RANK_GUARD = ("**If `compose_mode` is true:** `references/compose-scope.md` set `confirmed_dependencies` and showed "
+              "the skills table. Skip to [Confirm the Scope](#3-confirm-the-scope).")
+DETECT_GUARD = ("**If `compose_mode` is true:** `references/compose-pairs.md` found the pairs and wrote them to "
+                "`{bundleFile}`'s `integrations[]`. Skip to [Classify Integration Types](#3-classify-integration-types).")
+STAGES_ROWS = (
+    "| 2 | Detect Manifests | references/detect-manifests.md; compose: references/compose-skills.md | Conditional "
+    "(no manifest found) |",
+    "| 3 | Rank & Confirm Libraries | references/rank-and-confirm.md; compose: references/compose-scope.md first | No "
+    "(confirm) |",
+    "| 4 | Parallel Extract | references/parallel-extract.md; compose: references/compose-extract.md | Yes |",
+    "| 5 | Detect Integrations | references/detect-integrations.md; compose: references/compose-pairs.md first | Yes |",
+)
+COMPOSE_RULE_SECTIONS = ["## Confidence Tier Inheritance", "## Integration Evidence Format",
+                         "## Feasibility Report Integration"]
+# What step 4's subagent returns for one constituent, and nothing else (enhancement-4).
+CONSTITUENT_FIELDS = {"library", "description_keywords", "usage_patterns", "signatures"}
+# Prose that loads a constituent's SKILL.md into the parent, as step 4 §0 did before #1151.
+PARENT_LOAD_RE = re.compile(r"load SKILL\.md from|SKILL\.md` loaded|loaded above|its SKILL\.md `description` names",
+                            re.IGNORECASE)
+
+
+# Compose mode named in prose or as the flag (compose mode, compose-mode, compose_mode), not the `composes` field.
+COMPOSE_MODE_RE = re.compile(r"compose[-_ ]mode", re.IGNORECASE)
+
+
+def _next_steps(path: Path) -> dict[str, str]:
+    return dict(NEXT_STEP_RE.findall(_frontmatter(_read(path))))
+
+
+def _chain(compose: bool) -> list[str]:
+    """The stage files a run loads from step 1 to step 6, by the frontmatter each stage routes with."""
+    names, path = [], INIT
+    while path != COMPILE:
+        assert path.name not in names, f"the routing loops back to {path.name}"
+        steps = _next_steps(path)
+        names.append(path.name)
+        path = REFS / (steps.get("composeNextStepFile", steps["nextStepFile"]) if compose
+                       else steps["nextStepFile"])
+    return names + [COMPILE.name]
+
+
+def test_a_compose_run_reads_its_own_stage_files():
+    """architecture-6: init.md and rank-and-confirm.md route a compose run by `composeNextStepFile`, each compose
+    file names its successor, and the scope gate and the pair classification stay each mode's one home."""
+    assert _next_steps(INIT) == {"nextStepFile": "detect-manifests.md", "composeNextStepFile": "compose-skills.md"}
+    assert _next_steps(RANK) == {"nextStepFile": "parallel-extract.md", "composeNextStepFile": "compose-extract.md"}
+    for path, successor in ((COMPOSE_SKILLS, "compose-scope.md"), (COMPOSE_SCOPE, "rank-and-confirm.md"),
+                            (COMPOSE_EXTRACT, "compose-pairs.md"), (COMPOSE_PAIRS, "detect-integrations.md")):
+        assert _next_steps(path) == {"nextStepFile": successor}, path.name
+    assert _chain(compose=False) == ["init.md", "detect-manifests.md", "rank-and-confirm.md", "parallel-extract.md",
+                                     "detect-integrations.md", "compile-stack.md"]
+    assert _chain(compose=True) == ["init.md", "compose-skills.md", "compose-scope.md", "rank-and-confirm.md",
+                                    "compose-extract.md", "compose-pairs.md", "detect-integrations.md",
+                                    "compile-stack.md"]
+    six = _sections(_body(_read(INIT)))["6"]
+    assert ("Load, read the full file and then execute `{composeNextStepFile}` when `compose_mode` is true, else "
+            "`{nextStepFile}`.") in six
+    (proceed,) = [line for line in _sections(_body(_read(RANK)))["3"].splitlines() if line.startswith("- IF C:")]
+    assert proceed.endswith("then execute `{composeNextStepFile}` when `compose_mode` is true, else {nextStepFile}")
+    # A headless compose run takes the same gate, records it, and goes on by the same line.
+    (gate,) = [line for line in _sections(_body(_read(RANK)))["3"].splitlines() if line.startswith("- **GATE")]
+    assert "every skill in compose mode" in gate and '"gate": "rank-and-confirm.scope"' in gate
+    # One guard opens §1 of each shared stage, and no `**If not compose_mode:**` header follows it.
+    for path, guard, anchor in ((RANK, RANK_GUARD, "3-confirm-the-scope"),
+                                (DETECT, DETECT_GUARD, "3-classify-integration-types")):
+        text = _read(path)
+        one = _sections(_body(text))["1"]
+        assert one.split("\n\n")[1] == guard, path.name
+        assert text.count("compose_mode` is true:**") == 1 and "If not compose_mode" not in text, path.name
+        assert anchor in {_slug(f"{m.group(1)}. {m.group(2)}") for m in SECTION_HEADING_RE.finditer(text)}
+    for path in STEP_FILES:
+        assert "**If not compose_mode:**" not in _read(path), path.name
+    # The code stages name no compose branch, and keep the section numbers every "step N §M" pointer names.
+    for path, numbers in ((MANIFESTS, ["1", "2", "3", "4"]), (EXTRACT, ["1", "2", "3", "3a", "4", "5"])):
+        text = _read(path)
+        assert not COMPOSE_MODE_RE.search(text), f"{path.name} still names compose mode"
+        assert list(_sections(_body(text))) == numbers, path.name
+    # The Stages table names both chains.
+    skill = _read(STACK_SKILL)
+    for row in STAGES_ROWS:
+        assert row in skill, row
+
+
+def test_detect_integrations_fits_its_budget():
+    """architecture-6: a stage that keeps a compose guard stays under the 4,500-token budget of a multi-branch
+    file. #1151: 11,910 characters measured 2,941 cl100k tokens; the ceiling is that length rounded up to 50, so
+    a detect-integrations.md that grows past it is measured again."""
+    text = _read(DETECT)
+    assert len(text) < 11_950, len(text)
+    goal = _slice(text, "## STEP GOAL:\n", "\n## Rules")
+    assert ("Find the library pairs whose co-imports show where and how they connect in this codebase, classify every "
+            "pair, compose mode's included, and build the integration graph.") in goal
+    for gone in ("comentionProbeOrder", "validateFeasibilityReportProbeOrder", "{comentionHelper}",
+                 "{validateFeasibilityReportHelper}", "`docs-mention`", "- `architecture-co-mention`:"):
+        assert gone not in text, gone
+    assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(text)
+
+
+def test_a_code_run_loads_no_compose_rule():
+    """A code-mode run reads `{composeModeRulesPath}` only where a sentence says compose mode does."""
+    for path in (DETECT, COMPILE):
+        for paragraph in _body(_read(path)).split("\n\n"):
+            for sentence in re.split(r"(?<=[.;])\s", paragraph):
+                if "{composeModeRulesPath}" in sentence:
+                    assert "compose" in sentence.replace("{composeModeRulesPath}", ""), (path.name, sentence)
+
+
+def test_compose_mode_rules_keep_three_sections():
+    """leanness-1, customization-4: the rules keep the labels, the evidence format and the [VS] lines; the type
+    line names the resolved integration patterns, and the step that assigns it."""
+    text = _read(COMPOSE_RULES)
+    assert [line for line in text.splitlines() if line.startswith("## ")] == COMPOSE_RULE_SECTIONS
+    for gone in ("## Skill Loading", "## Compose-mode Co-mention Precision", "## Architecture Integration Mapping",
+                 "## Inferred Integrations", "\u2014"):
+        assert gone not in text, gone
+    assert ("The labels and the evidence format of a compose-mode integration: step 5 "
+            "(`references/compose-pairs.md`) builds each pair's evidence in this format, and step 6 renders it.") in text
+    block = _first_fence(_h2_section(text, "## Integration Evidence Format"))
+    assert "**Type:** {the pair's type, assigned in step 5 §3 from {integrationPatternsPath}}" in block
+    assert "integration-patterns.md" not in text
+    assert "step 4 (`references/compose-extract.md`) takes from the constituent's `evidence_tier`" in text
+    assert "Step 5 (`references/compose-pairs.md` §2) reads the [VS] report" in text
+
+
+def test_each_constituent_is_read_by_its_own_subagent():
+    """enhancement-4: one foreground subagent per constituent returns only its description keywords, usage
+    patterns and signatures; a failed read leaves them empty with a warning; step 5 reads them from the bundle."""
+    text = _read(COMPOSE_EXTRACT)
+    assert "- Keep each constituent's SKILL.md out of this context: its subagent (§2) returns only the fields §3 " \
+        "writes" in _rules(text)
+    sections = _sections(_body(text))
+    assert list(sections) == ["1", "2", "3", "4", "5"]
+    two = sections["2"]
+    returned = json.loads(_first_fence(two))
+    assert set(returned) == CONSTITUENT_FIELDS, returned
+    assert "(<the file:line it cites>)" in returned["usage_patterns"][0]
+    assert list(returned["signatures"]) == ["<listed export>"]
+    for token in ("launch one per confirmed skill, at most five in one message, each with `run_in_background: "
+                  "false`, and wait for every one before you launch more",
+                  "Tell each to stop and return what it has after about 20 tool calls",
+                  "With no subagent support, read them one at a time here and keep only the fields below",
+                  "the export names its `{stackInventoryFile}` entry lists",
+                  "its `references/` for a listed export whose signature `SKILL.md` does not give"):
+        assert token in two, token
+    (failed,) = [e for e in WARNING_ENTRY_RE.findall(two) if 'code: "constituent-read-failed"' in e]
+    assert '`step: "step-04"`' in failed and '`severity: "warn"`' in failed
+    assert "`description_keywords` and `usage_patterns` are `[]` and its `signatures` `{}`" in two
+    assert "Its exports still come from §1." in two
+    (written,) = [line for line in sections["3"].splitlines() if line.startswith("- `description_keywords`")]
+    assert "what §2 returned for it" in written
+    assert "`constituent-read-failed`" in sections["4"]
+    # No stage loads a constituent's SKILL.md into the parent, or reads its keywords from that body.
+    for path in STEP_FILES:
+        found = PARENT_LOAD_RE.search(_read(path))
+        assert not found, f"{path.name}: {found.group(0)!r}"
+    # Step 5 builds the signatures and the infer keywords from the bundle fields.
+    pairs = _read(COMPOSE_PAIRS)
+    assert "bundleFile: '{run_dir}/extraction-bundle.json'" in _frontmatter(pairs)
+    (item,) = [line for line in _sections(_body(pairs))["1"].splitlines() if line.startswith("6. ")]
+    for token in ("the signature from that skill's `signatures` in `{bundleFile}` for an export the pair rests on",
+                  "else that export's name from its `exports`"):
+        assert token in item, token
+    infer = _from(_body(pairs), "**No architecture document.**")
+    assert "Its `keywords` are its bundle entry's `description_keywords`" in infer
+    assert "under `skill_package_path`, which the helper reads" in infer
+    # A pair kept with no architecture document cites the bundle too, with its own reference line.
+    assert ("For each kept pair, write one `[from skill: <skill>] <signature>` line per skill from `{bundleFile}`, "
+            "as item 6 says") in infer
+    assert "`**Contract reference:**`" in infer and "`**Shared domain:**`" in infer
+
+
+def test_the_compose_halts_name_their_stage():
+    """Each halt a compose stage raises names that file in its phase, with the code and reason it kept."""
+    assert _halts(_body(_read(COMPOSE_SKILLS))) == [
+        (3, "helper-missing", "compose-skills:enumerate"), (3, "resolution-failure", "compose-skills:stale-manifest"),
+        (3, "resolution-failure", "compose-skills:no-skills")]
+    assert sorted(_halts(_body(_read(COMPOSE_EXTRACT)))) == [
+        (3, "helper-missing", "compose-extract:enumerate"), (3, "resolution-failure", "compose-extract:constituent-gone"),
+        (3, "resolution-failure", "compose-extract:cycle")]
+    assert _halts(_body(_read(COMPOSE_PAIRS))) == [
+        (3, "helper-missing", "compose-pairs:comention"), (2, "schema-version-mismatch", "compose-pairs:vs-report"),
+        (2, "unknown-verdict-token", "compose-pairs:vs-report")]
+    assert not _halts(_body(_read(COMPOSE_SCOPE)))
+    for path in (COMPOSE_SKILLS, COMPOSE_EXTRACT, COMPOSE_PAIRS):
+        assert '"mode": "compose"' in _from(_body(_read(path)), "**Halt envelope.**").split("###", 1)[0], path.name
+    # The schema's example phase is one a step still raises.
+    schema = ENVELOPE_SCHEMA.read_text(encoding="utf-8")
+    assert "for example 'detect-manifests:scan'." in schema and "detect-manifests:enumerate" not in schema
+
+
+def test_compose_pairs_write_their_entries_for_step_5_section_3():
+    """architecture-6: compose-pairs.md writes each kept pair with its qualifier and evidence, and step 5 §3 and §4
+    complete the entry, so the hand-over crosses the file load on disk."""
+    sections = _sections(_body(_read(COMPOSE_PAIRS)))
+    three = sections["3"]
+    assert three.startswith("### 3. Write the Kept Pairs\n\nSet `{bundleFile}`'s `integrations[]` to one entry per "
+                            "kept pair, so `references/detect-integrations.md` §3 reads them from disk:")
+    entry = json.loads(_first_fence(three))
+    assert list(entry) == ["a", "b", "qualifier", "detection_method", "evidence", "reference", "vs"]
+    mappings = dict(re.findall(r"^- `([a-z-]+)`: .*Maps to `detection_method: ([a-z_]+)`", three, re.MULTILINE))
+    assert mappings == {"architecture-co-mention": "architecture_co_mention",
+                        "constituent-documented-contract": "constituent_documented_contract",
+                        "inferred-shared-domain": "inferred_from_shared_domain"}, mappings
+    schema = _read(SCHEMA)
+    for method in mappings.values():
+        assert f'"{method}"' in schema, method
+    assert "With no pair kept, `integrations[]` stays empty." in three
+    assert sections["4"].rstrip().endswith("its §1 sends a compose run to §3, which classifies these pairs.")
+    # Step 5 §3 classifies and tiers those pairs, keeping what compose-pairs.md wrote.
+    detect = _sections(_body(_read(DETECT)))
+    assert "  - A compose-mode pair keeps the `qualifier` and `detection_method` `references/compose-pairs.md` " \
+        "wrote." in detect["3"]
+    assert "When at least one pair qualifies, run it once on all of them" in detect["3"]
+    assert "a compose-mode pair has none, so its `key_files` is `[]`" in detect["3"]
+    assert "If none were detected, report that the libraries appear to operate independently" in detect["5"]
+
+
+def test_compile_states_the_integration_layer_as_one_goal():
+    """leanness-6, customization-4: §3 fills the template's Integration Patterns as one goal, a compose pair from
+    its entry's type, and §7 invites edits instead of asking fixed questions."""
+    sections = _sections(_body(_read(COMPILE)))
+    three = sections["3"]
+    assert "Compile in order" not in three and not re.search(r"^\s*- ", three, re.MULTILINE), three
+    paragraphs = [p for p in three.split("\n\n")[1:] if p.strip()]
+    assert [p.split(":", 1)[0] for p in paragraphs][:1] == ["**Zero-integration guard"]
+    (goal,) = paragraphs[1:]
+    for token in ("Otherwise fill the template's Integration Patterns section from `{bundleFile}`",
+                  "Cross-Cutting Patterns from `cross_cutting` when it lists any",
+                  "one Library Pair Integrations entry per `integrations[]` entry",
+                  "with file:line citations and its key files from `key_files`",
+                  "from its entry's `type`, `evidence`, `reference`, `tier` and `qualifier`",
+                  "After the pairs, a Hub Library Connections list gives each hub library (`hubs`, 3+ partners)"):
+        assert token in goal, token
+    seven = sections["7"]
+    assert seven.rstrip().endswith("Edit the draft yourself, or tell me what to change before the stack is written.\"")
+    assert "?" not in seven and "**Please review the integration layer" not in seven

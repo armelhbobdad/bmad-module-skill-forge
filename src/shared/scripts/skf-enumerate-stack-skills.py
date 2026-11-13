@@ -5,7 +5,7 @@
 """SKF Enumerate Stack Skills — inventory skill packages + resolve exports.
 
 Replaces the LLM-orchestrated "Exports resolution order" cascade in
-`src/skf-create-stack-skill/references/parallel-extract.md` §0. The stage
+`src/skf-create-stack-skill/references/compose-extract.md` §1. The stage
 prose previously asked the model to walk three fallback sources per
 constituent skill (metadata.json → references/ → SKILL.md prose) and emit
 the cascade decisions inline. That's an N-way implicit-read trap: for a
@@ -15,11 +15,10 @@ runs.
 
 This helper does the deterministic part once: scan the skills root,
 resolve each skill's `exports[]` via the cascade, hash metadata.json
-where present, and emit a structured JSON inventory. The per-skill
-subagent fan-out at §1+ of parallel-extract.md remains unchanged — the
-subprocesses read this inventory's cached result instead of re-reading
-SKILL.md, then extract usage patterns per skill (the part that does
-benefit from LLM judgment).
+where present, and emit a structured JSON inventory. Each constituent's
+SKILL.md is then read by its own subagent (compose-extract.md §2),
+given the export names this inventory lists, for the parts that need
+judgment: its description keywords, usage patterns and signatures.
 
 Subcommands:
   enumerate <skills-root> [--pairs] [--reliability] [--expect-hashes FILE]
@@ -95,7 +94,7 @@ Each `skills[]` entry carries:
 Each metadata.json field is null when the file lacks it or holds a value
 of another shape, so a caller never reopens metadata.json to read it.
 
-Exports resolution cascade (must match parallel-extract.md §0):
+Exports resolution cascade (must match compose-extract.md §1):
 
   1. metadata.json — if present, valid JSON, and contains an `exports[]`
      array: use the list, mark exports_source="metadata", compute
@@ -364,7 +363,7 @@ REASON_OUTSIDE_SKILLS_ROOT = "outside-skills-root"
 
 # Section headings recognised in the references/ cascade and the SKILL.md
 # cascade. Case-sensitive — these are the canonical SKF heading forms
-# documented in parallel-extract.md §0.
+# this helper reads; compose-extract.md §1 leaves the cascade to it.
 _REFERENCES_HEADINGS = ("## API", "## Exports")
 _SKILL_MD_HEADINGS = ("## Exports", "## API Surface")
 

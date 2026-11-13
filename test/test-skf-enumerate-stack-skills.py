@@ -2,7 +2,7 @@
 """Tests for skf-enumerate-stack-skills.py.
 
 Covers the exports resolution cascade documented in
-`src/skf-create-stack-skill/references/parallel-extract.md` §0:
+`src/skf-create-stack-skill/references/compose-extract.md` §1:
 
   1. metadata.json — exports[] populated, hash captured, confidence=T1
   2. references/   — heuristic `## API` / `## Exports` parse, hash=null, T2
@@ -784,7 +784,7 @@ class TestCli:
     def test_default_output_has_no_derived_keys(self, tmp_path: Path) -> None:
         # The additive flags must stay off by default: no --pairs/--reliability
         # means the top-level shape is exactly {skills, cycles, warnings,
-        # not_skf_output}, the shape skf-create-stack-skill/parallel-extract.md
+        # not_skf_output}, the shape skf-create-stack-skill/compose-extract.md
         # documents.
         _make_skill(tmp_path, "alpha", metadata={"name": "alpha", "exports": ["a"]})
         result = _run_cli("enumerate", str(tmp_path))

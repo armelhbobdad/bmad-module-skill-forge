@@ -38,7 +38,10 @@ WORKFLOWS = sorted(d.name for d in SRC.iterdir()
 
 GATE_RE = re.compile(r"GATE \[default: ([^\]]+)\]")
 WAIT_RE = re.compile(r"(?i)\bwait for (?:the )?user|\bwait for (?:a reply|input|confirmation)\b")
-ROW_RE = re.compile(r"^\|\s*(\d+)([a-z]?)\s*\|([^|\n]*)\|\s*(references/[\w./-]+\.md)\s*\|(?:([^|\n]*)\|)?",
+# A File cell may name a second file a mode runs instead, as Stack Skill's compose stages do (#1151):
+# `references/a.md; compose: references/b.md first`.
+ROW_RE = re.compile(r"^\|\s*(\d+)([a-z]?)\s*\|([^|\n]*)\|\s*(references/[\w./-]+\.md)"
+                    r"(?:; compose: (references/[\w./-]+\.md)(?: first)?)?\s*\|(?:([^|\n]*)\|)?",
                     re.MULTILINE)
 STEP_REF_RE = re.compile(r"\bsteps? (\d+)[a-z]?(?: to (\d+))?\b")
 
@@ -60,12 +63,13 @@ def _skill_md(workflow: str) -> str:
 def _stages(workflow: str) -> list[dict]:
     table = re.search(r"^## Stages\b(.*?)(?=^## )", _skill_md(workflow), re.MULTILINE | re.DOTALL).group(1)
     return [{"number": m.group(1), "letter": m.group(2), "step": m.group(3).strip(), "file": m.group(4),
-             "auto": m.group(5).strip() if m.group(5) is not None else None}
+             "files": [f for f in (m.group(4), m.group(5)) if f],
+             "auto": m.group(6).strip() if m.group(6) is not None else None}
             for m in ROW_RE.finditer(table)]
 
 
 def _stage_paths(workflow: str) -> set[Path]:
-    return {(SRC / workflow / row["file"]).resolve() for row in _stages(workflow)}
+    return {(SRC / workflow / file).resolve() for row in _stages(workflow) for file in row["files"]}
 
 
 def _loaded(workflow: str, path: Path) -> list[Path]:
@@ -90,7 +94,7 @@ def _loaded(workflow: str, path: Path) -> list[Path]:
 def _gates(workflow: str, row: dict) -> list[str]:
     """What makes the stage a gate: its GATE annotations, or an interactive-only wait."""
     gates = []
-    for path in _loaded(workflow, SRC / workflow / row["file"]):
+    for path in (loaded for file in row["files"] for loaded in _loaded(workflow, SRC / workflow / file)):
         text = _read(path)
         gates += [f"{path.name}: GATE [default: {d}]" for d in GATE_RE.findall(text)]
         rel = path.relative_to(SRC / workflow).as_posix()
@@ -123,7 +127,8 @@ def test_every_stage_row_names_a_file(workflow):
     rows = _stages(workflow)
     assert len(rows) >= 4, f"{workflow}: the Stages table parsed to {rows}"
     for row in rows:
-        assert (SRC / workflow / row["file"]).is_file(), (workflow, row["file"])
+        for file in row["files"]:
+            assert (SRC / workflow / file).is_file(), (workflow, file)
 
 
 AUTO_WORKFLOWS = [w for w in WORKFLOWS if _stages(w)[0]["auto"] is not None]
@@ -180,3 +185,6 @@ def test_the_gate_scan_finds_the_known_gates():
     assert {"1", "3c", "3d"} <= found["skf-create-skill"]
     assert found["skf-setup"] == {"3"}
     assert {"1", "2", "4", "9"} <= found["skf-campaign"]
+    # Stack Skill's rows 2 to 5 name a compose file beside the code one; both parse (#1151).
+    assert found["skf-create-stack-skill"] == {"1", "2", "3", "6"}
+    assert [len(r["files"]) for r in _stages("skf-create-stack-skill")] == [1, 2, 2, 2, 2, 1, 1, 1, 1, 1]

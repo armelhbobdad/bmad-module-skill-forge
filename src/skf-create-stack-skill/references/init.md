@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'detect-manifests.md'
+composeNextStepFile: 'compose-skills.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -205,5 +206,5 @@ If it exits non-zero, HALT (exit 4, `halt_reason: "write-failure"`, phase `init:
 
 ### 6. Auto-Proceed to Next Step
 
-Load, read the full file and then execute `{nextStepFile}`.
+Load, read the full file and then execute `{composeNextStepFile}` when `compose_mode` is true, else `{nextStepFile}`.
 

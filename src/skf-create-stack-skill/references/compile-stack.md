@@ -57,26 +57,9 @@ Use the template's frontmatter with the counts §1 bound; its Sizing Guidance ca
 
 ### 3. Compile Integration Layer
 
-Compile in order:
-
 **Zero-integration guard:** If the integration graph from step 05 has zero edges (no detected integration pairs), skip the integration layer compilation and note: "No integration patterns detected — stack skill will contain library summaries without an integration layer." Proceed directly to section 4 (Per-Library Sections).
 
-**Cross-cutting patterns** (if any):
-- Patterns spanning 3+ libraries
-- Middleware chains, shared configuration, common architectural patterns
-
-**Library pair integrations:**
-- For each detected integration pair from step 05:
-  - Type classification
-  - Pattern description with file:line citations
-  - Key files demonstrating the integration
-  - Confidence tier label
-- **In compose mode**, render each pair in the evidence format of `{composeModeRulesPath}` instead, from its entry's `evidence`, `reference`, `tier` and `qualifier`, adding the VS lines and annotation that file's Feasibility Report Integration gives when the entry's `vs` is set; a compose pair has no key files.
-
-**Hub library connections:**
-- For each hub library (3+ connections):
-  - Role in the stack architecture
-  - How it connects to partner libraries
+Otherwise fill the template's Integration Patterns section from `{bundleFile}`: Cross-Cutting Patterns from `cross_cutting` when it lists any, then one Library Pair Integrations entry per `integrations[]` entry, its pattern described with file:line citations and its key files from `key_files`. In compose mode each pair takes the evidence format of `{composeModeRulesPath}` instead, from its entry's `type`, `evidence`, `reference`, `tier` and `qualifier`, with the VS lines and annotation of that file's Feasibility Report Integration when the entry's `vs` is set; a compose pair has no key files. After the pairs, a Hub Library Connections list gives each hub library (`hubs`, 3+ partners) its role in the stack and how it connects to its partners.
 
 ### 4. Compile Per-Library Sections
 
@@ -108,10 +91,7 @@ Then display, with the counts and the distribution of the §1 helper run:
 - **Cross-cutting patterns:** {each entry of the bundle's `cross_cutting`, or none}
 - **Confidence (libraries per tier, `per_library_extractions[].confidence`):** T1: {its `confidence_distribution.t1`}, T1-low: {`t1_low`}, T2: {`t2`}, T3: {`t3`}
 
-**Please review the integration layer and per-library sections.**
-- Does the integration layer capture how your libraries connect?
-- Are the per-library summaries accurate?
-- Any sections to adjust before writing output? Edit the draft yourself, or tell me what to change."
+Edit the draft yourself, or tell me what to change before the stack is written."
 
 ### 8. Present MENU OPTIONS
 

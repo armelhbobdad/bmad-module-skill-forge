@@ -493,6 +493,12 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/report.md", "skf-atomic-write.py", "write"),
     ("src/skf-create-stack-skill/references/parallel-extract.md", "skf-render-stack-metadata.py", "relabel"),
     ("src/skf-create-stack-skill/references/parallel-extract.md", "skf-render-stack-metadata.py", "library-tiers"),
+    # The compose stages (#1151): step 2 picks the constituents, step 4 reads their inventory, and step 5
+    # finds the pairs in the architecture document or, with none, in the constituents' own docs.
+    ("src/skf-create-stack-skill/references/compose-skills.md", "skf-enumerate-stack-skills.py", "candidates"),
+    ("src/skf-create-stack-skill/references/compose-extract.md", "skf-enumerate-stack-skills.py", "enumerate"),
+    ("src/skf-create-stack-skill/references/compose-pairs.md", "skf-comention-pairs.py", "comention"),
+    ("src/skf-create-stack-skill/references/compose-pairs.md", "skf-comention-pairs.py", "infer"),
     ("src/skf-create-stack-skill/references/compile-stack.md", "skf-render-stack-metadata.py", "metadata"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "provenance"),
 ]

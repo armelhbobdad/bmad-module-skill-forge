@@ -33,15 +33,3 @@ One library wrapping another to provide a unified interface.
 Libraries sharing application state or context.
 - **Signal:** Shared state stores, context providers, or global singletons
 - **Example:** `react` + `zustand` — Zustand stores consumed in React components
-
-## Output Format
-
-For each detected integration:
-```
-Library A + Library B
-  Type: [pattern type]
-  Files: [count] files with co-imports
-  Key files: [top 3 files by integration density]
-  Pattern: [brief description of how they integrate]
-  Confidence: [the pair tier step 5 §3 takes from skf-render-stack-metadata.py, with the detection-method qualifier in parens, e.g. `T1-low (grep-co-import)`, `T1 (grep-co-import)`, `T1-low (architecture-co-mention) [composed]`. Integration detection is co-import evidence from the import counts, never AST: do not label integrations "AST-verified".]
-```

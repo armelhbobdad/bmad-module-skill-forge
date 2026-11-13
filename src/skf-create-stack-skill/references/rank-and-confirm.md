@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'parallel-extract.md'
+composeNextStepFile: 'compose-extract.md'
 countImportsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-count-imports.py'
   - '{project-root}/src/shared/scripts/skf-count-imports.py'
@@ -32,31 +33,9 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-di
 
 Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
 
-**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo` (a message can quote backticks or `$( )`, which a shell runs), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`, resolving `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound.
-
 ### 1. Count Import Frequency
 
-**If `compose_mode` is true:**
-
-Skip import counting entirely. All skills are included by default: the recommended scope is every `raw_dependencies` entry (the list step 2 stored).
-
-**Apply scope_overrides:** If `scope_overrides` were provided in step 01, apply them now — force-include or force-exclude skills as specified. Log any overrides applied.
-
-**Validate override keys:** Every key in `scope_overrides` MUST be present in `raw_dependencies`. For any unknown key, append a `workflow_warnings[]` entry (`step: "step-03"`, `severity: "warn"`, `code: "scope-override-unknown"`, `message`: "scope_override: unknown dependency '{key}', skipped") and drop that override entry (do not fail the run). Known-key overrides still apply.
-
-Present skills sorted by architectural layer (from architecture doc if available):
-- If `architecture_doc_path` is not null: **wrap the architecture-doc parse in try/except**. On any parse error (file unreadable, malformed markdown, no H2 structure), fall back to alphabetical ordering and log a warning `"architecture-doc parse failed: {error}; falling back to alphabetical"`. Otherwise parse section headers to determine layer grouping.
-- If `architecture_doc_path` is null or layers not detectable: present alphabetically.
-
-Display skills as a table:
-
-| # | Skill | Language | Tier | Architecture Layer |
-|---|-------|----------|------|--------------------|
-| 1 | {name} | {language} | {confidence_tier} | {layer or 'Unclassified'} |
-
-Set `confirmed_dependencies` ← that scope, with the overrides applied, and skip to [Confirm the Scope](#3-confirm-the-scope).
-
-**If not compose_mode:**
+**If `compose_mode` is true:** `references/compose-scope.md` set `confirmed_dependencies` and showed the skills table. Skip to [Confirm the Scope](#3-confirm-the-scope).
 
 Count, for each dependency, the files under `{scan_root}` that import it, with the shared helper that holds the counting rules (its `--help` states them). **Resolve `{countImportsHelper}`** from `{countImportsProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `rank-and-confirm:count`) with "**Cannot proceed.** `skf-count-imports.py` is missing, so no import can be counted. Re-install SKF, then re-run."
 
@@ -98,7 +77,7 @@ Present the scope and the one gate. **In code mode:**
 
 **Total:** {total} dependencies detected, {above_threshold} recommended for inclusion"
 
-**In compose mode** the skills table of §1 is the scope.
+**In compose mode** the skills table `references/compose-scope.md` showed is the scope.
 
 Display: **Select:** [C] Continue to extraction with this scope | [X] Cancel and exit, or type library names to **add** from the below-threshold list, **-library_name** to **exclude** one, or a custom list to replace the scope.
 
@@ -115,6 +94,6 @@ Display: **Select:** [C] Continue to extraction with this scope | [X] Cancel and
 
 #### Menu Handling Logic:
 
-- IF C: Display "**Scope confirmed:** {count} libraries selected for stack skill extraction." with the list, then load, read entire file, then execute {nextStepFile}
+- IF C: Display "**Scope confirmed:** {count} libraries selected for stack skill extraction." with the list, then load, read entire file, then execute `{composeNextStepFile}` when `compose_mode` is true, else {nextStepFile}
 - IF X: HALT (exit 6, `halt_reason: "user-cancelled"`, phase `rank-and-confirm:scope`): leave any existing committed stack package untouched, emit the envelope, then delete the run folder (`rm -rf "{run_dir}"`)
 - IF Any other: Process it as a scope change (add or remove libraries from `confirmed_dependencies`, or replace them with a custom list), redisplay the updated table, then [Redisplay the gate](#3-confirm-the-scope)
