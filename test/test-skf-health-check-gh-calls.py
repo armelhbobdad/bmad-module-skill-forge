@@ -257,3 +257,25 @@ def test_a_create_that_failed_goes_to_the_local_queue_with_its_body():
     assert ("**File content:** Same structured format as the issue body above, with YAML frontmatter (for a create "
             "that failed, that body is the text of its body file in `{localFallbackFolder}/bodies/`, "
             "unchanged):") in queue
+
+
+def test_a_run_that_posts_and_queues_says_workflow_complete_once_and_last():
+    """A failed post (#1202, #1203) now reaches the local queue in a run whose other findings posted. The
+    issues-created block ended "Workflow complete." and §5c then wrote the failed finding and said it again: an
+    agent that stops at the first completion line, as #1115 found agents do, loses the finding the queue was to
+    keep. The created block now ends without it, and one closing rule says where the line comes."""
+    text = _read(SHARED_HEALTH_CHECK)
+    display = _slice(text, "After creating all issues, display", "### 5b.")
+    assert display.count('"Workflow complete."') == 2 and "\nWorkflow complete.\"" not in display
+    assert '{list each issue URL}"\n\n**Closing line.**' in display
+    closing = _flow(display[display.index("**Closing line.**"):]).strip()
+    assert closing == (
+        '**Closing line.** The step displays "Workflow complete." once, after everything else it displays but a bound '
+        "`{result_envelope_line}` (§0). When any finding of this run goes to the local queue (§5c), display nothing "
+        'more here: §5c writes its files, then ends its block with that line. Otherwise display "Workflow complete." '
+        "now, after the block above, or alone when no issue was created because every finding was a reaction or a "
+        "comment that posted (§5a-i).")
+    # §5c's block, displayed after its files are written, keeps the line, and only the result line comes after it.
+    queue = _slice(text, "After writing all files,", "When `{result_envelope_line}` is bound (§0), display it verbatim "
+                                                     "after that block, as the last line.")
+    assert queue.rstrip().endswith("Workflow complete.\"")

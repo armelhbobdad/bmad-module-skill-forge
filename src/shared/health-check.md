@@ -376,9 +376,9 @@ Section fingerprint: `{legacy_fp}`
 After creating all issues, display those that were created, `{N}` counting only them, unless none was (a create that failed is listed by §5c):
 
 "**{N} issue(s) created on {healthCheckRepo}:**
-{list each issue URL}
+{list each issue URL}"
 
-Workflow complete."
+**Closing line.** The step displays "Workflow complete." once, after everything else it displays but a bound `{result_envelope_line}` (§0). When any finding of this run goes to the local queue (§5c), display nothing more here: §5c writes its files, then ends its block with that line. Otherwise display "Workflow complete." now, after the block above, or alone when no issue was created because every finding was a reaction or a comment that posted (§5a-i).
 
 ### 5b. On success, update the seen-cache
 
