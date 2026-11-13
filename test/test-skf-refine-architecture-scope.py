@@ -509,7 +509,9 @@ def _compile_recovery() -> str:
 
 def test_compile_recovers_the_scope_block():
     recovery = _compile_recovery()
-    assert "`{unverified_technologies}` (Step 02 §2b), which the plan (§6) needs: the `<!-- [RA-SCOPE] -->` block" in recovery
+    # The plan's skill_count counts `{in_scope_skills}` (#1177), so a lost context reads it back too.
+    assert ("`{unverified_technologies}` (Step 02 §2b) and `{in_scope_skills}` (Step 02 §3), which the plan (§6) "
+            "needs: the `<!-- [RA-SCOPE] -->` block") in recovery
     assert "When a block is still missing" in recovery
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
@@ -863,6 +865,12 @@ def test_a_missing_or_failing_inventory_or_mentions_helper_halts():
             + RESOLUTION_HALT.format("gap-analysis:comention")) in run
     assert "{its first stderr line, or with no candidate: `skf-comention-pairs.py` is not installed." in run
     assert "On exit 1 (its stderr names a staged input it refuses), fix that file and run the command once more before halting" in run
+    # Step 01 §2 writes the terms with the helper (#1177), so a refused copy is written again the same way, as in
+    # Step 03 §4, and never edited by hand.
+    assert ("a refused `{run_dir}/skill-terms.json` is not edited but written again with the enumerate helper "
+            "(`{enumerateStackSkillsHelper}`, resolved from `{enumerateStackSkillsProbeOrder}`), as Step 01 §2 did: "
+            '`uv run {enumerateStackSkillsHelper} terms --inventory "{run_dir}/skill-inventory.json" -o '
+            '"{run_dir}/skill-terms.json"`') in run
     assert "No step finds the mentions by hand" in run
     gap = _read(GAP)
     for gone in ("Graceful degradation", "derive the pairs from the inventory"):
