@@ -25,7 +25,7 @@ draftCheckpointFile: 'references/draft-checkpoint.md'
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
 - **Headless (`{headless_mode}` is true):** no section prompts. Each section's **Headless** line says what it takes instead, from the arguments step 1's input gate validated, so a headless run never waits here.
-- **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state; the three component-library fields are dropped only when this pass changes `scope.type` away from `component-library`. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules: revise in place, do not append.
+- **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`, supplemental `doc_urls`) are preserved as the current state; the three component-library fields are dropped only when this pass changes `scope.type` away from `component-library`. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules: revise in place, do not append.
 - **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json`, the files it fetched under `{run_dir}/files/` and its exports in `{run_dir}/extract.json`. §2c and §3c read them there, and a GitHub file not fetched yet is fetched beside them with `{githubFetchHelper}`, resolved from `{githubFetchProbeOrder}` (first existing path wins; HALT if no candidate exists), as step 2 §1 describes.
 - **Resumed draft:** a run that resumed a draft at step 4 (draft-checkpoint.md Half 1) and came here through step 4's `[R]` has not run step 2 in this session. When `source_type` is `source` and `{run_dir}/tree.json` does not exist, load, read entire file, then execute {analyzeStepFile} first: it stages the analysis again at `{analysis_ref}` and chains back here.
 - **Ratify run (`ratify_mode: true`):** the hydrated brief's selections are the prior selections of the re-entry rule above, and the intent that §1 shows and §2c classifies is the change the user asked for when choosing [R], read with the hydrated `description`. For a source brief, step 2 has analyzed the brief's repository and §2c runs the recommender on that analysis: its `scope_type` and `matched_heuristic` replace the hydrated `recommended` and `heuristic`, and the §2c capture rules set the rest of `scope.rationale` from this pass (a brief without one gets one).
@@ -82,10 +82,9 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 "**Supplemental documentation URLs:**
 {numbered list of collected doc_urls with labels}
 
-These will be included as T3 external references in the skill brief.
-Add, remove, or confirm these URLs."
+These will be included as T3 external references in the skill brief: change them at step 4."
 
-Wait for confirmation. Record any changes to `doc_urls`. **GATE [default: keep them]**: headless keeps them as given; step 1's input gate has HEAD-checked them, so skip the check below.
+Show them in the §2c message, with no wait of their own: a URL the check below fails joins that message with its correct/keep choice, and an answer that does not take the choice up keeps the URL. **GATE [default: keep them]**: headless keeps them as given; step 1's input gate has HEAD-checked them, so skip the check below.
 
 HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` calls in a **single message with N parallel Bash calls**, then process the responses together. On a 4xx/5xx, DNS failure, or timeout per URL, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step 1 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
 
@@ -149,7 +148,7 @@ How broadly should this skill cover the library?
 
 Press Enter to accept the recommendation, or pick a different letter."
 
-**First-timer reassurance (interactive only, never-briefed user — the §4 first-timer rail fired in step 01).** Append one line so the harder scope-type call doesn't stall a first-timer: "The recommended type is almost always right — accept it and re-scope from step 4 if the analysis surprises you." Repeat users and headless skip this line.
+**First-brief reassurance (interactive only, when `first_brief` is true: step 1 §4 found no brief).** Append one line so the harder scope-type call doesn't stall a new user: "The recommended type is almost always right: accept it and re-scope from step 4 if the analysis surprises you." Skip it when `first_brief` is false or unset, and in a headless run.
 
 Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
 
@@ -157,7 +156,7 @@ Wait for user selection. Empty input or just Enter accepts the recommendation; a
 
 ### 3. Define Boundaries Based on Selection
 
-Using the boundary definitions from `{scopeTemplatesPath}`, present the appropriate flow for the user's selected scope type ([F], [M], [P], [C], or [R]). Follow each type's prompts and wait for user input at each phase before proceeding. For [C], run the component library detection below first: the flow's phases 1 and 2 present what it found.
+Show the selected type's flow from `{scopeTemplatesPath}` in one message: its defaults, what detection found and each phase's question, and take the user's picks and adjustments from one answer. [F] asks nothing, so its defaults stand until step 4. For [C], run the component library detection below first: the flow's phases 1 and 2 present what it found.
 
 **GATE [default: the scope type's boundary default]**: **Headless:** no boundary prompt runs. When an `include` argument was supplied, use `include` and `exclude` as given, split on commas (`exclude` empty when absent). Otherwise take the resolved scope type's default below, with the globs of an `exclude` argument, when one was supplied, added to its exclusions. Log what was chosen as `warn: headless boundary default <type>: <what was chosen>`, naming any `exclude` globs added, and record that line, so the envelope's `warnings` names the boundary nobody confirmed: write it to `{run_dir}/warning.txt` with a file write, never `echo`, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
@@ -240,7 +239,7 @@ Wait for confirmation or override.
 
 ### 5. Summarize Scope Decisions
 
-Show this summary and, when §5b applies, its question in one message, and wait once:
+Show this summary with no wait: step 4 shows the whole brief next and is the one scope confirmation, where the user changes any of it.
 
 "**Scope Summary:**
 
@@ -255,25 +254,7 @@ Show this summary and, when §5b applies, its question in one message, and wait 
 **Language:** {confirmed language}
 
 {If any scope notes:}
-**Notes:** {scope notes}
-
-Does this look right? You can adjust before we continue."
-
-Wait for confirmation, which also answers §5b. Make adjustments if requested, and show the summary again when they change it.
-
-**GATE [default: C]**: **Headless:** display the summary, log `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"` and continue with no wait.
-
-### 5b. Scripts & Assets Intent (Optional)
-
-Asked in the §5 message. **Only ask when `scope.type` is `full-library`, `specific-modules`, `component-library`, or `reference-app` (skip for `public-api` and `docs-only`). Reference apps routinely ship wiring scripts and build-config assets: prompt for them.**
-
-"Does this library include executable scripts (CLI tools, validation scripts, setup helpers) or static assets (config templates, JSON schemas, example configs) that should be packaged with the skill?"
-
-- **[D] Auto-detect** from source (default) — SKF will scan for `scripts/`, `bin/`, `assets/`, `templates/`, `schemas/` directories
-- **[N] None expected** — skip script/asset detection
-- Or describe what you expect (free text)
-
-Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips. **GATE [default: D]**: headless takes the `scripts_intent` and `assets_intent` arguments, `detect` for either one absent.
+**Notes:** {scope notes}"
 
 ### 5c. Draft Checkpoint (interactive only)
 

@@ -24,14 +24,12 @@ qmd collection list | awk '$1 ~ /-brief$/ {print $1}' | head -n 12
 timeout 20 qmd query "{name} {synthesized-or-intent-text}" -c {collection-name} -n 1 --min-score 0.6
 ```
 
-Aggregate the top hits across the swept `-brief` collections; keep the 3 highest-scoring across the union. If any results come back, surface them as a heads-up — *not* a HALT:
+Aggregate the top hits across the swept `-brief` collections; keep the 3 highest-scoring across the union. If any results come back, show them in the step 1 §7 message as a heads-up, *not* a HALT, where the user can give another name:
 
 ```
 **Heads up — these existing briefs look semantically close to `{name}`:**
   1. {existing-name} (similarity: {score})  — {existing-description}
   2. {existing-name} (similarity: {score})  — {existing-description}
-
-Continue with `{name}`, or pick a different name?
 ```
 
 ## Failure modes

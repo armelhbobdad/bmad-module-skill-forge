@@ -11,7 +11,9 @@ gather-intent-ratify.md, and an [R] pass keeps a ratified brief's
 component-library fields and its amendments log. Step 5b gate run 3
 (determinism-3): step 5 writes a ratified brief from the file it ratified,
 with a patch of the fields steps 3 and 4 can change, so no field it holds
-is retyped or dropped. No test runs the step prose, so these checks pin it.
+is retyped or dropped. #1136 (enhancement-3): a target, a brief path
+included, given when invoking the skill answers the first prompt. No test
+runs the step prose, so these checks pin it.
 """
 
 from __future__ import annotations
@@ -129,3 +131,22 @@ def test_revise_scope_keeps_the_hydrated_component_library_fields_and_amendments
     [after_r] = [line for line in confirm.splitlines() if line.startswith("After a `[R]` pass on a ratify run")]
     assert "except `scope.amendments`, which step 3 never writes" in after_r
     assert "`scope.amendments` included, stays hydrated" in after_r
+
+
+def test_a_target_named_when_invoking_the_skill_answers_the_first_prompt():
+    """#1136 (enhancement-3): a target the invoking message names is the §3.1 answer, so the prompt is skipped, and
+    every file that names the interactive ratify entry says a brief path given when invoking the skill counts too."""
+    collect = _section(_read(REFERENCES / "gather-intent.md"), "#### 3.1 Collect target")
+    first = collect.strip().split("\n\n")[1]
+    assert first.startswith("**Invoking message.** When the message that invoked this skill names a target"), first
+    for kind in ("a URL", "a package", "a local path", "a `skill-brief.yaml` or its folder"):
+        assert kind in first, kind
+    assert "that message is the §3.1 answer: skip the prompt below" in first and "pre-fill included" in first
+    # A branch that re-displays the prompt shows it, so a fresh start or a failed target never re-reads the message.
+    assert "It answers the first prompt only: when a branch below re-displays the prompt, show it." in first
+    for path in (SKILL_DIR / "SKILL.md", REFERENCES / "invocation-contract.md", REFERENCES / "confirm-brief.md"):
+        text = _read(path)
+        uses = [m.start() for m in re.finditer(r"at the first (?:interactive )?prompt", text)]
+        assert uses, path.name
+        for at in uses:
+            assert text[:at].endswith("when invoking the skill or "), (path.name, text[max(0, at - 60):at + 30])

@@ -47,8 +47,6 @@ Default exclusions:
 - Configuration files
 - Documentation source files
 
-Prompt: "Any additional exclusions you'd like to add? Or adjustments to these defaults?"
-
 ### Specific Modules Boundaries
 
 **Phase 1: Module selection**
@@ -62,8 +60,6 @@ For selected modules, ask:
 - **A)** Everything in those modules (all files)
 - **B)** Only public exports from those modules
 
-Prompt: "Any files or patterns to explicitly exclude within these modules?"
-
 ### Public API Only Boundaries
 
 **Phase 1: Export selection**
@@ -71,10 +67,9 @@ Prompt: "Any files or patterns to explicitly exclude within these modules?"
 Present numbered list of exports/entry points from step 02.
 Prompt: "Which of these would you like to include? (Enter numbers, or 'all'):"
 
-**Phase 2: Confirm exclusions**
+**Phase 2: Exclusions**
 
 Exclusions will include all internal implementation files, tests, and utilities.
-Prompt: "Any additional items you'd like to include or exclude?"
 
 ### Reference App Boundaries
 
@@ -88,10 +83,6 @@ Ask: "What is the authored pattern surface for this skill? List the files (or di
 **Phase 2: Scope.include and exclusions**
 
 Set `scope.include` to the pattern-surface file list (or broader union when the author flagged supporting files). Default exclusions mirror the Full Library defaults (tests, build artifacts, docs source). Record `scope.notes` with a one-sentence description of the pattern (e.g., "Embedded Python sidecar pattern for Electron apps — lifecycle orchestration, RPC proxy, build-copy wiring").
-
-**Phase 3: Confirmation**
-
-Summary showing: pattern surface count, `tier_a_include` vs `include` distinction, notes. Prompt: "Does this reference-app scope look right? Adjust before continuing."
 
 ### Docs-Only Boundaries
 
@@ -125,8 +116,3 @@ If multiple design system variant directories detected (e.g., `react-shadcn/`, `
 - Record them as `scope.ui_variants`, one `{name, package}` entry per variant
 
 Prompt: "I detected {count} design system variants: {list with counts}. Which is the primary variant? Include all? [Y/n]"
-
-**Phase 4: Scope Confirmation**
-
-Summary showing: component count, excluded demo count, variant summary, include/exclude patterns.
-Prompt: "Does this component library scope look right? Adjust before continuing."

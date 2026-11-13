@@ -17,7 +17,7 @@ The two halves of the lifecycle (resume after the target is confirmed in §3, wr
 
 ## Half 1: Resume Check (loaded from §3 after the target is confirmed)
 
-Keyed on the confirmed **target**, not the derived skill name, so the offer can fire right after §3, before the returning user re-answers version (§3b), intent (§4), or scope (§5), which is exactly the state a draft restores. The caller (gather-intent §3) has selected the candidate draft; its directory basename is the candidate skill `name`. Present the resume prompt for that draft.
+Keyed on the confirmed **target**, not the derived skill name, so the offer is the first question after the target is validated, before the returning user re-answers the intent (§4) or anything else a draft restores. The caller (gather-intent §3) has selected the candidate draft; its directory basename is the candidate skill `name`. Present the resume prompt for that draft.
 
 When a live draft is found, present:
 
@@ -34,7 +34,7 @@ Restore the candidate `name` (the matched draft's directory basename), then load
 - **A draft written after step 3** (it holds `scope`): restore its step 3 fields too, `language`, `detected_version`, `analysis_ref` and `monorepo_workspace`, `scripts_intent` and `assets_intent`, and `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `draft.scope.*`, each kept verbatim as a ratified brief's are (`references/gather-intent-ratify.md`). Then load, read entire file, and execute `references/confirm-brief.md` (step 4): steps 2 and 3 already ran in the session that wrote the draft. A `[R] Revise Scope` there re-runs step 2 first, because this session has no staged analysis (scope-definition.md Rules).
 - **A draft written by step 1** (no `scope`): jump directly to §8, which shows the §7 summary with the restored description before its menu.
 
-Either way **§3b, §4, §5, §6, §7, and §7b are skipped**, so the version, intent, scope, and description the draft already holds are never re-gathered.
+Either way **§3b, §4, §6, §7, and §7b are skipped**, so the version, intent, scope hints, and description the draft already holds are never re-gathered.
 
 The skip rule for §7b is load-bearing: re-running §7b would overwrite the user's previously accepted `description` with a fresh candidate synthesized from the seed material. The restored `description` is authoritative. §6 is skipped too, so the restored `name` is used as-is — it already cleared the collision and portfolio-similarity checks in the session that wrote the draft.
 
@@ -42,7 +42,7 @@ The user can still revise any field at step 4 §3 if a refinement is needed afte
 
 ### `[N]` — Start fresh
 
-Leave the draft in place and continue forward to §3b: the normal gather flow (§3b version, §4 intent, §5 scope, §6 name) resumes, and the §6 collision / portfolio-similarity checks run in their usual place. Do not delete the draft here: the skill name has not been chosen yet, so there is nothing to key a deletion on. If the user lands on the same name, the next checkpoint write replaces the stale draft; otherwise it stays a harmless orphan that the resume check offers again on a future run targeting the same repo.
+Leave the draft in place and continue forward to §3b: the normal gather flow (§3b version check, §4 intent, §6 name, §7 summary) resumes, and the §6 collision / portfolio-similarity checks run in their usual place. Do not delete the draft here: the skill name has not been chosen yet, so there is nothing to key a deletion on. If the user lands on the same name, the next checkpoint write replaces the stale draft; otherwise it stays a harmless orphan that the resume check offers again on a future run targeting the same repo.
 
 ## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)
 

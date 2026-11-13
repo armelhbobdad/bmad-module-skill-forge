@@ -55,10 +55,11 @@ persistent_facts = [
 # org copy, point at it with a {project-root}/... path. An empty string means
 # the default named below.
 
-# The five voice examples step 1 shows a first-time user and composes the
-# skill description from. A copy keeps five examples, each leading a
-# different way, and the "do not template-stamp" guidance; whatever it says,
-# step 1 still requires a literal `Use when` clause in every description.
+# The five voice examples step 1 composes the skill description from,
+# showing one beside it on a first brief. A copy keeps five examples, each
+# leading a different way, and the "do not template-stamp" guidance;
+# whatever it says, step 1 still requires a literal `Use when` clause in
+# every description.
 
 description_voice_examples_path = "assets/description-voice-examples.md"
 

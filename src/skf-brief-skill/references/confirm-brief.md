@@ -18,11 +18,11 @@ partyModeSkill: '/bmad-party-mode'
 
 ### 1. Assemble Complete Brief
 
-Use the values steps 1 to 3 accepted, all in conversation, without loading `assets/skill-brief-schema.md` (§4 loads it only to cite a field's rule): §2 shows the fields the user reviews, and step 5 §3 names every key the writer takes. On a derive run, `forge_tier` is the `tier` step 0 §1 bound, `created` is today's date and `created_by` is `{user_name}`; an unset `scripts_intent` or `assets_intent` is `detect`.
+Use the values steps 1 to 3 accepted, all in conversation, without loading `assets/skill-brief-schema.md` (§4 loads it only to cite a field's rule): §2 shows the fields the user reviews, and step 5 §3 names every key the writer takes. On a derive run, `forge_tier` is the `tier` step 0 §1 bound, `created` is today's date and `created_by` is `{user_name}`; an unset `scripts_intent` or `assets_intent` is `detect`. A headless run takes both from `normalized`, the arguments step 1's input gate validated.
 
-**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (step 1 ratified a brief through `references/gather-intent-ratify.md`: a brief path at the first prompt, or a headless `from_brief`), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output: the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it).
+**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (step 1 ratified a brief through `references/gather-intent-ratify.md`: a brief path when invoking the skill or at the first prompt, or a headless `from_brief`), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output: the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it).
 
-After a `[R]` pass on a ratify run, take `scope.*`, `scripts_intent`, `assets_intent` and `doc_urls` from step 3, except `scope.amendments`, which step 3 never writes; every other field, `scope.amendments` included, stays hydrated.
+After a `[R]` pass on a ratify run, take `scope.*` and `doc_urls` from step 3, except `scope.amendments`, which step 3 never writes; every other field, `scope.amendments` included, stays hydrated.
 
 ### 2. Present Brief for Review
 
@@ -47,6 +47,8 @@ Scope: {scope.type}
   Exclude: {scope.exclude patterns, one per line}
   Notes:   {scope.notes}
   Tier-A:  {scope.tier_a_include patterns, one per line — omit this line entirely if scope.tier_a_include unset}
+  Registry: {scope.registry_path; omit this line entirely when unset}
+  Variants: {scope.ui_variants names; omit this line entirely when unset}
   Rationale: {chosen} chosen over {recommended} — {reason}
              {omit this line entirely if scope.rationale absent}
 
@@ -59,8 +61,8 @@ Doc URLs:
 Supplemental Docs:
   {doc_urls, one per line with labels}
 
-Scripts:    {scripts_intent} — {scripts_gloss}
-Assets:     {assets_intent} — {assets_gloss}
+Scripts:    {scripts_intent, with (default) when unset}: {scripts_gloss}
+Assets:     {assets_intent, with (default) when unset}: {assets_gloss}
 
 Source Authority: {source_authority}
 
@@ -68,7 +70,7 @@ Source Authority: {source_authority}
 Target Version: {target_version} (user-specified)
 Detected Version: {detected_version or "N/A"}
 {Else:}
-Version:    {version; a derive run's is the detected version, else 1.0.0}
+Version:    {version; a derive run's is the detected version when it is full X.Y.Z, else 1.0.0 (default)}
 
 Created:    {created}
 Created by: {created_by}
@@ -107,6 +109,12 @@ Flag any fields that may need review:
 {If target_version is set AND detected_version exists AND they differ:}
 "**Note:** Target version ({target_version}) differs from detected source version ({detected_version}). The target version will be used for compilation."
 
+{If this is a derive run, target_version and target_ref are unset, source_type is source, source_repo is a GitHub URL and no X.Y.Z version was detected:}
+"**Note:** no X.Y.Z version was detected, so the brief says 1.0.0, and create-skill at Forge tier or above will look for tag 1.0.0 or v1.0.0. Give the version now if you know it."
+
+{If scope.type is reference-app and scripts_intent or assets_intent is the detect default:}
+"**Scripts and assets:** a reference app often ships wiring scripts (build, packaging, setup) and build-config assets (config templates): name any the skill should package, or keep `detect`."
+
 "**This is your last chance to make changes before writing the file.**
 
 You can:
@@ -116,7 +124,7 @@ You can:
 
 ### 4. Handle Inline Adjustments
 
-If the user requests changes to specific fields (name, description, version, etc.):
+If the user requests changes to specific fields (name, description, version, scripts or assets intent, etc.):
 - If the adjustment requires explaining a field's validation rule or allowed values, load `assets/skill-brief-schema.md` now (otherwise skip the read: the common path does not need it)
 - Make the adjustment
 - Re-present the updated brief

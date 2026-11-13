@@ -31,6 +31,10 @@ keeps one, so a partial pin such as `react@18` is named at step 1 instead of
 halting the step 5 writer; and step 2 shows its analysis once, in the §5
 summary, which step 3 does not recap in the same turn.
 
+#1136 (enhancement-2): step 3's §5 summary waits in no mode, so it carries
+no gate, and its §5b scripts and assets question is gone: step 4 shows both
+intents as editable `detect` defaults and is the one scope confirmation.
+
 No test runs the step prose, so these checks pin it, and they run the
 recommender and the validator the prose relies on.
 """
@@ -302,13 +306,14 @@ def test_the_count_heuristic_falls_back_to_full_library_and_says_so():
 
 def test_scope_type_and_boundaries_are_decided_where_they_are_asked():
     """The old step 3 GATE ran after the sections that used its arguments; each section now carries its own
-    headless line, and no menu closes the step."""
+    headless line, and no menu closes the step. #1136: the §5 summary waits in no mode, so it holds no gate."""
     text = _read(SCOPE_DEFINITION)
     for heading, gate in (("### 2c. Offer Scope Templates", "**GATE [default: the recommendation]**"),
                           ("### 3. Define Boundaries Based on Selection",
-                           "**GATE [default: the scope type's boundary default]**"),
-                          ("### 5. Summarize Scope Decisions", "**GATE [default: C]**")):
+                           "**GATE [default: the scope type's boundary default]**")):
         assert gate in _section(text, heading), heading
+    summary = _section(text, "### 5. Summarize Scope Decisions")
+    assert "GATE [" not in summary and "Wait for" not in summary
     scope_type = _section(text, "### 2c. Offer Scope Templates")
     assert '`heuristic` = `"user-supplied-arg"`' in scope_type and '"mode": "headless"' in scope_type
     rules = _section(text, "## Rules")
@@ -713,10 +718,17 @@ def test_step_one_ends_on_one_message_and_one_wait():
 
 
 def test_step_three_ends_on_one_message_and_no_menu():
+    """#1136 (enhancement-2): the §5 summary does not wait, and step 4 holds the scripts and assets intent."""
     text = _read(SCOPE_DEFINITION)
     summary = _section(text, "### 5. Summarize Scope Decisions")
-    assert "when §5b applies, its question in one message, and wait once" in summary
-    assert "Asked in the §5 message." in _section(text, "### 5b. Scripts & Assets Intent (Optional)")
+    assert ("Show this summary with no wait: step 4 shows the whole brief next and is the one scope confirmation"
+            in summary)
+    assert "### 5b." not in text and "Scripts & Assets Intent" not in text
+    review = _section(_read(CONFIRM_BRIEF), "### 2. Present Brief for Review")
+    [scripts] = [line for line in review.splitlines() if line.startswith("Scripts:    ")]
+    [assets] = [line for line in review.splitlines() if line.startswith("Assets:     ")]
+    assert "{scripts_intent, with (default) when unset}" in scripts
+    assert "{assets_intent, with (default) when unset}" in assets
     # The [R] re-probe cache saved one round of five-second HEAD requests.
     assert "byte-identical" not in text and "cache" not in text.lower()
 

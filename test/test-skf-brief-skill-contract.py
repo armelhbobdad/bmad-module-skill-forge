@@ -70,6 +70,16 @@ version-resolution.md keeps its Detection Algorithm and one precedence
 line, and the [auto] files say `## Goal` and `## Sequence` and state each
 rule as the failure it prevents.
 
+#1136: an interactive run asks only what it cannot take, derive or
+default. Step 1 runs the draft-resume check right after the target, asks
+for no doc URL, authority or version, binds `first_brief` from its `find`
+instead of asking a Y/N, and drops §5 and §6's prompt; §7 sets the
+authority as the headless gate does, with no warning, and marks each value
+the user did not give "(default)". Step 3 shows a scope type's flow in one
+message and its summary does not wait, so step 4 is the one scope
+confirmation: it shows the scripts and assets intent as `detect` defaults
+and notes a defaulted 1.0.0 version.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -1111,7 +1121,8 @@ def test_no_brief_file_keeps_a_rule_another_file_or_helper_owns():
     # The bindings the cut list alone stated: §2 shows these before step 5 runs.
     assert ("On a derive run, `forge_tier` is the `tier` step 0 §1 bound, `created` is today's date and `created_by` "
             "is `{user_name}`; an unset `scripts_intent` or `assets_intent` is `detect`.") in assemble
-    assert "Version:    {version; a derive run's is the detected version, else 1.0.0}\n" in confirm
+    assert ("Version:    {version; a derive run's is the detected version when it is full X.Y.Z, else 1.0.0 "
+            "(default)}\n") in confirm
     # Step 5 passes the payload and branches on the result; the writer's internals are its own.
     write = _section(_read(WRITE_BRIEF), "### 3. Write the Brief")
     assert "Pass every key, `null` when unset: the writer decides what reaches the YAML." in write
@@ -1126,5 +1137,159 @@ def test_no_brief_file_keeps_a_rule_another_file_or_helper_owns():
     [headless] = [line for line in _read(CONTRACT).splitlines() if line.startswith("| **Headless** |")]
     assert ("routes step 1 to the ratify path described in the `from_brief` Inputs cell rather than deriving a new "
             "brief.") in headless and "`force`" not in headless.split("from_brief <path>", 1)[1]
+    # #1136 (enhancement-2): the [C] flow ends at its variant question, since step 4 confirms the scope.
     assert _read(SKILL_DIR / "assets" / "scope-templates.md").endswith(
-        'Prompt: "Does this component library scope look right? Adjust before continuing."\n')
+        'Prompt: "I detected {count} design system variants: {list with counts}. Which is the primary variant? '
+        'Include all? [Y/n]"\n')
+
+
+# --------------------------------------------------------------------------
+# #1136: steps 1 and 3 ask only what they cannot take, derive or default, and step 4 confirms the scope once
+# --------------------------------------------------------------------------
+
+
+DRAFT_CHECKPOINT = REFERENCES / "draft-checkpoint.md"
+CONFIRM_BRIEF = REFERENCES / "confirm-brief.md"
+SCOPE_TEMPLATES = SKILL_DIR / "assets" / "scope-templates.md"
+# A quoted prompt that ends in a question: `"...?"` or `"**...?**"`.
+QUESTION_RE = re.compile(r'\?\**"')
+# The step 1 sections a resumed draft skips, in both files that list them.
+SKIPPED_SECTIONS = "**§3b, §4, §6, §7, and §7b are"
+
+
+def test_the_draft_check_is_the_first_question_after_the_target():
+    """#1136 (enhancement-1, leanness-4): §3.3 asks for no doc URL and no authority, so the draft-resume check, whose
+    [Y] restores those answers, follows the validated target; §5 is gone from step 1 and from both skipped lists."""
+    text = _read(GATHER_INTENT)
+    between = text[text.index("#### 3.3 Branch"):text.index("**Draft-resume check.**")]
+    assert not QUESTION_RE.search(between) and "Wait for" not in between, between
+    for gone in ("Are you the maintainer", "documentation URLs you'd like", "### 5. Capture Scope Hints",
+                 "Wait for confirmation or alternative", "Confirm the target."):
+        assert gone not in text, gone
+    assert "**Draft-resume check.** Right after the target is validated, before step 1 asks anything else" in text
+    assert "then end with the draft-resume check" in text and "continue at the draft-resume check below" in text
+    assert not re.search(r"§5\b", text)
+    draft = _read(DRAFT_CHECKPOINT)
+    assert "the offer is the first question after the target is validated" in _section(
+        draft, "## Half 1: Resume Check (loaded from §3 after the target is confirmed)")
+    assert "(§3b version check, §4 intent, §6 name, §7 summary)" in draft
+    assert set(re.findall(r"§5\w*", draft)) == {"§5c"}
+    for path in (GATHER_INTENT, DRAFT_CHECKPOINT):
+        assert _read(path).count(SKIPPED_SECTIONS) == 1, path.name
+
+
+def test_step_one_shows_what_it_derived_or_defaulted_instead_of_asking():
+    """#1136 (enhancement-1, enhancement-9, leanness-4): §3b asks for no version, §4 binds `first_brief` instead of
+    asking a Y/N, §6 neither asks nor waits, and §7 sets the authority and marks each value the user did not give."""
+    text = _read(GATHER_INTENT)
+    # A target answer that states more pre-fills it: an expert goes from the target to the §7 message.
+    [prefill] = [line for line in _section(text, "#### 3.1 Collect target").splitlines()
+                 if line.startswith("Wait for user response. **Parse the response")]
+    for needle in ("scope hints, supplemental doc URLs, source authority and a proposed name (§6)",
+                   "§3b checks a pre-filled version, §4 asks only for a missing intent, and §7 shows the rest"):
+        assert needle in prefill, needle
+    version = _section(text, "### 3b. Gather Target Version")
+    assert "Ask nothing here when §3.1 pre-filled no version" in version and "Wait for" not in version
+    intent = _section(text, "### 4. Gather User Intent")
+    assert "[Y/N]" not in intent and "**`first_brief`.** Bind it from this `find`" in intent
+    assert "When §3.1 pre-filled the intent, skip the question: §7 shows it." in intent
+    assert 'find "{forge_data_folder}" -maxdepth 2 -name "skill-brief.yaml" -print -quit' in intent
+    assert "an unset `first_brief` counts as false" in intent
+    name = _section(text, "### 6. Derive Skill Name")
+    assert "Ask nothing here" in name and "Wait for" not in name and not QUESTION_RE.search(name)
+    assert "[C] keeps `{name}` and leaves the overwrite question to step 5 §2b" in name
+    summary = _section(text, "### 7. Summarize Gathered Intent")
+    assert '"(default)" marks a value the user did not give' in summary
+    for line in ("- **Skill name:** {name, with (default) when §6 derived it}",
+                 "- **Source authority:** {official/community/internal, with (default) when this section set it, or "
+                 "(forced for docs-only) when §3.2 set it}",
+                 "- **Target version:** auto-detected in step 2 (default)", "- **Doc URLs:** none (default)"):
+        assert line in summary.splitlines(), line
+    assert "- **Target version:** 1.0.0 (default). With no source code to read it from" in summary
+    # The authority is set as the headless gate sets it, with no warning: the summary shows it for the user to change.
+    [authority] = [part for part in summary.split("\n\n") if part.startswith("**Source authority.**")]
+    for needle in ("neither the §3.1 answer nor a resumed draft gave `source_authority`", "`gh api user --jq .login`",
+                   "both lower-cased: a match is `official`", "Another login, a local path or a failed call is "
+                   "`community`", "Record no warning", "(5-second timeout)",
+                   "is `official` for a maintainer, `internal` for a private or company codebase and `community`"):
+        assert needle in authority, needle
+    # The authority alternate uses the value §7 settles, and the heads-up's briefs do not share the alternates' numbers.
+    assert "when the authority, settled at the top of §7 before the list is shown" in text
+    assert "{its heads-up, its briefs as bullets, not numbers, so a number picks only an alternate}" in summary
+    description = _section(text, "### 7b. Synthesize Skill Description")
+    assert "When `first_brief` (§4) is true" in description and "{If first_brief is true:}" in description
+    [edit] = [line for line in _section(text, "### 8. Present MENU OPTIONS").splitlines()
+              if line.startswith("- IF an edit")]
+    assert "the number of a §6 alternate" in edit and "a new version the §3b check" in edit
+    assert "a new version or doc URL §3b's doc-URL question when both are set" in edit
+    heads_up = _read(PORTFOLIO_CHECK)
+    assert "Continue with `{name}`, or pick a different name?" not in heads_up
+    assert "show them in the step 1 §7 message as a heads-up, *not* a HALT" in heads_up
+
+
+def test_first_brief_replaces_the_first_timer_rail():
+    """#1136 (enhancement-9): step 3's reassurance and the voice examples key on `first_brief`, not a rail."""
+    for path in sorted(SKILL_DIR.rglob("*")):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            for gone in ("first-time user", "First-timer", "first-timer rail"):
+                assert gone not in text, (path.relative_to(SKILL_DIR).as_posix(), gone)
+    assert "when `first_brief` is true" in _section(_read(SCOPE_DEFINITION), "### 2c. Offer Scope Templates")
+    assert ("Loaded by step 1 only: §7b, or the headless input gate, composes the description from them, and on a "
+            "first brief §7b shows one of them beside the candidate.") in _read(
+                SKILL_DIR / "assets" / "description-voice-examples.md")
+    assert "showing one beside it on a first brief" in _flow(_read(CUSTOMIZE).replace("#", " "))
+
+
+def test_step_four_is_the_one_scope_confirmation():
+    """#1136 (leanness-3, enhancement-2): step 3 shows a type's flow in one message, and no phase, summary or gate
+    asks whether the scope looks right; the scripts and assets intent left step 3 for step 4."""
+    texts = {path.name: _read(path) for path in (SCOPE_DEFINITION, SCOPE_TEMPLATES, CONTRACT)}
+    for name, text in texts.items():
+        for gone in ("wait for user input at each phase", "Does this look right", "### 5b.", "Phase 3: Confirmation",
+                     "Phase 4: Scope Confirmation", "Any additional exclusions", "step 3: Confirm Gate"):
+            assert gone not in text, (name, gone)
+    scope = texts["scope-definition.md"]
+    boundaries = _section(scope, "### 3. Define Boundaries Based on Selection")
+    assert "Show the selected type's flow from `{scopeTemplatesPath}` in one message" in boundaries
+    assert "For [C], run the component library detection below first" in boundaries
+    supplemental = _section(scope, "### 2b. Confirm Supplemental Documentation (if doc_urls collected)")
+    assert "Wait for" not in supplemental and "change them at step 4" in supplemental
+    assert "**GATE [default: keep them]**" in supplemental and "HEAD-check the URLs in parallel" in supplemental
+    assert ("a URL the check below fails joins that message with its correct/keep choice, and an answer that does not "
+            "take the choice up keeps the URL") in supplemental
+    assert "Which pages should be included in the skill?" in scope  # a docs-only scope still picks its pages
+    [reentry] = [line for line in _section(scope, "## Rules").splitlines()
+                 if line.startswith("- **Re-entry from step 4 [R] revise:**")]
+    assert "`scripts_intent`" not in reentry and "`assets_intent`" not in reentry
+    assert "**Phase 2: Exclusions**" in texts["scope-templates.md"]
+
+
+def test_step_four_marks_the_defaults_it_shows():
+    """#1136 (enhancement-2, enhancement-7): step 4 marks a 1.0.0 fallback and an unset scripts or assets intent
+    (default), notes the tag a defaulted source version sends create-skill to, and asks a reference app for its
+    wiring scripts; a ratify run keeps its own version, so the note is for a derive run only."""
+    confirm = _read(CONFIRM_BRIEF)
+    review = _section(confirm, "### 2. Present Brief for Review")
+    for prefix in ("Version:    ", "Scripts:    ", "Assets:     "):
+        [line] = [line for line in review.splitlines() if line.startswith(prefix)]
+        assert "(default)" in line, line
+    # The [C] picks that step 3 no longer summarizes show here, the one scope confirmation.
+    for line in ("  Registry: {scope.registry_path; omit this line entirely when unset}",
+                 "  Variants: {scope.ui_variants names; omit this line entirely when unset}"):
+        assert line in review.splitlines(), line
+    assert "A headless run takes both from `normalized`" in _section(confirm, "### 1. Assemble Complete Brief")
+    attention = _section(confirm, "### 3. Highlight Items Needing Attention")
+    # Create Skill reads a local path as checked out, a Quick-tier remote at HEAD and a target_ref as given.
+    assert ("{If this is a derive run, target_version and target_ref are unset, source_type is source, source_repo is "
+            "a GitHub URL and no X.Y.Z version was detected:}\n\"**Note:** no X.Y.Z version was detected, so the brief "
+            "says 1.0.0, and create-skill at Forge tier or above will look for tag 1.0.0 or v1.0.0. Give the version now "
+            "if you know it.\"") in attention
+    assert ("{If scope.type is reference-app and scripts_intent or assets_intent is the detect default:}\n"
+            "\"**Scripts and assets:** a reference app often ships wiring scripts") in attention
+    assert "scripts or assets intent" in _section(confirm, "### 4. Handle Inline Adjustments")
+    [after_r] = [line for line in confirm.splitlines() if line.startswith("After a `[R]` pass on a ratify run")]
+    assert "take `scope.*` and `doc_urls` from step 3" in after_r
+    model = _read(REPO / "docs" / "skill-model.md")
+    assert "Brief Skill asks whether you maintain the library" not in model
+    assert "An interactive run shows the pick in its summary for you to change" in model
