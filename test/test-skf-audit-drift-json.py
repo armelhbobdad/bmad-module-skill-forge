@@ -886,6 +886,10 @@ def test_step_5_records_each_judgment_as_a_flag(tmp_path):
                   "`parameter_count` for a removed parameter, `parameter_type` or `return_type` for a changed type, "
                   "`required_parameter` for a new required parameter, `default_value` for a changed default and "
                   "`optional_parameter` for a new optional one",
+                  # the recipe runner it loads beside it is missing or broken: no fix here, so it halts
+                  "one that starts `cannot load` means the recipe runner the helper loads beside it, "
+                  '`skf-extract-public-api.py`, is missing or broken: HALT with **exit 3**, `halt_reason: '
+                  '"helper-missing"`, phase `severity-classify:findings`',
                   "any other names the file or flag to fix"):
         assert token in build, token
     assert "Then edit `{auditDataFolder}/findings.json`" not in _read(SEVERITY)
@@ -2103,10 +2107,24 @@ def test_section_3_halts_provenance_invalid_on_a_baseline_it_cannot_read(tmp_pat
     Path(values["{provenanceMap}"]).write_bytes(b"[")
     result = _run_prose(_fenced_line(section, " baseline "), values)
     assert result.returncode == 1 and result.stdout == "" and "malformed JSON" in result.stderr
-    assert ('If it exits non-zero, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase '
+    assert ('If it exits 1, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase '
             '`init:baseline`, showing its stderr, with `"path"` the file it names '
             '(`{resolved_skill_package}/metadata.json` or `{provenanceMap}`)') in _flow(section)
     assert values["{provenanceMap}"] in result.stderr
+
+
+def test_section_3_halts_helper_missing_on_a_helper_without_baseline(tmp_path):
+    """A skf-load-provenance.py older than `baseline` exits 2 through argparse,
+    with usage on stderr: §3 sends that to helper-missing, never to an
+    unreadable metadata.json or map."""
+    section = _slice(_read(INIT), "### 3. Load Skill Artifacts", "### 4.")
+    values = {**_baseline_fixture(tmp_path, {}, {"entries": []}, None), "{current_tier}": "Forge"}
+    older = _fenced_line(section, " baseline ").replace(" baseline ", " baseline-unknown ", 1)
+    result = _run_prose(older, values)
+    assert result.returncode == 2 and result.stdout == "" and result.stderr.startswith("usage:")
+    assert ('Any other non-zero exit HALTs with **exit 3**, `halt_reason: "helper-missing"`, phase `init:baseline`, '
+            "showing its first stderr line: an older `skf-load-provenance.py`, with no `baseline` command, exits 2 "
+            "that way, so re-install SKF.") in _flow(section)
 
 
 def test_section_2_takes_the_tier_from_the_helper_and_records_an_ignored_override():
@@ -2199,3 +2217,25 @@ def test_section_2_halts_forge_tier_missing_without_the_file_whatever_the_overri
     assert ('HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, '
             '`"path": "{sidecar_path}/forge-tier.yaml"`') in missing
     assert "Setup-forge has not been run. Cannot determine tool availability." in missing
+
+
+def test_section_2_tells_an_unreadable_file_from_an_older_helper(tmp_path):
+    """A forge-tier.yaml cut short exits 2 with the helper's JSON error on
+    stderr (forge-tier-missing); an argparse failure, as an older helper
+    without `--tier-override` gives, exits 2 with usage and no JSON, which
+    §2 sends to helper-missing instead of to Setup Forge."""
+    sidecar = tmp_path / "sidecar"
+    sidecar.mkdir()
+    (sidecar / "forge-tier.yaml").write_bytes(b"tools:\n  ast_grep: true\ntier: For")
+    cut = _effective_as_written(sidecar, "")
+    assert cut.returncode == 2 and cut.stdout == ""
+    assert json.loads(cut.stderr)["status"] == "error"
+    section = _slice(_read(INIT), "### 2. Load Forge Tier", "### 3.")
+    older = _fenced_line(section, " effective ") + " --no-such-flag"
+    usage = _run_prose(older, {"{sidecar_path}": str(sidecar), "{tier_override}": ""})
+    assert usage.returncode == 2 and usage.stdout == "" and usage.stderr.startswith("usage:")
+    flow = _flow(section)
+    assert ("**If it cannot be read** (exit 2 with the helper's JSON error on stderr: it does not parse, is cut "
+            "short, or names no valid tier)") in flow
+    assert ("An exit 2 with no JSON on stderr counts here: an older `skf-forge-tier-rw.py`, with no `effective` "
+            "command or no `--tier-override`, exits 2 that way, so re-install SKF.") in flow

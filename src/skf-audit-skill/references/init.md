@@ -131,9 +131,9 @@ uv run {forgeTierRwHelper} effective --target "{sidecar_path}/forge-tier.yaml" -
 - "Setup-forge has not been run. Cannot determine tool availability. Run `[SF] Setup Forge` first."
 - HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`.
 
-**If it cannot be read** (exit 2: it does not parse, is cut short, or names no valid tier): HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`: "`{sidecar_path}/forge-tier.yaml` cannot be read: {its `message`}. Run `[SF] Setup Forge` to write it again."
+**If it cannot be read** (exit 2 with the helper's JSON error on stderr: it does not parse, is cut short, or names no valid tier): HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`: "`{sidecar_path}/forge-tier.yaml` cannot be read: {its `message`}. Run `[SF] Setup Forge` to write it again."
 
-**Any other exit, or no JSON:** HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `init:forge-tier`, showing its first stderr line.
+**Any other exit, or no JSON:** HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `init:forge-tier`, showing its first stderr line. An exit 2 with no JSON on stderr counts here: an older `skf-forge-tier-rw.py`, with no `effective` command or no `--tier-override`, exits 2 that way, so re-install SKF.
 
 ### 3. Load Skill Artifacts
 
@@ -154,7 +154,7 @@ Load the following from the skill directory:
 uv run {loadProvenanceHelper} baseline --metadata "{resolved_skill_package}/metadata.json" --brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" --provenance-map "{provenanceMap}" --current-tier "{current_tier}"
 ```
 
-If it exits non-zero, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `init:baseline`, showing its stderr, with `"path"` the file it names (`{resolved_skill_package}/metadata.json` or `{provenanceMap}`): metadata.json or the provenance map cannot be read. Otherwise bind from its JSON:
+If it exits 1, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `init:baseline`, showing its stderr, with `"path"` the file it names (`{resolved_skill_package}/metadata.json` or `{provenanceMap}`): metadata.json or the provenance map cannot be read. Any other non-zero exit HALTs with **exit 3**, `halt_reason: "helper-missing"`, phase `init:baseline`, showing its first stderr line: an older `skf-load-provenance.py`, with no `baseline` command, exits 2 that way, so re-install SKF. Otherwise bind from its JSON:
 - `{original_tier}` ← `original_tier`: the tier the skill was compiled at, null when metadata.json records none
 - `{scope_type}` ← `scope_type`: the `scope_type` metadata.json records, else the `scope.type` of `{forge_data_folder}/{skill_name}/skill-brief.yaml` when that file exists and names one (a skill whose metadata.json records no scope type is audited under its brief's), else null. When it is `public-api`, step 2 passes `--scope-type public-api` to the recipe runner and the snapshot build (`re-index.md` §3), so step 3 does not report as added an export off the public surface that create-skill and update-skill keep the skill's map to. When `brief_error` is set (a brief that is there but cannot be read), show it as an Info note
 - `{docs_only_skill}` ← `docs_only_skill`: true when the `scope_type` metadata.json records, or the `source_type` an older one records, is `docs-only`, never from the brief
