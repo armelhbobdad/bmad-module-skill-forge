@@ -230,30 +230,7 @@ nextWorkflow: '{primary recommendation}'
 
 ### 8. Present Summary
 
-"**Analyze-Source Summary**
-
-**Project:** {project_name}
-**Forge Tier:** {forge_tier}
-
-**Results:**
-- **Scanned:** {boundary count} boundaries detected
-- **Identified:** {unit count} qualifying units classified
-- **Confirmed:** {confirmed count} units approved for brief generation
-- **Generated:** {brief count} skill-brief.yaml files written
-
-**Files Created:**
-{List each skill-brief.yaml with full path}
-
-**Analysis Report:** {outputFile}
-
-**Recommended Next Steps:**
-{For each unit, the recommended next workflow with brief explanation}
-
-{If stack skill candidates exist:}
-**Stack Skill Candidates:**
-{List candidates with recommendation to run create-stack-skill after individual skills are created}
-
-To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
+Tell the user each brief written (or that none was), with its path and its unit's §6 next workflow, the analysis report's path ({outputFile}), and the §6 stack skill candidates, if any, with create-stack-skill to run once their skills exist.
 
 ### 9. End the Run
 
@@ -285,22 +262,8 @@ The emitter stamps the UTC time and the run id into the record, writes `{forge_d
 
 ### 9b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json` (the emitter wrote the timestamped result JSON and its `analyze-source-result-latest.json` copy), invoke it now from `{project-root}`:
-
-```
-{onCompleteCommand} --result-path="{forge_data_folder}/analyze-source-result-latest.json"
-```
-
-The stable `-latest` path is preferred over the timestamped copy so downstream consumers don't need to discover the timestamp.
-
-- On success: display the hook's stderr, if it wrote any, as information (`on_complete hook stderr: …`).
-- On non-zero exit / process error: display the hook failure (`on_complete hook failed (exit {code}): {stderr_snippet}`); it never fails the run.
-- **Never fail the workflow on hook errors** — the hook is for pipeline integration (Slack, dashboards, CI), not for gating skill-brief production.
-
-When `{onCompleteCommand}` is non-empty but `result_path` is null or a `result_file_write_failed` warning names `analyze-source-result-latest.json` (the copy alone failed), skip the hook and say so: "on_complete skipped: `analyze-source-result-latest.json` was not written." The hook never gets a `-latest` copy this run failed to write.
-
-If `{onCompleteCommand}` is empty, skip this section entirely (default behavior — no hook configured).
+If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json`, invoke it now from `{project-root}`: `{onCompleteCommand} --result-path="{forge_data_folder}/analyze-source-result-latest.json"`. Display a hook failure; it never fails the run. When `{onCompleteCommand}` is non-empty but `result_path` is null or a `result_file_write_failed` warning names `analyze-source-result-latest.json` (the copy alone failed), skip the hook and say so: "on_complete skipped: `analyze-source-result-latest.json` was not written."
 
 ### 10. Chain to Health Check
 
-After the briefs are written (or skipped, or none was confirmed), the report updated, the summary presented, the run ended in §9 and the on-complete hook invoked (or skipped as §9b says), delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: continue past the summary even though it reads as final.
+Delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`, the run's terminal step, so continue past the summary.

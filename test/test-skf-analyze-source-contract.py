@@ -73,6 +73,14 @@ fixtures:
   pyproject.toml), whose probe order both brief steps resolve; the asset
   keeps only the sections the steps read, recommend loads none of it, and
   the three brief templates leave out the keys the writer drops.
+- #1128: the split's section 4a lists each workspace package's files and
+  classifies the package with one skf-shape-detect.py --member call, run
+  here as documented on a fixture monorepo: the script's scope_type gives
+  each boundary's scope type and its source_file_count leaves out a package
+  with no source file, and the model judges only the framework and parser
+  signals, the two rows step-shape-detect.md keeps beside the ladder.
+  SKILL.md and step-auto-scope.md stay under their token budgets, and
+  step-auto-scope.md and generate-briefs.md state each rule once.
 """
 
 from __future__ import annotations
@@ -111,6 +119,7 @@ SETTINGS = SCHEMA["$defs"]["skf-envelope"]["const"]
 PREFIX = "SKF_ANALYZE_RESULT_JSON: "
 
 SKILL = AN / "SKILL.md"
+CONTRACT = REFS / "invocation-contract.md"
 HEADLESS = REFS / "headless-contract.md"
 INIT = REFS / "init.md"
 CONTINUE = REFS / "continue.md"
@@ -450,10 +459,10 @@ def test_the_hook_reads_the_latest_record_only_when_one_was_written():
             path.name
         assert hook.index("hold no `result_file_write_failed` entry") < hook.index("{onCompleteCommand} --result-path=")
         assert "an earlier run's `-latest` copy" not in hook, path.name
-    # §9b: the skip follows the hook's success and failure bullets, so they read as the hook run's outcomes
+    # §9b states the hook rule once, in step-auto-scope.md §9's two sentences (#1128 leanness-5)
     nine_b = _section(_read(GENERATE), "### 9b.", "### 10.")
-    assert nine_b.index("**Never fail the workflow on hook errors**") < nine_b.index("on_complete skipped:")
-    assert "The hook never gets a `-latest` copy this run failed to write." in nine_b
+    assert nine_b.count("never fails the run") == 1 and "**Never fail the workflow" not in nine_b
+    assert "the §9 line's `result_path` is not null" in nine_b
     for path in (AUTO, DOCS, GENERATE, HEADLESS):
         text = _read(path)
         assert "A result file that could not be written" not in text, path.name
@@ -1113,31 +1122,197 @@ def test_a_merged_monorepo_takes_patterns_over_every_member(tmp_path):
     assert (out["language"], out["include"], out["exclude"][-1]) == ("typescript", ["**/*.ts"], "scripts/**")
 
 
-def test_each_boundary_takes_its_patterns_from_its_own_listing(tmp_path):
-    """Split §5a lists a boundary's files, detects its language from them and prints the
-    patterns rooted at its source folder; §6a reuses that language."""
-    split = _read(SPLIT)
-    [block] = _fenced(_section(split, "### 5a.", "### 6a."), "bash")
-    awk, detect, patterns = block.strip().split("\n")
-    assert detect == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"', "no --workspace-signal"
-    assert "{detectLanguageHelper}" not in _section(split, "### 6a.", "### 7."), "6a reuses the language 5a detected"
-    assert "default pattern table" not in split
-    run_dir = _run_dir(tmp_path)
-    tree = ["package.json", "packages/auth/package.json", "packages/auth/tsconfig.json", "packages/auth/lib/index.ts",
-            "packages/auth/test/index.test.ts", "packages/auth-ui/package.json", "packages/auth-ui/src/a.ts"]
-    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
-    awk = awk.replace("<boundary path>", "packages/auth").replace("{run_dir}", run_dir.as_posix())
+def _split_block() -> tuple[str, str]:
+    """The awk line and the shape detection call of the split's §4a block."""
+    [block, *_] = _fenced(_section(_read(SPLIT), "### 4a.", "### 5a."), "bash")
+    awk, call = block.strip().split("\n")
+    return awk, call
+
+
+def _list_boundary(awk: str, tree: list[str], boundary: str, run_dir: Path, c: int) -> None:
+    """Run the documented awk line for candidate `c`, writing `{run_dir}/tree-{c}.txt`."""
+    awk = awk.replace("<boundary path>", boundary).replace("{run_dir}", run_dir.as_posix())
     command, _, out = awk.partition(" > ")
     if shutil.which("awk"):
         listed = subprocess.run(shlex.split(command), capture_output=True, check=True, timeout=60).stdout
     else:  # the paths awk keeps: those that start with "<boundary path>/"
-        listed = "".join(f"{p}\n" for p in tree if p.startswith("packages/auth/")).encode("utf-8")
-    Path(out.strip('"').replace("{i}", "1")).write_bytes(listed)
-    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE), "i": "1"}
+        listed = "".join(f"{p}\n" for p in tree if p.startswith(boundary + "/")).encode("utf-8")
+    Path(out.strip('"').replace("{c}", str(c))).write_bytes(listed)
+
+
+def test_each_boundary_takes_its_patterns_from_its_own_listing(tmp_path):
+    """Split §4a lists a boundary's files; §5a detects its language from them and prints the
+    patterns rooted at its source folder; §6a reuses that language."""
+    split = _read(SPLIT)
+    [block] = _fenced(_section(split, "### 5a.", "### 6a."), "bash")
+    detect, patterns = block.strip().split("\n")
+    assert detect == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{c}.txt"', "no --workspace-signal"
+    # A left-out candidate never shifts a listing onto another boundary: §5a reads its candidate's file.
+    assert "from `tree-{c}.txt`, the file list §4a wrote for it as candidate `{c}`" in split
+    assert "{detectLanguageHelper}" not in _section(split, "### 6a.", "### 7."), "6a reuses the language 5a detected"
+    assert "default pattern table" not in split
+    assert "list its files" not in _section(split, "### 5a.", "### 6a."), "§4a listed them"
+    run_dir = _run_dir(tmp_path)
+    tree = ["package.json", "packages/auth/package.json", "packages/auth/tsconfig.json", "packages/auth/lib/index.ts",
+            "packages/auth/test/index.test.ts", "packages/auth-ui/package.json", "packages/auth-ui/src/a.ts"]
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    awk, _ = _split_block()
+    _list_boundary(awk, tree, "packages/auth", run_dir, 1)
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE), "c": "1"}
     language = json.loads(_run(detect, values).stdout)["language"]
     printed = _run(patterns.replace("<its language>", language), values)
     assert printed.returncode == 0, printed.stderr
     assert (language, json.loads(printed.stdout)["include"]) == ("typescript", ["packages/auth/lib/**/*.ts"])
+
+
+SPLIT_CALL = ('uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file "{run_dir}/manifests-1.json" '
+              '--manifest-dir "{scan_root}" --member "<boundary path>" --tree-file "{run_dir}/tree-{c}.txt"')
+
+
+def test_each_boundary_is_classified_by_one_documented_call(tmp_path):
+    """#1128 determinism-4: §4a lists each workspace package's files and classifies it with one
+    skf-shape-detect.py call, so its shape, its scope type and the trivial-member cut come from the
+    script. Run on a monorepo of a CLI, a library, a package with no source file and a setup.py
+    package: the CLI and the library take the printed scope type, the source-less package is left
+    out by its count, the setup.py package (exit 1) takes full-library, and a package git does not
+    track yet (its listing is empty, so the call exits 2) is left out without halting."""
+    awk, call = _split_block()
+    assert awk == "awk -v p=\"<boundary path>/\" 'index($0, p) == 1' \"{run_dir}/tree.txt\" > \"{run_dir}/tree-{c}.txt\""
+    assert call == SPLIT_CALL
+    section = _section(_read(SPLIT), "### 4a.", "### 5a.")
+    for needle in ("- **Exit 2:** when `tree-{c}.txt` is empty (git tracks none of the member's files: an untracked "
+                   "or submodule folder), a trivial member; leave it out.",
+                   'Otherwise HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase '
+                   '`step-auto-scope-split:4a`): "Shape detection failed for <boundary path>: {the `error` its stderr '
+                   'JSON names}."',
+                   "sparse-checkout add '/<boundary path>/README*'",
+                   "the case you choose sets this boundary's shape, never the run's `{shape}`",
+                   "`shape`, `confidence`, `export_count`, `package_count` and `{scope_type}` feed §6a",
+                   "- **`source_file_count` 0** (on exit 0 or 1): a trivial member; leave it out.",
+                   "- **Exit 0:** `{scope_type}` ← its `scope_type`. When its `signals` hold "
+                   "`app_or_library:framework_dep` or `language_or_user:parser_dep`, judge and record it as "
+                   "step-auto-scope.md §4 does",
+                   "- **Exit 1** (no shape, but source files): `{scope_type}` ← `full-library`, with shape `unknown`.",
+                   "outside the folders `scope_hint` focuses on"):
+        assert needle in section, needle
+    for gone in ("no source files, no exports", "re-running the shape-to-scope ladder", "Per-boundary shape to scope"):
+        assert gone not in _read(SPLIT), gone
+    assert section.index(SPLIT_CALL) < section.index("derive-name"), "only the kept boundaries are named"
+    assert "`scope.type` ← its §4a `{scope_type}`" in _section(_read(SPLIT), "### 6a.", "### 7.")
+    front = _read(SPLIT).split("\n---\n", 1)[0]
+    assert "shapeDetectProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-shape-detect.py'" in front
+    assert "**`{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`" in _read(SPLIT)
+
+    repo = tmp_path / "mono"
+    files = {
+        "package.json": {"name": "mono", "private": True, "workspaces": ["packages/*"]},
+        "packages/cli/package.json": {"name": "@mono/cli", "bin": {"mono": "bin/mono.js"},
+                                      "dependencies": {"commander": "^12"}},
+        "packages/cli/bin/mono.js": "require('commander');\n",
+        "packages/core/package.json": {"name": "@mono/core", "main": "src/index.js"},
+        "packages/core/src/index.ts": "export const core = 1;\n",
+        "packages/types/package.json": {"name": "@mono/types", "exports": {".": "./schema.json"}},
+        "packages/types/schema.json": "{}\n",
+        "packages/legacy/setup.py": 'from setuptools import setup\nsetup(name="mono-legacy")\n',
+        "packages/legacy/legacy/api.py": "def api():\n    return 1\n",
+    }
+    for rel, data in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_bytes((json.dumps(data) if isinstance(data, dict) else data).encode("utf-8"))
+    run_dir = _run_dir(tmp_path)
+    tree = sorted(files)
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    # On disk, so the scan finds its manifest, but not in git's listing: an untracked package.
+    (repo / "packages/fresh/src").mkdir(parents=True)
+    (repo / "packages/fresh/package.json").write_bytes(b'{"name": "@mono/fresh", "main": "src/index.js"}')
+    (repo / "packages/fresh/src/index.js").write_bytes(b"module.exports = 1;\n")
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), "scan", str(repo)], capture_output=True, timeout=60)
+    assert scan.returncode == 0, scan.stderr
+    (run_dir / "manifests-1.json").write_bytes(scan.stdout)
+    values = {"shapeDetectHelper": str(SHAPE), "project_path": repo.as_posix(), "run_dir": str(run_dir),
+              "scan_root": str(repo)}
+    kept = {}
+    for c, boundary in enumerate(("packages/cli", "packages/core", "packages/fresh", "packages/types",
+                                  "packages/legacy"), 1):
+        _list_boundary(awk, tree, boundary, run_dir, c)
+        proc = _run(call.replace("<boundary path>", boundary), {**values, "c": str(c)})
+        if not (run_dir / f"tree-{c}.txt").read_bytes().strip():
+            assert proc.returncode == 2 and json.loads(proc.stderr)["code"] == "TREE_FILE_ERROR"
+            continue
+        assert proc.returncode in (0, 1), proc.stderr
+        out = json.loads(proc.stdout)
+        if out["source_file_count"] == 0:
+            continue
+        kept[boundary] = (proc.returncode, out["shape"], out["scope_type"] if proc.returncode == 0 else "full-library")
+    assert kept == {"packages/cli": (0, "reference-app", "reference-app"),
+                    "packages/core": (0, "library-API", "full-library"),
+                    "packages/legacy": (1, "unknown", "full-library")}
+    proc = _run(call.replace("<boundary path>", "packages/nope"), {**values, "c": "9"})
+    assert proc.returncode == 2 and json.loads(proc.stderr)["code"] == "MEMBER_NOT_FOUND", "§4a halts"
+
+
+def test_the_shape_reference_keeps_only_the_judged_rows_and_the_ladder():
+    """#1128 leanness-3: step-auto-scope.md §3 owns the call, its output and its exit codes, and the
+    script prints the scope type, so step-shape-detect.md keeps the two signals a model judges."""
+    text = _read(SHAPE_REF)
+    assert not text.startswith("---"), "no frontmatter: nothing resolves a helper from it"
+    for gone in ("## Exit Codes", "--manifests-file", "## Output Schema", "## Invocation Contract",
+                 "## Decomposition Thresholds", "| `library-API` | `full-library` |", "Corpora-dependent"):
+        assert gone not in text, gone
+    assert "## Judged Signals" in text and "## Heuristic Ladder" in text
+    rows = [line for line in text.splitlines() if line.startswith("| ") and "signal |" in line]
+    assert len(rows) == 2, rows
+    framework = next(row for row in rows if "`app_or_library:framework_dep` signal |" in row)
+    shape_detect = importlib.util.spec_from_file_location("skf_shape_detect", SHAPE)
+    module = importlib.util.module_from_spec(shape_detect)
+    shape_detect.loader.exec_module(module)
+    assert f"`public-api` over {module._PUBLIC_API_EXPORTS} exports" in framework
+    for row in rows:
+        assert "step-auto-scope.md §4 judges which" in row and "the printed `scope_type`" in row
+    auto = _read(AUTO)
+    assert "Load `references/step-shape-detect.md`: it holds the two judgments §4 makes and the shape ladder." in auto
+    assert "`{scope_type}` ← §3's `scope_type`." in auto
+    assert "When a judgment changes `{shape}`, `{scope_type}` is the type that row gives the chosen case." in auto
+
+
+def test_skill_md_and_the_auto_step_stay_under_their_token_budgets():
+    """#1128 architecture-5 and leanness-4: 3,000 and 9,000 cl100k tokens, held in characters at 3.8
+    a token (this prose measures 3.9 to 4.1), since no tokenizer is among the test dependencies."""
+    assert len(_read(SKILL)) < 11_400
+    assert len(_read(AUTO)) < 34_200
+
+
+def test_the_auto_step_states_each_rule_once():
+    """#1128 leanness-4: no rule restates a section, section 0c is one paragraph, and the narration of
+    what each helper does inside is gone."""
+    auto = _read(AUTO)
+    rules = _section(auto, "## Rules", "## MANDATORY SEQUENCE")
+    assert "exit code 1" not in rules and "exit code 2" not in rules and "Auto-proceed step" not in rules
+    coexistence = _section(auto, "### 0c. Coexistence Detection", "### 1. Load Context")
+    assert "do not re-match" not in coexistence and "```json" not in coexistence
+    assert "**1. Load skill inventory:**" not in coexistence
+    assert "On a non-zero exit or an empty top-level `matches[]`, go on to the route silently." in coexistence
+    assert _section(auto, "### 7. Write Analysis Report", "### 8.").count("N = 1") == 1
+    assert "Classify the repository from the §2 manifest scan and file list:" in auto
+    assert "`{shape, signals, confidence, export_count, package_count, scope_type}`" in auto
+    assert ("A *single* package with a large API surface is **not** a trigger: only a genuine multi-package "
+            "monorepo is.") in auto
+    for gone in ("so members are found without hand-listing", "**Decomposition Thresholds** ladder",
+                 "Shape → Scope Type Mapping", "The helper owns the `tsconfig.json`",
+                 "It keeps the manifest types it classifies"):
+        assert gone not in auto, gone
+    skill = _read(SKILL)
+    for gone in ("Exports come from the ast-grep recipe runner", "`references/` holds prompt content",
+                 "**Shape detection reference:**"):
+        assert gone not in skill, gone
+    generate = _read(GENERATE)
+    assert "**Analyze-Source Summary**" not in generate
+    summary = _section(generate, "### 8. Present Summary", "### 9.")
+    for needle in ("each brief written (or that none was), with its path and its unit's §6 next workflow",
+                   "create-stack-skill to run once their skills exist"):
+        assert needle in summary, needle
+    assert _section(generate, "### 10. Chain to Health Check", None).split("\n\n")[1].startswith(
+        "Delete the run folder, whose payloads the emitter has read")
 
 
 # --------------------------------------------------------------------------
@@ -1405,7 +1580,6 @@ def test_a_clone_into_a_taken_over_run_folder_replaces_the_copy_left_there(tmp_p
 def test_the_fallback_to_the_interactive_chain_resets_the_mode():
     branch = _section(_read(AUTO), "- **Exit 1 (unknown shape):**", "- **Exit 2 (error):**")
     assert "Set `mode: 'interactive'`" in branch and "`{auto_mode}` to false" in branch
-    assert "set the report's `mode: 'interactive'` first" in _read(SHAPE_REF)
     # The fallback report still resumes: init archives a mode 'auto' report
     # only, and continue.md routes an unfinished report from its last step.
     assert "init archives an unfinished `'auto'` report" in branch
@@ -1871,7 +2045,7 @@ def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_
     coexistence = _section(auto, "### 0c. Coexistence Detection", "### 1. Load Context")
     assert ("then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a "
             "documentation URL, §1 for every other kind.") in coexistence
-    assert coexistence.count("go on to the route") == 2 and coexistence.count("goes on to the route") == 1
+    assert coexistence.count("go on to the route") == 1 and coexistence.count("goes on to the route") == 1
     assert coexistence.count("auto-docs-only.md") == 1
     # [auto] takes one target (#1123): section 0 classifies it, and section 2 classifies no other path.
     assert ("The helper classifies `{project_path}`, the one entry of `project_paths[]` (init halts an `[auto]` "
@@ -2041,10 +2215,10 @@ def test_an_auto_call_given_several_paths_or_a_ref_flag_halts_in_init(tmp_path, 
     [row2] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 2 ")]
     assert ("step 1 §2b (auto mode without `--project-path`, with more than one project path, or with "
             "`--target-ref` or `--target-refs`)") in row2
-    skill = _read(SKILL).splitlines()
-    [auto_flag] = [line for line in skill if line.startswith("| **Auto flag** |")]
+    contract = _read(CONTRACT).splitlines()
+    [auto_flag] = [line for line in contract if line.startswith("| **Auto flag** |")]
     assert "Requires `--project-path` naming one target." in auto_flag
-    [inputs] = [line for line in skill if line.startswith("| **Headless inputs** |")]
+    [inputs] = [line for line in contract if line.startswith("| **Headless inputs** |")]
     assert "`--project-path <path>` (comma-separated for several; one for `[auto]`)" in inputs
     fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-auto-one-target.yaml"))
     assert (fragment["type"], fragment["scope"], fragment["issues"]) == ("breaking", "skf-analyze-source", [1123])

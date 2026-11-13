@@ -44,11 +44,7 @@ To automatically scope a repo using shape detection and export surface analysis,
 
 ## Rules
 
-- Auto-proceed step — no user interaction required
-- This step is conditional — only loaded when `[auto]` flag is present in the pipeline context
 - Must produce the same output artifacts as the interactive chain: analysis report + skill-brief.yaml
-- On unknown shape (exit code 1), fall back to `scan-project.md` (the normal interactive entry point)
-- On error (exit code 2), HARD HALT with exit code 3 (`resolution-failure`)
 - Every brief goes through the brief writer and the schema gate (§8): a brief either one rejects halts the run before any brief is written
 
 ## MANDATORY SEQUENCE
@@ -117,31 +113,13 @@ Handle exit codes:
 
 This section checks for existing skills matching the target, whatever its kind, then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a documentation URL, §1 for every other kind. Initialize `{coexistence_suffix}` as empty.
 
-**1. Load skill inventory:**
-
-Pass the target (`{project_path}`) to `{skillInventoryHelper}`, resolved in §0, so the helper computes the coexistence match set for you; do not re-match by hand:
+Let the helper resolved in §0 compute the match set (never match by hand):
 
 ```bash
 uv run {skillInventoryHelper} "{skills_output_folder}" --match-target "{project_path}"
 ```
 
-Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and go on to the route.
-
-**2. Read the match set:**
-
-Read the top-level **`matches[]`** array; the helper has already matched, so do not re-match. Each entry is:
-
-```json
-{ "name": "...", "active_version": "...", "source_repo": "...", "active_path": "...", "match_reason": "url" | "name" | "both", "skf_skill": true | false }
-```
-
-`skf_skill` is true when SKF generated the matched skill (its `metadata.json` carries an SKF marker). Only those are offered for a merge: a merge hands the skill to update-skill, which rewrites its files, and SKF changes only the skills it generated.
-
-**3. If `matches[]` is empty:**
-
-Complete silently and go on to the route. No user output.
-
-**4. If `matches[]` has one or more entries:** load, read fully, then execute {coexistenceFile}, the coexistence gate. Its [A]longside comes back here with `{coexistence_suffix}` set to `-wiki` and goes on to the route; its [M]erge and [S]kip end the run through §9.
+On a non-zero exit or an empty top-level `matches[]`, go on to the route silently. Otherwise load, read fully, then execute {coexistenceFile}, the coexistence gate: its [A]longside comes back here with `{coexistence_suffix}` set to `-wiki` and goes on to the route; its [M]erge and [S]kip end the run through §9.
 
 ### 1. Load Context
 
@@ -151,7 +129,7 @@ Read {outputFile} frontmatter to obtain:
 - `project_name`, `user_name`, `date`
 - `scope_hint` (the folders or packages to focus on or skip) and `intent_hint` (the goal of the analysis), each possibly empty: §3b, §5 and §6 apply them
 
-Load `references/step-shape-detect.md` as reference for shape detection invocation contract and shape→scope mapping.
+Load `references/step-shape-detect.md`: it holds the two judgments §4 makes and the shape ladder.
 
 ### 2. Manifest Scan
 
@@ -174,7 +152,7 @@ Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (t
 
   where `{pinned_branch_flag}` is `--branch {pinned_ref}` when a pin was resolved in §0b (so manifests match the target version), otherwise omitted. If a `git` command fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, path `{project_path}`): "{project_path} could not be fetched: {the first stderr line}." The clone stays in the run folder until the run ends, so §3 and §5 read it in later commands.
 
-`{run_dir}/manifests-1.json` holds the scanner's JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`, each `path` relative to the scan root. The scanner discovers the project root plus monorepo workspace members (npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems) and sets the `monorepo` flag, so members are found without hand-listing each workspace convention, for both local trees and remote fetches. Shape detection (§3) reads `{run_dir}/manifests-1.json` itself, so no manifest list passes through you. From the envelope, record:
+`{run_dir}/manifests-1.json` holds the scanner's JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`, each `path` relative to the scan root. The scanner discovers the project root plus monorepo workspace members (npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems) and sets the `monorepo` flag. Shape detection (§3) reads `{run_dir}/manifests-1.json` itself, so no manifest list passes through you. From the envelope, record:
 
 1. **The `monorepo` flag**, a signal for the decomposition decision in §3a.
 2. **The names and flags §3b, §6 and the split branch read:** the scan-root manifest's `name` and `private` (the `manifests[]` entry whose `path` has no folder), each member manifest's `name`, `private` and `internal_deps`, and `umbrella_candidates[]`. Read them from the envelope; never open a member manifest for them.
@@ -193,13 +171,13 @@ The first lists a remote fetch (tree objects only: the blobless clone downloads 
 
 **Resolve `{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:3`): "`skf-shape-detect.py` is missing. Re-install SKF."
 
-Invoke the shape detection script on the §2 manifest scan and file list. It keeps the manifest types it classifies, resolves each against the scan root and finds the tree-level signals (grammar files, a compiler folder and its lexer, parser and ast) itself, so a manifest-less language toolchain (CPython, Ruby) is recognized from its files:
+Classify the repository from the §2 manifest scan and file list:
 
 ```bash
 uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file "{run_dir}/manifests-1.json" --manifest-dir "{scan_root}" --tree-file "{run_dir}/tree.txt"
 ```
 
-Parse the JSON output: `{shape, signals, confidence, export_count, package_count}`
+Parse the JSON output: `{shape, signals, confidence, export_count, package_count, scope_type}`
 
 **Handle exit codes:**
 
@@ -211,7 +189,7 @@ Parse the JSON output: `{shape, signals, confidence, export_count, package_count
 
 Evaluate the shape detection output to determine whether this **monorepo** should be decomposed into multiple skills.
 
-Apply the **Decomposition Thresholds** ladder from `step-shape-detect.md` (loaded at §1). A *single* package with a large API surface is **not** a trigger — only a genuine multi-package monorepo is.
+A *single* package with a large API surface is **not** a trigger: only a genuine multi-package monorepo is.
 
 **Decision:**
 
@@ -243,11 +221,13 @@ If the command fails, go on: only that entry is lost.
 
 ### 4. Map Shape to Scope
 
-Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1).
+`{scope_type}` ← §3's `scope_type`.
 
-**An app or a library on a framework.** When §3's `signals` hold `app_or_library:framework_dep`, take that table's row for it and judge which of its two cases the repository is from the scan-root manifest's `description` (its `manifests[]` entry in `{run_dir}/manifests-1.json`), or, when that does not settle it, the README's opening paragraph (a remote fetch checked out only the manifests: `git -C "{scan_root}" sparse-checkout add '/README*'` brings the README in). From here on `{shape}` is the shape you chose. Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.shape", "default_action": "reference-app", "taken_action": "<reference-app or library-API>", "reason": "<the sentence of the description or README that decided>", "evidence": {"signals": [<the §3 signals>]}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
+**An app or a library on a framework.** When §3's `signals` hold `app_or_library:framework_dep`, take its row in `references/step-shape-detect.md` and judge which of its two cases the repository is from the scan-root manifest's `description` (its `manifests[]` entry in `{run_dir}/manifests-1.json`), or, when that does not settle it, the README's opening paragraph (a remote fetch checked out only the manifests: `git -C "{scan_root}" sparse-checkout add '/README*'` brings the README in). From here on `{shape}` is the shape you chose. Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.shape", "default_action": "reference-app", "taken_action": "<reference-app or library-API>", "reason": "<the sentence of the description or README that decided>", "evidence": {"signals": [<the §3 signals>]}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
 
-**A language on a parser.** When §3's `signals` hold `language_or_user:parser_dep`, judge which case of that signal's row the repository is, from the same description or README: from here on `{shape}` is the shape that case gives. Record it the same way (after the choice above when both hold), with `default_action` the shape you judged from and `taken_action` the new `{shape}`.
+**A language on a parser.** When §3's `signals` hold `language_or_user:parser_dep`, judge which case of its row in `references/step-shape-detect.md` the repository is, from the same description or README: from here on `{shape}` is the shape that case gives. Record it the same way (after the choice above when both hold), with `default_action` the shape you judged from and `taken_action` the new `{shape}`.
+
+When a judgment changes `{shape}`, `{scope_type}` is the type that row gives the chosen case.
 
 ### 5. Generate Include/Exclude Patterns
 
@@ -263,7 +243,7 @@ uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.txt" --manifest-dir 
 uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.txt" [--workspace-signal {workspace_kind}]
 ```
 
-The helper owns the `tsconfig.json` JS-vs-TS and `build.gradle` Java-vs-Kotlin disambiguation, ranks the manifests nearest the root first, and never lets a manifest in a docs, example, test or tool folder decide while another one exists. Read `{detected_language}`:
+Read `{detected_language}`:
 
 - **`detected_languages` has one entry or none, or `.confidence` is `high` and the §2 scan-root manifests (the `manifests[]` entries whose `path` has no folder) are all of one ecosystem:** `{detected_language}` ← `.language`. A manifest at the root decided, so the choice below would give the same answer.
 - **Otherwise** (several languages, and no single-ecosystem root manifest decided): `.language` is the helper's first guess, not the answer. Choose the language the skill documents: among `detected_languages`, the language of the scan-root manifest (the §2 `manifests[]` entry whose `path` has no folder; with several, the one whose `name` is the package this repository publishes), or, when there is none, `.source_language`, the language most of the files are written in (CPython's listing holds only manifests below its root, so `.confidence` is `medium` and its sources say `python`). Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.language", "default_action": "<detected_languages[0]>", "taken_action": "<the language you chose>", "reason": "<the manifest or the source files that decided>", "evidence": {"detected_languages": [<detected_languages>], "source_language": "<source_language>"}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
@@ -329,8 +309,6 @@ decomposition:
 ```
 
 Each `confirmed_units` entry includes `boundary_path` — the relative path to the boundary's root (e.g., `packages/core`). Omit the `decomposition` key entirely when single-scope (N = 1).
-
-**When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry.
 
 **Append body section:**
 

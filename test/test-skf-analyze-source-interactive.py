@@ -47,6 +47,10 @@ run the commands it documents, filled in as an agent fills them:
 - #1127: generate-briefs section 3b checks names and sources with one
   helper call and no longer checks the forge tier or a language list,
   and its headless halt stays.
+- #1128: the Invocation Contract table lives in
+  references/invocation-contract.md, which SKILL.md points headless
+  callers to, and step-shape-detect.md no longer restates the shape
+  detection call or the corpora rule step-auto-scope.md owns.
 """
 
 from __future__ import annotations
@@ -78,6 +82,7 @@ GATE_ENUM = SCHEMA["properties"]["headless_decisions"]["items"]["properties"]["g
 PREFIX = "SKF_ANALYZE_RESULT_JSON: "
 
 SKILL = AN / "SKILL.md"
+CONTRACT = REFS / "invocation-contract.md"
 CUSTOMIZE = AN / "customize.toml"
 INIT = REFS / "init.md"
 SCAN = REFS / "scan-project.md"
@@ -672,9 +677,16 @@ def test_recommend_takes_every_decision_before_its_one_menu():
 
 
 def test_the_stages_table_states_the_gates():
-    text = _read(SKILL)
-    row = next(line for line in text.splitlines() if line.startswith("| 1b |"))
+    skill = _read(SKILL)
+    row = next(line for line in skill.splitlines() if line.startswith("| 1b |"))
     assert "| Always |" not in row
+    # #1128 architecture-5: the contract table lives beside the stages, and SKILL.md points to it.
+    assert ("Headless callers: the inputs, flags, gates, outputs and exit codes live in "
+            "`references/invocation-contract.md`. Interactive runs do not need it.") in skill
+    for gone in ("| **Gates** |", "| **Exit codes** |", "Shape detection reference", "holds prompt content"):
+        assert gone not in skill, gone
+    text = _read(CONTRACT)
+    assert "| **Exit codes** |" in text
     gates = next(line for line in text.splitlines() if line.startswith("| **Gates** |"))
     assert "one per step" in gates and "`headless_decisions`" in gates
     assert "None in auto mode" not in gates
@@ -853,7 +865,7 @@ def test_a_report_without_a_units_file_goes_back_to_identify_units():
     write = _section(_read(IDENTIFY), "### 7. Append to Report and Continue", None)
     assert "when continue.md sent back a report without {unitsFile}, what its Identified Units section holds" in write
     assert "The three tables §3's call printed last, as printed" in write
-    outputs = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Outputs** |"))
+    outputs = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Outputs** |"))
     assert "`analyze-source-units-{project_name}.json`" in outputs
 
 
@@ -1012,8 +1024,10 @@ def test_an_interactive_run_defers_what_the_goal_leaves_out():
     assert "restore any unit" in menu and "restoring a deferred unit" in menu
     fan_out = _section(_read(MAP), "### 1. Load Context", "### 3.")
     assert "is not analyzed here" in fan_out and "leaving out the deferred units" in fan_out
-    row = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Headless inputs** |"))
+    row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Headless inputs** |"))
     assert "a headless run never" in row and "`--intent-hint <text>`" in row
+    assert ("`--intent-hint <text>` (the goal: ranks the step 5 recommendations; an interactive run also defers "
+            "the units outside it, a headless run never)") in row
 
 
 # --------------------------------------------------------------------------
@@ -1076,7 +1090,6 @@ def test_shape_detection_reads_the_scan_envelope_by_file():
     assert call == ('uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file '
                     '"{run_dir}/manifests-1.json" --manifest-dir "{scan_root}" --tree-file "{run_dir}/tree.txt"')
     assert "comma-joined" not in text and "<comma_separated_manifest_paths>" not in text
-    assert "--manifests-file" in _read(REFS / "step-shape-detect.md")
 
 
 def test_no_pointer_to_the_carved_section_6b():
@@ -1084,7 +1097,7 @@ def test_no_pointer_to_the_carved_section_6b():
     for path in [*REFS.glob("*.md"), SCRIPTS / "skf-derive-assembly-shape.py"]:
         text = _read(path)
         assert "step-auto-scope.md §6b" not in text, path.name
-    assert "step-auto-scope-corpora.md, which step-auto-scope.md §6 loads" in _read(REFS / "step-shape-detect.md")
+    assert "load, read fully, then execute {corporaFile} now" in _section(_read(AUTO), "### 6. Build Scope", "### 7.")
 
 
 # --------------------------------------------------------------------------

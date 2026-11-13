@@ -50,6 +50,9 @@ CLI:
   uv run src/shared/scripts/skf-shape-detect.py \\
       --repo-url <url> --manifests-file <scan.json> --manifest-dir <root> \\
       --tree-file <file>
+  uv run src/shared/scripts/skf-shape-detect.py \\
+      --repo-url <url> --manifests-file <scan.json> --manifest-dir <root> \\
+      --member <folder> --tree-file <the member's file list>
 
 Input:
   --repo-url      repository URL (required; context only, no cloning)
@@ -65,6 +68,18 @@ Input:
                   how deep it is.
   --manifest-dir  the folder the scan ran on (required with
                   --manifests-file)
+  --member        one package of the envelope, by its folder as the envelope
+                  spells paths (`packages/core`; a trailing /, a leading ./
+                  and backslashes are normalized): only the envelope's
+                  manifests in that folder are classified, so a monorepo's
+                  split takes each package's shape from its own manifest.
+                  The member is read as a repository of its own: its
+                  manifest paths and the --tree-file entries below its
+                  folder are taken relative to it, so a package under
+                  tools/ is core and a grammar deep in the monorepo is in
+                  reach. Only with --manifests-file; a folder the envelope
+                  lists no manifest of any type in is an error
+                  (MEMBER_NOT_FOUND)
   --tree-file     the repository's whole file list (`-` reads it from stdin),
                   read by skf-detect-language.py's read_tree_file() (the
                   sibling in this folder, which must sit beside this
@@ -104,13 +119,23 @@ Output (JSON on stdout):
   confidence    float 0.0-1.0
   export_count  integer (total public-facing exports)
   package_count integer (distinct packages detected)
+  scope_type    the brief scope.type the shape maps to (scope_type_for()):
+                library-API gives public-api over _PUBLIC_API_EXPORTS
+                exports, else full-library; reference-app gives
+                reference-app; language-reference and stack-compose give
+                full-library; unknown gives null
+  source_file_count
+                integer: the --tree-file entries skf-detect-language.py's
+                is_source_file() accepts, every entry counted (a member
+                under tools/ too); null without --tree-file
 
 Exit codes:
   0  shape classified (not unknown)
   1  unknown shape (no heuristic matched)
   2  error (invalid args, missing/unreadable files, a tree listing that
      cannot be read, holds no path or reports a failure, a manifests file
-     that is not a scan envelope, parse failure)
+     that is not a scan envelope, a --member folder it lists no manifest
+     in, parse failure)
 """
 
 from __future__ import annotations
@@ -812,10 +837,23 @@ def _parse_manifest(path: Path) -> dict[str, Any]:
     return parser(path)
 
 
-def read_manifests_file(path: str) -> list[str]:
+def member_folder(value: str) -> str:
+    """A --member folder as a scan envelope spells paths: forward slashes, no
+    leading ./ and no trailing /; the scan root itself is ''."""
+    folder = value.strip().replace("\\", "/")
+    while folder.startswith("./"):
+        folder = folder[2:]
+    folder = folder.rstrip("/")
+    return "" if folder == "." else folder
+
+
+def read_manifests_file(path: str, member: str | None = None) -> list[str]:
     """The manifest paths of a skf-scan-manifests.py envelope that this
     script classifies (a _PARSERS file name), in the envelope's order and
-    as the envelope spells them: relative to the folder the scan ran on."""
+    as the envelope spells them: relative to the folder the scan ran on.
+    With `member` (a member_folder()), only the entries in that folder (the
+    path up to its last /) are kept; an envelope that lists no manifest of
+    any type there is an error, MEMBER_NOT_FOUND."""
     try:
         envelope = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
@@ -825,14 +863,40 @@ def read_manifests_file(path: str) -> list[str]:
         _die(f"{path} is not a skf-scan-manifests.py envelope: it has no manifests list",
              "MANIFESTS_FILE_ERROR")
     paths: list[str] = []
+    in_member = False
     for entry in entries:
         rel = entry.get("path") if isinstance(entry, dict) else None
         if not isinstance(rel, str) or not rel:
             _die(f"{path}: a manifests entry has no path", "MANIFESTS_FILE_ERROR")
         rel = rel.replace("\\", "/")
+        if member is not None:
+            if (rel.rsplit("/", 1)[0] if "/" in rel else "") != member:
+                continue
+            in_member = True
         if rel.rsplit("/", 1)[-1] in _PARSERS and rel not in paths:
             paths.append(rel)
+    if member is not None and not in_member:
+        _die(f"{path} lists no manifest in the folder {member or '.'}", "MEMBER_NOT_FOUND")
     return paths
+
+
+# A library-API surface over this many exports is too large for a skill to
+# cover in full: its scope type is public-api (scope_type_for()).
+_PUBLIC_API_EXPORTS = 200
+
+
+def scope_type_for(shape: str, export_count: int) -> str | None:
+    """The brief scope.type a shape maps to, so every caller applies the
+    Shape to Scope mapping in one place. A caller that judges a
+    framework_dep or parser_dep signal and changes the shape takes the type
+    of the shape it chose."""
+    if shape == "library-API":
+        return "public-api" if export_count > _PUBLIC_API_EXPORTS else "full-library"
+    if shape == "reference-app":
+        return "reference-app"
+    if shape in ("language-reference", "stack-compose"):
+        return "full-library"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1169,6 +1233,12 @@ def main(argv: list[str]) -> int:
         help="The folder the scan ran on (required with --manifests-file)",
     )
     parser.add_argument(
+        "--member", default=None,
+        help="One package of the --manifests-file envelope, by its folder as the "
+             "envelope spells paths: only its manifests are classified (with --tree-file, "
+             "pass that package's own file list)",
+    )
+    parser.add_argument(
         "--tree-file", default=None,
         help="The repository's whole file list: JSON (a `tree` list, or a list) or "
              "one path per line; - reads stdin. Replaces --grammar-files and --tree-paths",
@@ -1185,12 +1255,20 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.member is not None and (args.manifests_file is None or args.manifests is not None):
+        _die("--member goes with --manifests-file alone, the envelope that lists its manifests", "INVALID_ARGS")
+    member = None
+    manifest_dir = args.manifest_dir
     if args.manifests_file is not None:
         if args.manifests is not None:
             _die("pass the manifests once: --manifests or --manifests-file", "INVALID_ARGS")
         if args.manifest_dir is None:
             _die("--manifests-file needs --manifest-dir, the folder the scan ran on", "INVALID_ARGS")
-        manifest_paths = read_manifests_file(args.manifests_file)
+        member = member_folder(args.member) if args.member is not None else None
+        manifest_paths = read_manifests_file(args.manifests_file, member)
+        if member:  # the member as a repository of its own, rooted at its folder
+            manifest_paths = [p[len(member) + 1:] for p in manifest_paths]
+            manifest_dir = str(Path(args.manifest_dir) / member)
     elif args.manifests is None:
         _die("--manifests or --manifests-file is required", "MISSING_MANIFESTS")
     else:
@@ -1200,14 +1278,21 @@ def main(argv: list[str]) -> int:
     grammar_files = [p.strip() for p in args.grammar_files.split(",") if p.strip()]
     tree_paths = [p.strip() for p in args.tree_paths.split(",") if p.strip()]
     truncated = False
+    source_file_count = None
     if args.tree_file is not None:
         if grammar_files or tree_paths:
             _die("pass the tree once: --tree-file, or --grammar-files and --tree-paths", "INVALID_ARGS")
         try:
-            files, truncated = _sibling("skf-detect-language.py").read_tree_file(args.tree_file)
+            listing = _sibling("skf-detect-language.py")
+            files, truncated = listing.read_tree_file(args.tree_file)
         except (ImportError, ValueError) as exc:  # ValueError: the sibling's TreeListingError
             _die(str(exc), "TREE_FILE_ERROR")
+        if member:
+            files = [f[len(member) + 1:] if f.startswith(member + "/") else f for f in files]
         grammar_files, tree_paths = tree_signals(files)
+        # Every entry counts, not only the ones tree_signals() keeps: a
+        # package under tools/ is no empty package.
+        source_file_count = sum(1 for f in files if listing.is_source_file(f))
     if not manifest_paths and not grammar_files and not tree_paths:
         if args.tree_file is None:
             _die("--manifests requires at least one path", "MISSING_MANIFESTS")
@@ -1215,7 +1300,9 @@ def main(argv: list[str]) -> int:
         # tests, docs, scripts): no signal to classify.
         result = {"shape": "unknown", "signals": [], "confidence": 0.0, "export_count": 0, "package_count": 0}
     else:
-        result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths, args.manifest_dir)
+        result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths, manifest_dir)
+    result["scope_type"] = scope_type_for(result["shape"], result["export_count"])
+    result["source_file_count"] = source_file_count
     if truncated:
         result["signals"].append("tree_truncated")
     json.dump(result, sys.stdout, ensure_ascii=False)
