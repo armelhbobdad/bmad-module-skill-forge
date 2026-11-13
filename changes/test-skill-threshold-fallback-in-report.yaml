@@ -5,3 +5,4 @@ summary: |
 migration: |
   Read a fallback's details from the test report's Threshold Fallback subsection and its gaps from the Gap Report, and stop reading `evidenceReportPath` from the report frontmatter and `summary.evidence_report_path` from `skf-test-skill-result-latest.json`. An `evidence-report-fallback.md` an earlier run left in a version folder still counts as SKF's file and can be deleted.
 issues: [1190]
+prs: [1217]
