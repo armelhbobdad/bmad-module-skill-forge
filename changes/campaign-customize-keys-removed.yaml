@@ -5,3 +5,4 @@ summary: |
 migration: |
   Remove `quality_gate_hard` and `brief_template_path` from `_bmad/custom/skf-campaign.toml` and `_bmad/custom/skf-campaign.user.toml`. A copy of the brief template no longer applies, so you can delete it.
 issues: [1142]
+prs: [1214]

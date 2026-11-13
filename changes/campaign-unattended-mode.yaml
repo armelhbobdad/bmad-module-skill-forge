@@ -3,3 +3,4 @@ scope: skf-campaign
 summary: |
   Campaign's plan gate now offers `[U]nattended` beside `[P]roceed` and `[C]ancel`, and `campaign resume` takes `--unattended`. Either one makes the rest of the campaign unattended (`campaign.unattended` in the state, written by `campaign-state.py apply-plan --unattended` or `set-campaign --unattended`): at a skill whose dependencies have not completed, the Skill Loop takes the default a headless run takes, skipping the skill when every unmet dependency failed or was skipped and halting with exit code `13` otherwise, and logs it as `auto`, while every other question, the Export gate included, still waits for you. Each choice is logged as a `decision`.
 issues: [1143]
+prs: [1214]
