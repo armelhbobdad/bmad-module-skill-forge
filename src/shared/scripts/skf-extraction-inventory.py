@@ -877,7 +877,7 @@ MAP_FROM_RUN = ("source_commit", "source_ref")
 
 
 def _labels(export: dict) -> dict:
-    """The labels the tool that found `export` gives its entry (compile.md §6)."""
+    """The labels the tool that found `export` gives its entry (compile.md §1c)."""
     if export.get("extraction_method") == "ast-grep":
         return {"confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": export.get("ast_node_type"),
                 "signature_source": "T1"}

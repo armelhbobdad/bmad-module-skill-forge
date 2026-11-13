@@ -75,7 +75,7 @@ no other bucket. Without `--provenance-map` the list is empty.
 `pre_decided` semantics:
   - `prior_action="promoted"` AND `should_add_to_promoted_docs=true` →
     the path is in scope but the caller still needs to add it to
-    `promoted_docs[]` so step 5 §6 writes the `file_entries[]` row.
+    `promoted_docs[]` so step 5 §1c writes the `file_entries[]` row.
     `content_hash` / `size_bytes` / `line_count` are populated.
   - `prior_action="skipped"` → the user previously declined; caller
     does nothing. Hash/size/lines are null (no need to read the file).
