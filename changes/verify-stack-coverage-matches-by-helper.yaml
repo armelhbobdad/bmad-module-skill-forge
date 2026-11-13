@@ -3,3 +3,4 @@ scope: skf-verify-stack
 summary: |
   Verify Stack's coverage step now hands the other technologies it finds in the architecture document's prose to the shared mentions helper (`--technologies`), which matches a name equal to a skill's name or alias once case, spaces, hyphens, dots and underscores are dropped, so `Tailwind CSS` covers a `tailwindcss` skill by script. The step judges by a common alias only the names the helper leaves unverified (`PostgreSQL` for a `postgres` skill), and a skill name found only inside a longer name is no match by itself (`React Native` is not a `react` skill). A skill matched either way that the document does not name directly still has its integration pairs checked.
 issues: [1199]
+prs: [1208]
