@@ -640,7 +640,7 @@ class TestHaltReasonForm:
     def test_the_write_probe_halt_carries_a_resolver_failure_read_on_stdin(self):
         """The write probe halts before the run folder exists, so no sink holds the resolver warning On Activation
         kept: `--customization-resolver-unavailable-from -` reads the reason on stdin, which the halt-reason form
-        leaves free, and the line still says the `_bmad/custom/` overrides were not applied."""
+        leaves free, and the line still says the `{project-root}/_bmad/custom/` overrides were not applied."""
         reason = "SKF helper skf-resolve-customization.py not found: it's `$(touch pwned)`"
         done = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit-halt", "--workflow", "skf-brief-skill",
                                "--target", "stderr", "--halt-reason", "write-failed", "--mode", "auto",
