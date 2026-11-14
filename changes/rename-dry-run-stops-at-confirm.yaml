@@ -3,3 +3,4 @@ scope: skf-rename-skill
 summary: |
   A headless Rename Skill run with `--dry-run` that reaches the confirmation now ends there with status `dry-run` and exit `0`, before the confirmation is recorded and before anything is copied. Before, the headless auto-confirm could come first, so the run went on to the copy step and stopped with `halted-for-concurrent-run` (exit `5`) on the run lock a dry run never takes.
 issues: [1181]
+prs: [1221]

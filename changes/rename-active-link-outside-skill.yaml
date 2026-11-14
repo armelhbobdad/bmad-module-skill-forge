@@ -5,3 +5,4 @@ summary: |
 migration: |
   When a rename stops at `execute:active-link`, point the old skill's `active` link at the version the export manifest has active (any of its version folders when the manifest does not list it), as the message says (`uv run _bmad/skf/shared/scripts/skf-atomic-write.py flip-link --link <skills_output_folder>/<old name>/active --target <version>`), or remove the link, then run the rename again.
 issues: [1180]
+prs: [1221]

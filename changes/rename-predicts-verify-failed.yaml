@@ -5,3 +5,4 @@ summary: |
 migration: |
   For each line the message names, edit or remove a note an earlier run wrote, or a `context-snippet.md` line such as `|gotchas:`, in the old skill's file, then re-run the rename. When the line names the library or repository the skill is named after, the skill cannot be renamed: create it again under the new name with Brief Skill and Create Skill.
 issues: [1181]
+prs: [1221]
