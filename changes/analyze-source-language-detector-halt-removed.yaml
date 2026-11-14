@@ -5,4 +5,4 @@ summary: |
 migration: |
   A pipeline that branched on `error.phase` `identify-units:4` no longer sees it: a missing `skf-detect-language.py` now surfaces as a failed `skf-disqualify-candidates.py units` call at unit identification whose stderr names the file. Reinstall SKF (`npx bmad-module-skill-forge install`) so every shared script is present.
 issues: [1126]
-prs: [1211]
+prs: [1211, 1228]
