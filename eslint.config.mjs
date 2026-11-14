@@ -25,6 +25,7 @@ export default [
       // Gitignored patterns
       'z*/**', // z-samples, z1, z2, etc.
       '.claude/**',
+      '.iwe/claude/**', // IWE's local session records
       '.codex/**',
       '.github/chatmodes/**',
       '.agent/**',
