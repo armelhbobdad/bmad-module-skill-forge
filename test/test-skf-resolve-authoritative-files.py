@@ -347,7 +347,7 @@ class TestResolve:
 LEGACY_HEADLESS_SKIP = {"action": "skipped", "path": "llms.txt",
                         "reason": "headless: no user to prompt", "workflow": "skf-create-skill"}
 DEFERRED = {"action": "deferred-headless", "path": "llms.txt", "workflow": "skf-create-skill"}
-USER_SKIP = {"action": "skipped", "path": "llms.txt", "reason": "user declined promotion at create-skill §2a"}
+USER_SKIP = {"action": "skipped", "path": "llms.txt", "reason": "user declined promotion at create-skill §2b"}
 PROMOTED = {"action": "promoted", "path": "llms.txt"}
 
 

@@ -1255,7 +1255,7 @@ def _written_back_brief() -> dict:
             "notes": "",
             "amendments": [
                 {"path": "llms.txt", "action": "skipped", "category": "auth-doc",
-                 "reason": "user declined promotion at create-skill §2a", "heuristic": "llms.txt",
+                 "reason": "user declined promotion at create-skill §2b", "heuristic": "llms.txt",
                  "date": "2026-09-30", "workflow": "skf-create-skill"},
                 {"path": "**/examples/**", "action": "demo-excluded", "category": "demo-and-registry",
                  "reason": "user confirmed the demo exclusion at create-skill step 3d",

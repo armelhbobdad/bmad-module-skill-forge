@@ -416,8 +416,12 @@ def test_section_5_takes_co_imports_from_the_counts() -> None:
             '`{"name", "file_count", "integration"}` per `dependencies[]` entry whose `above_threshold` is true, '
             "in the file's order, with `name` and `file_count` as written there and `integration` your one-line "
             "integration point suggestion, null when its files show none") in five
-    rows = [line for line in _read(KNOWLEDGE / "tool-resolution.md").splitlines() if "`detect_co_imports()`" in line]
+    resolution = _read(KNOWLEDGE / "tool-resolution.md")
+    rows = [line for line in resolution.splitlines() if line.startswith("|") and "`detect_co_imports()`" in line]
     assert len(rows) == 1 and "never a hand count" in rows[0] and "skf-count-imports.py" in rows[0]
+    # the row keeps its `ast_bridge` name, and the note under the table says no ast-grep runs
+    assert ("`detect_co_imports()` keeps its `ast_bridge` name but runs no ast-grep: at Forge tier and above, "
+            "skf-count-imports.py counts the import statements") in resolution
 
 
 def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:

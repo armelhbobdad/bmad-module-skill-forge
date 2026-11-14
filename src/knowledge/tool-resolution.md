@@ -19,6 +19,8 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 
 `scan_definitions()` follows the AST Extraction Protocol in create-skill's `extraction-patterns.md`, which holds the recipes: where the step gives the recipe runner's command (`skf-extract-public-api.py --mode full`), it runs them all in one call; otherwise, and when the runner cannot run, the protocol's decision tree, not the priority order below, picks between the MCP call and the CLI template, and `find_code` serves only as its Known Limitation #4 fallback.
 
+`detect_co_imports()` keeps its `ast_bridge` name but runs no ast-grep: at Forge tier and above, skf-count-imports.py counts the import statements, as create-skill's `extraction-patterns.md` says.
+
 ## Subprocess Pattern Definitions
 
 Workflow steps reference "subprocess" execution with numbered patterns. These map to concrete mechanisms per IDE:
