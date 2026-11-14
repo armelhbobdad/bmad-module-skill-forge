@@ -5,3 +5,4 @@ summary: |
 migration: |
   In your `refinement_rules_path` copy, bold the tier or the No issue each VS Report Integration Raises cell raises (`A **Major** issue`), or leave only the tier, No issue or None in the cell.
 issues: [1176]
+prs: [1219]

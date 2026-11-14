@@ -3,3 +3,4 @@ scope: skf-refine-architecture
 summary: |
   Refine Architecture now analyses only the skills in the document's scope. Once the scope is set, gap analysis reads the API surface of the in-scope skills only and judges only the pairs of two in-scope skills, so a run no longer lists out-of-scope compatible pairs: it names the out-of-scope skills once and points at `--scope-skills` to bring any that belong into scope. Improvement detection compares each in-scope skill's surface with what the document says it does in one pass, and no longer looks for improvements that pay off only with an out-of-scope skill. Issue detection sets a claim that names an out-of-scope skill aside unchecked, beside the [VS] verdicts that involve one, which both stay listed for awareness only. The refined document's Refinement Summary now counts the in-scope skills, the only ones the run read, as the skills it used.
 issues: [1177]
+prs: [1219]

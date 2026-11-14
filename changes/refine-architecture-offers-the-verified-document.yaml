@@ -3,3 +3,4 @@ scope: skf-refine-architecture
 summary: |
   Refine Architecture now offers the architecture document a Verify Stack report verified as the default for its architecture question, when the report it found or was given names that document and the file exists: press Enter to use it, or give another path. When you refine another document, it says once which document the report verified, since its verdicts are about that one. A headless run still needs `--architecture-doc`. The feasibility report's `architectureDoc` key is now part of the shared report contract, and `skf-validate-feasibility-report.py` returns it (`null` when it is empty or absent).
 issues: [1179]
+prs: [1219]
