@@ -235,7 +235,7 @@ previous_pass={previous_pass}
 -->
 ```
 
-A key's value is everything after the first `=` of its line, empty when the line ends there (an `architecture_doc_hash` §1b could not compute, say). Each key reads back as the binding its line names: `output_folder_path` as `{outputFolderPath}`, `refinement_rules_path` as `{refinementRulesPath}`, and every other key as the binding of its own name. The block holds no `on_complete` hook: the forge data folder may be committed, and a personal hook in `_bmad/custom/skf-refine-architecture.user.toml` can hold a token, so Step 06 binds a lost `{onCompleteCommand}` from the customization resolver instead. Steps 02 to 06 read these bindings back from the block when context degrades, since the run's records live in `{run_dir}`, and §1a reads a stopped run's.
+A key's value is everything after the first `=` of its line, empty when the line ends there (an `architecture_doc_hash` §1b could not compute, say). Each key reads back as the binding its line names: `output_folder_path` as `{outputFolderPath}`, `refinement_rules_path` as `{refinementRulesPath}`, and every other key as the binding of its own name. The block holds no `on_complete` hook: the forge data folder may be committed, and a personal hook in `{project-root}/_bmad/custom/skf-refine-architecture.user.toml` can hold a token, so Step 06 binds a lost `{onCompleteCommand}` from the customization resolver instead. Steps 02 to 06 read these bindings back from the block when context degrades, since the run's records live in `{run_dir}`, and §1a reads a stopped run's.
 
 On a write failure: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:state-file`, with `"path"` set to the state file, naming the captured error.
 
