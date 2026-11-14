@@ -3,3 +3,4 @@ scope: skf-create-skill
 summary: |
   An interactive `--batch` run of Create Skill no longer stops at the extraction review for every brief. A brief whose extraction showed neither the zero-export nor the head-cap warning goes on by itself, and the run records that decision as gate `review-gate`, so it reaches the brief's `headless_decisions` and the evidence report's Auto-Decisions table. A brief with either warning still stops and offers `[R] Refine the brief`, and a run without `--batch` still stops at the review.
 issues: [1149]
+prs: [1222]
