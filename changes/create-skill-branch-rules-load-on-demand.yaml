@@ -1,0 +1,6 @@
+type: changed
+scope: skf-create-skill
+summary: |
+  Create Skill loads less on each run: the remote-source steps, the Tessl Review collect steps and the component-library, reference-app and whole-language assembly rules now load only on the runs that need them, and every halt, gate, report line and generated file stays as it was.
+issues: [1147]
+prs: [1222]

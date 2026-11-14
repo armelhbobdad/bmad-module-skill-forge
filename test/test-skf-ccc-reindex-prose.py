@@ -17,11 +17,12 @@ step files and the ccc knowledge fragment on that contract:
 - a reused workspace index still gets the standard exclusions and a plain
   `ccc index`, and the deferred discovery block needs no `--refresh`;
 - the verify-and-repair procedure is written once, in
-  references/ccc-index-check.md, which step 3 and step 7 both load: its
-  repairs fix `settings.yml` (a project of its own, or a missing language in
-  `include_patterns`, skipped when no extension is missing), it waits for a
-  running pass with `ccc index` rather than a sleep, and it edits only a
-  clone SKF made;
+  references/ccc-index-check.md, which step 3 and step 7 both load: it
+  branches on the verdict of `skf-merge-ccc-exclusions.py --check-index`
+  (which waits for a running pass with `ccc index` rather than a sleep and
+  states the threshold), its repairs fix `settings.yml` (a project of its
+  own, or a missing language in `include_patterns`, skipped when no
+  extension is missing), and it edits only a clone SKF made;
 - step 7 indexes SKF's workspace clone of a remote source, never the private
   tree, and checks the project-root exception before any `ccc init`;
 - create-skill discovery branches on every `ccc_index.status` value setup
@@ -58,9 +59,12 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent
 SRC = REPO_ROOT / "src"
 EXTRACT = SRC / "skf-create-skill" / "references" / "extract.md"
+# Extract §2a's remote block and its Deferred CCC Discovery, loaded only for a remote source at Forge tier and
+# above (#1147).
+REMOTE_ACCESS = SRC / "skf-create-skill" / "references" / "remote-source-access.md"
 GENERATE = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
 CCC_CHECK = SRC / "skf-create-skill" / "references" / "ccc-index-check.md"
-CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.md"
+CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "ccc-discover.md"
 CCC_BRIDGE = SRC / "knowledge" / "ccc-bridge.md"
 SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution-protocols.md"
 TIER_DEGRADATION = SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md"
@@ -106,7 +110,9 @@ def _fences(text: str) -> list[str]:
 
 
 def _deferred_block() -> str:
-    return _slice(_read(EXTRACT), "**Deferred CCC Discovery", "**CCC Discovery Integration")
+    text = _read(REMOTE_ACCESS)
+    assert text.count("## Deferred CCC Discovery\n") == 1
+    return text[text.index("## Deferred CCC Discovery\n"):]
 
 
 def _extract_item(number: int, heading: str, next_heading: str) -> str:
@@ -128,7 +134,7 @@ def _generate_repair() -> str:
 def _check_repair() -> str:
     """The one verify-and-repair procedure, from its repair section to its end."""
     text = _read(CCC_CHECK)
-    return text[text.index("## 3. Repair"):]
+    return text[text.index("## 2. Repair"):]
 
 
 def _check_branch(owner: str) -> str:
@@ -165,15 +171,15 @@ def test_the_one_repair_procedure_forbids_ccc_reset():
     assert "A plain `ccc index` is enough after any `settings.yml` edit" in section
 
 
-@pytest.mark.parametrize("path, section", [
-    (EXTRACT, ("**Deferred CCC Discovery", "**CCC Discovery Integration")),
-    (GENERATE, ("### 6b.", "### 7.")),
+@pytest.mark.parametrize("path, body_path, section", [
+    (EXTRACT, REMOTE_ACCESS, ("## Deferred CCC Discovery", "**Leave the workspace clone clean")),
+    (GENERATE, GENERATE, ("### 6b.", "### 7.")),
 ], ids=["extract", "generate-6b"])
-def test_both_stages_load_the_one_check(path, section):
+def test_both_stages_load_the_one_check(path, body_path, section):
     """The verify-and-repair procedure is written once, in the file both stages load."""
     text = _read(path)
     assert yaml.safe_load(_frontmatter(text))["cccIndexCheckData"] == "references/ccc-index-check.md"
-    body = _slice(text, *section)
+    body = _slice(_read(body_path), *section)
     assert "load `{cccIndexCheckData}` and run it with `{ccc_root}`" in body
     for copy in ("Indexing in progress:", "**No project of its own:**", "**Language not included:**",
                  "Do not run `ccc reset`"):
@@ -256,13 +262,12 @@ def test_deferred_discovery_needs_no_refresh_flag():
 def test_degraded_index_repair_targets_settings():
     section = _read(CCC_CHECK)
     for token in (
-        "Indexing in progress:",
-        "ccc index` again, which waits for the running pass to finish",
-        "after 3 such runs",
+        'uv run {mergeCccExclusionsHelper} --check-index "{ccc_root}" --language "{brief.language}" '
+        "--include-ext {ext}",
+        "runs `ccc index` again (which waits for that pass, then makes a quick incremental one), up to 3 times",
         "index unverified",
-        "Languages:",
         ".cocoindex_code/settings.yml",
-        "`Project:` line",
+        "`project.settings_yml` and `project.is_root` are both false",
         "ccc init -f",
         "include_patterns",
         "**/*.{ext}",
@@ -277,6 +282,11 @@ def test_degraded_index_repair_targets_settings():
         "Project already initialized",
         "at most 20 times",
         "seconds apart",
+        # #1145: the helper reads ccc status and states the threshold; the step never reads counts by eye.
+        "Languages:",
+        "`Project:` line",
+        "non-trivial",
+        "Indexing in progress:",
     ):
         assert gone not in section, gone
     assert section.index("ccc init -f") < section.index("**/*.{ext}"), "repairs are out of order"
@@ -298,15 +308,33 @@ def test_language_repair_skips_when_no_extension_is_missing():
     assert "has no `include_patterns` list to add the `{brief.language}` file types to" in no_list
     assert "return **degraded**" in no_list
     user = _check_branch("user")
-    assert "If there are none, " + none in user and covers in user
+    assert "Read §1's last `unmatched_exts`, the extensions no `include_patterns` entry matches." in user
+    assert "If it is empty, " + none in user and covers in user
     assert user.index(none) < user.index(QUOTED_INCLUDE_ITEM)
 
 
+def test_the_check_branches_on_the_helper_verdict():
+    """#1145: the helper states the threshold; the step reads `verdict`, never `ccc status`."""
+    check = _slice(_read(CCC_CHECK), "## 1. Check the Index", "## 2.")
+    assert "at least 10 chunks of it, or above 0 and at least 5% of all chunks in a smaller index" in check
+    assert "Branch on its `verdict`:" in check
+    assert "- **`verified`:** return **verified**." in check
+    unverified = _slice(check, "- **`unverified`**", "\n")
+    assert "also when no path resolves or the call prints no JSON: return **index unverified** to the caller and skip §2" in unverified
+    assert "- **`degraded`:** repair the settings in §2." in check
+    # The helper may run `ccc index` 3 times: a call the shell's default timeout stops prints no JSON.
+    assert ("up to 3 times, so run the call in the foreground with the shell's longest timeout: "
+            "a call the shell stops prints no JSON.") in check
+    # `unverified` also covers a failed ccc command and a call with no JSON, so step 3 says no more than that.
+    deferred = _deferred_block()
+    assert 'On **index unverified**, display "CCC index unverified, skipping the language check."' in deferred
+    assert "still building" not in deferred
+    repair = _check_repair()
+    assert "then §1's call again; stop at the first one after which its `verdict` is `verified`" in repair
+    assert repair.rstrip().endswith("If the `verdict` is still not `verified` after these repairs, return **degraded** to the caller.")
+
+
 def test_generate_6b_skips_language_check_when_unverified():
-    wait = _slice(_read(CCC_CHECK), "## 1. Wait for the Pass", "## 2.")
-    assert "return **index unverified** to the caller and skip §2 and §3" in wait
-    check = _slice(_read(CCC_CHECK), "## 2. Check the Languages", "## 3.")
-    assert "Once the line is gone, read the `Languages:` breakdown" in check
     section = _generate_repair()
     assert 'On **index unverified**, log "index unverified" and continue with **Keep the index out of git**' in section
 
@@ -590,29 +618,35 @@ def _line_starting(text: str, prefix: str) -> str:
 
 
 @pytest.mark.parametrize(
-    "loader, users",
+    "loader, users, commented",
     [
-        (EXTRACT, [EXTRACT, SOURCE_RESOLUTION]),
-        (UPDATE_WRITE, [UPDATE_WRITE]),
-        (GENERATE, [GENERATE]),
-        (CCC_DISCOVER, [CCC_DISCOVER]),
+        (EXTRACT, [REMOTE_ACCESS, SOURCE_RESOLUTION], False),
+        (UPDATE_WRITE, [UPDATE_WRITE], True),
+        (GENERATE, [GENERATE], False),
+        (CCC_DISCOVER, [CCC_DISCOVER], False),
     ],
     ids=["extract", "update-write", "generate", "ccc-discover"],
 )
-def test_hygiene_probe_order_declared(loader, users):
+def test_hygiene_probe_order_declared(loader, users, commented):
+    """Create Skill's stages keep no frontmatter comment their body states (#1147): the call site says the
+    helper never gates the run."""
     frontmatter = _frontmatter(_read(loader))
-    assert HYGIENE_PROBE_BLOCK in frontmatter
+    assert (HYGIENE_PROBE_BLOCK in frontmatter) is commented
     assert yaml.safe_load(frontmatter)["cccGitHygieneProbeOrder"] == HYGIENE_PROBE_PATHS
     assert "never gates the workflow" in HYGIENE_PROBE_BLOCK
     assert "HALT" not in HYGIENE_PROBE_BLOCK
     for user in users:
         assert "{cccGitHygieneHelper}" in _read(user), user.relative_to(REPO_ROOT)
+    if not commented:
+        body = "".join(_read(user) for user in users)
+        assert any(skip in body for skip in ("if neither path exists or the command fails, continue",
+                                             "If no candidate exists, or the helper exits non-zero or prints no JSON"))
 
 
 def _resolve_command() -> str:
-    """extract.md §2b's fenced resolve command, its backslash continuations joined."""
-    section = _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "**Deferred CCC Discovery")
-    [fence] = [f for f in _fences(section) if "resolve" in f]
+    """§2a's fenced resolve command, in the remote block it loads, its backslash continuations joined."""
+    section = _slice(_read(REMOTE_ACCESS), "## Read the Source Into a Private Tree", "## Deferred CCC Discovery")
+    [fence] = [f for f in _fences(section) if " resolve " in f]
     return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
 
@@ -653,7 +687,8 @@ def test_no_ephemeral_clone_is_left():
 def test_only_the_ccc_steps_name_the_workspace_clone():
     """`{remote_clone_path}` is SKF's clone, which another run can move: only ccc indexes it."""
     allowed = {
-        "extract.md": _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "### 2a."),
+        "extract.md": _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "### 2b."),
+        "remote-source-access.md": _read(REMOTE_ACCESS),
         "generate-artifacts.md": _generate_6b(),
         "source-resolution-protocols.md": _slice(_read(SOURCE_RESOLUTION), "## Shell Path Quoting",
                                                  "## Tag Resolution"),
@@ -663,7 +698,7 @@ def test_only_the_ccc_steps_name_the_workspace_clone():
         for line in text.splitlines():
             if "remote_clone_path" in line:
                 assert line in allowed.get(path.name, ""), (path.relative_to(REPO_ROOT), line[:100])
-    # extraction reads the tree §2b resolved: the runner itself, a branch without it through its list
+    # extraction reads the tree §2a resolved: the runner itself, a branch without it through its list
     extraction = _slice(_read(EXTRACT), "### 4. Execute Tier-Dependent Extraction", "### 4b.")
     assert "whose recipe runner reads `{source_root}` itself" in extraction
     assert "reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not" in extraction
@@ -693,8 +728,7 @@ def test_generate_6b_keeps_index_out_of_git():
     assert repair.index("load `{cccIndexCheckData}`") < repair.index(marker)
     keep = repair[repair.index(marker):]
     for token in ('uv run {cccGitHygieneHelper} workspace --repo "{ccc_root}"', GENERATE_NESTED_CMD,
-                  NOTICE_BINDING, NOTICE_DISPLAY, "SKF never edits a project's own `.gitignore`",
-                  "never fails the workflow", 'after "index unverified"'):
+                  NOTICE_BINDING, NOTICE_DISPLAY, "never fails the workflow", 'after "index unverified"'):
         assert token in keep, token
     assert "continue with **Keep the index out of git**" in repair
     assert "continue to the registry update." not in repair

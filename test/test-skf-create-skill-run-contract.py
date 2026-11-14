@@ -1,8 +1,10 @@
 """skf-create-skill's run contract: halts, decisions, the terminal sequence and run state on disk.
 
 - Every HARD HALT in steps 1 to 7 emits SKF_CREATE_SKILL_RESULT_JSON through
-  the shared emitter, inline where it fires, with an exit code and a
-  halt_reason that skf-create-skill-result-envelope.v1.json maps (#593).
+  the shared emitter, with an exit code and a halt_reason that
+  skf-create-skill-result-envelope.v1.json maps (#593); the stage file's Rules
+  state the emit command once and each HALT names its code, reason, phase and
+  message (#1147).
 - Each decision the run takes without asking lands in the run folder's sink
   through the emitter's `record`, the one trail the evidence report, the
   envelope and the result contract read (#593).
@@ -16,7 +18,7 @@
   nothing fetched halts before compile (docs-unreachable).
 - Under --batch a HARD HALT ends only its brief, and batch-mode.md's halts
   before the first brief carry their own phase (#585, #594).
-- Every stage that can halt after step 3 §2b states in its own Rules that
+- Every stage that can halt after step 3 §2a states in its own Rules that
   the halt closes the private source tree and, under --batch, returns to
   batch-mode.md §3, and binds both helpers it needs for that, so a halt after
   a compaction that dropped SKILL.md still ends only its brief; step 1 and
@@ -42,6 +44,15 @@
   source's version through the extractor's quick mode, so a release-time
   placeholder such as 0.0.0-development keeps the brief's version (v4.0.0
   quality gate run 2, determinism-2).
+- Step 3 §2a records the run's source and run folder in the extraction
+  inventory right after it resolves the source, docs-only briefs included;
+  compile §1 binds a lost `{run_dir}` and `{source_tree}` back from it and
+  halts with staging-unreadable when the run folder is lost, and report §5
+  binds a lost `{run_dir}` back, so a lost folder is an error, never zero
+  decisions (#1144).
+- Under an interactive --batch, Gate 2 passes a clean extraction on its own
+  and records it as gate `review-gate`, and report §4 points at [EX] Export
+  Skill instead of printing the context snippet (#1149).
 """
 
 from __future__ import annotations
@@ -63,6 +74,9 @@ REPO = Path(__file__).resolve().parent.parent
 CS = REPO / "src" / "skf-create-skill"
 REFS = CS / "references"
 SKILL = CS / "SKILL.md"
+# #1148: the Invocation Contract table lives beside the stages; SKILL.md keeps a pointer line
+CONTRACT = REFS / "invocation-contract.md"
+VALIDATOR = REPO / "src" / "shared" / "scripts" / "skf-validate-brief-schema.py"
 SCHEMA_PATH = REPO / "src" / "shared" / "scripts" / "schemas" / "skf-create-skill-result-envelope.v1.json"
 EMITTER = REPO / "src" / "shared" / "scripts" / "skf-emit-result-envelope.py"
 STEP_FILES = sorted(p for p in REFS.rglob("*.md"))
@@ -73,11 +87,11 @@ EMIT_HALT_RESULT = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-creat
 HALT_RE = re.compile(r"\*\*HARD HALT\*\* \(exit code (\d), `([^`]+)`, phase `([a-z-]+)`")
 PHASES = {"load-brief", "extract", "component-extraction", "fetch-docs", "compile", "doc-sources", "auto-shard",
           "validate", "generate-artifacts", "batch-mode"}
-# The stages whose HARD HALTs can fire once step 3 §2b has bound the private
+# The stages whose HARD HALTs can fire once step 3 §2a has bound the private
 # source tree. load-brief.md halts before it, batch-mode.md is the loop the
 # halts return to, and extract.md runs the authoritative-files protocol under
 # its own Rules.
-TREE_HALT_STAGES = ("extract.md", "sub/fetch-docs.md", "compile.md", "step-doc-sources.md", "step-auto-shard.md",
+TREE_HALT_STAGES = ("extract.md", "fetch-docs.md", "compile.md", "step-doc-sources.md", "step-auto-shard.md",
                     "validate.md", "generate-artifacts.md")
 TREE_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py",
               "{project-root}/src/shared/scripts/skf-source-tree.py"]
@@ -123,6 +137,19 @@ def _halt_lines() -> list[tuple[Path, str]]:
     return [(path, line) for path in STEP_FILES for line in _body(path).splitlines() if "**HARD HALT**" in line]
 
 
+HALT_PAYLOAD = ('it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", '
+                '"summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names '
+                'a file or folder, as `{run_dir}/halt.json`, runs ' + EMIT_HALT)
+
+
+def _halt_rules(path: Path) -> list[str]:
+    """The Rules bullets of a stage file that hold the emit command; the authoritative-files protocol, which has
+    no Rules and runs under step 3's, states it in a paragraph of its Overview (#1147)."""
+    if path.name == "authoritative-files-protocol.md":
+        return [p for p in _section(_read(path), "## Overview", "## Procedure").split("\n\n") if EMIT_HALT in p]
+    return [line for line in _rules(path).splitlines() if EMIT_HALT in line]
+
+
 # --------------------------------------------------------------------------
 # HARD HALTs emit the envelope where they fire (#593)
 # --------------------------------------------------------------------------
@@ -148,7 +175,10 @@ def test_the_envelope_rule_sits_beside_the_tree_rule():
         assert token in rule, token
 
 
-def test_every_hard_halt_names_a_mapped_code_and_emits():
+def test_every_hard_halt_names_a_mapped_code_and_its_file_states_the_emit():
+    """#1147 leanness-3: a HALT names its exit code, halt_reason, phase, path and message where it fires, and the
+    stage file's Rules (the protocol's Overview) state the emit command once, so a halt after a compaction that
+    dropped SKILL.md still finds it; the halts with nothing to stage in keep their own command."""
     codes = _exit_codes()
     lines = _halt_lines()
     assert len(lines) >= 25, len(lines)
@@ -163,7 +193,13 @@ def test_every_hard_halt_names_a_mapped_code_and_emits():
             assert reason == "{halt_reason}", where
         else:
             assert codes.get(reason) == code, where
-        assert ("emit-halt --workflow skf-create-skill" in line) or ("emit with nothing to stage in" in line), where
+        assert "emit-halt" not in line, where
+        if "emit with nothing to stage in" in line:
+            continue
+        rules = _halt_rules(path)
+        assert len(rules) == 1 and HALT_PAYLOAD in rules[0], where
+        assert ("displays the line it prints (the halt message alone when no path resolves) and stops with the "
+                "HALT's exit code") in rules[0], where
 
 
 def test_no_halt_is_left_without_its_envelope():
@@ -179,8 +215,13 @@ def test_every_schema_reason_has_a_halt_site():
     used = {m.group(2) for _, line in _halt_lines() for m in [HALT_RE.search(line)] if m}
     load_brief = _read(REFS / "load-brief.md")
     generate = _read(REFS / "generate-artifacts.md")
+    # #1148: load-brief halts with the validator's own `halt_reason`, the one place the brief faults are named
+    from_validator = ("**HARD HALT** (exit code 2, `{halt_reason}`, phase `load-brief`), with the helper's "
+                      "`halt_reason`") in load_brief
+    validator = _read(VALIDATOR)
     for reason in _exit_codes():
-        assert (reason in used or (reason in ("brief-malformed", "brief-invalid") and f"`{reason}`" in load_brief)
+        assert (reason in used or (reason in ("brief-malformed", "brief-invalid") and from_validator
+                                   and f'"{reason}"' in validator)
                 or (reason in ("not-skf-output", "flat-layout") and f'halt_reason: "{reason}"' in generate)), reason
 
 
@@ -196,7 +237,7 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     assert halting - {"batch-mode.md", "load-brief.md", "authoritative-files-protocol.md"} == set(TREE_HALT_STAGES)
     for name in TREE_HALT_STAGES:
         rules = [line for line in _rules(REFS / name).splitlines()
-                 if line.startswith("- A HARD HALT, once step 3 §2b has bound `{source_tree}`")]
+                 if line.startswith("- A HARD HALT, once step 3 §2a has bound `{source_tree}`")]
         assert len(rules) == 1, name
         for token in ('first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` '
                       "(resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints",
@@ -209,8 +250,9 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     # step 1 halts before the tree exists, but its halts find the emitter and, under --batch, end only the brief
     load_brief = [line for line in _rules(REFS / "load-brief.md").splitlines() if line.startswith("- A HARD HALT")]
     assert load_brief == ["- A HARD HALT emits through `{emitEnvelopeHelper}`, resolved from "
-                          "`{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` "
-                          f"it ends only this brief: {BATCH_RETURN}."], load_brief
+                          f"`{{emitEnvelopeProbeOrder}}` when it is not bound: {HALT_PAYLOAD}, displays the line it "
+                          "prints (the halt message alone when no path resolves) and stops with the HALT's exit code. "
+                          f"After its envelope, under `--batch` it ends only this brief: {BATCH_RETURN}."], load_brief
     # batch-mode.md, the loop every halt returns to, halts through the emitter too
     execution = _section(_read(REFS / "batch-mode.md"), "## Execution", "### 1.")
     assert ("`{emitEnvelopeHelper}`, which every HARD HALT here emits through, ← the first existing path in "
@@ -220,7 +262,7 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     record = _section(_read(REFS / "batch-mode.md"), "### 3. Record the Brief", "### 4.")
     assert "every HARD HALT of steps 1 to 7 returns here after its envelope (each stage's Rules say so)" in record
     five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
-    assert "it emits its envelope where it fires, as its HALT line says" in five
+    assert "it emits its envelope where it fires, as its stage file's Rules say" in five
     for path in STEP_FILES:
         assert "SKILL.md Workflow Rules" not in _read(path), path.name
 
@@ -263,7 +305,7 @@ def test_the_report_step_binds_the_emitter_and_the_hook_itself():
     assert hook.index(hook_call) < hook.index("When `{onCompleteCommand}` is non-empty")
     # One wording for the incomplete install, wherever the step names it.
     assert "resolved no path" not in report and "no `{emitEnvelopeHelper}`" not in report
-    assert "(no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice)" in five
+    assert "(no path in `{emitEnvelopeProbeOrder}` exists, `emit` failed twice, or the run folder is lost)" in five
 
 
 def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
@@ -280,7 +322,7 @@ def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
     assert ("When §6 showed the zero-export or the head-cap warning, also offer **[R] Refine the brief**: stop "
             "here. **GATE [default: continue]**") in seven
     assert '"gate": "review-gate", "decision": "continue"' in seven
-    docs = _read(REFS / "sub" / "fetch-docs.md")
+    docs = _read(REFS / "fetch-docs.md")
     zero = next(line for line in docs.splitlines() if line.startswith('- **`source_type: "source"`, `counts.exports` is 0'))
     assert "offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**" in zero
     # step 3c also names `doc_urls`: every fetch of it failed there
@@ -289,25 +331,37 @@ def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
         halt = next(line for line in text.splitlines() if "`halted-for-brief-refinement`" in line)
         match = HALT_RE.search(halt)
         assert match and match.groups() == ("6", "halted-for-brief-refinement", phase), halt[:90]
-        assert EMIT_HALT in halt
+        assert "emit-halt" not in halt
         assert f"Fix {fix} in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`." in halt
+    for name in ("extract.md", "fetch-docs.md"):
+        assert len(_halt_rules(REFS / name)) == 1, name
     assert _exit_codes()["halted-for-brief-refinement"] == 6
-    gates = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |"))
+    gates = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |"))
     assert "step 3: Review Gate [C]/[R]" in gates and "step 3c: Zero-Export Gate [C]/[R]" in gates
 
 
 def test_the_promotion_and_post_promotion_halts_write_their_result_file():
+    """#1147: generate-artifacts.md's Rules bullet names both commands, the `--result-dir` one for the four halts
+    after §3's `promote` call has run, and no HALT line carries a command of its own."""
     generate = _body(REFS / "generate-artifacts.md")
+    [rule] = _halt_rules(REFS / "generate-artifacts.md")
+    assert EMIT_HALT_RESULT in rule and rule.index(EMIT_HALT) < rule.index(EMIT_HALT_RESULT)
+    assert ("(for every HARD HALT after §3's `promote` call has run, its exit 1 and exit 2, §4's `active-link-blocked` "
+            f"and §5's `references-missing`: {EMIT_HALT_RESULT}, so the emitter also writes the halt's result file in "
+            "`{forge_version}`)") in rule
+    # a halt after the package was promoted points its envelope at the promoted evidence report, as SKILL.md says
+    assert ('A HARD HALT that stages `"skill_package"` and `"outputs"` (the package was promoted) also sets '
+            "`summary.evidence_report` to `{forge_version}/evidence-report.md`.") in rule
     promotion = _section(generate, "### 3. Promote the Staged Skill", None)
     for reason in ("staging-unreadable", "write-failed", "active-link-blocked", "references-missing"):
         line = next(ln for ln in promotion.splitlines() if f"`{reason}`" in ln and "**HARD HALT**" in ln)
-        assert EMIT_HALT_RESULT in line, reason
+        assert "emit-halt" not in line and "--result-dir" not in line, reason
     refusal = next(p for p in generate.split("\n\n") if p.startswith("Each refusal is a **HARD HALT**"))
-    assert EMIT_HALT in refusal and "leaves out `--result-dir`" in refusal
+    assert "emit-halt" not in refusal and "leaves out `--result-dir`" in refusal
     # extraction-rules.yaml is written before the promotion creates {forge_version}: no result file yet
     rules = _section(generate, "### 2. Generate extraction-rules.yaml", "### 3.")
     for line in (ln for ln in rules.splitlines() if "**HARD HALT**" in ln):
-        assert EMIT_HALT in line and "--result-dir" not in line, line[:80]
+        assert "emit-halt" not in line and "--result-dir" not in line, line[:80]
 
 
 def test_the_halt_payload_the_rule_stages_is_schema_valid(tmp_path):
@@ -365,10 +419,61 @@ def test_every_documented_decision_fits_the_schema():
     gates = {json.loads(re.sub(r"\{[A-Za-z_]+\}", "x", text))["gate"] for _, text in examples}
     assert {"tier-override", "tag-choice", "review-gate", "zero-exports", "authoritative-file:x", "demo-exclusion",
             "registry-confirm", "provide-or-skip-registry"} <= gates
+    # `record` stamps the time (#1145): no documented decision types one, and SKILL.md says so.
+    assert "timestamp" in item["required"] and "timestamp" in item["properties"]
     for name, text in examples:
         decision = json.loads(re.sub(r"\{[A-Za-z_]+\}", "x", text))
-        assert set(item["required"]) <= set(decision), (name, text)
-        assert set(decision) <= set(item["properties"]), (name, text)
+        assert set(item["required"]) - {"timestamp"} <= set(decision), (name, text)
+        assert set(decision) <= set(item["properties"]) and "timestamp" not in decision, (name, text)
+    rule = next(line for line in _read(SKILL).splitlines()
+                if line.startswith("- Every decision the run takes without asking"))
+    assert '"timestamp"' not in rule and "which stamps the decision's `timestamp` from the clock" in rule
+    for path in [SKILL, *STEP_FILES, *sorted((CS / "assets").glob("*.md"))]:
+        for typed in ('"timestamp": "{ISO}"', '"timestamp": "<ISO-8601>"', '"{current ISO date}"',
+                      '"created_at": "', '"indexed_at": "'):
+            assert typed not in _read(path), (path.name, typed)
+
+
+def test_validate_checks_frontmatter_with_the_validator():
+    """#1145: §3's fallback runs the validator skf-validate-frontmatter.py, never a checklist by hand."""
+    three = _section(_read(REFS / "validate.md"), "### 3. Validate Frontmatter (Fallback)", "### 4.")
+    [fence] = re.findall(r"```bash\n(.*?)```", three, re.DOTALL)
+    assert fence.strip() == 'uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md"'
+    assert "Fix in the staged SKILL.md what each `high` issue of `issues` names, then run the command once more." in three
+    assert ('When that run\'s `status` is not `fail`, record "Frontmatter: PASS", with its `medium` and `low` issues '
+            'under Remaining Warnings; otherwise record "Frontmatter: FAIL" with the `high` issues left.') in three
+    assert "HALT" not in three and "never halts" in three
+    for by_hand in ("- [ ]", "lowercase alphanumeric", "1-1024 characters"):
+        assert by_hand not in three, by_hand
+
+
+def test_validate_writes_metadata_through_the_stats_helper():
+    """#1145: §1 and §7 write no metadata.json field by hand: --fix and --validation-status do."""
+    validate = _read(REFS / "validate.md")
+    one = _section(validate, "### 1. Check Tool Availability", "### 2.")
+    assert "§7's call passes `--validation-status manual-only`" in one
+    seven = _section(validate, "### 7. Validate metadata.json", "### 7a.")
+    [fence] = re.findall(r"```bash\n(.*?)```", seven, re.DOTALL)
+    assert fence.split() == ["uv", "run", "{renderMetadataStatsHelper}", "<staging-skill-dir>/provenance-map.json",
+                             "\\", "--check", "<staging-skill-dir>/metadata.json", "--fix",
+                             "[--validation-status", "manual-only]"]
+    assert "Pass `--validation-status manual-only` when §1 found skill-check unavailable" in seven
+    assert "lists those fields in `fixed`" in seven
+    assert 'record "Metadata: auto-fixed {N} computed-value discrepanc(y|ies)" listing its fields' in seven
+    # A fix the first --fix call wrote before a relabel re-run is still recorded.
+    assert "listing its fields and those of the earlier calls" in seven
+    assert "or the auto-fixed line below when an earlier call of this section listed fields in `fixed`" in seven
+    for path in (REFS / "validate.md", REFS / "report.md"):
+        assert "{atomicWriteHelper} write --target <staging-skill-dir>/metadata.json" not in _read(path)
+        assert "write --target {skill_package}/metadata.json" not in _read(path)
+    report = _read(REFS / "report.md")
+    assert ('uv run {renderMetadataStatsHelper} "{forge_version}/provenance-map.json" --check '
+            '"{skill_package}/metadata.json" --validation-status schema-unavailable') in report
+    one = _section(report, "### 1. Display Forge Completion Banner", "### 2.")
+    assert "Bind `{primary_confidence}` ← its `primary_confidence`" in one
+    assert "counted from the entries' own labels" not in report
+    assert _frontmatter(REFS / "report.md")["renderMetadataStatsProbeOrder"][-1] == (
+        "{project-root}/src/shared/scripts/skf-render-metadata-stats.py")
 
 
 def test_every_decision_site_spells_out_its_record_command():
@@ -386,13 +491,14 @@ def test_every_decision_site_spells_out_its_record_command():
 
 
 def test_every_headless_gate_is_recorded_and_declared():
-    """Gate 2's headless default is recorded like every other gate, and SKILL.md lists every stop."""
+    """Gate 2's headless default is recorded like every other gate, and the contract's Gates row lists every
+    stop, which SKILL.md's Overview points at."""
     seven = _section(_read(REFS / "extract.md"), "### 7. Gate 2", None)
     assert '"gate": "review-gate", "decision": "continue"' in seven and "record --workflow skf-create-skill" in seven
     gate_text = _schema()["properties"]["headless_decisions"]["items"]["properties"]["gate"]["description"]
     assert "review-gate" in gate_text
     skill = _read(SKILL)
-    gates = next(line for line in skill.splitlines() if line.startswith("| **Gates** |"))
+    gates = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |"))
     for gate in ("Tag Choice Gate", "Authoritative-File Gate [P]/[S]/[U]", "Review Gate [C]",
                  "step 3c: Zero-Export Gate [C]", "Demo-Exclusion Gate [Y]"):
         assert gate in gates, gate
@@ -402,11 +508,12 @@ def test_every_headless_gate_is_recorded_and_declared():
     assert "| 1 | Load Brief | references/load-brief.md | Conditional |" in skill
     several = next(line for line in _read(REFS / "load-brief.md").splitlines() if line.startswith("- **Several briefs:**"))
     assert "**GATE [default: HALT]**: headless, ask nothing: **HARD HALT** (exit code 2, `brief-missing`" in several
+    # #1148: the Overview points at the Gates row, which names the stops it used to re-list
     overview = _section(skill, "## Overview", "## Conventions")
-    assert "it stops for the user in step 1 when no brief is named and several exist" in overview
-    assert "for each authoritative AI documentation file the brief's scope leaves out (step 3 §2a)" in overview
-    assert "at step 3c when a source brief extracted no export" in overview
-    footnote = next(line for line in skill.splitlines() if line.startswith("*Sub-steps under"))
+    assert "the Gates row of `references/invocation-contract.md` lists every stop" in overview
+    assert "step 3 §2b: Authoritative-File Gate [P]/[S]/[U]" in gates
+    assert "step 3c: Zero-Export Gate [C]/[R]" in gates
+    footnote = next(line for line in skill.splitlines() if line.startswith("*Step 3d"))
     assert "a branch inside step 3" in footnote and "alternative main step" not in footnote
     for name in ("auto_decision_count",):
         text = _schema()["properties"]["summary"]["properties"][name]["description"]
@@ -414,10 +521,84 @@ def test_every_headless_gate_is_recorded_and_declared():
     assert "Empty for an interactive run" not in json.dumps(_schema())
 
 
+def test_a_clean_batch_extraction_passes_gate_2_on_its_own(tmp_path):
+    """#1149 enhancement-4: under an interactive --batch, Gate 2 stops a brief only when §6 showed the zero-export
+    or the head-cap warning; a clean extraction goes on by itself and records gate `review-gate`. A single
+    interactive run still stops, [R] is still offered with a warning, a headless run keeps its own rationale, and
+    the contract's Gates row, batch-mode.md §2, SKILL.md's decisions rule and the schema name the decision. §6's
+    closing line, the Stages row of step 3 and step 3d's hand-back no longer say step 3 always waits."""
+    seven = _section(_read(REFS / "extract.md"), "### 7. Gate 2", None)
+    [batch] = [p for p in seven.split("\n\n") if p.startswith("Under `--batch`")]
+    assert batch.startswith("Under `--batch`, outside `{headless_mode}`, when §6 showed neither the zero-export nor "
+                            "the head-cap warning, there is nothing to review and no [R] to offer: auto-proceed, log "
+                            '"batch: clean extraction, auto-continue", stage `')
+    assert batch.endswith("(the Workflow Rules' record), then load `{nextStepFile}`, read it fully, then execute it.")
+    [staged] = re.findall(r'`(\{"step": "[^`]+\})`', batch)
+    decision = json.loads(staged)
+    assert decision == {"step": "extract", "gate": "review-gate", "decision": "continue",
+                        "rationale": "batch: clean extraction, no warning to review"}
+    [record] = re.findall(r"run `(uv run \{emitEnvelopeHelper\} record [^`]+)`", batch)
+    assert record == ('uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" '
+                      '--decision < "{run_dir}/decision.json"')
+    # docs-only first, unrecorded; then the clean batch; then the stop, its [R] and the headless default
+    stop = "Otherwise halt after the §6 summary and wait for the user to continue"
+    assert seven.index("Docs-only mode") < seven.index(batch) < seven.index(stop)
+    assert ("When §6 showed the zero-export or the head-cap warning, also offer **[R] Refine the brief**: stop here. "
+            "**GATE [default: continue]**: under `{headless_mode}`, auto-proceed, log \"headless: auto-approve "
+            'extraction summary", stage `{"step": "extract", "gate": "review-gate", "decision": "continue", '
+            '"rationale": "headless mode: no person to review the extraction summary"}`') in seven
+    [docs_only] = [p for p in seven.split("\n\n") if p.startswith("Docs-only mode")]
+    assert "record" not in docs_only and "decision" not in docs_only
+    # §6's summary asks for a confirmation only when §7 waits for one, and nothing else says step 3 always waits
+    six = _section(_read(REFS / "extract.md"), "### 6. Present Extraction Summary", "### 7. Gate 2")
+    assert six.rstrip().splitlines()[-1] == (
+        "{if §7 auto-proceeds a clean `--batch` extraction: No zero-export or head-cap warning. Auto-proceeding.}"
+        '{otherwise: Review the extraction summary above, then confirm to continue.}"')
+    stages = [line.split("|")[1:-1] for line in _read(SKILL).splitlines() if line.startswith("| 3 | Extract |")]
+    assert [[cell.strip() for cell in row] for row in stages] == [["3", "Extract", "references/extract.md",
+                                                                   "Conditional"]]
+    handback = _read(REFS / "component-extraction.md")
+    assert "Step-03 continues with its §6 summary and §7 Gate 2." in handback
+    assert "summary and confirmation" not in handback
+    # the documented command records the decision; the emitter checks it against the schema and stamps its time
+    run_dir = tmp_path / "skf-create-skill-abc12345"
+    run_dir.mkdir()
+    words = shlex.split(record.split(" < ", 1)[0].replace("{run_dir}", run_dir.as_posix()))
+    assert words[:3] == ["uv", "run", "{emitEnvelopeHelper}"]
+    rec = subprocess.run([sys.executable, str(EMITTER), *words[3:]], input=staged.encode("utf-8"),
+                         capture_output=True, timeout=30)
+    assert rec.returncode == 0, rec.stderr
+    [line] = (run_dir / "headless-decisions.jsonl").read_bytes().decode("utf-8").splitlines()
+    sunk = json.loads(line)
+    assert sunk.pop("timestamp") and sunk == decision
+    # where the run and its readers look
+    gates = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |"))
+    assert ("step 3: Review Gate [C]/[R] (with the zero-export warning when a source brief without `doc_urls` "
+            "extracted no export; [R] with it or the head-cap warning; headless: continue; an interactive `--batch` "
+            "run with neither warning: continue; both recorded as gate `review-gate`)") in gates
+    following = next(line for line in _read(REFS / "batch-mode.md").splitlines()
+                     if line.startswith('- **`"status": "next"`**'))
+    assert following.endswith("In an interactive batch, step 3's Gate 2 stops for this brief only when its "
+                              "extraction showed the zero-export or the head-cap warning: a clean extraction goes on "
+                              "by itself, recorded as gate `review-gate`.")
+    rule = next(line for line in _read(SKILL).splitlines()
+                if line.startswith("- Every decision the run takes without asking"))
+    assert ("(each gate a headless run resolves by its default, step 1's tier override and its pick of the only "
+            "brief, and Gate 2 when a `--batch` run passes a clean extraction)") in rule
+    schema = _schema()
+    for text in (schema["properties"]["headless_decisions"]["description"],
+                 schema["properties"]["summary"]["properties"]["auto_decision_count"]["description"]):
+        assert ("every gate a headless run resolved by its default, step 1's tier override in any mode, its pick of "
+                "the only brief, and Gate 2 when a `--batch` run passed a clean extraction") in text
+
+
 def test_compile_renders_the_auto_decisions_from_the_sink():
     seven = _section(_read(REFS / "compile.md"), "### 7. Build evidence-report.md Content", "### 8.")
-    assert "from `{run_dir}/headless-decisions.jsonl`, the run's one decision trail: one row per line" in seven
-    assert "step 3 tag-choice" in seven and "step 3 review-gate" in seven and "step 2 ecosystem gate" not in seven
+    assert ("from `{run_dir}/headless-decisions.jsonl`, the run's one decision trail: one row per line of the sink, "
+            "in file order") in seven
+    # #1148: the sink is the list; §7 names no gate a row may come from
+    for gate in ("tag-choice", "review-gate", "tier-override", "zero-exports", "manual-carry-forward"):
+        assert gate not in seven, gate
     assert "| Step | Gate | Decision | Rationale | Timestamp |" in seven
     validate = _section(_read(REFS / "validate.md"), "### 8. Update Evidence Report", "### 9.")
     assert "keep the `## Auto-Decisions` section step 5 §7 rendered from the run sink as it is" in validate
@@ -434,6 +615,19 @@ def test_report_has_no_line_that_ends_the_run_early():
         text = _read(path)
         for stale in ("End workflow", "do not modify any files", "do not stop here", "### Result Contract on HARD HALT"):
             assert stale not in text, (path.name, stale)
+
+
+def test_the_report_hands_the_skill_to_export_skill():
+    """#1149 enhancement-3: §4 prints no context snippet and no CLAUDE.md instruction, which bypassed Export Skill,
+    the one gate that publishes a skill (an export then listed it twice, and a drop or rename left the pasted line
+    behind); its quoted next steps end with the [EX] after [TS] line."""
+    report = _read(REFS / "report.md")
+    assert "{context_snippet_content}" not in report
+    four = _section(report, "### 4. Suggest Next Steps", "### 5.")
+    assert "CLAUDE.md" not in four and "```" not in four
+    lines = four.split('"**Recommended next steps:**\n', 1)[1].rstrip().splitlines()
+    assert [line.split(" ", 2)[1] for line in lines[:3]] == ["**[TS]", "**[EX]", "**[US]"]
+    assert lines[3:] == ["", 'To use it now, run [EX] Export Skill, after [TS] if you want the quality gate."']
 
 
 def test_report_orders_contract_then_batch_then_health_check():
@@ -483,7 +677,7 @@ def test_a_headless_brief_hands_its_line_to_the_health_check():
     summary = _section(_read(REFS / "batch-mode.md"), "### 4. Batch Summary", "**Reading a batch.**")
     empty = "Then bind `{result_envelope_line}` empty, so the health check shows no line an earlier workflow"
     assert summary.index(empty) < summary.index("load, read in full and execute `{healthCheckStepFile}`")
-    row = _section(_read(SKILL), "| **Headless** |", "\n")
+    row = _section(_read(CONTRACT), "| **Headless** |", "\n")
     assert ("A caller reads the run's own `SKF_CREATE_SKILL_RESULT_JSON` line. Outside `--batch` it is the run's "
             "last line: the shared health check displays it after everything else.") in row
     health = _read(REFS / "health-check.md")
@@ -507,7 +701,8 @@ def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():
     # the -latest copy
     assert ("When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing "
             "file or an earlier compile's: skip the hook and display the line for its case:\n\n") in five
-    assert ('- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): '
+    assert ('- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, `emit` failed twice, or the run '
+            'folder is lost): '
             '"on_complete skipped for `{name}`: no result contract was written ({the reason})".\n') in five
     assert ("- `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a "
             "`result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "
@@ -583,8 +778,11 @@ def test_the_result_payload_reads_the_security_row(tmp_path):
     payload = json.loads(payload_text.replace("{run_status}", "success").replace("{tier}", "Forge"))
     assert payload["summary"]["security_result"] == "{security_result}"
     assert payload["result_contract"]["summary"]["security_result"] == "{security_result}"
+    # §8 fills skill-sections.md's blocks by name (#1147): the row lives in that template
     results = _section(_read(REFS / "validate.md"), "### 8. Update Evidence Report", "### 9.")
-    assert "## Validation Results\n" in results and "\n- Security: {pass/warn/skipped} ({the note §5's Security row gives})\n" in results
+    assert "Fill the `## Validation Results`," in results and "of `{skillSectionsData}`'s evidence-report.md Structure" in results
+    template = _section(_read(CS / "assets" / "skill-sections.md"), "## Validation Results\n", "## Quality Score Breakdown")
+    assert "\n- Security: {pass/warn/skipped} ({the note §5's Security row gives})\n" in template
     # the row's three words are the schema's values
     schema = _schema()
     assert schema["properties"]["summary"]["properties"]["security_result"]["enum"] == ["pass", "warn", "skipped"]
@@ -605,9 +803,13 @@ def test_the_inventory_is_written_at_the_end_of_extraction():
     extract = _read(REFS / "extract.md")
     assert "extraction stays in context" not in extract
     assert ("Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, "
-            "`{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json` and "
-            "`{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, and run "
-            '`rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" '
+            "`{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json`, "
+            "`{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, "
+            "`{co_imports_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.co-imports.json`, "
+            "`{components_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.components.json` and "
+            "`{read_by_eye_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.read-by-eye.json`, and run "
+            '`rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" "{co_imports_json}" '
+            '"{components_json}" "{read_by_eye_json}" '
             '"{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`') in extract
     five = _section(extract, "### 5. Build Extraction Inventory", "### 6.")
     helper = 'uv run {extractionInventoryHelper} '
@@ -635,7 +837,7 @@ def test_later_steps_read_and_extend_the_inventory():
     enrich = _read(REFS / "enrich.md")
     assert ('uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field t2_annotations'
             in enrich)
-    docs = _read(REFS / "sub" / "fetch-docs.md")
+    docs = _read(REFS / "fetch-docs.md")
     assert 'uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field t3_items' in docs
     assert "{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json" in docs
     compile_one = _section(_read(REFS / "compile.md"), "### 1. Load Data Files", "### 1a.")
@@ -678,7 +880,7 @@ def test_a_free_text_intent_mapping_reaches_the_evidence_report():
 
 def test_the_language_guide_is_an_index_of_kept_pages():
     """Step 3c keeps the registry pages and writes an index; compile reads the prose from the pages."""
-    docs = _read(REFS / "sub" / "fetch-docs.md")
+    docs = _read(REFS / "fetch-docs.md")
     four_a = _section(docs, "### 4a.", "### 5.")
     assert '{"docs_folder": "{docs_staging}", "language_guide": [{"url": "...", "label": "...", "pages": ["page-1.md"]}]}' \
         in four_a
@@ -711,6 +913,166 @@ def test_step_7_promotes_instead_of_rewriting():
 
 
 # --------------------------------------------------------------------------
+# The run record: step 3 §2a writes it, compile §1 and report §5 read it back (#1144)
+# --------------------------------------------------------------------------
+
+INVENTORY_HELPER = REPO / "src" / "shared" / "scripts" / "skf-extraction-inventory.py"
+INVENTORY_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py",
+                   "{project-root}/src/shared/scripts/skf-extraction-inventory.py"]
+RUN_KEYS = ["run_dir", "source_ref", "source_commit", "tag_resolution", "source_tree", "resolved_source_path",
+            "version"]
+
+
+def _helper_call(line: str, values: dict) -> list[str]:
+    """A documented `uv run {extractionInventoryHelper} ...` line, its placeholders filled, as argv for this
+    interpreter; a heredoc's `<<` and an optional `[--flag ...]` group are dropped."""
+    for placeholder, value in values.items():
+        line = line.replace(placeholder, value)
+    line = re.sub(r" \[[^\]]*\]", "", line.split(" <<")[0])
+    words = shlex.split(line)
+    assert words[:3] == ["uv", "run", "{extractionInventoryHelper}"], words
+    return [sys.executable, str(INVENTORY_HELPER), *words[3:]]
+
+
+def _run_helper(argv: list[str], stdin: str = "") -> dict:
+    proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+RECORD_THE_RUN = "**Record the run** in the extraction inventory"
+
+
+def _record_the_run(two_a: str) -> str:
+    """§2a's **Record the run** paragraph and its fence (the docs-only skip line names it first)."""
+    return _section(two_a, RECORD_THE_RUN, "**Deferred CCC Discovery")
+
+
+@pytest.mark.parametrize("mode", ["source", "docs-only"])
+def test_step_3_records_the_run_right_after_it_resolves_the_source(tmp_path, mode):
+    """#1144 enhancement-2: §2a records the run's source identity, the reconciled version and the run folder in
+    the extraction inventory right after its dispatch, Source Commit Capture and Version Reconciliation; a
+    docs-only brief records it from its skip line. The documented fence runs on a temp inventory, §3's and §5's
+    `init` keep the run it recorded, and compile §1's `summary` call reads it back."""
+    extract = _read(REFS / "extract.md")
+    two_a = _section(extract, "### 2a. Resolve Source Access", "### 2b.")
+    # #1147: the remote block's dispatch lives in references/remote-source-access.md, which §2a loads first
+    assert "Dispatch on `{source_resolve_status}`:" in _read(REFS / "remote-source-access.md")
+    assert (two_a.index("load `{remoteSourceAccessData}` and follow its **Read the Source Into a Private Tree** section")
+            < two_a.index("Then run Source Commit Capture and Version Reconciliation")
+            < two_a.index(RECORD_THE_RUN) < two_a.index("**Deferred CCC Discovery"))
+    assert two_a.count(RECORD_THE_RUN) == 1
+    skip = next(line for line in two_a.splitlines() if line.startswith('**If `source_type: "docs-only"`:**'))
+    assert ("skip the rest of §2a but **Record the run** below, with every source field `null` and `version` the "
+            "brief's `target_version`, else its `version`") in skip
+    record = _record_the_run(two_a)
+    assert ("resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` (halt "
+            "as §5 does when neither exists)") in record
+    assert "§3's and §5's `init` keep this `run` when they start the inventory again." in record
+    assert _frontmatter(REFS / "extract.md")["extractionInventoryProbeOrder"] == INVENTORY_PROBE
+    [fence] = re.findall(r"```bash\n(.*?)```", record, re.S)
+    mkdir_line, init_line, set_line, payload, end = fence.strip("\n").split("\n")
+    assert end == "SKF_INVENTORY" and set_line.endswith(" <<'SKF_INVENTORY'")
+    assert list(json.loads(payload)["run"]) == RUN_KEYS
+    # on a project's first run nothing has created the stage folder, and the helper creates none
+    assert mkdir_line == 'mkdir -p "{project-root}/_bmad-output/.skf-stage"'
+    assert "create the folder the inventory sits in" in record
+    run_dir = (tmp_path / ".skf-run" / "skf-create-skill-a1b2c3d4").as_posix()
+    stage = Path(shlex.split(mkdir_line.replace("{project-root}", tmp_path.as_posix()))[2])
+    inventory = stage / "demo.inventory.json"
+    values = {"{extraction_inventory}": inventory.as_posix(), "{name}": "demo", "{tier}": "Forge",
+              "{source|docs-only|component-library}": mode, "{source|component-library}": "source",
+              "{run_dir}": run_dir}
+    if mode == "source":
+        expected = {"run_dir": run_dir, "source_ref": "v2.3.0", "source_commit": "89abcdef01234567",
+                    "tag_resolution": {"tag": "v2.3.0"}, "source_tree": (tmp_path / "tree").as_posix(),
+                    "resolved_source_path": (tmp_path / "ws").as_posix(), "version": "2.3.1"}
+    else:
+        expected = {key: None for key in RUN_KEYS} | {"run_dir": run_dir, "version": "1.2.0"}
+    filled = payload.replace('"tag_resolution": null', '"tag_resolution": ' + json.dumps(expected["tag_resolution"]))
+    for key in ("source_ref", "source_commit", "source_tree", "resolved_source_path", "version"):
+        placeholder = {"resolved_source_path": "resolved-source-path"}.get(key, key)
+        filled = filled.replace(f'"<{placeholder}>"', json.dumps(expected[key]))
+    for placeholder, value in values.items():
+        filled = filled.replace(placeholder, value)
+    without_folder = subprocess.run(_helper_call(init_line, values), capture_output=True, text=True,
+                                    encoding="utf-8", timeout=60)
+    assert without_folder.returncode == 1 and not stage.exists(), without_folder.stderr
+    stage.mkdir(parents=True)  # the fence's mkdir line
+    _run_helper(_helper_call(init_line, values))
+    _run_helper(_helper_call(set_line, values), filled)
+    # §3 (docs-only) or §5 starts the inventory again: the run stays
+    if mode == "source":
+        five = _section(extract, "### 5. Build Extraction Inventory", "### 6.")
+        again = next(line for line in five.splitlines() if line.startswith("uv run {extractionInventoryHelper} init "))
+    else:
+        three = _section(extract, "### 3. Check for Docs-Only Mode", "### 4.")
+        again = next(line for line in three.splitlines() if line.startswith("uv run {extractionInventoryHelper} init "))
+    _run_helper(_helper_call(again, values))
+    # compile §1's summary call gives the run back
+    compile_one = _section(_read(REFS / "compile.md"), "### 1. Load Data Files", "### 1a.")
+    [summary] = re.findall(r'`(uv run \{extractionInventoryHelper\} summary --inventory "\{extraction_inventory\}")`',
+                           compile_one)
+    assert _run_helper(_helper_call(summary, values))["run"] == expected
+
+
+def test_compile_binds_the_run_back_and_halts_when_the_run_folder_is_lost(tmp_path):
+    """#1144: compile §1 binds `{run_dir}` and `{source_tree}` from the inventory's run when a compaction lost them;
+    when no run folder can be found it halts with staging-unreadable (exit 4), emitted with nothing to stage in,
+    before anything is promoted, instead of writing "No auto-decisions" for a sink it cannot read."""
+    compile_md = _read(REFS / "compile.md")
+    one = _section(compile_md, "### 1. Load Data Files", "### 1a.")
+    assert ("Bind `{run_dir}` ← its `run.run_dir` when `{run_dir}` is not bound, and `{source_tree}` ← its "
+            "`run.source_tree` when `{source_tree}` is not bound") in one
+    assert one.index("bind `{inventory_counts}` ← its `counts`") < one.index("Bind `{run_dir}` ← its `run.run_dir`")
+    assert "`warnings` and `run` (a component library's `component_catalog` and `component_stats` too)" in one
+    [halt] = [line for line in one.splitlines() if "**HARD HALT**" in line]
+    assert halt.startswith("When `{run_dir}` is still not bound, **HARD HALT** (exit code 4, `staging-unreadable`, "
+                           "phase `compile`; emit with nothing to stage in, as load-brief.md §0 does, with no "
+                           "`--run-dir`)")
+    assert ('"Cannot compile: the run folder is lost (`{run_dir}` is not bound and the extraction inventory records '
+            "none), so this run's decisions cannot be read. Re-run create-skill.\"") in halt
+    assert _exit_codes()["staging-unreadable"] == 4
+    [fence] = re.findall(r"```bash\n(.*?)```", one, re.S)
+    command, rest = fence.split(" <<'SKF_JSON'\n")
+    assert command == "uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --target stderr"
+    payload = rest.split("\nSKF_JSON")[0].replace("<that message, one line>", "Cannot compile: the run folder is lost.")
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-create-skill", "--target",
+                           "stderr"], input=payload, capture_output=True, text=True, encoding="utf-8", timeout=30,
+                          cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    line = next(text for text in proc.stderr.splitlines() if text.startswith("SKF_CREATE_SKILL_RESULT_JSON: "))
+    envelope = json.loads(line.split(": ", 1)[1])
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["phase"]) == (4, "staging-unreadable", "compile")
+    # §7: "No auto-decisions" now means a bound run folder whose sink is empty
+    seven = _section(compile_md, "### 7. Build evidence-report.md Content", "### 8.")
+    assert ("`{run_dir}` is bound here (§1 halted otherwise), so a file that is missing or empty means no gate "
+            "recorded a decision: emit the section with the single line `No auto-decisions:") in seven
+    assert "When the file is missing or empty, emit the section" not in seven
+
+
+def test_report_binds_a_lost_run_folder_back_or_writes_no_contract():
+    """#1144: report §5 binds a lost `{run_dir}` from the inventory's run before it reads the sink, never
+    `{source_tree}` (step 7 removed the tree); a run folder it still cannot find gets no result contract, the
+    hook's "No `emit` succeeded" case and no `rm -rf`, never a count of 0 decisions."""
+    assert _frontmatter(REFS / "report.md")["extractionInventoryProbeOrder"] == INVENTORY_PROBE
+    five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
+    find = _section(five, "**Find the run folder.**", "Otherwise first read the run sink")
+    assert ("When `{run_dir}` is not bound, resolve `{extractionInventoryHelper}` ← first existing path in "
+            "`{extractionInventoryProbeOrder}` and bind `{run_dir}` ← the `run.run_dir` this prints, from "
+            "`{project-root}` (never `{source_tree}`: step 7 removed the tree)") in find
+    assert ('uv run {extractionInventoryHelper} summary --inventory '
+            '"{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json"') in find
+    assert five.index("**Find the run folder.**") < five.index('grep -c . "{run_dir}/headless-decisions.jsonl"')
+    assert ("write no result contract: display \"No result contract for `{name}`: its run folder is lost, so its "
+            "decisions cannot be read.\" and, in a headless run that is not `--batch`, bind "
+            "`{result_envelope_line}` empty") in find
+    assert 'The post-completion hook below then skips under its "No `emit` succeeded" case' in find
+    remove = _section(five, "**Remove the run folder.**", "\n")
+    assert 'delete `{run_dir}` (`rm -rf "{run_dir}"`), unless it is lost;' in remove
+
+
+# --------------------------------------------------------------------------
 # The ecosystem-check stage is gone (#599)
 # --------------------------------------------------------------------------
 
@@ -718,11 +1080,11 @@ def test_step_7_promotes_instead_of_rewriting():
 def test_no_ecosystem_check_stage():
     assert not (REFS / "ecosystem-check.md").exists()
     load_brief = _read(REFS / "load-brief.md")
-    assert "nextStepFile: 'sub/ccc-discover.md'" in load_brief
+    assert "nextStepFile: 'ccc-discover.md'" in load_brief
     assert 'Proceeding to extraction..."' in load_brief
     for path in [SKILL, *STEP_FILES]:
         assert "ecosystem" not in _read(path).lower(), path.name
-    gates = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |"))
+    gates = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Gates** |"))
     assert "step 2:" not in gates
 
 
@@ -732,12 +1094,12 @@ def test_no_ecosystem_check_stage():
 
 
 def test_zero_content_check_halts_a_docs_only_brief():
-    docs = _read(REFS / "sub" / "fetch-docs.md")
+    docs = _read(REFS / "fetch-docs.md")
     check = _section(docs, "**Zero-content check.**", "### 5b.")
     assert 'uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"' in check
     halt = next(line for line in check.splitlines() if "`docs-unreachable`" in line)
     assert "no URL or subpage fetched in this run, and `counts.items` is 0" in halt
-    assert "Stage and promote nothing" in halt and EMIT_HALT in halt
+    assert "Stage and promote nothing" in halt and "emit-halt" not in halt
     assert "Apply that check here" in check
     all_failed = next(line for line in docs.splitlines() if line.startswith("**If ALL URLs fail"))
     assert "continue at §5's **Zero-content check**" in all_failed and "section 7" not in all_failed
@@ -874,7 +1236,7 @@ def test_validate_splits_the_body_by_one_rule_set():
     assert "the §4 Tier-1 preservation and cross-reference checks" in nine
     # the evidence report names the split that ran, never the split-body it no longer runs
     validate = _read(REFS / "validate.md")
-    assert "- Body: {pass/fail} {body split applied if applicable}" in validate
+    assert "- Body: {pass/fail} {body split applied if applicable}" in _read(CS / "assets" / "skill-sections.md")
     assert "(`skill-check --fix` in §2, `skf-shard-body.py` in §4)" in validate
     assert "skill-check split-body" not in validate.replace("Never run `npx skill-check split-body --write`", "")
     assert "`#quick-start` and `#key-types` anchors name two of them" in four
@@ -933,17 +1295,17 @@ def test_validate_tells_a_fix_from_the_file_hash():
     line = ('- {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may '
             'have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: '
             'unchecked`, otherwise "none"}\n')
-    for text in (validate, sections):
-        assert f"## Auto-Fixed Issues\n{line}" in text
-    assert line in _section(validate, "### 8. Update Evidence Report", "### 9.")
+    # §8 fills skill-sections.md's `## Auto-Fixed Issues` block by name (#1147)
+    assert f"## Auto-Fixed Issues\n{line}" in sections and line not in validate
+    assert "`## Auto-Fixed Issues`" in _section(validate, "### 8. Update Evidence Report", "### 9.")
 
 
 QUICK_WRITE = REPO / "src" / "skf-quick-skill" / "references" / "write-and-validate.md"
 
 
 def _scan_reading(text: str) -> str:
-    """The sentence that says how a workflow reads skf-security-scan.py, from "reads the scanner's own JSON report"."""
-    start = text.index("reads the scanner's own JSON report")
+    """The clause that says how a workflow reads skf-security-scan.py, from "rely on the JSON it prints"."""
+    start = text.index("rely on the JSON it prints")
     return text[start:text.index("never on an exit code.", start) + len("never on an exit code.")]
 
 
@@ -957,6 +1319,7 @@ def test_the_security_scan_reads_the_helpers_result():
     assert '```bash\nuv run {securityScanHelper} run --package "<staging-skill-dir>"\n```\n' in five
     assert "npx skill-check" not in five, "skill-check runs no scan"
     assert _scan_reading(five) == _scan_reading(_read(QUICK_WRITE)), "read as Quick Skill reads it"
+    assert "The helper scans only when `SNYK_TOKEN` is set;" in five
     for needle in ("Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and "
                    "`{security_note}` ← its `note`",
                    "record each `findings[]` entry's `text` under the evidence report's Remaining Warnings as an "
@@ -1033,19 +1396,27 @@ def _hook_comment(key: str) -> str:
 
 
 def test_the_hook_comments_name_the_steps_that_run_them():
-    """#1111: prepend runs in step 3, with no uv probe to precede; the append entries run once, after step 4
-    resolves the emitter and before step 5 loads the first stage, and SKILL.md says so."""
+    """#1111, #1149: prepend runs in step 5, after the emitter (step 1), the runtime check (step 2), the config
+    (step 3) and the headless flag (step 4); the append entries run once, in step 5 after the prepend entries and
+    before step 6 loads the first stage, and SKILL.md says so."""
     prepend = _hook_comment("activation_steps_prepend")
     assert "uv probe" not in prepend
-    assert "SKILL.md On Activation step 3" in prepend
-    assert "after the config load (step 1) and the headless flag (step 2)" in prepend
-    step3 = " ".join(_section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ").split())
-    assert ("After step 4 and before step 5 loads load-brief.md or batch-mode.md, execute each entry in "
-            "`workflow.activation_steps_append` in order; a --batch run executes them once, not per brief.") in step3
-    assert "After activation completes" not in step3
+    assert "SKILL.md On Activation step 5" in prepend
+    assert ("after the emitter (step 1), the runtime check (step 2), the config load (step 3) and the headless flag "
+            "(step 4), and before any stage") in prepend
+    step5 = " ".join(_section(_read(SKILL), "5. **Resolve workflow customization.**", "\n6. ").split())
+    assert ("Then, before step 6 loads load-brief.md or batch-mode.md, execute each entry in "
+            "`workflow.activation_steps_append` in order; a --batch run executes them once, not per brief.") in step5
+    assert step5.index("`workflow.activation_steps_prepend` in order now") < step5.index(
+        "`workflow.activation_steps_append` in order")
+    assert "After activation completes" not in step5
     append = _hook_comment("activation_steps_append")
-    assert "after step 4 and before step 5 loads load-brief.md or batch-mode.md" in append
+    assert ("SKILL.md On Activation step 5 runs after the prepend entries and before step 6 loads load-brief.md or "
+            "batch-mode.md") in append
     assert "once, not per brief" in append
+    for path in (SKILL, *STEP_FILES):
+        for stale in ("On Activation step 3", "before step 5 loads"):
+            assert stale not in _read(path), (path.name, stale)
 
 
 # --------------------------------------------------------------------------

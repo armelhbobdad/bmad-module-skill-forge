@@ -28,6 +28,10 @@ Highest-value tests:
   removing an entry, an include entry that already matches an extension (as
   ccc reads globs) is left to cover it, a bare `- **/x` item an earlier edit
   left is quoted again, and the setup flags are refused.
+- Check mode (`--check-index`, create-skill): the verdict follows the stated
+  threshold (10 chunks, or 5% of a smaller index), a running pass is waited
+  for up to CCC_INDEX_RERUNS times, a failed ccc command is unverified, and
+  the mode never runs ccc init or writes a file.
 
 No test runs a real `ccc`: subprocess CLI tests always pass --no-ccc-init
 (and run --build-index only where index_action is fail), and in-process
@@ -3715,3 +3719,195 @@ def test_clone_write_goes_through_a_temp_file_of_its_own(tmp_clone, monkeypatch)
     assert dst == target
     assert tmp_name != "settings.yml.skf-tmp" and tmp_name.endswith(".skf-tmp")
     assert sorted(p.name for p in target.parent.iterdir()) == ["settings.yml"]
+
+
+# ─── Check mode (--check-index, create-skill's ccc-index-check.md) ──────────
+
+
+CHECK_KEYS = {"status", "version", "verdict", "reason", "counts", "labels", "threshold", "project",
+              "unmatched_exts"}
+
+
+def _languages_status(languages: dict | None, project: str = "/p", in_progress: bool = False) -> str:
+    """`ccc status` as cocoindex-code 0.2.42 prints it; languages None: no index yet."""
+    lines = [f"Project: {project}", f"Settings: {project}/.cocoindex_code/settings.yml"]
+    if in_progress:
+        lines.append("Indexing in progress: 3 files listed | 3 added, 0 deleted, 0 reprocessed, 0 unchanged, error: 0")
+    if languages is None:
+        lines += ["", "Index not created yet."]
+    else:
+        lines += ["", "Index stats:", f"  Chunks: {sum(languages.values())}", f"  Files:  {len(languages) * 3}",
+                  "  Languages:"]
+        lines += [f"    {lang}: {count} chunks" for lang, count in sorted(languages.items(), key=lambda x: -x[1])]
+    return "\n".join(lines) + "\n"
+
+
+def _check(monkeypatch, root: Path, statuses, language="Python", include_exts=(), **fake):
+    ccc = _FakeCcc(statuses, **fake)
+    monkeypatch.setattr(mod, "_run_ccc", ccc)
+    return mod.check_index(root, language, include_exts), ccc
+
+
+@pytest.mark.parametrize("python, verdict", [(9, "degraded"), (40, "verified"), (10, "verified"), (100, "verified")],
+                         ids=["9-of-2000", "40-of-2000", "10-of-2000", "100-of-2000"])
+def test_check_index_needs_ten_chunks_in_a_large_index(monkeypatch, tmp_path, python, verdict):
+    status = _languages_status({"markdown": 2000 - python, "python": python}, project=tmp_path.as_posix())
+    result, ccc = _check(monkeypatch, tmp_path, [status])
+    assert ccc.calls == [("status",)]
+    assert set(result) == CHECK_KEYS and result["verdict"] == verdict
+    assert result["counts"] == {"chunks": 2000, "files": 6, "languages": {"markdown": 2000 - python, "python": python},
+                                "language_chunks": python}
+    assert result["threshold"] == {"min_chunks": 10, "min_share": 0.05}
+    assert (result["reason"] is None) is (verdict == "verified")
+
+
+@pytest.mark.parametrize("python, total, verdict", [
+    (3, 20, "verified"), (1, 20, "verified"), (1, 21, "degraded"), (1, 40, "degraded"),
+], ids=["15-percent", "5-percent", "under-5-percent", "2.5-percent"])
+def test_check_index_verifies_a_small_index_by_its_share(monkeypatch, tmp_path, python, total, verdict):
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status({"yaml": total - python, "python": python})])
+    assert result["verdict"] == verdict
+
+
+def test_check_index_with_no_index_is_degraded(monkeypatch, tmp_path):
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status(None)])
+    assert result["verdict"] == "degraded" and result["reason"] == "ccc status shows no index"
+    assert result["counts"] == {"chunks": 0, "files": 0, "languages": {}, "language_chunks": 0}
+
+
+def test_check_index_waits_for_a_running_pass(monkeypatch, tmp_path):
+    running = _languages_status({"python": 3}, in_progress=True)
+    result, ccc = _check(monkeypatch, tmp_path, [running, running, _languages_status({"python": 40})])
+    assert ccc.calls == [("status",), ("index",), ("status",), ("index",), ("status",)]
+    assert result["verdict"] == "verified" and result["counts"]["language_chunks"] == 40
+
+
+def test_check_index_a_pass_still_running_is_unverified(monkeypatch, tmp_path):
+    result, ccc = _check(monkeypatch, tmp_path, [_languages_status({"python": 40}, in_progress=True)])
+    assert ccc.calls.count(("status",)) == 1 + mod.CCC_INDEX_RERUNS == 4
+    assert ccc.calls.count(("index",)) == mod.CCC_INDEX_RERUNS
+    assert result["verdict"] == "unverified" and "in progress" in result["reason"]
+
+
+@pytest.mark.parametrize("statuses, fake, reason", [
+    ([(False, "ccc status exited 1: it's down")], {}, "ccc status exited 1: it`s down"),
+    ([_languages_status({"python": 3}, in_progress=True)], {"index_ok": False, "index_output": "ccc index exited 2: no"},
+     "ccc index exited 2: no"),
+], ids=["status-fails", "index-fails"])
+def test_check_index_a_failed_ccc_command_is_unverified(monkeypatch, tmp_path, statuses, fake, reason):
+    result, _ = _check(monkeypatch, tmp_path, statuses, **fake)
+    assert result["verdict"] == "unverified" and result["reason"] == reason
+    assert result["counts"]["chunks"] == 0 and result["project"]["path"] is None
+
+
+@pytest.mark.parametrize("language, labels", [
+    ("TypeScript", ["typescript", "tsx"]), ("C", ["c", "cpp"]), ("C#", ["csharp"]), ("C++", ["cpp"]),
+    ("Shell", ["bash"]),
+    ("Golang", ["go"]), ("Go", ["go"]), (" Python ", ["python"]), ("Elixir", ["elixir"]),
+])
+def test_check_index_names_the_language_as_ccc_does(language, labels):
+    assert mod.ccc_labels(language) == labels
+
+
+def test_check_index_counts_every_label_of_the_language(monkeypatch, tmp_path):
+    status = _languages_status({"markdown": 1000, "typescript": 6, "tsx": 5})
+    result, _ = _check(monkeypatch, tmp_path, [status], language="TypeScript")
+    assert result["labels"] == ["typescript", "tsx"] and result["counts"]["language_chunks"] == 11
+    assert result["verdict"] == "verified"
+
+
+def test_check_index_counts_the_header_chunks_of_c(monkeypatch, tmp_path):
+    """cocoindex-code 0.2.42 names `.h` files cpp, so a header-only C library is mostly cpp chunks."""
+    status = _languages_status({"markdown": 98, "c": 2, "cpp": 300})
+    result, _ = _check(monkeypatch, tmp_path, [status], language="C")
+    assert result["labels"] == ["c", "cpp"] and result["counts"]["language_chunks"] == 302
+    assert result["counts"]["chunks"] == 400 and result["verdict"] == "verified"
+
+
+def test_check_index_reports_whose_project_ccc_read(monkeypatch, tmp_path):
+    root = tmp_path / "clone"
+    root.mkdir()
+    status = _languages_status({"markdown": 50}, project=tmp_path.as_posix())
+    result, _ = _check(monkeypatch, root, [status])
+    assert result["project"] == {"path": tmp_path.as_posix(), "is_root": False, "settings_yml": False}
+    _seed_ccc_settings(root)
+    result, _ = _check(monkeypatch, root, [_languages_status({"markdown": 50}, project=str(root))])
+    assert result["project"] == {"path": str(root), "is_root": True, "settings_yml": True}
+
+
+def test_check_index_lists_the_extensions_include_patterns_misses(monkeypatch, tmp_path):
+    _seed_ccc_settings(tmp_path)
+    before = _settings_path(tmp_path).read_bytes()
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status({"markdown": 50})], language="Elixir",
+                       include_exts=["ex", "py", "ex"])
+    assert result["unmatched_exts"] == ["ex"]
+    assert _settings_path(tmp_path).read_bytes() == before  # read-only
+    assert sorted(p.name for p in _settings_path(tmp_path).parent.iterdir()) == ["settings.yml"]
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status({"markdown": 50})], language="Elixir")
+    assert result["unmatched_exts"] is None
+    _write_yaml(_settings_path(tmp_path), {"exclude_patterns": CCC_DEFAULTS})
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status({"markdown": 50})], include_exts=["ex"])
+    assert result["unmatched_exts"] is None
+
+
+def test_check_index_reads_unquoted_glob_items_as_clone_mode_does(monkeypatch, tmp_path):
+    """A hand-edited `- **/*.py` item is a YAML alias error; the check reads it quoted and leaves the file."""
+    settings = _settings_path(tmp_path)
+    settings.parent.mkdir(parents=True)
+    settings.write_bytes(b"include_patterns:\n  - **/*.py\n  - **/*.md\nexclude_patterns:\n  - '**/.cocoindex_code'\n")
+    before = settings.read_bytes()
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load(before.decode("utf-8"))
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status({"markdown": 50})], language="Elixir",
+                       include_exts=["ex", "py"])
+    assert result["unmatched_exts"] == ["ex"]
+    assert settings.read_bytes() == before
+    assert sorted(p.name for p in settings.parent.iterdir()) == ["settings.yml"]
+
+
+def test_check_index_never_runs_ccc_init(monkeypatch, tmp_path):
+    def forbid(*args, **kwargs):
+        raise AssertionError("check mode must not run ccc init")
+
+    monkeypatch.setattr(mod, "run_ccc_init", forbid)
+    result, _ = _check(monkeypatch, tmp_path, [_languages_status({"python": 12})])
+    assert result["verdict"] == "verified"
+    assert not (tmp_path / ".cocoindex_code").exists()
+
+
+def test_check_index_cli_prints_the_verdict(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(mod, "_run_ccc", _FakeCcc([_languages_status({"python": 12})]))
+    monkeypatch.setattr(sys, "argv", ["skf-merge-ccc-exclusions.py", "--check-index", str(tmp_path),
+                                      "--language", "Python", "--include-ext", ".py"])
+    mod.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == CHECK_KEYS and payload["verdict"] == "verified" and payload["unmatched_exts"] is None
+
+
+@pytest.mark.parametrize("extra, code, message", [
+    ((), 2, "--check-index needs --language"),
+    (("--language", " "), 2, "--check-index needs --language"),
+    (("--language", "Python", "--skip-index", "false"), 2, "--check-index takes no setup flag (--skip-index)"),
+    (("--language", "Python", "--result-to", "r.json", "--no-ccc-init"), 2,
+     "--check-index takes no setup flag (--no-ccc-init, --result-to)"),
+    (("--language", "Python", "--build-index"), 2, "--check-index takes no setup flag (--build-index)"),
+], ids=["no-language", "blank-language", "setup-flag", "file-flags", "build-index"])
+def test_check_index_cli_usage_errors(tmp_path, extra, code, message):
+    result = subprocess.run([sys.executable, str(SCRIPT_PATH), "--check-index", str(tmp_path), *extra],
+                            capture_output=True, timeout=60)
+    assert result.returncode == code and result.stdout == b""
+    assert message in json.loads(result.stderr.decode("utf-8"))["message"]
+
+
+def test_check_index_cli_other_usage_errors(tmp_path, tmp_project):
+    missing = subprocess.run([sys.executable, str(SCRIPT_PATH), "--check-index", str(tmp_path / "missing"),
+                              "--language", "Python"], capture_output=True, timeout=60)
+    assert missing.returncode == 1
+    assert "--check-index is not a directory" in json.loads(missing.stderr.decode("utf-8"))["message"]
+    stray = subprocess.run([sys.executable, str(SCRIPT_PATH), "--project-root", str(tmp_project),
+                            "--language", "Python", "--no-ccc-init"], capture_output=True, timeout=60)
+    assert stray.returncode == 2
+    assert "--language needs --check-index" in json.loads(stray.stderr.decode("utf-8"))["message"]
+    both = subprocess.run([sys.executable, str(SCRIPT_PATH), "--check-index", str(tmp_path),
+                           "--clone-root", str(tmp_path), "--language", "Python"], capture_output=True, timeout=60)
+    assert both.returncode == 2

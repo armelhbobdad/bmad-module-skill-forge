@@ -360,9 +360,12 @@ def test_tool_resolution_ast_bridge_rows_name_the_recipes() -> None:
     assert scan["Claude Code"].startswith("`mcp__ast-grep__find_code_by_rule` with each recipe, `output_format=\"json\"`")
     assert scan["Claude Code"].endswith("`mcp__ast-grep__find_code` only as the fallback")
     assert scan["CLI"] == f"`{CLI_COMMAND}`"
+    # #1146: co-imports are counted by the helpers create-skill step 3 §4 runs, never by an ast-grep rule
     co_imports = rows["`detect_co_imports()`"]
-    assert co_imports["Claude Code"].startswith("`mcp__ast-grep__find_code_by_rule` with co-import YAML rule")
-    assert co_imports["CLI"] == "`ast-grep scan -r {rule_file} --json=stream`"
+    assert co_imports["Claude Code"] == co_imports["Cursor"] == "create-skill step 3 §4's helper call"
+    assert co_imports["CLI"] == ("`uv run skf-scan-manifests.py scan {root}` piped to `uv run skf-count-imports.py "
+                                 "count {root} --deps - --threshold 2 [--exclude \"<glob>\"]...`")
+    assert co_imports["Fallback"] == "`co_imports: []` with a warning, never a hand count"
     for old in ("sg run", "ast-grep -p", "ast-grep run -p"):
         assert old not in text, old
     note = _slice(text, "`scan_definitions()` follows the AST Extraction Protocol", "\n")

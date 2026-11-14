@@ -18,7 +18,13 @@ These tests keep the steps on the scripts:
   to (the runner creates none, and the staging folder comes at step 5) and
   an `rm -f` of the JSON an earlier run left there; it holds no copy of the
   decision tree and keeps only the AST-unavailable warning, the per-file
-  fallback, co-import detection and the re-export tracing pointer;
+  fallback, the co-import count and the re-export tracing pointer;
+- §4 counts co-imports with skf-scan-manifests.py piped into
+  skf-count-imports.py, never an ast-grep rule or a hand count, and §5's
+  `co_imports` takes the counts file's dependencies above the threshold;
+  step 3d's Step 4 sorts, links and counts with skf-detect-registry.py
+  `components`, and §5 sends its by-eye exports and its payload from the
+  files step 3d wrote (#1146);
 - a call that leaves no JSON, and a brief whose language no recipe reads,
   go where the protocol's When the Runner Cannot Run sends them: the
   recipes by hand, or source reading;
@@ -27,7 +33,7 @@ These tests keep the steps on the scripts:
   flag, and compile §4 its counts and arms, never a hand count, and its
   condition 2 passes a tier A count over a curated `scope.include`;
 - step 3d's component-library runner writes to the same {extraction_json},
-  which §2b binds and removes for every brief, outside the scratch folder
+  which §2a binds and removes for every brief, outside the scratch folder
   step 3d removes, so §5's `init` seeds a component library's inventory and
   extraction rules from it too, and step 3d acts on its `status`, never its
   exit code (step 5b determinism-1);
@@ -52,7 +58,10 @@ JSON, a public name past the head cap comes back as an extraction gap, the
 documented step 3d call's JSON seeds a component library's inventory and
 extraction rules, a tier A list over the whole package or tree counts what
 `scope.include` counts, under the basis `tier_a_include`, with no warning,
-and the relabel rule's `kind-at` call finds the recipe's kind.
+and the relabel rule's `kind-at` call finds the recipe's kind. The
+documented co-import call counts a small npm tree on module boundaries,
+and the documented step 3d sort links each Props contract of the runner's
+JSON and its payload reaches the inventory through §5's `set`.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -108,6 +117,13 @@ RM_VERIFY = 'rm -f "{verify_json}"'
 VERIFY_CALL = "uv run {verifyProvenanceCompletenessHelper} verify"
 FIX_CALL = "uv run {verifyProvenanceCompletenessHelper} fix"
 KIND_AT_CALL = "uv run {verifyProvenanceCompletenessHelper} kind-at"
+CO_IMPORT_EXCLUDES = ' [--exclude "<glob>"]...'
+CO_IMPORT_CALL = ('uv run {scanManifestsHelper} scan "{source_root}" | uv run {countImportsHelper} count '
+                  '"{source_root}" --deps - --threshold 2' + CO_IMPORT_EXCLUDES + ' > "{co_imports_json}"')
+COMPONENTS_CALL = "uv run {detectRegistryHelper} components"
+SCAN_MANIFESTS = SCRIPTS / "skf-scan-manifests.py"
+COUNT_IMPORTS = SCRIPTS / "skf-count-imports.py"
+DETECT_REGISTRY = SCRIPTS / "skf-detect-registry.py"
 FENCE_RE = re.compile(r"^[ \t]*```bash\n(.*?)^[ \t]*```", re.M | re.S)
 PLACEHOLDER_RE = re.compile(r"\{[A-Za-z][\w-]*\}|<[a-z][\w-]*>")
 TOKEN_RE = re.compile(r"`([a-z_]+(?:\[\])?(?:\.[a-z_0-9]+(?:\[\])?)*)`")
@@ -201,8 +217,8 @@ def _binding(text: str, name: str) -> str:
 
 
 def _extraction_json() -> str:
-    """The runner JSON's path, which §2b's start clean binds for §4 and step 3d."""
-    return _binding(_section(EXTRACT, "2b"), "extraction_json")
+    """The runner JSON's path, which §2a's start clean binds for §4 and step 3d."""
+    return _binding(_section(EXTRACT, "2a"), "extraction_json")
 
 
 def _fill(command: str, values: dict[str, str]) -> list[str]:
@@ -287,10 +303,10 @@ def test_section_4_runs_the_protocol_through_the_runner() -> None:
     tiers = re.findall(r"`(Quick|Forge\+?|Deep)`", _read(REFS / "load-brief.md"))
     assert set(tiers) == set(RUNNER_MOD.TIERS), tiers
     assert "resolve `{extractPublicApiHelper}` ← first existing path in `{extractPublicApiProbeOrder}`" in four
-    # the runner's JSON sits beside the staging folder, never in the skill; §2b binds it
+    # the runner's JSON sits beside the staging folder, never in the skill; §2a binds it
     assert _extraction_json() == STAGE + "{skill-name}.extraction.json"
     assert "`{extraction_json}` ←" not in four
-    assert ("it writes `{extraction_json}` (bound in §2b, beside the staging folder step 5 creates, never inside "
+    assert ("it writes `{extraction_json}` (bound in §2a, beside the staging folder step 5 creates, never inside "
             "the skill)") in four
     # the step acts on the JSON, never on the exit code, and points at the one list of fallback cases
     assert ("A JSON at `{extraction_json}` after the call is this call's: read it, in parts when it is large, "
@@ -331,8 +347,6 @@ def test_section_4_keeps_what_the_protocol_does_not_say() -> None:
     assert "`{tierDegradationRulesData}`" in unavailable and "Run [SF] Setup Forge" in unavailable
     failures = _slice(four, "**For each file, handle failures gracefully:**", "**Re-export tracing")
     assert "(the runner lists each one in `file_issues`): fall back to source reading for that file" in failures
-    co_imports = _slice(four, "**Co-import detection (Forge tier and above):**", "\n")
-    assert "`ast_bridge.detect_co_imports(path, libraries[])`" in co_imports
     tracing = _slice(four, "**Re-export tracing (Forge tier and above):**", "\n")
     for token in ("**Re-Export Tracing** protocol in `{extractionPatternsTracingData}`", "`entry_points.unresolved`",
                   "`entry_point_diff.extraction_gaps` name with no `file`"):
@@ -345,12 +359,77 @@ def test_section_4_keeps_what_the_protocol_does_not_say() -> None:
     assert "Narrow `scope.include` in the brief until no recipe reaches the cap." in truncated
 
 
+def _co_import_paragraph() -> str:
+    return _slice(_section(EXTRACT, "4"), "**Co-import counts (Forge tier and above, AST tools or not):**",
+                  "**If AST tools are unavailable")
+
+
+def test_section_4_counts_co_imports_through_the_helpers() -> None:
+    """#1146 determinism-3: §4 had the model write a co-import ast-grep rule
+    over a `libraries[]` list no step defined and judge which libraries are
+    "commonly" imported, a count with no module boundary. It now pipes the
+    manifest scan into skf-count-imports.py, writes the counts beside the
+    staging folder (§2a binds and removes the file), and on a missing helper
+    or a failed call removes the file and warns, never counting by hand; the
+    pair call its suggestions may run fits skf-pair-intersect.py."""
+    frontmatter = _frontmatter(_read(EXTRACT))
+    for stem, script in (("scanManifests", SCAN_MANIFESTS), ("countImports", COUNT_IMPORTS),
+                         ("pairIntersect", SCRIPTS / "skf-pair-intersect.py")):
+        assert frontmatter[f"{stem}ProbeOrder"] == [f"{{project-root}}/_bmad/skf/shared/scripts/{script.name}",
+                                                   f"{{project-root}}/src/shared/scripts/{script.name}"], stem
+        assert script.is_file(), script
+    four = _section(EXTRACT, "4")
+    assert _call(four, "uv run {scanManifestsHelper}") == CO_IMPORT_CALL
+    assert _block(four, "uv run {scanManifestsHelper}") == [CO_IMPORT_CALL]
+    assert _binding(_section(EXTRACT, "2a"), "co_imports_json") == STAGE + "{skill-name}.co-imports.json"
+    stale = '"{extraction_json}" "{co_imports_json}" "{components_json}" "{read_by_eye_json}" '
+    assert stale in _section(EXTRACT, "2a")
+    paragraph = " ".join(_co_import_paragraph().split())
+    for phrase in ("resolve `{scanManifestsHelper}`, `{countImportsHelper}` and `{pairIntersectHelper}` ← first "
+                   "existing path in `{scanManifestsProbeOrder}`, `{countImportsProbeOrder}` and "
+                   "`{pairIntersectProbeOrder}`",
+                   "matched on module boundaries (`react-dom` is not `react`), with one `--exclude` for each glob of "
+                   "the brief's `scope.exclude` (none when it lists none), so the files the brief leaves out, such "
+                   "as an `examples/` app, are not counted:",
+                   "When `{scanManifestsHelper}` or `{countImportsHelper}` does not resolve, or the call exits "
+                   "non-zero (a `{source_root}` that is no local folder included), run `rm -f \"{co_imports_json}\"`, "
+                   "warn \"Co-imports were not counted: {the first stderr line, or '`{the missing script}` is "
+                   "missing; re-install SKF'}.\" and send the warning with §5's `add --field warnings`: never count "
+                   "imports by hand."):
+        assert phrase in paragraph, phrase
+    [pairs] = re.findall(r"`(uv run \{pairIntersectHelper\} [^`]+)`", paragraph)
+    pair_intersect = _module("skf_create_extraction_pair_intersect", SCRIPTS / "skf-pair-intersect.py")
+    _parses(pair_intersect._build_parser(), _fill(pairs, {"pairIntersectHelper": "p.py", "co_imports_json": "c.json",
+                                                          "a": "react", "b": "clsx"}))
+    text = _read(EXTRACT) + _read(PATTERNS)
+    for gone in ("ast_bridge.detect_co_imports", "libraries[]", "co-import YAML rule", "commonly imported",
+                 "Co-import patterns ast-grep detected"):
+        assert gone not in text, gone
+
+
+def test_section_5_takes_co_imports_from_the_counts() -> None:
+    """§5's `set` sends `co_imports` from the counts file, the dependencies
+    above the threshold as written there, with only the integration point
+    suggestion the model's, and `[]` with no file."""
+    five = " ".join(_section(EXTRACT, "5").split())
+    assert ("`co_imports` (Forge tier and above), from `{co_imports_json}` when §4 left it, else `[]`: one "
+            '`{"name", "file_count", "integration"}` per `dependencies[]` entry whose `above_threshold` is true, '
+            "in the file's order, with `name` and `file_count` as written there and `integration` your one-line "
+            "integration point suggestion, null when its files show none") in five
+    resolution = _read(KNOWLEDGE / "tool-resolution.md")
+    rows = [line for line in resolution.splitlines() if line.startswith("|") and "`detect_co_imports()`" in line]
+    assert len(rows) == 1 and "never a hand count" in rows[0] and "skf-count-imports.py" in rows[0]
+    # the row keeps its `ast_bridge` name, and the note under the table says no ast-grep runs
+    assert ("`detect_co_imports()` keeps its `ast_bridge` name but runs no ast-grep: at Forge tier and above, "
+            "skf-count-imports.py counts the import statements") in resolution
+
+
 def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:
     """The runner reads every file in scope in one call and keeps a capped
     recipe's matches in file and line order, so a CCC ranking orders only the
     files read one at a time. The patterns file says so once, and no file
     that describes the ranking claims more."""
-    integration = _slice(_read(EXTRACT), "**CCC Discovery Integration (Forge+ and Deep with ccc only):**", "### 2a.")
+    integration = _slice(_read(EXTRACT), "**CCC Discovery Integration (Forge+ and Deep with ccc only):**", "### 2b.")
     assert ("§4 and §4b read the files they read one at a time in its order, as the CCC Pre-Ranking Strategy in "
             "`{extractionPatternsData}` says") in integration
     assert ("Display: \"**CCC discovery: {N} files ranked by semantic relevance.** Files read one at a time "
@@ -359,7 +438,7 @@ def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:
     assert ("rank the files extraction reads one at a time: those the recipe runner leaves to source reading (its "
             "`file_issues`, its extraction gaps and the files of a language no recipe reads), or the filtered file "
             "list when extraction runs without the runner") in ranking
-    describers = [EXTRACT, PATTERNS, REFS / "sub" / "ccc-discover.md", REFS / "load-brief.md",
+    describers = [EXTRACT, PATTERNS, REFS / "ccc-discover.md", REFS / "load-brief.md",
                   KNOWLEDGE / "ccc-bridge.md", KNOWLEDGE / "progressive-capability.md"]
     for path in describers:
         text = _read(path)
@@ -367,7 +446,7 @@ def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:
             assert claim not in text, (path.name, claim)
     assert "the recipe runner reads every file in scope, so its result does not depend on it" in _read(
         KNOWLEDGE / "ccc-bridge.md")
-    assert "step 3 reads the files it reads one at a time in their order" in _read(REFS / "sub" / "ccc-discover.md")
+    assert "step 3 reads the files it reads one at a time in their order" in _read(REFS / "ccc-discover.md")
 
 
 def test_tool_resolution_names_the_runner_where_a_step_gives_it() -> None:
@@ -396,9 +475,10 @@ def test_filtered_list_is_built_by_the_runner_where_a_step_reads_it() -> None:
     assert ("with `--tree-file -` in place of `--source-root`. The filtered file list is its `files_in_scope_list` "
             "(the files a recipe reads) and `files_without_recipes_list` (those in a language no recipe reads)") \
         in by_hand
-    # the auth-files order note stays where test-skf-auth-files-after-clone.py reads it
-    assert "Sections 2b and 2a follow in that order" in two
-    ready = _slice(_section(EXTRACT, "2b"), "- **`ready`**", "\n")
+    # the labels follow the run order, so no order note is left (#1144)
+    assert "Sections 2b and 2a" not in two
+    # #1147: §2a's remote block, with its dispatch, lives in the file §2a loads for a remote source
+    ready = _slice(_read(REFS / "remote-source-access.md"), "- **`ready`**", "\n")
     assert ("Build the §2 filtered file list again from `{source_root}` when §2 builds one (a `component-library` "
             "brief)") in ready
 
@@ -432,8 +512,13 @@ def test_entry_point_check_reads_the_runner_diff() -> None:
     assert "**Python:** `__init__.py`, its imports." in by_hand
     assert ("1. **The files in scope and the entry points**, unless a runner JSON gives them (its `no-ast-grep` "
             "result too):") in by_hand
-    assert "so public_api_coverage drops (only effective_denominator, for the curated-subset shapes" in by_hand
-    assert "**Multi-entry packages (`exports` map / declaration-file entry points).**" in by_hand
+    # #1148: one paragraph for a remote source with no local tree; `--mode denominator` resolves a local tree's
+    # `exports` subpaths, and the inventory helper writes `metadata.json`'s `exports[]`
+    assert ("**A remote source with no local tree** (step 1 gives no `entry_points.files`): when the in-scope "
+            "`package.json` declares an `exports` map, read each subpath target") in by_hand
+    assert ("Step 3's diff lists a name defined outside `scope.include` in `outside_scope`: widen `scope.include` to "
+            "document it.") in by_hand
+    assert "Multi-entry packages" not in by_hand and "authoritative source for `metadata.json`" not in by_hand
     assert "- **Python:** Read" not in four_b and "**Multi-entry packages" not in four_b
     assert "outside the coverage denominator" not in four_b and "excluded from the coverage denominator" not in four_b
 
@@ -462,13 +547,13 @@ def test_step_3d_writes_the_runner_json_step_3_seeds_from() -> None:
     the scratch folder Phase 6 removes, so `init` seeds a component library's
     inventory with the runner's exports, counts and extraction rules, and the
     model sends only what it read by eye, the Props fields and the catalog.
-    §2b binds the path and removes it for every brief, so a JSON there is
+    §2a binds the path and removes it for every brief, so a JSON there is
     this run's even when no runner candidate resolves."""
     phase_4 = _phase_4()
     assert "`{extraction_json}` ←" not in phase_4
-    assert "it writes `{extraction_json}`, which step 3 §2b bound beside the staging folder" in phase_4
+    assert "it writes `{extraction_json}`, which step 3 §2a bound beside the staging folder" in phase_4
     assert _extraction_json() == STAGE + "{skill-name}.extraction.json"
-    assert 'rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" ' in _section(EXTRACT, "2b")
+    assert 'rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" ' in _section(EXTRACT, "2a")
     block = _block(phase_4, RUNNER_CALL)
     assert block[:2] == [MKDIR_CALL, RM_EXTRACTION] and block[2].startswith(RUNNER_CALL), block
     call = block[2]
@@ -484,13 +569,48 @@ def test_step_3d_writes_the_runner_json_step_3_seeds_from() -> None:
             "`{extraction_json}`") in five
     assert "with the labels step 3d gave them" not in five
     assert ("A component library (§2c) sends here only the exports step 3d read by eye (Quick tier, a `file_issues` "
-            "file, a file an `errors[]` item lists in `unread`, or the runner's fallback); it sends each Props "
-            "interface's fields with `patch` as `params`, and `component_catalog` with `set`.") in five
+            "file, a file an `errors[]` item lists in `unread`, or the runner's fallback), with the "
+            "`< \"{read_by_eye_json}\"` call below when step 3d wrote that file; it sends each Props interface's "
+            "fields with `patch` as `params`, and its `component_catalog` and `component_stats` with the "
+            "`< \"{components_json}\"` call below when step 3d wrote that file.") in five
     assert ("for each function export whose `params` the runner left null (and each Props interface of a component "
             "library)") in five
     six = _slice(text, "### Phase 6:", "## RETURN PROTOCOL")
-    assert "keep the aggregate counts below in context for step 5's `metadata.json` stats" in six
+    # the aggregate counts reach the inventory as component_stats, never context alone (#1144), and the helper
+    # counts them (#1146): no definition is left for the model to apply
+    assert "keep the aggregate counts below in context" not in six and "in context" not in six
+    assert ("`component_stats` is Step 4's `stats_extra`, which the call wrote with `component_catalog` to "
+            "`{components_json}`: step 3 §5's `set` reads that file into the inventory") in six
+    for gone in ("**Component library aggregate counts**", "count from registry", "count of components with linked",
+                 "deduplicated count", "map of variant name", "Linked component name", "Linked Props interface"):
+        assert gone not in text, gone
+    assert "Count unique components" not in text and "Naming convention (primary)" not in text
+    # the two file-fed calls, beside the heredoc set that no longer carries the component fields
+    assert _binding(_section(EXTRACT, "2a"), "components_json") == STAGE + "{skill-name}.components.json"
+    assert _binding(_section(EXTRACT, "2a"), "read_by_eye_json") == STAGE + "{skill-name}.read-by-eye.json"
+    assert (_call(five, 'uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field exports < ')
+            == 'uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field exports '
+               '< "{read_by_eye_json}"')
+    assert (_call(five, 'uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" < ')
+            == 'uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" < "{components_json}"')
+    assert "`component_stats` (step 3d's Phase 6)" not in five
     assert "- `params`: each field as `{name, type, default, optional, description}`, sent with `patch`" in six
+
+
+def test_step_3d_returns_to_section_5_even_after_a_compaction() -> None:
+    """#1144 architecture-1: the return protocol forbade loading `{returnToStep}`, so a compaction that dropped
+    extract.md left no resume point, and running extract.md from the top deletes the `{extraction_json}` Phase 4
+    wrote at §2a's start clean. Step 3d now resumes at §5, loading extract.md for it when §5 is out of context."""
+    text = _read(COMPONENT)
+    protocol = text[text.index("## RETURN PROTOCOL"):]
+    assert ("Resume step 3 at its §5. If §5 is no longer in context, load `{returnToStep}` and execute from its §5 "
+            "(Build Extraction Inventory) onward; never re-run its §1 to §4c, whose §2a start clean deletes the "
+            "`{extraction_json}` Phase 4 wrote.") in protocol
+    assert "Do not load `{returnToStep}`" not in text
+    assert _frontmatter(text)["returnToStep"] == "extract.md"
+    # §2a's start clean is what deletes the runner JSON, and §5 is the section the protocol names
+    assert '"{extraction_json}"' in _slice(_section(EXTRACT, "2a"), "**Start clean:**", "\n")
+    assert _read(EXTRACT).count("\n### 5. Build Extraction Inventory\n") == 1
 
 
 def test_step_3d_acts_on_the_runner_status() -> None:
@@ -552,23 +672,31 @@ def test_an_incomplete_run_runs_again_and_reads_its_unread_files_by_eye() -> Non
 
 
 def test_phase_4_sorts_an_export_read_by_eye_by_its_shape() -> None:
-    """#748: Steps 1, 2 and 4 take the exports their recipes found, and an
-    export Phase 4 reads by eye (a `file_issues` file, or a file an
-    `errors[]` item lists in `unread`) has no `ast_recipe`, so read by recipe
-    no step took it: a Props interface read so got no `params`, and its
-    component was recorded as having no Props interface. Phase 4 says, ahead
-    of Step 1 and naming no recipe, that such an export is sorted by its
-    shape, as at Quick tier, so a `*Props` interface read by eye is a Props
-    contract for Steps 1 and 3, in the words Step 2 uses for a type-only
-    list item."""
+    """#748: an export Phase 4 reads by eye (a `file_issues` file, or a
+    file an `errors[]` item lists in `unread`) has no `ast_recipe`, so read
+    by recipe no step took it: a Props interface read so got no `params`, and
+    its component was recorded as having no Props interface. Phase 4 says,
+    ahead of Step 1 and naming no recipe, that Step 4's call sorts such an
+    export by its `export_type` and name (#1146: the call, not the model,
+    sorts), and the call does sort a `*Props` interface read by eye as a
+    Props contract and links it to its component."""
     phase_4 = _phase_4()
     head = phase_4[:phase_4.index("**Step 1 (extract Props interfaces):**")]
-    clause = ("and the steps below sort the exports by `ast_recipe`, and an export read by eye, which has none, by its "
-              "shape, as at Quick tier (a `*Props` interface read by eye is a Props contract for Steps 1 and 3).")
+    clause = ("and Step 4's call sorts the exports by `ast_recipe`, and an export read by eye, which has none, by its "
+              "`export_type` and name (a `*Props` interface read by eye is a Props contract).")
     assert clause + " Read by eye, as T1-low, each file its `file_issues` lists" in head
-    assert re.findall(r"`([^`]+)`", clause) == ["ast_recipe", "*Props"], "the clause names no recipe id"
+    assert re.findall(r"`([^`]+)`", clause) == ["ast_recipe", "export_type", "*Props"], "the clause names no recipe id"
     assert "At Quick tier no recipe runs: read the shapes the steps below name from source, as T1-low." in head
-    assert phase_4.count("is a Props contract for Steps 1 and 3") == 2
+    assert "is a Props contract for Steps 1 and 3" not in phase_4
+    detect = _module("skf_create_extraction_detect_registry", DETECT_REGISTRY)
+    result = detect.detect_components([
+        {"export_name": "InputProps", "export_type": "interface", "source_file": "ui/input.tsx", "source_line": 1,
+         "citation": "[SRC:ui/input.tsx:L1]"},
+        {"export_name": "Input", "export_type": "function", "source_file": "ui/input.tsx", "source_line": 5,
+         "citation": "[SRC:ui/input.tsx:L5]"}], [])
+    assert [c["name"] for c in result["props_contracts"]] == ["InputProps"]
+    assert result["links"] == [{"props": "InputProps", "props_file": "ui/input.tsx", "component": "Input",
+                                "component_file": "ui/input.tsx", "link_method": "naming-convention"}]
     line = next(row for row in head.splitlines() if clause in row)
     assert not re.search("[\u2013\u2014]", line), "no em or en dash on the line"
     # what the sort feeds: Step 1 cites a by-eye read, Phase 6 sends its fields as `params` and labels it T1-low
@@ -774,8 +902,9 @@ def test_compile_stores_the_count_the_script_decides_to_store() -> None:
         assert gone not in four, gone
     assert "\u2014" not in bullet and "\u2013" not in bullet
     # the files that cited the conditions by number cite the decision
+    # #1147: the reference-app carve-out moved into the override file compile §2 loads for that shape
     assets = SRC / "skf-create-skill" / "assets"
-    for path in (assets / "compile-assembly-rules.md", assets / "skill-sections.md"):
+    for path in (REFS / "assembly-reference-app.md", assets / "skill-sections.md"):
         text = _read(path)
         assert "condition 1" not in text and "emit-conditions" not in text, path.name
         assert "effective_denominator_decision" in text, path.name
@@ -895,10 +1024,11 @@ BY_HAND = REFS / "extraction-patterns-by-hand.md"
 CUT = "## Running the Recipes Without the Runner"
 # The whole file stays under the 9,000-token budget of a single-purpose
 # reference (tiktoken cl100k_base) and what every run reads under the 4,500 of
-# a multi-branch one: about 4 characters a token, so 36,000 and 18,500
-# characters stand in for them here.
+# a multi-branch one: about 4 characters a token, so 36,000 and 18,600
+# characters stand in for them here (#1146's two co-import lines, which name
+# the helper that counts, added the last 100).
 PATTERNS_CHAR_BUDGET = 36_000
-EVERY_RUN_CHAR_BUDGET = 18_500
+EVERY_RUN_CHAR_BUDGET = 18_600
 
 
 def test_the_patterns_file_keeps_only_what_every_run_reads() -> None:
@@ -963,8 +1093,9 @@ def test_relabel_rule_looks_the_kind_up_with_kind_at() -> None:
     for path, number in ((COMPILE, "4"), (VALIDATE, "7")):
         assert _frontmatter(_read(path))["verifyProvenanceCompletenessProbeOrder"] == VERIFIER_PROBE, path.name
         assert RESOLVE_VERIFIER in _section(path, number), path.name
-    # validate's frontmatter names both of its verifier users
-    assert "§7's relabel runs its `kind-at`, and §7a its `verify` and `fix`." in _read(VALIDATE)
+    # §7a resolves the verifier for its `verify` and `fix` where it runs them (#1147: no frontmatter comment)
+    assert ("Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in "
+            "`{verifyProvenanceCompletenessProbeOrder}`") in _section(VALIDATE, "7a")
 
 
 # --------------------------------------------------------------------------
@@ -1256,7 +1387,7 @@ def test_a_failed_scope_or_count_call_runs_once_more_then_halts(tmp_path: Path) 
     facts = json.loads((tmp_path / "_bmad-output" / ".skf-stage" / "demo.scope.json").read_text(encoding="utf-8"))
     assert facts["files_in_scope_list"] == ["src/pkg/__init__.py", "src/pkg/core.py"]
     step = _slice(" ".join(_read(REFS / "entry-points-by-hand.md").split()), "4. **When a call fails:**",
-                  "**Multi-entry")
+                  "**A remote source with no local tree**")
     for token in ("on exit 2, show the stderr line that holds `error:` and run the call once more",
                   "with the brief's scope as `--include`, `--exclude`, `--tier-a-include`, `--scope-type` and "
                   "`--language` in place of `--brief` when it names the brief",
@@ -1265,7 +1396,7 @@ def test_a_failed_scope_or_count_call_runs_once_more_then_halts(tmp_path: Path) 
         assert token in step, token
     two = _section(EXTRACT, "2")
     assert ("When a call of that file fails as its step 4 says, **HARD HALT** (exit code 4, `write-failed`, phase "
-            "`extract`, or exit code 3, `helper-missing`, when no path resolves;") in two
+            "`extract`, or exit code 3, `helper-missing`, when no path resolves)") in two
 
 
 HAND_COUNT_TREE = {
@@ -1429,7 +1560,10 @@ def test_the_component_runner_json_seeds_the_inventory(tmp_path: Path) -> None:
     warnings as it wrote them, a Props interface takes its fields through
     `patch` (its JSDoc description included, which the Tier 2 Props table
     reads), and step 7's `rules` writes the component-library recipe set
-    and the recipes the runner ran into extraction-rules.yaml."""
+    and the recipes the runner ran into extraction-rules.yaml. Then Phase
+    4's documented Step 4 call sorts the runner's JSON, linking ButtonProps
+    and CardProps by naming convention, and §5's documented `set` takes the
+    payload it wrote (#1146)."""
     root = tmp_path / "source"
     for rel, text in COMPONENT_TREE.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -1480,6 +1614,153 @@ def test_the_component_runner_json_seeds_the_inventory(tmp_path: Path) -> None:
     rules = yaml.safe_load(rules_target.read_text(encoding="utf-8"))
     assert (rules["extraction_mode"], rules["recipe_set"]) == ("component-library", "component-library")
     assert "react-props-interfaces" in rules["recipes"] and rules["ast_grep_version"]
+
+    # #1146: Phase 4's Step 4 call sorts and links the runner's JSON, and §5's `set` takes its payload as written
+    components_json = _binding(_section(EXTRACT, "2a"), "components_json").replace(
+        "{project-root}", tmp_path.as_posix()).replace("{skill-name}", "demo")
+    brief = tmp_path / "skill-brief.yaml"
+    brief.write_bytes(b"name: demo\nscope:\n  type: component-library\n")
+    scan = tmp_path / "scan"
+    scan.mkdir()
+    call = _call(phase_4, COMPONENTS_CALL)
+    words, stdin, stdout = _redirects(_fill(_synopsis(call, {"--extraction"}), {
+        "detectRegistryHelper": "detect.py", "extraction_json": out, "brief_file": brief.as_posix(),
+        "demo_files_excluded": "0", "components_json": components_json, "component_scan": scan.as_posix()}))
+    assert stdin is None and stdout == (scan / "components.json").as_posix()
+    result = _run(words, DETECT_REGISTRY, tmp_path)
+    assert result.returncode == 0, result.stderr
+    sorted_out = json.loads(result.stdout)
+    links = {link["props"]: (link["component"], link["link_method"]) for link in sorted_out["links"]}
+    assert links == {"ButtonProps": ("Button", "naming-convention"), "CardProps": ("Card", "naming-convention")}
+    assert sorted_out["stats_extra"] == {"components_registered": 0, "components_documented": 2,
+                                         "props_interfaces_extracted": 2, "components_unique": 2,
+                                         "demo_files_excluded": 0, "design_variants": {}}
+    set_call = _call(_section(EXTRACT, "5"),
+                     'uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" < ')
+    words, stdin, stdout = _redirects(_fill(set_call, {"extractionInventoryHelper": "inventory.py",
+                                                       "extraction_inventory": inventory.as_posix(),
+                                                       "components_json": components_json}))
+    assert stdin == components_json and stdout is None
+    proc = subprocess.run([sys.executable, str(INVENTORY), *words[3:]], input=Path(stdin).read_text(encoding="utf-8"),
+                          capture_output=True, text=True, encoding="utf-8", cwd=tmp_path, check=False)
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(inventory.read_text(encoding="utf-8"))
+    assert (data["component_catalog"], data["component_stats"]) == ([], sorted_out["stats_extra"])
+
+
+def _synopsis(command: str, keep: set[str]) -> str:
+    """`command` with each `[--flag ...]` group kept, brackets dropped, when its flag is in `keep`, else removed."""
+    return re.sub(r" ?\[(--[\w-]+)([^\]]*)\]", lambda m: f" {m.group(1)}{m.group(2)}" if m.group(1) in keep else "",
+                  command)
+
+
+def _redirects(words: list[str]) -> tuple[list[str], str | None, str | None]:
+    """(the words before any redirect, the `<` file, the `>` file)."""
+    files = {"<": None, ">": None}
+    while len(words) >= 2 and words[-2] in files:
+        files[words[-2]] = words[-1]
+        words = words[:-2]
+    return words, files["<"], files[">"]
+
+
+def _co_import_tree(root: Path) -> None:
+    """An npm tree: react imported by 2 files, react-dom by 1, clsx by 2, lodash by none."""
+    files = {
+        "package.json": '{"name": "demo", "version": "1.0.0", "dependencies": {"react": "^18", "react-dom": "^18", '
+                        '"clsx": "^2", "lodash": "^4"}}\n',
+        "src/a.tsx": 'import React from "react"\nimport clsx from "clsx"\n',
+        "src/b.tsx": 'import { useState } from "react"\nimport { clsx } from "clsx"\n',
+        "src/c.tsx": 'import { createRoot } from "react-dom/client"\n',
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+
+
+def _run_co_import_call(source_root: str, out: Path, excludes: tuple[str, ...] = ()) -> int:
+    """Run §4's documented co-import pipe as the shell would: scan, its stdout into count, count's into the file,
+    with one `--exclude` per glob of the brief's `scope.exclude` in place of the synopsis group."""
+    call = _call(_section(EXTRACT, "4"), "uv run {scanManifestsHelper}")
+    assert call.count(CO_IMPORT_EXCLUDES) == 1, call
+    call = call.replace(CO_IMPORT_EXCLUDES, "".join(f' --exclude "{glob}"' for glob in excludes))
+    scan_part, count_part = call.split(" | ")
+    values = {"scanManifestsHelper": "scan.py", "countImportsHelper": "count.py", "source_root": source_root,
+              "co_imports_json": out.as_posix()}
+    scan_words, _, _ = _redirects(_fill(scan_part, values))
+    count_words, _, target = _redirects(_fill(count_part, values))
+    assert target == out.as_posix()
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), *scan_words[3:]], capture_output=True, timeout=60,
+                          check=False)
+    out.write_bytes(b"")  # the shell's `>` creates the file before the command runs
+    count = subprocess.run([sys.executable, str(COUNT_IMPORTS), *count_words[3:]], input=scan.stdout,
+                           capture_output=True, timeout=60, check=False)
+    out.write_bytes(count.stdout)
+    return count.returncode
+
+
+def test_the_documented_co_import_call_counts_on_module_boundaries(tmp_path: Path) -> None:
+    """#1146 determinism-3, the I/O matrix's Co-imports row: §4's documented
+    call over an npm tree counts react and clsx in 2 files each, react-dom in
+    1 (never as react), lodash in none, and §5's rule keeps the two above
+    the threshold, whose `set` the inventory takes."""
+    root = tmp_path / "source"
+    _co_import_tree(root)
+    out = tmp_path / "demo.co-imports.json"
+    assert _run_co_import_call(root.as_posix(), out) == 0
+    counts = json.loads(out.read_text(encoding="utf-8"))
+    by_name = {d["name"]: (d["file_count"], d["above_threshold"]) for d in counts["dependencies"]}
+    assert by_name == {"clsx": (2, True), "react": (2, True), "react-dom": (1, False), "lodash": (0, False)}
+    # §5: one {name, file_count, integration} per dependency above the threshold, in the file's order
+    co_imports = [{"name": d["name"], "file_count": d["file_count"], "integration": None}
+                  for d in counts["dependencies"] if d["above_threshold"]]
+    assert co_imports == [{"name": "clsx", "file_count": 2, "integration": None},
+                          {"name": "react", "file_count": 2, "integration": None}]
+    inventory = tmp_path / "demo.inventory.json"
+    for args, stdin in ((["init", "--skill", "demo", "--mode", "source", "--tier", "Forge"], None),
+                        (["set"], json.dumps({"co_imports": co_imports})), (["summary"], None)):
+        proc = subprocess.run([sys.executable, str(INVENTORY), *args, "--inventory", str(inventory)], input=stdin,
+                              capture_output=True, text=True, encoding="utf-8", cwd=tmp_path, check=False)
+        assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["counts"]["co_imports"] == 2
+
+
+def test_the_co_import_call_leaves_out_what_the_brief_excludes(tmp_path: Path) -> None:
+    """The I/O matrix's Co-import scope row: an `examples/` app declares
+    `next` and two of its pages import it. Counted over the whole tree,
+    `next` is a co-import of the library; with the `--exclude` the brief's
+    `scope.exclude` gives, its file count is 0."""
+    root = tmp_path / "source"
+    _co_import_tree(root)
+    files = {"examples/app/package.json": '{"name": "app", "dependencies": {"next": "^14"}}\n',
+             "examples/app/pages/a.tsx": 'import Link from "next/link"\n',
+             "examples/app/pages/b.tsx": 'import Head from "next/head"\n'}
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+
+    def counts(excludes: tuple[str, ...]) -> dict:
+        out = tmp_path / "demo.co-imports.json"
+        assert _run_co_import_call(root.as_posix(), out, excludes) == 0
+        return {d["name"]: (d["file_count"], d["above_threshold"])
+                for d in json.loads(out.read_text(encoding="utf-8"))["dependencies"]}
+
+    assert counts(())["next"] == (2, True)
+    scoped = counts(("examples/**",))
+    assert scoped["next"] == (0, False)
+    assert (scoped["react"], scoped["clsx"]) == ((2, True), (2, True))
+
+
+def test_a_failed_co_import_call_leaves_no_counts(tmp_path: Path) -> None:
+    """The I/O matrix's No count row: a `{source_root}` that is no local
+    folder makes the documented call exit non-zero, and the paragraph's
+    `rm -f` removes the file its `>` left, so §5 sends `co_imports: []`."""
+    out = tmp_path / "demo.co-imports.json"
+    assert _run_co_import_call("https://github.com/acme/ui", out) != 0
+    assert out.exists()
+    [rm] = re.findall(r'`(rm -f "\{co_imports_json\}")`', _co_import_paragraph())
+    _rm(rm, {"co_imports_json": out.as_posix()})
+    assert not out.exists()
+    assert "from `{co_imports_json}` when §4 left it, else `[]`" in _section(EXTRACT, "5")
 
 
 @needs_ast_grep

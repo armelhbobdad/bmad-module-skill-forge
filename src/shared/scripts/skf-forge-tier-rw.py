@@ -19,6 +19,15 @@ Subcommands:
   read          Read forge-tier.yaml and emit the parsed structure as JSON
                 on stdout. Missing-file is not an error — emits null
                 payload with status=ok so first-run callers can branch.
+                With --fresh-within-hours N --name NAME (both or
+                neither) it also prints `fresh` and `age_hours` for the
+                first `qmd_collections` entry named NAME: `age_hours` is
+                the hours since its `created_at`, to one decimal
+                (negative for a time in the future), null with no file,
+                no such entry or no time it can read; `fresh` is true
+                when that age is 0 to N hours. `created_at` may be a
+                string or the datetime or date YAML loads: a date is
+                midnight UTC, a time with no offset is UTC.
 
   effective     The tier a run works at, read-only: the `tier` and
                 `tools` of forge-tier.yaml (--target) with the
@@ -93,7 +102,10 @@ Subcommands:
                 preserved verbatim. Used by skf-brief-skill step 5 §3b
                 and skf-create-skill to register Deep-tier QMD
                 collections without re-rendering the whole file in
-                prose.
+                prose. An entry whose `created_at` is absent, null or
+                empty gets the current UTC time
+                (`2026-01-01T00:00:00+00:00`, to the second); a given
+                one is stored as it is.
 
   remove-qmd-collection
                 Remove every `qmd_collections` entry whose `name` is
@@ -110,9 +122,11 @@ Subcommands:
                 composite key `source_repo`+`skill_name` is the upsert
                 key — existing entry with the same composite key is
                 replaced, otherwise appended). All other forge-tier
-                state is preserved verbatim. Used by skf-create-skill
-                §6b to register CCC-indexed source paths without
-                re-rendering the whole file in prose.
+                state is preserved verbatim. An entry whose `indexed_at`
+                is absent, null or empty gets the current UTC time, as
+                register-qmd-collection stamps `created_at`. Used by
+                skf-create-skill §6b to register CCC-indexed source
+                paths without re-rendering the whole file in prose.
 
   clean-stale   Two cleanup operations gated by flags:
                   --qmd-live-from <qmd-classify.json>: remove
@@ -167,6 +181,8 @@ on a fresh interpreter where pyyaml has not been pip-installed
 system-wide:
 
   uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml
+  uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml \\
+      --fresh-within-hours 24 --name foo-extraction
   uv run skf-forge-tier-rw.py effective --target /path/forge-tier.yaml \\
       --preferences /path/preferences.yaml [--tier-override Deep]
   echo '{...}' | uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
@@ -190,7 +206,7 @@ import math
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -457,12 +473,53 @@ def _payload_from(data: dict, **replace) -> dict:
 # ─── Subcommands ─────────────────────────────────────────────────────────────
 
 
-def cmd_read(target: Path) -> None:
+def _now_stamp() -> str:
+    """The current UTC time, to the second, as register-qmd-collection and register-ccc-index stamp it."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _stamp_missing(entry: dict, key: str) -> dict:
+    """`entry` with `key` set to the current time when it is absent, null or empty."""
+    value = entry.get(key)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return {**entry, key: _now_stamp()}
+    return entry
+
+
+def _as_utc(value) -> datetime | None:
+    """A created_at value as an aware UTC datetime: a string, or the datetime or date YAML loads; else None."""
+    if isinstance(value, datetime):
+        when = value
+    elif isinstance(value, date):
+        when = datetime(value.year, value.month, value.day)
+    elif isinstance(value, str) and value.strip():
+        try:
+            when = datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when.astimezone(timezone.utc)
+
+
+def collection_freshness(data: dict | None, name: str, hours: float, now: datetime | None = None) -> dict:
+    """{fresh, age_hours} of the first qmd_collections entry named `name` (see the read docstring)."""
+    collections = (data or {}).get("qmd_collections")
+    entry = next((e for e in collections if isinstance(e, dict) and e.get("name") == name), None) \
+        if isinstance(collections, list) else None
+    when = _as_utc(entry.get("created_at")) if entry is not None else None
+    if when is None:
+        return {"fresh": False, "age_hours": None}
+    age = ((now or datetime.now(timezone.utc)) - when).total_seconds() / 3600
+    return {"fresh": 0 <= age <= hours, "age_hours": round(age, 1)}
+
+
+def cmd_read(target: Path, fresh_within_hours: float | None = None, name: str | None = None) -> None:
     data = _read_yaml(target)
-    if data is None:
-        _ok({"exists": False, "data": None})
-        return
-    _ok({"exists": True, "data": data})
+    payload = {"exists": data is not None, "data": data}
+    if fresh_within_hours is not None:
+        payload.update(collection_freshness(data, name, fresh_within_hours))
+    _ok(payload)
 
 
 def _load_mapping(path: Path) -> tuple[dict | None, str | None, str]:
@@ -695,6 +752,7 @@ def cmd_register_qmd_collection(target: Path,
         if data is None:
             _die(1, missing)
 
+        entry = _stamp_missing(entry, "created_at")
         collections = list(data.get("qmd_collections") or [])
         replaced = False
         for i, existing in enumerate(collections):
@@ -773,6 +831,7 @@ def cmd_register_ccc_index(target: Path, lock_timeout: float = REGISTRY_LOCK_WAI
         if data is None:
             _die(1, missing)
 
+        entry = _stamp_missing(entry, "indexed_at")
         registry = list(data.get("ccc_index_registry") or [])
         replaced = False
         for i, existing in enumerate(registry):
@@ -877,6 +936,11 @@ def main() -> None:
 
     p_read = sub.add_parser("read", help="Read a forge-tier.yaml and emit JSON")
     p_read.add_argument("--target", type=Path, required=True)
+    p_read.add_argument("--fresh-within-hours", type=float, default=None, metavar="N",
+                        help="with --name: also print `fresh` (the collection's created_at is 0 to N "
+                             "hours old) and `age_hours`")
+    p_read.add_argument("--name", default=None,
+                        help="with --fresh-within-hours: the qmd_collections entry to judge")
 
     p_effective = sub.add_parser("effective",
                                  help="Print the effective tier, its source and the tool flags "
@@ -945,7 +1009,12 @@ def main() -> None:
         _die(1, f"{args.cmd}: --lock-timeout must be a number of seconds, 0 or more")
 
     if args.cmd == "read":
-        cmd_read(args.target)
+        if (args.fresh_within_hours is None) != (args.name is None):
+            _die(1, "read: --fresh-within-hours and --name go together")
+        if args.fresh_within_hours is not None and (
+                not math.isfinite(args.fresh_within_hours) or args.fresh_within_hours < 0):
+            _die(1, "read: --fresh-within-hours must be a number of hours, 0 or more")
+        cmd_read(args.target, args.fresh_within_hours, args.name)
     elif args.cmd == "effective":
         cmd_effective(args.target, args.preferences, args.tier_override)
     elif args.cmd == "write-tools":

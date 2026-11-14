@@ -14,7 +14,7 @@ SKF uses an additive tier model. You never lose capability by adding a tool.
 | Tier | Required Tools | What You Get |
 |------|---------------|-------------|
 | **Quick** | None (`gh_bridge` and `skill-check` used when available; `tessl` when you opt in to Tessl Review) | Source reading + spec validation. Best-effort skills in under a minute. **Note:** Quick Skill (QS) ignores your tier on purpose. It always reads source without ast-grep and records `confidence_tier: Quick` and `source_authority: community`, whatever tools you have installed. It never runs Tessl Review. |
-| **Forge** | + `ast_bridge` (ast-grep) | Structural truth. Each export an ast-grep rule matches is AST-verified and labeled T1; one it cannot match is read by eye and labeled T1-low. Co-import detection. |
+| **Forge** | + `ast_bridge` (ast-grep) | Structural truth. Each export an ast-grep rule matches is AST-verified and labeled T1; one it cannot match is read by eye and labeled T1-low. Co-import detection, counted by the import-count helper rather than by ast-grep. |
 | **Forge+** | + `ccc_bridge` (cocoindex-code) | Semantic discovery. CCC ranks files by meaning, so a step that reads files one at a time reads the most relevant first; the ast-grep recipe runner reads every file in scope either way. Helps most on large codebases. |
 | **Deep** | `ast_bridge` + `gh_bridge` (gh) + `qmd_bridge` (QMD). CCC is optional and adds semantic discovery when installed. | Knowledge search. Temporal provenance (issue, PR and changelog history). Audit Skill adds QMD semantic comparison to its drift checks. Full intelligence. |
 

@@ -5,7 +5,7 @@
 """SKF Fetch Temporal: a GitHub repository's issues, pull requests, release
 notes and changelog, written as create-skill's temporal feeder.
 
-create-skill step 3b (references/sub/fetch-temporal.md) keeps what it fetched
+create-skill step 3b (references/fetch-temporal.md) keeps what it fetched
 from GitHub in the skill's `.skf-temporal/` folder under forge_data_folder:
 step 4 searches it through a QMD collection, and step 5c's doc-rot scan reads
 it. The same upstream data must give the same files on every run, so this

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for skf-resolve-authoritative-files.py.
 
-Covers all five deterministic phases of extract.md §2a:
+Covers all five deterministic phases of extract.md §2b:
   - Heuristic scan: case-insensitive basename match, depth-agnostic, prunes
     EXCLUDED_DIR_NAMES, recognizes all 9 heuristics
   - Scope diff: in-scope when include matches AND exclude doesn't; reports
@@ -347,7 +347,7 @@ class TestResolve:
 LEGACY_HEADLESS_SKIP = {"action": "skipped", "path": "llms.txt",
                         "reason": "headless: no user to prompt", "workflow": "skf-create-skill"}
 DEFERRED = {"action": "deferred-headless", "path": "llms.txt", "workflow": "skf-create-skill"}
-USER_SKIP = {"action": "skipped", "path": "llms.txt", "reason": "user declined promotion at create-skill §2a"}
+USER_SKIP = {"action": "skipped", "path": "llms.txt", "reason": "user declined promotion at create-skill §2b"}
 PROMOTED = {"action": "promoted", "path": "llms.txt"}
 
 

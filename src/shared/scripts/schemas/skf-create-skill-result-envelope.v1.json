@@ -66,7 +66,7 @@
     "phase": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The step slug where the HARD HALT fired: load-brief, extract, component-extraction, fetch-docs, compile, doc-sources, auto-shard, validate or generate-artifacts, or batch-mode for a --batch run whose batch could not start or go on. Null on a finished run."
+      "description": "The step slug where the HARD HALT fired: load-brief, extract, component-extraction, fetch-docs, compile, doc-sources, auto-shard, validate or generate-artifacts, on-activation:runtime when On Activation's runtime check finds no uv, or batch-mode for a --batch run whose batch could not start or go on. Null on a finished run."
     },
     "halt_reason": {
       "type": ["string", "null"],
@@ -193,7 +193,7 @@
         "auto_decision_count": {
           "type": "integer",
           "minimum": 0,
-          "description": "The decisions the run took without asking, as recorded in its run folder: every gate a headless run resolved by its default, and step 1's tier override in any mode. The rows of the evidence report's Auto-Decisions table; 0 when there were none."
+          "description": "The decisions the run took without asking, as recorded in its run folder: every gate a headless run resolved by its default, step 1's tier override in any mode, its pick of the only brief, and Gate 2 when a `--batch` run passed a clean extraction. The rows of the evidence report's Auto-Decisions table; 0 when there were none."
         },
         "security_result": {
           "type": "string",
@@ -278,7 +278,7 @@
           }
         }
       },
-      "description": "One entry per decision the run took without asking, recorded in the run folder's sink the moment its gate decided: every gate a headless run resolved by its default, and step 1's tier override in any mode. The evidence report's Auto-Decisions table renders the same entries. Empty when there were none."
+      "description": "One entry per decision the run took without asking, recorded in the run folder's sink the moment its gate decided: every gate a headless run resolved by its default, step 1's tier override in any mode, its pick of the only brief, and Gate 2 when a `--batch` run passed a clean extraction. The evidence report's Auto-Decisions table renders the same entries. Empty when there were none."
     },
     "warnings": {
       "type": "array",

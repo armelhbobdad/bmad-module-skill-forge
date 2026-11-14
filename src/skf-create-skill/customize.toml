@@ -10,17 +10,18 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps SKILL.md On Activation step 3 runs once this file resolves: after
-# the config load (step 1) and the headless flag (step 2), before step 4
-# resolves the emitter, and before any stage. Overrides append. Use for
-# org-wide pre-flight checks (auth, network, compliance) that must precede
-# any skill compilation work.
+# Steps SKILL.md On Activation step 5 runs once this file resolves: after
+# the emitter (step 1), the runtime check (step 2), the config load
+# (step 3) and the headless flag (step 4), and before any stage. Overrides
+# append. Use for org-wide pre-flight checks (auth, network, compliance)
+# that must precede any skill compilation work.
 
 activation_steps_prepend = []
 
-# Steps SKILL.md On Activation runs after step 4 and before step 5 loads
-# load-brief.md or batch-mode.md; a --batch run executes them once, not per
-# brief. Overrides append. Use for context loads or banner customization.
+# Steps SKILL.md On Activation step 5 runs after the prepend entries and
+# before step 6 loads load-brief.md or batch-mode.md; a --batch run
+# executes them once, not per brief. Overrides append. Use for context
+# loads or banner customization.
 
 activation_steps_append = []
 

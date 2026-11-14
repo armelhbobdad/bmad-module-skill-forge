@@ -71,8 +71,12 @@ Flags:
                           runs too (Index build, below)
   --clone-root            instead of --project-root: an SKF workspace clone
                           (clone mode, below)
-  --include-ext           clone mode only, repeatable: a file extension whose
-                          files ccc must index (`ex`, `.ex`)
+  --check-index           instead of --project-root: a folder whose ccc
+                          index is checked (check mode, below)
+  --language              check mode only, required: the source's primary
+                          language, as the skill brief names it
+  --include-ext           clone or check mode, repeatable: a file extension
+                          whose files ccc must index (`ex`, `.ex`)
 
 Clone mode (create-skill step 3 and step 7) prepares the settings.yml of an
 SKF workspace clone, a source repository rather than an SKF project, so the
@@ -97,6 +101,34 @@ defaults. Clone mode never removes an entry, never rebuilds the file, and
 takes none of the folder, record or index flags of setup mode. Its writes
 go through a temporary file of their own, so two runs merging the same
 clone never tear the file; they add the same entries.
+
+Check mode (create-skill's references/ccc-index-check.md, after step 3 §2a
+or step 7 §6b ran `ccc index`) reads whether ccc indexed the source
+language, so no step reads `ccc status` by eye:
+
+  uv run skf-merge-ccc-exclusions.py --check-index /abs/root \\
+      --language Python [--include-ext py]
+
+It runs `ccc status` in the folder. While that prints an `Indexing in
+progress:` line, a pass is still running: it runs `ccc index` (which waits
+for that pass, then makes a quick incremental one) and `ccc status` again,
+up to CCC_INDEX_RERUNS times. It never runs `ccc init`, never edits
+settings.yml and writes no file. The verdict:
+
+  unverified  a pass still runs after the reruns, or a ccc command fails
+              (`reason` says which)
+  verified    the language's chunks are at least CHECK_MIN_CHUNKS (10), or
+              above 0 and at least CHECK_MIN_SHARE (5%) of all chunks
+  degraded    any other count, a folder with no index (every count 0)
+              included
+
+The language's chunks are the `Languages:` counts of its ccc names
+(`labels`): the --language value in lower case, except that TypeScript
+gives `typescript` and `tsx`, C `c` and `cpp` (ccc names `.h` files cpp),
+C# `csharp`, C++ `cpp`, Shell `bash` and Golang `go`. `unmatched_exts`
+lists the --include-ext values no include_patterns entry of the folder's
+own settings.yml matches, read as clone mode reads them; it is null when no
+--include-ext was given or that file holds no include_patterns list.
 
 Settings states (target = {project-root}/.cocoindex_code/settings.yml):
 
@@ -400,6 +432,25 @@ Clone mode output (single JSON document on stdout, ASCII only):
     "warnings":                  [str]
   }
 
+Check mode output (single JSON document on stdout, ASCII only):
+
+  {
+    "status": "ok",
+    "version": "v2",
+    "verdict":        "verified" | "degraded" | "unverified",
+    "reason":         str | null,  why the verdict is not verified
+    "counts":         {"chunks": int, "files": int,
+                       "languages": {"<ccc name>": int, ...},
+                       "language_chunks": int},
+    "labels":         [str],   the ccc names counted as the language
+    "threshold":      {"min_chunks": 10, "min_share": 0.05},
+    "project":        {"path": str | null,  the `Project:` line of ccc status
+                       "is_root": bool,     that project is the folder itself
+                       "settings_yml": bool},  the folder has its own
+                                               .cocoindex_code/settings.yml
+    "unmatched_exts": [str] | null
+  }
+
 Payload safety: setup's steps once embedded these strings in
 single-quoted `echo '...'` payloads, where dash's `echo` rewrites
 backslash escapes; they now read the --result-to file, and the strings
@@ -432,15 +483,16 @@ mutation in this module).
 
 Exit codes:
   0 success, including "not ready" (warnings stay on the success path)
-  1 --project-root (or --clone-root) is not a directory; settings.yml
+  1 --project-root (or --clone-root, --check-index) is not a directory; settings.yml
     cannot be parsed, is not a mapping, or has an exclude_patterns (clone
     mode: or include_patterns) that is neither a list nor null (JSON error
     on stderr)
   2 usage error (including a non-boolean --index-fresh / --skip-index, an
-    --include-ext that is not a plain extension, and a setup flag or
-    --include-ext given in the other mode), a write, move-aside or restore
-    failure, or any unexpected internal error (always JSON on stderr, never
-    a traceback)
+    --include-ext that is not a plain extension, a setup flag or
+    --include-ext given in the other mode, and a --language without
+    --check-index or a --check-index without one), a write, move-aside or
+    restore failure, or any unexpected internal error (always JSON on
+    stderr, never a traceback)
 """
 
 from __future__ import annotations
@@ -475,6 +527,23 @@ CCC_INIT_TIMEOUT_SEC = 75
 CCC_INDEX_TIMEOUT_SEC = 3600
 CCC_STATUS_TIMEOUT_SEC = 75
 CCC_INDEX_RERUNS = 3
+# Check mode: the language's chunk count that verifies an index, and the share
+# of all chunks that verifies a smaller one.
+CHECK_MIN_CHUNKS = 10
+CHECK_MIN_SHARE = 0.05
+# A brief's language name -> ccc's names for its files, where they differ
+# from the name in lower case. ccc names `.h` files cpp, so C counts both.
+CCC_LANGUAGE_LABELS = {
+    "typescript": ("typescript", "tsx"),
+    "c": ("c", "cpp"),
+    "c#": ("csharp",),
+    "c++": ("cpp",),
+    "shell": ("bash",),
+    "golang": ("go",),
+}
+CCC_CHUNKS_RE = re.compile(r"^\s*Chunks:\s*(\d+)\s*$", re.MULTILINE)
+CCC_PROJECT_RE = re.compile(r"^Project:\s*(.*?)\s*$", re.MULTILINE)
+CCC_LANGUAGE_RE = re.compile(r"^\s+(\S+):\s*(\d+) chunks?\s*$")
 # The index failed_reason --result-to holds while `ccc index` runs.
 INDEX_UNFINISHED = "ccc index did not finish"
 CCC_IN_PROGRESS = "Indexing in progress:"
@@ -2161,6 +2230,109 @@ def build_index(root: Path, indexed_path: str, action: str, not_ready_reason,
             "file_count": count}
 
 
+# ─── Index check (--check-index) ───────────────────────────────────────────
+
+
+def ccc_labels(language: str) -> list[str]:
+    """ccc's names for the files of a brief's language (see Check mode)."""
+    name = str(language).strip().lower()
+    return list(CCC_LANGUAGE_LABELS.get(name, (name,)))
+
+
+def parse_status_counts(output: str) -> dict:
+    """The chunk, file and per-language counts of `ccc status`, 0 and {} when it shows no index."""
+    chunks = CCC_CHUNKS_RE.search(output)
+    files = parse_status_file_count(output)
+    languages: dict[str, int] = {}
+    in_languages = False
+    for line in output.splitlines():
+        if line.strip() == "Languages:":
+            in_languages = True
+            continue
+        match = CCC_LANGUAGE_RE.match(line) if in_languages else None
+        if match:
+            languages[match.group(1)] = languages.get(match.group(1), 0) + int(match.group(2))
+        elif in_languages:
+            in_languages = False
+    return {"chunks": int(chunks.group(1)) if chunks else 0, "files": files or 0, "languages": languages}
+
+
+def _same_folder(a: str, b: Path) -> bool:
+    try:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    except (OSError, ValueError):
+        return False
+
+
+def _include_patterns(settings: Path):
+    """The include_patterns list of a settings.yml, or None when it holds none or cannot be read."""
+    try:
+        text = settings.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    for candidate in (text, quote_bare_glob_items(text)[0]):
+        try:
+            data = yaml.safe_load(candidate)
+        except (yaml.YAMLError, ValueError):
+            continue
+        value = data.get("include_patterns") if isinstance(data, dict) else None
+        return value if isinstance(value, list) else None
+    return None
+
+
+def check_index(root: Path, language: str, include_exts=()) -> dict:
+    """Check mode: whether ccc indexed `language` in `root` (see Check mode in the module docstring)."""
+    settings = root / SETTINGS_DIR / SETTINGS_NAME
+    labels = ccc_labels(language)
+    reason = None
+    ok, status = _run_ccc(root, ("status",), CCC_STATUS_TIMEOUT_SEC)
+    reruns = 0
+    while ok and CCC_IN_PROGRESS in status and reruns < CCC_INDEX_RERUNS:
+        reruns += 1
+        ok, output = _run_ccc(root, ("index",), CCC_INDEX_TIMEOUT_SEC)
+        if not ok:
+            status = output
+            break
+        ok, status = _run_ccc(root, ("status",), CCC_STATUS_TIMEOUT_SEC)
+    if not ok:
+        reason, status = status, ""
+    elif CCC_IN_PROGRESS in status:
+        reason = (f"ccc still reports an indexing pass in progress after {CCC_INDEX_RERUNS} reruns "
+                  "of ccc index")
+    counts = parse_status_counts(status)
+    counts["language_chunks"] = sum(counts["languages"].get(label, 0) for label in labels)
+    own = counts["language_chunks"]
+    if reason is not None:
+        verdict = "unverified"
+    elif own >= CHECK_MIN_CHUNKS or (0 < own <= counts["chunks"] and own / counts["chunks"] >= CHECK_MIN_SHARE):
+        verdict = "verified"
+    else:
+        verdict = "degraded"
+        reason = ("ccc status shows no index" if counts["chunks"] == 0 else
+                  f"{', '.join(labels)} {_plural(own, 'chunk', 'chunks')} of {counts['chunks']}: "
+                  f"under {CHECK_MIN_CHUNKS} chunks and under {CHECK_MIN_SHARE:.0%} of the index")
+    project = CCC_PROJECT_RE.search(status)
+    path = project.group(1) if project and project.group(1) else None
+    unmatched = None
+    if include_exts:
+        patterns = _include_patterns(settings) if settings.is_file() else None
+        if patterns is not None:
+            unmatched = [ext for ext in dict.fromkeys(include_exts)
+                         if not any(include_covers(p, ext) for p in patterns)]
+    return {
+        "status": "ok",
+        "version": "v2",
+        "verdict": verdict,
+        "reason": _payload_safe(reason) if reason is not None else None,
+        "counts": counts,
+        "labels": labels,
+        "threshold": {"min_chunks": CHECK_MIN_CHUNKS, "min_share": CHECK_MIN_SHARE},
+        "project": {"path": path, "is_root": path is not None and _same_folder(path, root),
+                    "settings_yml": settings.is_file()},
+        "unmatched_exts": unmatched,
+    }
+
+
 def read_config_folders(path: Path) -> tuple[str, str]:
     """The raw skills_output_folder and forge_data_folder values of config.yaml."""
     try:
@@ -2303,6 +2475,15 @@ def main() -> None:
              "there when .cocoindex_code/settings.yml is missing, and merges the standard build "
              "and dependency exclusions (and the --include-ext file types) into it.",
     )
+    roots.add_argument(
+        "--check-index", type=Path, metavar="ROOT",
+        help="Check mode: read whether ccc indexed --language in ROOT (running ccc index again "
+             "while a pass is in progress) and print a verdict. Runs no ccc init and writes no file.",
+    )
+    parser.add_argument(
+        "--language", default=None,
+        help="Check mode only, required: the source's primary language as the skill brief names it.",
+    )
     parser.add_argument(
         "--skills-output-folder", default=None,
         help="Raw value of skills_output_folder from {project-root}/_bmad/skf/config.yaml, "
@@ -2360,9 +2541,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--include-ext", type=_ext_arg, action="append", default=[], metavar="EXT",
-        help="Clone mode only, repeatable: a file extension (ex, or .ex) whose files ccc must "
-             "index. Unless an include_patterns entry already matches it, **/*.EXT is appended "
-             "to include_patterns.",
+        help="Clone or check mode, repeatable: a file extension (ex, or .ex) whose files ccc must "
+             "index. Clone mode appends **/*.EXT to include_patterns unless an entry already "
+             "matches it; check mode lists the extensions no entry matches (unmatched_exts).",
     )
     args = parser.parse_args()
 
@@ -2376,18 +2557,35 @@ def main() -> None:
             _write_result(args.result_to, payload)
         print(json.dumps(payload))
 
+    # A setup flag is refused whatever its value: `--skip-index false` or an empty folder too.
+    setup_flags = [flag for flag, value in (
+        ("--skills-output-folder", args.skills_output_folder),
+        ("--forge-data-folder", args.forge_data_folder),
+        ("--config", args.config),
+        ("--prior-state-from", args.prior_state_from),
+        ("--index-fresh", args.index_fresh),
+        ("--skip-index", args.skip_index),
+        ("--build-index", args.build_index or None),
+        ("--defer-index", args.defer_index or None),
+    ) if value is not None]
+    if args.language is not None and args.check_index is None:
+        _die(2, "usage error: --language needs --check-index")
+    if args.check_index is not None:
+        refused = setup_flags + [flag for flag, value in (
+            ("--no-ccc-init", args.no_ccc_init or None), ("--result-to", args.result_to)) if value is not None]
+        if refused:
+            _die(2, f"usage error: --check-index takes no setup flag ({', '.join(refused)})")
+        if args.language is None or not args.language.strip():
+            _die(2, "usage error: --check-index needs --language")
+        if not args.check_index.is_dir():
+            _die(1, f"--check-index is not a directory: {args.check_index}")
+        try:
+            payload = check_index(args.check_index, args.language, args.include_ext)
+        except Exception as e:  # noqa: BLE001 (every failure must stay stderr JSON)
+            _die(2, f"unexpected error: {type(e).__name__}: {e}")
+        print(json.dumps(payload))
+        return
     if args.clone_root is not None:
-        # A setup flag is refused whatever its value: `--skip-index false` or an empty folder too.
-        setup_flags = [flag for flag, value in (
-            ("--skills-output-folder", args.skills_output_folder),
-            ("--forge-data-folder", args.forge_data_folder),
-            ("--config", args.config),
-            ("--prior-state-from", args.prior_state_from),
-            ("--index-fresh", args.index_fresh),
-            ("--skip-index", args.skip_index),
-            ("--build-index", args.build_index or None),
-            ("--defer-index", args.defer_index or None),
-        ) if value is not None]
         if setup_flags:
             _die(2, f"usage error: --clone-root takes no setup flag ({', '.join(setup_flags)})")
         if not args.clone_root.is_dir():
@@ -2402,7 +2600,7 @@ def main() -> None:
         done(payload)
         return
     if args.include_ext:
-        _die(2, "usage error: --include-ext needs --clone-root")
+        _die(2, "usage error: --include-ext needs --clone-root or --check-index")
     if args.config is not None and (args.skills_output_folder is not None or args.forge_data_folder is not None):
         _die(2, "usage error: --config replaces --skills-output-folder and --forge-data-folder")
 

@@ -509,7 +509,7 @@ Metadata (update-skill write.md §3b):
   earlier run; check it still describes this run's counts", unless
   create-skill writes it for the skill's scope_type (STATS_CREATE_FIELDS:
   a component-library's Component Library stats of
-  compile-assembly-rules.md, a reference-app's notes).
+  assembly-component-library.md, a reference-app's notes).
 
   tool_versions names the tools this run used: the old tool_versions
   ({"ast_grep": null, "qmd": null} when absent, or when it is not an
@@ -2575,7 +2575,7 @@ STATS_HELPER_FIELDS = ("exports_documented", "exports_public_api", "exports_inte
                        "public_api_coverage", "total_coverage", "scripts_count", "assets_count",
                        "pattern_surfaces_documented", "effective_denominator")
 # the other stats fields create-skill writes, by the skill's scope_type: a component library's own counts (the
-# Component Library stats of compile-assembly-rules.md, its stats_extra) and a reference app's notes
+# Component Library stats of assembly-component-library.md, its stats_extra) and a reference app's notes
 STATS_CREATE_FIELDS = {
     "component-library": ("components_registered", "components_documented", "props_interfaces_extracted",
                           "components_unique", "demo_files_excluded", "design_variants"),

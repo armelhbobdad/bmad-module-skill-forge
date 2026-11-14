@@ -1,20 +1,17 @@
 ---
 nextStepFile: 'health-check.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §5 rewrites metadata.json through it only when the emitter is
-# missing; if neither resolves, that write is skipped.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# The result-contract emitter (Rules).
+renderMetadataStatsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
+  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
-# The customization helper §5's post-completion hook runs.
 resolveCustomizationProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
   - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -27,7 +24,7 @@ To display the final compilation summary (skill name, version, source, export co
 
 ## Rules
 
-- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
+- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists: `validation_status` in `{skill_package}/metadata.json`, which `{renderMetadataStatsHelper}` writes, and one warning appended to `{forge_version}/evidence-report.md`
 - §5 emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound.
 - §5's post-completion hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 - Deliver structured report with confidence breakdown
@@ -39,7 +36,13 @@ To display the final compilation summary (skill name, version, source, export co
 
 "**Skill forged: {name} v{version} — {export_count} functions, {primary_confidence} confidence.**"
 
-Where `{primary_confidence}` is the `confidence` label most provenance-map entries carry, counted from the entries' own labels. Never infer it from the forge tier: a Forge or Deep run whose exports were read by eye is T1-low. On a tie, report the weaker label (T1-low over T1), so the headline never overstates confidence.
+Bind `{export_count}` as the paragraph after §2's block says. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}` and, from `{project-root}`, run it in check mode, which writes nothing:
+
+```bash
+uv run {renderMetadataStatsHelper} "{forge_version}/provenance-map.json" --check "{skill_package}/metadata.json"
+```
+
+Bind `{primary_confidence}` ← its `primary_confidence`: the label of the largest `confidence_distribution` bin, the weaker label on a tie, so the headline never overstates confidence and never follows the forge tier. When it is null, no path resolves or the call prints no JSON, end the banner after `{export_count} functions`, with no confidence.
 
 ### 2. Display Compilation Summary
 
@@ -72,6 +75,8 @@ Where `{primary_confidence}` is the `confidence` label most provenance-map entri
 - `{forge_version}/extraction-rules.yaml` — Reproducible extraction schema
 - `{skill_group}/active` -> `{version}` — Symlink to current version"
 
+Before §1's banner, bind the counts from the promoted `{skill_package}/metadata.json`: `{export_count}` and `{documented_count}` ← `stats.exports_documented`, `{total_count}` ← `stats.exports_total`, `{public_api_coverage}` and `{total_coverage}` ← `stats.public_api_coverage` and `stats.total_coverage` times 100 (`n/a` when null), and `{t1_count}`, `{t1_low_count}`, `{t2_count}` and `{t3_count}` ← `confidence_distribution.t1`, `t1_low`, `t2` and `t3`.
+
 ### 3. Display Warnings (If Any)
 
 If there were warnings from extraction, validation, or enrichment, display them:
@@ -92,16 +97,23 @@ If no warnings, omit this section entirely.
 - **[EX] Export Skill** — publish to your skill library or agentskills.io
 - **[US] Update Skill** — edit specific sections or add manual content
 
-To use this skill immediately, add the context snippet to your CLAUDE.md:
-```
-{context_snippet_content}
-```"
+To use it now, run [EX] Export Skill, after [TS] if you want the quality gate."
 
 ### 5. Result Contract and Post-Completion Hook
 
-Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its HALT line says, and writes its result file there once step 7 has created `{forge_version}`.
+Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its stage file's Rules say, and writes its result file there once step 7 has created `{forge_version}`.
 
-**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
+**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line) and prints the brief's `SKF_CREATE_SKILL_RESULT_JSON` line.
+
+**Find the run folder.** When `{run_dir}` is not bound, resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and bind `{run_dir}` ← the `run.run_dir` this prints, from `{project-root}` (never `{source_tree}`: step 7 removed the tree):
+
+```bash
+uv run {extractionInventoryHelper} summary --inventory "{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json"
+```
+
+When `{run_dir}` is still not bound (no path resolves, the call fails, or its `run` records no `run_dir`), write no result contract: display "No result contract for `{name}`: its run folder is lost, so its decisions cannot be read." and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty. The post-completion hook below then skips under its "No `emit` succeeded" case, and there is no run folder to remove.
+
+Otherwise first read the run sink, from `{project-root}`:
 
 ```bash
 grep -c . "{run_dir}/headless-decisions.jsonl" 2>/dev/null; grep -c '"gate":"zero-exports"' "{run_dir}/headless-decisions.jsonl" 2>/dev/null
@@ -118,7 +130,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-create-skill --run-dir "{run_dir
 
 The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a pipeline consumer follows its path to audit the run. When `{headless_mode}` is true and the run is not `--batch`, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line (empty when no `emit` succeeded, the incomplete-install branch below included). Otherwise display the line the emitter prints. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again. When it fails again, display its `message` and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty: this brief has no result contract.
 
-**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and set `validation_status: 'schema-unavailable'` in `{skill_package}/metadata.json`, rewritten through `python3 {atomicWriteHelper} write --target {skill_package}/metadata.json` when `{atomicWriteHelper}` resolves. A caller sees no `SKF_CREATE_SKILL_RESULT_JSON` line for this brief and the metadata flag; a `create-skill-result-latest.json` already there is an earlier compile's.
+**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and, when `{renderMetadataStatsHelper}` resolves, set `validation_status` in `{skill_package}/metadata.json` from `{project-root}` with `uv run {renderMetadataStatsHelper} "{forge_version}/provenance-map.json" --check "{skill_package}/metadata.json" --validation-status schema-unavailable`. A caller sees no `SKF_CREATE_SKILL_RESULT_JSON` line for this brief and the metadata flag; a `create-skill-result-latest.json` already there is an earlier compile's.
 
 **Post-completion hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 
@@ -134,12 +146,12 @@ When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's resul
 
 The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}", and when it exited 127 (the shell found no such command) end that line with "; on_complete is a shell command in this workflow, not an instruction", then go on. When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing file or an earlier compile's: skip the hook and display the line for its case:
 
-- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): "on_complete skipped for `{name}`: no result contract was written ({the reason})".
+- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, `emit` failed twice, or the run folder is lost): "on_complete skipped for `{name}`: no result contract was written ({the reason})".
 - `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a `result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "on_complete skipped for `{name}`: `create-skill-result-latest.json` was not written".
 
 When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
-**Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`); under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
+**Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`), unless it is lost; under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
 
 ### 6. Chain to the Next Step
 

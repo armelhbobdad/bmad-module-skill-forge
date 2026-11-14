@@ -120,7 +120,7 @@ from typing import Callable, Iterable
 # --------------------------------------------------------------------------
 
 
-DOC_DIR_PREFIXES = ("docs/authoritative/",)  # synthetic namespace from create-skill §6
+DOC_DIR_PREFIXES = ("docs/authoritative/",)  # synthetic namespace from create-skill §1c
 
 # scripts/[MANUAL]/... or assets/[MANUAL]/... anywhere in the (posix) path:
 # a copy of skf-new-file-diff.py's _MANUAL_RE (update-skill's Category D),

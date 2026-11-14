@@ -33,14 +33,14 @@ Structural extraction via ast-grep — verified exports with line-level citation
 
 1. Run the AST Extraction Protocol below: the recipe runner finds every export in the files in scope, each with its file, `$NAME`'s line, recipe and node kind, and a function's signature, parameters and return type
 2. For each export: take its `signature`, `params` and `return_type` from the runner's record; read them from the source at its line only for a function whose `params` is null
-3. Use ast-grep to detect co-imported symbols in `path` for the given `libraries[]`
+3. Count the files that import each runtime dependency the manifests declare, with step 3 §4's co-import call
 4. Record the recipe set, the recipes and the ast-grep version the runner reports, for reproducibility
 
 ### Confidence
 - Each entry is labeled by the tool that produced it, not by the tier:
   - An export an ast-grep rule matched (a function with its full signature, a type definition, an interface): T1 (AST-verified), an `[AST:...]` citation, `extraction_method: ast-grep` and `ast_node_type` set to the `kind` the matching recipe declares (see the recipes below)
   - An export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched): T1-low, a `[SRC:...]` citation, `extraction_method: source-read` and `ast_node_type: null`
-- Co-import patterns ast-grep detected: T1
+- Co-imports: counted by skf-count-imports.py from import statements, matched on module boundaries, not by ast-grep
 - Internal/private functions: excluded (not part of public API)
 
 ### ast-grep Patterns

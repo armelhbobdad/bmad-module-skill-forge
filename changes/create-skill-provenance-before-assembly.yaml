@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill now writes the provenance map before it assembles `SKILL.md`, so a function whose signature extraction left unread is read and patched first, and `SKILL.md` and `references/` give its parameters and return type instead of leaving them out. The run's source (its ref, commit, tag resolution, source tree and resolved source path), the version it reconciled and its run folder are now recorded in the extraction inventory right after the source is resolved, and a component library's aggregate counts are kept there too, so a run whose context was compacted still writes the right `source_commit`, `source_ref`, `source_root` and `version` into `metadata.json` and `provenance-map.json`. When the run folder itself is lost, compile stops with exit `4` (`staging-unreadable`) before anything is promoted, and the report writes no result contract, instead of an evidence report and a result that claimed the run took no auto-decisions. A component-library extraction that loses the extract stage from context now goes back to building the inventory instead of having no resume point.
+issues: [1144]
+prs: [1222]

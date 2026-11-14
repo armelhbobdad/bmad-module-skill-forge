@@ -5,11 +5,13 @@ sections, script reference integrity, doc_sources schema completeness in
 skill-sections.md, and stages-table positioning.  Chain-reachability tests
 cover link resolution; these tests cover the semantic contract.
 
-The README entry §3 adds comes from one skf-detect-docs.py readme-entry
-call: the raw GitHub file at the ref step 3 resolved (a file:// URL for a
-local source), README.md picked before a translation. Run as the step writes
-it, its hash equals what audit-skill's compare-hashes computes for the same
-bytes, from a web server or a local file.
+§3 writes doc_sources into the staged metadata.json with one
+skf-detect-docs.py record-sources call (#1145), which keeps a detected README
+or adds the README entry readme-entry builds: the raw GitHub file at the ref
+step 3 resolved (a file:// URL for a local source), README.md picked before a
+translation. Run as the step writes it, on a staged metadata.json, its hashes
+equal what audit-skill's compare-hashes computes for the same bytes, from a
+web server or a local file.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ STEP_FILE = CS_DIR / "references" / "step-doc-sources.md"
 COMPILE_FILE = CS_DIR / "references" / "compile.md"
 SKILL_MD = CS_DIR / "SKILL.md"
 SECTIONS_FILE = CS_DIR / "assets" / "skill-sections.md"
-FETCH_DOCS_FILE = CS_DIR / "references" / "sub" / "fetch-docs.md"
+FETCH_DOCS_FILE = CS_DIR / "references" / "fetch-docs.md"
 DETECT_DOCS_SCRIPT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-detect-docs.py"
 
 
@@ -121,12 +123,10 @@ class TestStepFileStructure:
     @pytest.mark.parametrize(
         "substep",
         [
-            "Check for Upstream Doc Detection Results",
-            "Run Doc Detection",
-            "Ensure README Entry",
-            "Build doc_sources Array",
-            "Update metadata.json",
-            "Auto-Proceed",
+            "1. Check for Upstream Doc Detection Results",
+            "2. Run Doc Detection",
+            "3. Record the Doc Sources",
+            "4. Auto-Proceed",
         ],
     )
     def test_mandatory_sequence_substeps(self, text: str, substep: str) -> None:
@@ -257,10 +257,11 @@ class TestDocsOnlyBranch:
             assert code in body, f"§2a must document {code} handling"
 
     def test_readme_entry_is_skipped_for_docs_only(self, text: str) -> None:
-        body = _section(text, r"3\.\s+Ensure README Entry")
-        assert "docs-only" in body, (
-            "§3 must skip the README entry for docs-only briefs — there is no "
-            "repository README, and {source_repo}/blob/main/README.md would be fabricated"
+        body = _section(text, r"3\.\s+Record the Doc Sources")
+        assert ("Pass `--source-repo` and `--ref` only for a source brief with a `{source_repo}` "
+                "(never docs-only, whose `source_repo` is the documentation site)") in body, (
+            "§3 must track no README for a docs-only brief: there is no repository README, "
+            "and a README URL built from the documentation site would be fabricated"
         )
 
 
@@ -347,27 +348,48 @@ class TestStagesTable:
         )
 
 
+
+
 # ---------------------------------------------------------------------------
-# README entry (#592): the raw file at the resolved ref, built by readme-entry
+# §3 (#592, #1145): one record-sources call writes doc_sources, the README
+# entry included, into the staged metadata.json
 # ---------------------------------------------------------------------------
 
 
-def _readme_section() -> str:
-    return _section(_read(STEP_FILE), r"3\.\s+Ensure README Entry")
+def _record_section() -> str:
+    return _section(_read(STEP_FILE), r"3\.\s+Record the Doc Sources")
 
 
-def _readme_command() -> str:
-    """The fenced readme-entry command §3 runs."""
-    [fence] = re.findall(r"```bash\n(.*?)```", _readme_section(), re.DOTALL)
+def _record_command() -> str:
+    """The fenced record-sources command §3 runs."""
+    [fence] = re.findall(r"```bash\n(.*?)```", _record_section(), re.DOTALL)
     return fence.strip()
 
 
-def _documented_argv(source_repo: str, source_ref: str, source_root: str | None) -> list[str]:
-    """§3's command filled in as its "Pass `--local-root`" sentence says, without `uv run {detectDocsHelper}`."""
-    command = _readme_command().replace("uv run {detectDocsHelper} ", "", 1)
-    command = re.sub(r"\[([^\[\]]*)\]", lambda m: m.group(1) if source_root is not None else "", command)
-    for key, value in {"{source_repo}": source_repo, "{source_ref}": source_ref,
-                       "{source_root}": source_root or ""}.items():
+def _fence(heading_regex: str) -> str:
+    [fence] = re.findall(r"```bash\n(.*?)```", _section(_read(STEP_FILE), heading_regex), re.DOTALL)
+    return fence.strip()
+
+
+STAGED = "_bmad-output/.skf-stage/{skill-name}/metadata.json"
+
+
+def _documented_argv(run_dir: pathlib.Path, *, detected: bool, source_repo: str | None = None,
+                     source_ref: str | None = None, source_root: str | None = None) -> list[str]:
+    """§3's command as its "Pass" sentences fill it in, without `uv run {detectDocsHelper}`."""
+    command = _record_command().replace("uv run {detectDocsHelper} ", "", 1)
+
+    def group(m: re.Match) -> str:
+        body = m.group(1)
+        keep = (source_repo is not None if "--source-repo" in body
+                else source_root is not None if "--local-root" in body
+                else detected)
+        return body if keep else ""
+
+    while re.search(r"\[([^\[\]]*)\]", command):
+        command = re.sub(r"\[([^\[\]]*)\]", group, command)
+    for key, value in {"{skill-name}": "lib", "{run_dir}": run_dir.as_posix(), "{source_repo}": source_repo or "",
+                       "{source_ref}": source_ref or "", "{source_root}": source_root or ""}.items():
         command = command.replace(key, value)
     assert "{" not in command, command
     return shlex.split(command)
@@ -379,7 +401,8 @@ def _no_proxy_env() -> dict:
     return env
 
 
-def _helper(*argv: str, stdin: str = "", raw_base: str | None = None) -> dict:
+def _run_helper(*argv: str, stdin: str = "", raw_base: str | None = None,
+                cwd: pathlib.Path | None = None) -> subprocess.CompletedProcess:
     """Run skf-detect-docs.py; with raw_base, its GitHub raw-file host is that local server."""
     if raw_base is None:
         command = [sys.executable, str(DETECT_DOCS_SCRIPT), *argv]
@@ -394,8 +417,12 @@ def _helper(*argv: str, stdin: str = "", raw_base: str | None = None) -> dict:
             "raise SystemExit(m.main())\n"
         )
         command = [sys.executable, "-c", code]
-    proc = subprocess.run(command, input=stdin.encode("utf-8"), capture_output=True, env=_no_proxy_env(),
-                          timeout=60)
+    return subprocess.run(command, input=stdin.encode("utf-8"), capture_output=True, env=_no_proxy_env(),
+                          timeout=60, cwd=cwd)
+
+
+def _helper(*argv: str, stdin: str = "", raw_base: str | None = None, cwd: pathlib.Path | None = None) -> dict:
+    proc = _run_helper(*argv, stdin=stdin, raw_base=raw_base, cwd=cwd)
     assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
     return json.loads(proc.stdout.decode("utf-8"))
 
@@ -444,27 +471,96 @@ def _tree(root: pathlib.Path, files: dict[str, bytes]) -> pathlib.Path:
     return root
 
 
-class TestReadmeEntry:
-    def test_one_helper_call_builds_and_hashes_the_entry(self) -> None:
-        section = _readme_section()
-        assert _readme_command() == ('uv run {detectDocsHelper} readme-entry --source-repo "{source_repo}" '
-                                     '--ref "{source_ref}" [--local-root "{source_root}"]')
-        assert "Pass `--local-root` when `{source_root}` is a local folder" in section
-        assert "add each entry of its `doc_sources`, at most one, as the helper wrote it" in section
-        assert "When `skip_reason` is `not-github`, `doc_sources` is empty" in section
-        # The helper parses the repository, picks the README and builds the URL: none of it is prose.
+STAGED_METADATA = {"name": "lib", "version": "1.2.0", "stats": {"exports_total": 3},
+                   "doc_sources": [{"url": "https://stale/from-an-earlier-compile", "content_hash": None}],
+                   "generated_by": "skf-create-skill"}
+
+
+def _metadata_bytes(data: dict) -> bytes:
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+@pytest.fixture
+def project(tmp_path):
+    """A project root with compile's staged metadata.json and a run folder."""
+    staged = tmp_path / "project" / STAGED.replace("{skill-name}", "lib")
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(_metadata_bytes(STAGED_METADATA))
+    run_dir = tmp_path / "project" / "_bmad-output" / "runs" / "skf-create-skill-RUN1"
+    run_dir.mkdir(parents=True)
+    return tmp_path / "project", staged, run_dir
+
+
+def _recorded(staged: pathlib.Path) -> list:
+    metadata = json.loads(staged.read_bytes())
+    assert {k: v for k, v in metadata.items() if k != "doc_sources"} == {
+        k: v for k, v in STAGED_METADATA.items() if k != "doc_sources"}
+    return metadata["doc_sources"]
+
+
+class TestRecordSources:
+    def test_one_helper_call_records_the_doc_sources(self) -> None:
+        section = _record_section()
+        assert _record_command() == (
+            'uv run {detectDocsHelper} record-sources "_bmad-output/.skf-stage/{skill-name}/metadata.json" '
+            '[--detected "{run_dir}/doc-detection.json"] [--source-repo "{source_repo}" --ref "{source_ref}" '
+            '[--local-root "{source_root}"]]')
+        assert "Add `--local-root` when `{source_root}` is a local folder" in section
+        assert "Pass `--detected` when §1 wrote `{run_dir}/doc-detection.json`" in section
+        assert "the staged `metadata.json`: \"Cannot read the staged metadata.json that compile wrote." in section
+        assert "**Exit 2 with `code` `METADATA_UNREADABLE`:** **HARD HALT** (exit code 4, `staging-unreadable`" in section
+        assert ('"Doc sources: not recorded, skf-detect-docs.py record-sources error: {message}"' in section)
+        # The helper parses the repository, picks the README, builds the URL, maps the fields and writes the file.
         for by_hand in ("hexdigest", "base64-decode", "repos/{owner}/{repo}", "sha256", "raw.githubusercontent",
-                        "{readme_name}", "{readme_url}", "{owner}", "hash-urls"):
+                        "{readme_name}", "{readme_url}", "{owner}", "hash-urls", "direct copy", "Field mapping",
+                        'metadata["doc_sources"]', "Write the updated metadata.json"):
             assert by_hand not in section, by_hand
-        for code in ("**Exit 0:**", "**Exit 2:**"):
+        for by_hand in ("direct copy", "Field mapping", 'metadata["doc_sources"]', "Build doc_sources Array",
+                        "{current ISO-8601 timestamp", "content_type` from detect-docs output is not carried"):
+            assert by_hand not in _read(STEP_FILE), by_hand
+        for code in ("**Exit 0:**", "**Exit 2 with", "**Any other exit 2:**"):
             assert code in section, code
         assert "/blob/main/" not in _read(STEP_FILE)
+
+    def test_detection_saves_what_the_helper_prints(self) -> None:
+        assert _fence(r"2\.\s+Run Doc Detection").endswith('[--skip-pages-api] > "{run_dir}/doc-detection.json"')
+        assert _fence(r"2a\.").endswith('hash-urls - > "{run_dir}/doc-detection.json"')
+        upstream = _section(_read(STEP_FILE), r"1\.\s+Check for Upstream")
+        assert "write them, as the JSON array they are, to `{run_dir}/doc-detection.json`" in upstream
 
     def test_detection_gets_no_path_into_the_private_tree(self) -> None:
         detection = _section(_read(STEP_FILE), r"2\.\s+Run Doc Detection")
         assert "--local-path" not in re.search(r"```bash\n(.*?)```", detection, re.DOTALL).group(1)
         assert "Pass no `--local-path`" in detection
         assert "{source_path}" not in _read(STEP_FILE)
+
+    def test_detected_entries_keep_their_hashes_and_the_readme(self, project) -> None:
+        root, staged, run_dir = project
+        detected = [
+            {"url": "https://docs.lib.dev", "detected_via": "homepageUrl", "content_hash": "sha256:aa",
+             "content_type": "api-docs"},
+            {"url": "https://raw.githubusercontent.com/acme/lib/main/README.md", "detected_via": "docs_folder",
+             "content_hash": "sha256:bb", "content_type": "guide"},
+        ]
+        (run_dir / "doc-detection.json").write_text(json.dumps(detected), encoding="utf-8")
+        out = _helper(*_documented_argv(run_dir, detected=True, source_repo="https://github.com/acme/lib",
+                                        source_ref="v1.2.0"), cwd=root)
+        assert (out["count"], out["readme_tracked"], out["skip_reason"]) == (2, True, None)
+        recorded = _recorded(staged)
+        assert [{k: e[k] for k in ("url", "detected_via", "content_hash")} for e in recorded] == [
+            {k: e[k] for k in ("url", "detected_via", "content_hash")} for e in detected]
+        assert all(set(e) == {"url", "detected_via", "content_hash", "recorded_at"} for e in recorded)
+
+    @pytest.mark.parametrize("code", [None, "[1]"], ids=["missing", "not-an-object"])
+    def test_an_unreadable_staged_file_is_the_halt_code(self, project, code) -> None:
+        root, staged, run_dir = project
+        if code is None:
+            staged.unlink()
+        else:
+            staged.write_text(code, encoding="utf-8")
+        proc = _run_helper(*_documented_argv(run_dir, detected=False), cwd=root)
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr.decode("utf-8"))["code"] == "METADATA_UNREADABLE"
 
     @pytest.mark.parametrize("source_repo", [
         "https://github.com/acme/lib", "https://github.com/acme/lib.git", "https://github.com/acme/lib/",
@@ -497,14 +593,16 @@ class TestReadmeEntry:
         assert sorted(names)[0] == "README-zh_CN.md"
         assert _detect_docs().pick_readme(names) == "README.md"
 
-    def test_github_source_records_the_raw_file_at_the_resolved_ref(self, raw_host, tmp_path) -> None:
+    def test_github_source_records_the_raw_file_at_the_resolved_ref(self, raw_host, project, tmp_path) -> None:
         base, files = raw_host
+        root, staged, run_dir = project
         tree = _tree(tmp_path / "tree", {"README.md": b"# lib\r\n\nUse `lib.run()`.\n", "README-zh_CN.md": b"zh\n"})
         files["/acme/lib/v1.2.0/README.md"] = b"# lib\r\n\nUse `lib.run()`.\n"
-        out = _helper(*_documented_argv("https://github.com/acme/lib.git", "v1.2.0", tree.as_posix()),
-                      raw_base=base)
-        [entry] = out["doc_sources"]
-        assert out["skip_reason"] is None
+        out = _helper(*_documented_argv(run_dir, detected=False, source_repo="https://github.com/acme/lib.git",
+                                        source_ref="v1.2.0", source_root=tree.as_posix()),
+                      raw_base=base, cwd=root)
+        assert out["skip_reason"] is None and out["readme_tracked"] is True
+        [entry] = _recorded(staged)
         assert entry["url"] == f"{base}/acme/lib/v1.2.0/README.md"
         assert entry["detected_via"] == "readme_always" and entry["content_hash"].startswith("sha256:")
         assert set(entry) == {"url", "detected_via", "content_hash", "recorded_at"}
@@ -517,18 +615,22 @@ class TestReadmeEntry:
         url = _detect_docs().readme_url("acme/lib", "lib@2.0.0", tree.as_posix())
         assert url == "https://raw.githubusercontent.com/acme/lib/lib@2.0.0/README.rst"
 
-    def test_missing_readme_gets_a_null_hash_the_audit_skips(self, raw_host, tmp_path) -> None:
+    def test_missing_readme_gets_a_null_hash_the_audit_skips(self, raw_host, project, tmp_path) -> None:
         base, _files = raw_host
+        root, staged, run_dir = project
         tree = _tree(tmp_path / "tree", {"setup.py": b""})
-        out = _helper(*_documented_argv("acme/lib", "HEAD", tree.as_posix()), raw_base=base)
-        [entry] = out["doc_sources"]
+        _helper(*_documented_argv(run_dir, detected=False, source_repo="acme/lib", source_ref="HEAD",
+                                  source_root=tree.as_posix()), raw_base=base, cwd=root)
+        [entry] = _recorded(staged)
         assert entry["url"] == f"{base}/acme/lib/HEAD/README.md" and entry["content_hash"] is None
         assert _audit([entry])["skipped_null_hash"] == [{"url": entry["url"]}]
 
-    def test_local_readme_round_trips_through_a_file_url(self, tmp_path) -> None:
+    def test_local_readme_round_trips_through_a_file_url(self, project, tmp_path) -> None:
+        root, staged, run_dir = project
         source = _tree(tmp_path / "src dir", {"README.rst": b"lib\n===\n", "README-ja.rst": b"ja\n"})
-        out = _helper(*_documented_argv(source.as_posix(), "local", source.as_posix()))
-        [entry] = out["doc_sources"]
+        _helper(*_documented_argv(run_dir, detected=False, source_repo=source.as_posix(), source_ref="local",
+                                  source_root=source.as_posix()), cwd=root)
+        [entry] = _recorded(staged)
         # Written as the helper reads it back: the path after file://, never percent-encoded.
         assert entry["url"] == "file://" + (source / "README.rst").as_posix()
         assert entry["content_hash"].startswith("sha256:")
@@ -536,10 +638,26 @@ class TestReadmeEntry:
         (source / "README.rst").write_bytes(b"lib 2\n=====\n")
         assert _audit([entry])["stats"]["changed"] == 1
 
-    def test_another_host_gets_no_entry(self) -> None:
-        out = _helper(*_documented_argv("https://gitlab.com/acme/lib", "v1.0.0", None))
-        assert out["skip_reason"] == "not-github"
-        assert out["doc_sources"] == [] and out["fetch_failed"] == []
+    def test_another_host_gets_no_entry(self, project) -> None:
+        root, staged, run_dir = project
+        out = _helper(*_documented_argv(run_dir, detected=False, source_repo="https://gitlab.com/acme/lib",
+                                        source_ref="v1.0.0"), cwd=root)
+        assert out["skip_reason"] == "not-github" and out["readme_tracked"] is False
+        assert _recorded(staged) == []
+
+    def test_a_docs_only_brief_records_what_hash_urls_hashed(self, project, tmp_path) -> None:
+        """§2a's fence saves hash-urls' object; §3's fence, with no --source-repo, records its entries."""
+        root, staged, run_dir = project
+        page = tmp_path / "guide.html"
+        page.write_bytes(b"<h1>Guide</h1>\n")
+        urls = ["file://" + page.as_posix(), "file://" + (tmp_path / "gone.html").as_posix()]
+        hashed = _helper("hash-urls", "-", stdin=json.dumps(urls))
+        (run_dir / "doc-detection.json").write_text(json.dumps(hashed), encoding="utf-8")
+        out = _helper(*_documented_argv(run_dir, detected=True), cwd=root)
+        assert (out["count"], out["readme_tracked"]) == (2, False)
+        assert _recorded(staged) == hashed["doc_sources"]
+        assert _audit(_recorded(staged))["stats"] == {"total_tracked": 2, "changed": 0, "unchanged": 1,
+                                                      "fetch_failed": 0, "skipped_null_hash": 1}
 
     def test_without_a_local_folder_github_lists_the_top_level(self, monkeypatch) -> None:
         detect_docs = _detect_docs()

@@ -1,35 +1,22 @@
 ---
-nextStepFile: '../enrich.md'
+nextStepFile: 'enrich.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
-# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §5b changes the registry only through it. If neither resolves,
-# §5b skips the registry change with a warning: a docs fetch never halts the
-# workflow.
+# If neither path exists, §5b skips the registry change with a warning.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
-# Resolve `{deriveAssemblyShapeHelper}` the same way — used in §1 to decide
-# whether this is a whole-language reference (registry-corpora prose retained
-# as a Language Guide) or a standard skill (unchanged behaviour).
 deriveAssemblyShapeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-derive-assembly-shape.py'
   - '{project-root}/src/shared/scripts/skf-derive-assembly-shape.py'
-# If neither path exists, §3 looks for no subpages.
 detectDocsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
-# §5 merges the T3 items into the extraction inventory and counts it through
-# it; step 3 §5 already halted when neither path exists.
 extractionInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
   - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
-# §4a writes the Language Guide's index beside the inventory through it; if
-# neither path exists, step 5 has no guide and says so.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# HARD HALT helpers (Rules).
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -53,7 +40,7 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 - Do not halt the workflow if web fetching is unavailable or fails, with one exception: a `docs-only` brief left with nothing to compile halts at §5's zero-content check, before anything is staged. The user may still stop the run at §5's zero-export gate ([R])
 - Do not override existing T1, T1-low, or T2 extraction data with T3 content
 - Never delete the staging directory of a `docs-only` skill, whose only source corpus is the fetched pages, or of a whole-language reference, whose Language Guide step 5 reads from them
-- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+- A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -71,7 +58,7 @@ No tier gate — if `doc_urls` are present, this step runs at Quick, Forge, and 
 uv run {deriveAssemblyShapeHelper} {brief_path}
 ```
 
-If the result's `assembly_shape` is `whole-language-reference` (the brief carries ≥1 `doc_urls` entry with `source: language-registry` — a compiler/interpreter repo enriched with the language's canonical prose), set the in-context flag `whole_language_reference: true`. This changes ONLY how the registry-sourced corpora are handled below (§4a): their prose is retained as a **Language Guide** rather than shredded into per-export items. For every other brief the flag is false and this step behaves exactly as before — no change to ordinary skills.
+If the result's `assembly_shape` is `whole-language-reference` (the brief carries at least one `doc_urls` entry with `source: language-registry`), set the in-context flag `whole_language_reference: true`. It changes only how §4a handles the registry-sourced corpora: their prose is kept as a **Language Guide** rather than shredded into per-export items.
 
 ### 2. Security Notice
 
@@ -123,26 +110,9 @@ It prints `discover_subpages`, true when the page is a documentation root with l
 
    It lists in `kept[]` the URLs on the root page's own site that may hold API content, each with the API words its path or title holds (`terms`), and in `sitemaps[]` the sitemaps a sitemap index names: filter each of them the same way (`uv run {detectDocsHelper} filter-urls --help` gives the rules). When it exits non-zero, leave that input out. Never fetch a URL the helper did not keep. From `kept[]`, choose the subpages most relevant to the skill's API: `terms` points at them.
 
-3. **Fetch top subpages (in parallel):** Fetch up to **10** of the most relevant subpages **concurrently** — subpage fetches are independent and network-bound, so wall-clock benefits substantially from parallel execution. Bound concurrency to **4 in flight** at a time to stay polite to documentation hosts (Mintlify/Docusaurus typically allow more, but conservatism here protects against unrecognized rate limits).
+3. **Fetch the top subpages:** fetch up to 10 of the most relevant, at most 4 at a time, with the same fetch tool as the root URL. Save each one whose fetch succeeded as `{docs_staging}/subpage-{n}-{k}.md` (`{k}` counts this root's subpages from 1); a failed fetch leaves no file (delete any file it wrote), and the stage goes on with the rest. Cite each one `[EXT:{subpage-url}]`.
 
-   The parallel pattern depends on the fetch tool:
-
-   - **LLM-driven tools** (Firecrawl `firecrawl_scrape`, `WebFetch`, MCP fetch, browser tools): issue up to 4 tool calls **in a single message**. The agent runtime executes parallel tool calls concurrently; collect results from the batch before issuing the next set of up to 4. Repeat until all up-to-10 subpages have been attempted or rate limiting halts the batch.
-   - **Bash-driven tools** (`curl`, `wget`): use `xargs -P 4` to fan out from a newline-separated subpage list, numbering the subpages as it goes. Example, for the `{n}`th `doc_urls` entry:
-
-     ```bash
-     printf '%s\n' "${subpages[@]}" | awk '{ print NR, $0 }' | xargs -P 4 -L 1 sh -c '
-       f="{docs_staging}/subpage-{n}-$0.md"
-       curl -fsSL --max-time 30 "$1" -o "$f" || { rm -f "$f"; echo "fetch failed: $1" >&2; }
-     '
-     ```
-
-   For each subpage (regardless of tool):
-   - Use the same web fetching tool as the root URL, and save the page in `{docs_staging}` as `subpage-{n}-{k}.md`, `{k}` counting this root's subpages from 1, only when its fetch succeeded: a failed fetch leaves no file, as in the snippet
-   - Store with the subpage URL as provenance: `[EXT:{subpage-url}]`
-   - If a subpage fetch fails, skip it and continue with the rest of the batch — do not halt the whole stage
-
-4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting." For the parallel-tool-call pattern, drop any not-yet-issued tool calls from subsequent batches; for the `xargs` pattern, interrupt the pipeline (set `--max-procs 0` is **not** a graceful stop — the simplest stop is to kill the xargs PID and let in-flight writers complete naturally).
+4. **Rate limiting:** on an HTTP 429, start no further subpage fetch for this root URL, keep what was saved, and log "Subpage discovery stopped due to rate limiting."
 
 **If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched." `{docs_staging}` holds no page of this run: continue at §5's **Zero-content check**, which halts a `docs-only` brief and lets a source brief go on without T3 content.
 
@@ -195,9 +165,7 @@ SKF_T3
 
 **Conflict rule:** T3 items never override existing T1, T1-low, or T2 items for the same export. The helper applies it: an item whose `export_name` names an export the inventory already holds is left out and listed in `dropped`. When it exits non-zero, fix the JSON and run it once more.
 
-**Language-Guide carve-out:** the `language_guide[]` from §4a (whole-language references) is not part of the export inventory and is therefore not subject to this conflict rule: it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. Step 5 reads it through `{language_guide_json}` and renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
-
-**Edge case: T1-zero supplemental mode.** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, compile uses the T3 items as the primary inventory, since no T1 data exists to conflict with.
+**No T1 export (supplemental mode):** the conflict rule then drops no T3 item.
 
 **Aggregate totals for reporting:**
 - URLs fetched successfully vs. total
@@ -206,8 +174,8 @@ SKF_T3
 
 **Zero-content check.** Run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"` from `{project-root}` and read its `counts`:
 
-- **`source_type: "docs-only"`, no URL or subpage fetched in this run, and `counts.items` is 0:** there is nothing to compile, and a docs-only skill has no other source. Stage and promote nothing: **HARD HALT** (exit code 3, `docs-unreachable`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**No documentation could be fetched for `{skill-name}`, so there is nothing to compile.** Failed: {each `doc_urls` URL with its reason}. Check the network and that this environment has a web fetch tool, or fix `doc_urls` in the brief, then re-run create-skill."
-- **`source_type: "source"`, `counts.exports` is 0 (or equals `counts.not_public`) and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue. On [R], **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**Halting create-skill:** no public export was extracted (or, for a `public-api` brief, every export found is off the public surface: the `Off the public surface` warning names them) and no `doc_urls` page could be fetched. Fix `scope.include`, `target_version` or `doc_urls` in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`."
+- **`source_type: "docs-only"`, no URL or subpage fetched in this run, and `counts.items` is 0:** there is nothing to compile, and a docs-only skill has no other source. Stage and promote nothing: **HARD HALT** (exit code 3, `docs-unreachable`, phase `fetch-docs`): "**No documentation could be fetched for `{skill-name}`, so there is nothing to compile.** Failed: {each `doc_urls` URL with its reason}. Check the network and that this environment has a web fetch tool, or fix `doc_urls` in the brief, then re-run create-skill."
+- **`source_type: "source"`, `counts.exports` is 0 (or equals `counts.not_public`) and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue. On [R], **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `fetch-docs`): "**Halting create-skill:** no public export was extracted (or, for a `public-api` brief, every export found is off the public surface: the `Off the public surface` warning names them) and no `doc_urls` page could be fetched. Fix `scope.include`, `target_version` or `doc_urls` in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`."
 - **Otherwise:** continue. When no page of this run was saved (every fetch failed, or no fetch tool), skip §5b and §5c, which have nothing to index or remove, and go on to §6: `{docs_staging}` stays as it was.
 
 ### 5b. Index into QMD (Deep Tier Only)
@@ -223,12 +191,12 @@ SKF_T3
    uv run {forgeTierRwHelper} remove-qmd-collection --target "{forgeTierConfig}" --name {skill-name}-docs
    ```
 
-3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: read the registry with `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"`, skip re-embedding when the `{skill-name}-docs` entry in its `data.qmd_collections` was created within the last 24 hours, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
-4. Register the collection in the `qmd_collections` array (only if step 2 `add` succeeded). The helper replaces the entry with the same `name` or appends it:
+3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name "{skill-name}-docs"`, skip re-embedding when its `fresh` is true, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
+4. Register the collection in the `qmd_collections` array (only if step 2 `add` succeeded). The helper replaces the entry with the same `name` or appends it, and stamps its `created_at` from the clock:
 
    ```bash
    uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
-   {"name": "{skill-name}-docs", "type": "docs", "source_workflow": "create-skill", "skill_name": "{skill-name}", "created_at": "{current ISO date}"}
+   {"name": "{skill-name}-docs", "type": "docs", "source_workflow": "create-skill", "skill_name": "{skill-name}"}
    SKF_REGISTRY_ENTRY
    ```
 

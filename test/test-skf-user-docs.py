@@ -786,7 +786,8 @@ def test_audit_section_names_the_version_it_reads_and_its_data_folder():
 
 def test_verifying_lists_create_skill_private_source_tree():
     """Create Skill reads a remote source at the resolved commit and moves SKF's clone there, or says why not."""
-    extract = _read(SRC / "skf-create-skill" / "references" / "extract.md")
+    # #1147: extract §2a loads the remote block from references/remote-source-access.md
+    extract = _read(SRC / "skf-create-skill" / "references" / "remote-source-access.md")
     assert "--update-clone" in extract and "this run skips ccc discovery and the ccc index registration" in extract
     enforcement = _slice(_read(VERIFYING), "### Workflow-time enforcement", "\n---\n")
     [bullet] = [line for line in enforcement.splitlines() if line.startswith("- **Create Skill (`@Ferris CS`)**")]
@@ -1780,13 +1781,20 @@ def test_create_skill_documents_the_brief_lookup_the_batch_and_its_result_line()
                   "Its result is the file its `batch_summary` event's `summary_path` names",
                   "the `-latest.json` copy holds the last batch summary written, which may be another batch's"):
         assert token in batch_doc, token
+    # #1149: the runtime check On Activation runs, and the halt with no `python3` that prints no line
+    halts = _paragraph(section, "**Halts:**")
+    for token in ("`python3` and `uv` are on your PATH as it starts", "exit `3` (`helper-missing`)",
+                  "under `--batch` too", "(phase `on-activation:runtime`)",
+                  "with no `python3` it shows the message alone, with no result line"):
+        assert token in halts, token
     assert "Ecosystem check" not in section and "Load brief → Extract" in section
     doc = _read(WORKFLOWS)
     envelopes = _paragraph(doc, "**Other workflows emit result envelopes too.**")
     assert "adding `--result-dir \"{forge_version}\"` once step 7 has created `{forge_version}`" in _read(
         SRC / "skf-create-skill" / "SKILL.md")
     for token in ("one `SKF_CREATE_SKILL_RESULT_JSON` line per finished brief on stdout",
-                  "one on stderr at every HARD HALT, in every mode", "`create-skill-result-<timestamp>.json`",
+                  "one on stderr at every HARD HALT, in every mode (except when `python3` is missing as it starts)",
+                  "`create-skill-result-<timestamp>.json`",
                   "once the skill's version folder under `forge_data_folder` exists (every finished brief, and a halt "
                   "after step 7 creates it)"):
         assert token in envelopes, token

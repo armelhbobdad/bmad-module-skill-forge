@@ -1,0 +1,6 @@
+type: changed
+scope: skf-create-skill
+summary: |
+  Create Skill's closing report no longer prints the skill's context snippet with an instruction to paste it into `CLAUDE.md`. It now ends by pointing at `@Ferris EX` (Export Skill), after `@Ferris TS` (Test Skill) if you want the quality gate. Export Skill writes the managed section of `CLAUDE.md`, `AGENTS.md` or `.cursorrules`, so a later export no longer lists a pasted skill twice, and a drop or rename no longer leaves a pasted line behind. If you pasted a snippet from an earlier report into one of those files, delete that line: `@Ferris EX` writes the skill's own line in the managed section.
+issues: [1149]
+prs: [1222]

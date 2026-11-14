@@ -5,7 +5,7 @@ over the scan's candidates (and campaign step 5's record of what it kept,
 read from the doc-rot-corrections.json §4 writes, #1141),
 CORRECTION block format, feeder artifact scan targets, graceful skip logic,
 step chain from step-auto-shard.md, and Stages table in SKILL.md.
-Also checks the temporal feeder: step 3b (sub/fetch-temporal.md) keeps the
+Also checks the temporal feeder: step 3b (fetch-temporal.md) keeps the
 files it fetched in the folder step 5c scans, a failed refresh keeps the last
 good copy, a correction drawn from it cites the QMD collection, and a missing
 feeder reaches the evidence report as a notice.
@@ -29,7 +29,7 @@ STEP_DOC_ROT = CS_DIR / "references" / "step-doc-rot.md"
 STEP_AUTO_SHARD = CS_DIR / "references" / "step-auto-shard.md"
 VALIDATE_FILE = CS_DIR / "references" / "validate.md"
 CS_SKILL_MD = CS_DIR / "SKILL.md"
-FETCH_TEMPORAL = CS_DIR / "references" / "sub" / "fetch-temporal.md"
+FETCH_TEMPORAL = CS_DIR / "references" / "fetch-temporal.md"
 GENERATE_ARTIFACTS = CS_DIR / "references" / "generate-artifacts.md"
 SKILL_SECTIONS = CS_DIR / "assets" / "skill-sections.md"
 SCAN_DOC_ROT_PY = CS_DIR / "scripts" / "scan-doc-rot.py"
@@ -219,15 +219,22 @@ class TestJudgmentPass:
         assert "a compiled SKILL.md line that only restates its own API row" in _judgment_pass()
 
     def test_only_the_project_announces_a_change(self) -> None:
-        """Anyone can open an issue, and §3 publishes a kept line word for word."""
+        """Anyone can open an issue, and §3 publishes a kept line word for word.
+        The scan leaves the issue feeders out (#1145), so their lines take no
+        place under the cap and the pass never drops one by filename."""
         judgment = _judgment_pass()
         assert "The announcement must be the project's own: its changelog, release notes" in judgment
-        assert (
-            "An issue (`issues.md`, `targeted-issues.md`) is a report anyone can open, so it can "
-            "only corroborate such an announcement: drop a candidate that comes from one."
-        ) in judgment
+        assert "drop a candidate that comes from one" not in judgment
+        assert "(pull request bodies included)" in judgment and "issue and pull request bodies" not in judgment
+        scan_section = _scan_section()
+        assert ("It leaves `issues.md` and `targeted-issues.md` unscanned, since an issue is a report anyone can "
+                "open, never the project's own announcement of a change, and names them in `scanned_skipped`."
+                ) in scan_section
+        assert "`{scanned, scanned_skipped, matches," in scan_section
+        scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_issue_feeders")
         for name in ("issues.md", "targeted-issues.md"):
             assert name in _fetch_helper().FEEDER_FILES, f"step 3b no longer writes {name}"
+            assert name in scan.SKIPPED_FEEDERS, name
 
     def test_keeps_one_correction_per_change(self) -> None:
         """A line with keywords of two kinds is a candidate for each, and release
@@ -993,7 +1000,7 @@ class TestTemporalFeederNotice:
 
     def test_notice_reaches_the_evidence_report(self) -> None:
         """Step 7 promotes the staged evidence report as it is, so step 6 writes the notice into it."""
-        report = _section(_read(VALIDATE_FILE), "### 8. Update Evidence Report", "```markdown")
+        report = _section(_read(VALIDATE_FILE), "### 8. Update Evidence Report", "### 9.")
         assert "under `## Remaining Warnings`" in report
         assert "`{temporal_feeder_notice}` when step 5c set it" in report
         assert "{temporal_feeder_notice}" not in _read(GENERATE_ARTIFACTS)
@@ -1051,7 +1058,8 @@ class TestCitationRule:
     def test_overview_states_the_rule_in_provenance_terms(self) -> None:
         overview = _section(_read(CS_SKILL_MD), "## Overview", "\n## ")
         assert "must trace to source code" not in overview
-        assert "every statement in the output carries a provenance citation" in overview
+        # #1148: the rule is stated once, in the Workflow Rules below; the Overview no longer repeats it
+        assert "provenance citation" not in overview
         # The forms are listed once, in the Workflow Rules.
         assert not any(f"`{form}`" in overview for form in self.FORMS)
 

@@ -7,7 +7,7 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 | Bridge       | Operation                        | Claude Code                                                      | Cursor         | CLI                                                | Fallback                         |
 |--------------|----------------------------------|------------------------------------------------------------------|----------------|----------------------------------------------------|----------------------------------|
 | `ast_bridge` | `scan_definitions()`             | `mcp__ast-grep__find_code_by_rule` with each recipe, `output_format="json"`; `mcp__ast-grep__find_code` only as the fallback | ast-grep MCP   | `ast-grep scan -r {recipe_file} --json=stream`     | Source reading (T1-low)          |
-| `ast_bridge` | `detect_co_imports()`            | `mcp__ast-grep__find_code_by_rule` with co-import YAML rule      | ast-grep MCP   | `ast-grep scan -r {rule_file} --json=stream`       | grep-based co-import count       |
+| `ast_bridge` | `detect_co_imports()`            | create-skill step 3 §4's helper call                             | create-skill step 3 §4's helper call | `uv run skf-scan-manifests.py scan {root}` piped to `uv run skf-count-imports.py count {root} --deps - --threshold 2 [--exclude "<glob>"]...` | `co_imports: []` with a warning, never a hand count |
 | `ccc_bridge` | `search(query, root, top_k)`     | `/ccc` skill search                                              | ccc MCP server | `cd {root} && ccc search --limit {top_k} "{query}"` | Skip silently                    |
 | `ccc_bridge` | `ensure_index(root)`             | `/ccc` skill indexing                                            | ccc MCP server | `cd {root} && ccc init` + `ccc index`               | Skip silently                    |
 | `ccc_bridge` | `status()`                       | `/ccc` skill status                                              | ccc MCP server | `ccc --help` + `ccc doctor`                        | Unavailable = `tools.ccc: false` |
@@ -18,6 +18,8 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 | `gh_bridge`  | `read_file(owner, repo, path)`   | `gh api repos/{owner}/{repo}/contents/{path}`                    | gh CLI         | `gh api ...`                                       | Direct file read if local        |
 
 `scan_definitions()` follows the AST Extraction Protocol in create-skill's `extraction-patterns.md`, which holds the recipes: where the step gives the recipe runner's command (`skf-extract-public-api.py --mode full`), it runs them all in one call; otherwise, and when the runner cannot run, the protocol's decision tree, not the priority order below, picks between the MCP call and the CLI template, and `find_code` serves only as its Known Limitation #4 fallback.
+
+`detect_co_imports()` keeps its `ast_bridge` name but runs no ast-grep: at Forge tier and above, skf-count-imports.py counts the import statements, as create-skill's `extraction-patterns.md` says.
 
 ## Subprocess Pattern Definitions
 

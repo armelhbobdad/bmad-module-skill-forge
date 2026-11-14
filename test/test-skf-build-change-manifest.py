@@ -2586,9 +2586,9 @@ class TestUpdateMetadata:
 
 
 def test_the_component_library_exemption_is_create_skills_block() -> None:
-    """The component-library keys the `metadata` call keeps silently are the ones compile-assembly-rules.md tells
-    create-skill to add, so the two cannot drift apart."""
-    rules = (REPO_ROOT / "src" / "skf-create-skill" / "assets" / "compile-assembly-rules.md").read_text(
+    """The component-library keys the `metadata` call keeps silently are the ones assembly-component-library.md
+    tells create-skill to add, so the two cannot drift apart."""
+    rules = (REPO_ROOT / "src" / "skf-create-skill" / "references" / "assembly-component-library.md").read_text(
         encoding="utf-8")
     block = rules[rules.index("Component Library stats:**"):]
     block = block[block.index("```json") + len("```json"):]

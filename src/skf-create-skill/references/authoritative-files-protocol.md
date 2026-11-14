@@ -2,19 +2,17 @@
 
 ## Overview
 
-Loaded on demand when step 3's `### 2a. Discovered Authoritative Files Protocol` sub-step runs, after `### 2b. Resolve Source Access` has resolved the source to a local tree.
+Loaded on demand when step 3's `### 2b. Discovered Authoritative Files Protocol` sub-step runs, after `### 2a. Resolve Source Access` has resolved the source to a local tree.
 
-**Skip this protocol entirely if `source_type: "docs-only"`** — there is no source tree to scan.
-
-**Skip it too when `source_root` is still a remote URL** (a Quick-tier remote source, which §2b never clones, or a remote source §2b could not read into a tree): step 3 §2a's remote source guard skips the scan with a notice, because the helper below walks a local directory and refuses a URL.
-
-Once §2b has resolved source access, scan the resolved source tree (the local source, or the private tree §2b read a remote one into) for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary: information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
+Once §2a has resolved source access, scan the resolved source tree (the local source, or the private tree §2a read a remote one into) for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary: information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
 
 This protocol detects such files, prompts the user, and records the decision in the brief so future runs (re-create, update, audit) honor it.
 
+**Halts.** A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
+
 ## Procedure
 
-1. **Resolve, scan, classify, and load previews in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` (step 3's frontmatter); if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot scan for authoritative files: skf-resolve-authoritative-files.py is missing. Re-install SKF, then re-run create-skill." The helper walks the tree, classifies each candidate and hashes it:
+1. **Resolve, scan, classify, and load previews in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` (step 3's frontmatter); if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`): "Cannot scan for authoritative files: skf-resolve-authoritative-files.py is missing. Re-install SKF, then re-run create-skill." The helper walks the tree, classifies each candidate and hashes it:
 
    ```bash
    uv run {resolveAuthoritativeFilesHelper} resolve \
@@ -23,7 +21,7 @@ This protocol detects such files, prompts the user, and records the decision in 
        [--preview-lines 20]
    ```
 
-   `{source_root}` is the local tree §2b resolved: the local source, or the private tree of a remote one, and `{brief_path}` the `skill-brief.yaml` step 1 loaded. The helper emits one envelope with three buckets:
+   `{source_root}` is the local tree §2a resolved: the local source, or the private tree of a remote one, and `{brief_path}` the `skill-brief.yaml` step 1 loaded. The helper emits one envelope with three buckets:
 
    ```json
    {
@@ -81,7 +79,7 @@ This protocol detects such files, prompts the user, and records the decision in 
    ```
 
 4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true), promote nothing and decline nothing: whether a file enters scope is a person's decision, so this run leaves every `unresolved[]` candidate out of extraction and defers it to the next interactive run, which asks. For each candidate:
-   - Record one auto-decision per path, per the Workflow Rules: stage `{"step": "extract", "gate": "authoritative-file:{path}", "decision": "deferred-headless", "rationale": "headless mode: no person to decide whether {path} enters the scope", "timestamp": "{ISO}"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. The path in the gate keeps several candidates from collapsing into one row.
+   - Record one auto-decision per path, per the Workflow Rules: stage `{"step": "extract", "gate": "authoritative-file:{path}", "decision": "deferred-headless", "rationale": "headless mode: no person to decide whether {path} enters the scope"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. The path in the gate keeps several candidates from collapsing into one row.
    - When its `prior_action` is null, record the deferral in the brief with step 5's **Write the decision** call, with one amendment per such candidate: `action: "deferred-headless"`, `reason: "headless: no person to decide; the next interactive run asks"`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-create-skill"`. The helper keeps a `deferred-headless` path in `unresolved[]`, never in `pre_decided[]`. A candidate whose `prior_action` is already `deferred-headless` is not written again.
 
 5. **Apply decision:**
@@ -103,12 +101,12 @@ This protocol detects such files, prompts the user, and records the decision in 
 
    - **[S] Skip:**
      1. Leave `scope.include` and `scope.exclude` as they are.
-     2. **Write the decision** with no `include` and an amendment with `action: "skipped"`, `reason`: the user's reason, else "user declined promotion at create-skill §2a".
+     2. **Write the decision** with no `include` and an amendment with `action: "skipped"`, `reason`: the user's reason, else "user declined promotion at create-skill §2b".
      3. Display: "**Skipped `{path}`**: decision recorded in amendments."
 
    - **[U] Update:**
-     1. When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints: the scan read the tree §2b made, and nothing reads it after this halt.
-     2. **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
+     1. When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints: the scan read the tree §2a made, and nothing reads it after this halt.
+     2. **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `extract`): "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
 
 6. **Summary.** After all candidates are resolved (or none were found), display a one-line summary:
 
@@ -117,4 +115,4 @@ This protocol detects such files, prompts the user, and records the decision in 
 
 **Record for evidence report:** `authoritative_files_scan: {candidates: N, promoted: P, skipped: S, deferred: D, pre_decided: A, decisions: [{path, action, heuristic, reason}]}`. Step 3 §5 writes it and `promoted_docs[]` into the extraction inventory, and step 5 writes it into `evidence-report.md`.
 
-When step 3 §2a's remote source guard skipped the scan, the record is `authoritative_files_scan: {not_scanned: "remote source not cloned"}` instead (its own key, apart from the `skipped` count of candidates above), and step 6 lists that skip under the evidence report's Remaining Warnings.
+When step 3 §2b's remote source guard skipped the scan, the record is `authoritative_files_scan: {not_scanned: "remote source not cloned"}` instead (its own key, apart from the `skipped` count of candidates above), and step 6 lists that skip under the evidence report's Remaining Warnings.

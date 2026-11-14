@@ -6,8 +6,7 @@
 
 Loads `skill-brief.yaml` from a path (or from stdin/inline-YAML), validates
 it against `schemas/skill-brief.v1.json` (sibling of this script), and applies the
-conditional rules from `skf-create-skill/references/load-brief.md §3`
-that the JSON schema doesn't express today:
+conditional rules that the JSON schema doesn't express today:
 
   - When `source_type == "docs-only"`: `doc_urls` must have ≥1 entry, and
     `source_authority` must be `community` (the prose says it is "forced

@@ -2,9 +2,9 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
-"""SKF Resolve Authoritative Files — §2a deterministic pre-prompt pipeline.
+"""SKF Resolve Authoritative Files: the §2b deterministic pre-prompt pipeline.
 
-`skf-create-skill/references/extract.md §2a "Discovered Authoritative Files
+`skf-create-skill/references/extract.md §2b "Discovered Authoritative Files
 Protocol"` performs five deterministic phases before the LLM can prompt the
 user on each candidate:
 
@@ -75,7 +75,7 @@ no other bucket. Without `--provenance-map` the list is empty.
 `pre_decided` semantics:
   - `prior_action="promoted"` AND `should_add_to_promoted_docs=true` →
     the path is in scope but the caller still needs to add it to
-    `promoted_docs[]` so step 5 §6 writes the `file_entries[]` row.
+    `promoted_docs[]` so step 5 §1c writes the `file_entries[]` row.
     `content_hash` / `size_bytes` / `line_count` are populated.
   - `prior_action="skipped"` → the user previously declined; caller
     does nothing. Hash/size/lines are null (no need to read the file).
@@ -467,7 +467,7 @@ def resolve(
     preview_lines: int = 20,
     provenance_map: Path | None = None,
 ) -> dict:
-    """Run the §2a deterministic pipeline. See module docstring for output shape."""
+    """Run the §2b deterministic pipeline. See module docstring for output shape."""
     brief = load_brief(brief_path)
     includes, excludes, amendments_by_path = extract_scope(brief)
     tracked = load_tracked_files(provenance_map) if provenance_map is not None else set()
@@ -615,7 +615,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("resolve", help="run the §2a pipeline")
+    p = sub.add_parser("resolve", help="run the §2b pipeline")
     p.add_argument("--source-root", required=True, help="path to the source tree")
     p.add_argument("--brief", required=True, help="path to skill-brief.yaml")
     p.add_argument(

@@ -89,7 +89,7 @@ Ferris operates in five workflow-driven modes (mode is determined by which workf
 | **`gh_bridge`** | GitHub CLI (`gh`) | Source code access, issue mining, release tracking, PR intelligence |
 | **`skill-check`** | [thedaviddias/skill-check](https://github.com/thedaviddias/skill-check) | Validation + auto-fix (`check --fix`), quality scoring (0-100), split-body, diff comparison |
 | **`tessl`** | [tessl](https://tessl.io) (`tessl review run`) | Opt-in Tessl Review of the skill folder: validation checks and AI judges for the description and the content, with suggestions. Off unless `tessl_review_workspace` is set in preferences; needs a Tessl account |
-| **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
+| **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries |
 | **`ccc_bridge`** | cocoindex-code | Semantic code search, project indexing, file discovery pre-ranking |
 | **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
 | **`doc_fetcher`** | Environment web tools | Fetches remote documentation using whatever web tool your environment has (Firecrawl, WebFetch, curl, and so on). Everything it returns is labeled T3, the lowest confidence tier, and never overrides facts read from the code. |

@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -1366,6 +1367,46 @@ def test_cli_record_appends_decisions_and_warnings(tmp_path):
     assert (run_dir / mod.SINK_DECISIONS).read_text(encoding="utf-8").splitlines() == [
         json.dumps(UPDATE_DECISION, separators=(",", ":"))]
     assert (run_dir / mod.SINK_WARNINGS).read_text(encoding="utf-8") == '"source-not-fetched: offline"\n'
+
+
+CREATE_DECISION = {"step": "extract", "gate": "review-gate", "decision": "continue",
+                   "rationale": "headless mode: no person to review the extraction summary"}
+
+
+@pytest.mark.parametrize("given", [{}, {"timestamp": None}, {"timestamp": ""}], ids=["absent", "null", "empty"])
+def test_cli_record_stamps_a_decision_with_no_timestamp(tmp_path, given):
+    """#1145: create-skill's stage files stop typing a time; record stamps it before the schema check."""
+    run_dir = tmp_path / "skf-create-skill-RUN1"
+    before = int(time.time())
+    proc = _cli("record", "--workflow", "skf-create-skill", "--run-dir", str(run_dir), "--decision",
+                payload={**CREATE_DECISION, **given})
+    after = int(time.time())
+    assert proc.returncode == 0, proc.stderr
+    [line] = (run_dir / mod.SINK_DECISIONS).read_text(encoding="utf-8").splitlines()
+    recorded = json.loads(line)
+    assert recorded["timestamp"] in {mod._stamps(t)[0] for t in range(before, after + 1)}
+    assert {k: v for k, v in recorded.items() if k != "timestamp"} == CREATE_DECISION
+    schema, _ = mod.load_workflow_schema("skf-create-skill")
+    assert mod._validate_against_schema(recorded, mod._decision_schema(schema)) == []
+
+
+def test_cli_record_keeps_a_given_timestamp(tmp_path):
+    run_dir = tmp_path / "skf-create-skill-RUN1"
+    decision = {**CREATE_DECISION, "timestamp": "2026-11-13T09:00:00+00:00"}
+    proc = _cli("record", "--workflow", "skf-create-skill", "--run-dir", str(run_dir), "--decision",
+                payload=decision)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads((run_dir / mod.SINK_DECISIONS).read_text(encoding="utf-8")) == decision
+
+
+def test_cli_record_stamps_only_a_schema_that_holds_a_timestamp(tmp_path):
+    """Update Skill's decisions have no timestamp field (additionalProperties false): none is added."""
+    run_dir = tmp_path / "skf-update-skill-RUN1"
+    assert _cli("record", "--workflow", "skf-update-skill", "--run-dir", str(run_dir), "--decision",
+                payload=UPDATE_DECISION).returncode == 0
+    assert _cli("record", "--run-dir", str(run_dir), "--decision", payload=CREATE_DECISION).returncode == 0
+    assert [json.loads(l) for l in (run_dir / mod.SINK_DECISIONS).read_text(encoding="utf-8").splitlines()] == [
+        UPDATE_DECISION, CREATE_DECISION]
 
 
 def test_cli_record_appends_every_warning(tmp_path):

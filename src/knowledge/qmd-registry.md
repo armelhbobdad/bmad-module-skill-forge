@@ -34,7 +34,7 @@ qmd_collections:
     type: "extraction"
     source_workflow: "create-skill"
     skill_name: "my-lib"
-    created_at: "2026-03-14"
+    created_at: "2026-03-14T10:00:00+00:00"
   - name: "my-lib-brief"
     type: "brief"
     source_workflow: "brief-skill"
@@ -42,6 +42,8 @@ qmd_collections:
     created_at: "2026-03-14"
     # status: "pending"    # Optional — see below
 ```
+
+`created_at` holds an ISO 8601 date or UTC time. `skf-forge-tier-rw.py register-qmd-collection` stamps the current UTC time, to the second, on an entry that gives none, which is how create-skill registers its collections, and `read --fresh-within-hours` reads either form, a date as midnight UTC.
 
 **Optional field: `status`**
 

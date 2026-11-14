@@ -1,13 +1,14 @@
 """Structural integration tests for auto-shard at 400-line ceiling (story 3.4).
 
 Validates step-auto-shard.md exists with correct frontmatter, the 400-line
-budget it passes skf-shard-body.py, the Tier 2 heading pattern and
-cross-reference format it describes, the step chain from
-step-doc-sources.md, the Stages table in SKILL.md, the context logging
+budget it passes skf-shard-body.py, the `## Full` prefix that marks a Tier 2
+section, the step chain from step-doc-sources.md, the Stages table in SKILL.md, the context logging
 variables, the structural contract, the prohibition constraints and the
 validate.md safety net. The script owns the counting and the extraction, so
-the step keeps no manual fallback that narrates them (#599), and each of its
-halts emits the create-skill envelope (#593).
+the step keeps no manual fallback that narrates them (#599) and no account of
+the script's order, file names or cross-references, which test-skf-shard-body.py
+pins on the script itself (#1148), and each of its halts emits the
+create-skill envelope (#593).
 """
 
 from __future__ import annotations
@@ -114,14 +115,18 @@ class TestNoManualFallback:
 
     def test_halts_emit_the_envelope(self, text: str) -> None:
         body = text.split("\n---\n", 1)[1]
-        # the halt sites; the Rules bullet that every one of them follows names no reason of its own
+        # the halt sites; the Rules bullet that every one of them follows names no reason of its own and holds
+        # the emit command, once (#1147)
         halts = [line for line in body.splitlines() if "**HARD HALT**" in line]
         assert len(halts) == 3, halts
         for reason in ("`helper-missing`", "`tier1-not-preserved`", "`shard-xref-broken`"):
             line = next(h for h in halts if reason in h)
-            assert ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
-                    '--target stderr < "{run_dir}/halt.json"`') in line, reason
+            assert "emit-halt" not in line, reason
             assert "phase `auto-shard`" in line, reason
+        rules = body[body.index("## Rules"):body.index("## MANDATORY SEQUENCE")]
+        emit = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
+                '--target stderr < "{run_dir}/halt.json"`')
+        assert body.count(emit) == 1 and emit in rules
 
 
 # ---------------------------------------------------------------------------
@@ -137,39 +142,6 @@ class TestTier2HeadingPattern:
     def test_full_heading_prefix(self, text: str) -> None:
         assert "## Full" in text, (
             "step-auto-shard.md must reference the `## Full` heading prefix for Tier 2"
-        )
-
-    TIER_2_HEADINGS = [
-        "Full API Reference",
-        "Full Type Definitions",
-        "Full Integration Patterns",
-    ]
-
-    @pytest.mark.parametrize("heading", TIER_2_HEADINGS)
-    def test_tier2_heading_listed(self, text: str, heading: str) -> None:
-        assert heading in text, (
-            f"step-auto-shard.md must list Tier 2 heading '{heading}'"
-        )
-
-
-# ---------------------------------------------------------------------------
-# step-auto-shard.md — Cross-Reference Link Format
-# ---------------------------------------------------------------------------
-
-
-class TestCrossReferenceFormat:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_AUTO_SHARD)
-
-    def test_blockquote_cross_reference(self, text: str) -> None:
-        assert re.search(
-            r">\s*See\s+\[.*\]\(references/.*\.md\)", text
-        ), "step-auto-shard.md must show the blockquote cross-reference format"
-
-    def test_kebab_case_filename(self, text: str) -> None:
-        assert "full-api-reference.md" in text, (
-            "step-auto-shard.md must show kebab-case reference filename example"
         )
 
 
@@ -316,22 +288,6 @@ class TestAutoShardChain:
 
 
 # ---------------------------------------------------------------------------
-# step-auto-shard.md — Extraction Algorithm Ordering
-# ---------------------------------------------------------------------------
-
-
-class TestExtractionAlgorithm:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_AUTO_SHARD)
-
-    def test_sort_by_line_count_descending(self, text: str) -> None:
-        assert re.search(r"(largest first|line count desc)", text, re.IGNORECASE), (
-            "step-auto-shard.md must specify extraction order: largest sections first"
-        )
-
-
-# ---------------------------------------------------------------------------
 # step-auto-shard.md — Prohibition Constraints
 # ---------------------------------------------------------------------------
 
@@ -397,27 +353,4 @@ class TestValidateSafetyNet:
     def test_tier1_preservation_check(self, text: str) -> None:
         assert re.search(r"Tier 1.*remain inline", text, re.IGNORECASE), (
             "validate.md §4 must still enforce Tier 1 preservation"
-        )
-
-
-# ---------------------------------------------------------------------------
-# step-auto-shard.md — All Kebab-Case Reference Filenames
-# ---------------------------------------------------------------------------
-
-
-class TestKebabCaseFilenames:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_AUTO_SHARD)
-
-    EXPECTED_FILENAMES = [
-        "full-api-reference.md",
-        "full-type-definitions.md",
-        "full-integration-patterns.md",
-    ]
-
-    @pytest.mark.parametrize("filename", EXPECTED_FILENAMES)
-    def test_kebab_case_filename_present(self, text: str, filename: str) -> None:
-        assert filename in text, (
-            f"step-auto-shard.md must show kebab-case filename '{filename}'"
         )

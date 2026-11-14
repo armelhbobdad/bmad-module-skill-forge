@@ -134,12 +134,11 @@ def test_without_provenance_only_keywords_are_candidates():
 
 @pytest.mark.parametrize(
     "feeder",
-    ["issues.md", "targeted-issues.md", "evidence-report.md", "provenance-map.json", "SKILL.md"],
-    ids=["issues", "targeted-issues", "evidence-report", "provenance-map", "skill-md"],
+    ["evidence-report.md", "provenance-map.json", "SKILL.md"],
+    ids=["evidence-report", "provenance-map", "skill-md"],
 )
 def test_only_the_announcement_feeders_give_export_mentions(tmp_path, feeder):
-    """Every entries[] line of the map names an export, and an issue is a
-    report anyone can open: neither is an announcement."""
+    """Every entries[] line of the map names an export: it is no announcement."""
     path = tmp_path / ".skf-temporal" / feeder
     path.parent.mkdir()
     path.write_text("- Renamed `load` to `read`.\n", encoding="utf-8")
@@ -148,6 +147,7 @@ def test_only_the_announcement_feeders_give_export_mentions(tmp_path, feeder):
                           encoding="utf-8")
     out = scan_files([str(path)], None, provenance=str(provenance))
     assert (out["match_count"], out["exports_known"]) == (0, 2)
+    assert out["scanned"] == [str(path)] and out["scanned_skipped"] == []
     path.rename(path.with_name("prs.md"))
     out = scan_files([str(path.with_name("prs.md"))], None, provenance=str(provenance))
     assert out["match_count"] == 1 and out["matches"][0]["exports"] == ["load", "read"]
@@ -233,10 +233,11 @@ def test_the_full_feeder_set_keeps_the_changes_inside_the_cap(tmp_path):
                  "- Renamed `load` to `read`."):
         assert ("changelog.md", line) in kept, line
     assert ("releases.md", "* BREAKING: `fn_02` now returns a tuple") in kept
-    # the plain mentions share what is left in turns, and no issue line is one
+    # the plain mentions share what is left in turns, and the issues are not scanned
     plain = [m for m in out["matches"] if mod.rank(m) == 1]
     assert {Path(m["source"]).name for m in plain} == {"changelog.md", "releases.md", "prs.md"}
-    assert not any(Path(m["source"]).name == "issues.md" and m["pattern"] is None for m in out["matches"])
+    assert not any(Path(m["source"]).name == "issues.md" for m in out["matches"])
+    assert [Path(p).name for p in out["scanned_skipped"]] == ["issues.md"]
     # a flat turn order, as the cap had before, loses the Deprecated bullet to the Added ones
     flat = [dict(m, pattern="x") for m in scan_files(feeders, skill_md, provenance=provenance,
                                                        max_candidates=0)["matches"]]
@@ -677,6 +678,37 @@ def test_scan_files_skips_missing_and_empty(tmp_path):
     assert out["scanned"] == [str(good)]
     assert out["match_count"] == 1
     assert out["matches"][0]["pattern"] == "removed in"
+
+
+def test_scan_files_skips_the_issue_feeders(tmp_path):
+    """#1145: an issue is a report anyone can open, never the project's own
+    announcement, so its lines take no place under the cap: the helper skips
+    issues.md and targeted-issues.md and names them, instead of the step
+    dropping their candidates by filename after the cap."""
+    temporal = tmp_path / ".skf-temporal"
+    temporal.mkdir()
+    (temporal / "changelog.md").write_text("- `old` deprecated in 2.0\n", encoding="utf-8")
+    (temporal / "issues.md").write_text("## #1: `old` deprecated warning is noisy\n", encoding="utf-8")
+    (temporal / "targeted-issues.md").write_text("## #2: BREAKING change in `old`?\n", encoding="utf-8")
+    missing = temporal / "nope" / "issues.md"
+    (tmp_path / "empty").mkdir()
+    empty = tmp_path / "empty" / "targeted-issues.md"
+    empty.write_text("\n", encoding="utf-8")
+    feeders = [str(temporal / "targeted-issues.md"), str(temporal / "changelog.md"), str(missing),
+               str(temporal / "issues.md"), str(empty)]
+    out = scan_files(feeders, None)
+    assert out["scanned"] == [str(temporal / "changelog.md")]
+    assert out["scanned_skipped"] == [str(temporal / "targeted-issues.md"), str(temporal / "issues.md")]
+    assert [Path(m["source"]).name for m in out["matches"]] == ["changelog.md"]
+    assert out["match_count"] == 1
+
+
+def test_scan_files_never_skips_the_skill_md_feeder(tmp_path):
+    skill = tmp_path / "issues.md"
+    skill.write_text("# Skill\n\n- `foo()` is replaced by `bar()`\n", encoding="utf-8")
+    out = scan_files([], str(skill))
+    assert out["scanned"] == [str(skill)] and out["scanned_skipped"] == []
+    assert out["match_count"] == 1
 
 
 def test_scan_files_applies_exclusion_end_to_end(tmp_path):

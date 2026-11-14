@@ -3,7 +3,7 @@
 changes forge-tier.yaml only through skf-forge-tier-rw.py.
 
 Prose pins, each checked against the helper it names:
-- extract.md §2b runs resolve with --update-clone, maps target_ref,
+- extract.md §2a runs resolve with --update-clone, maps target_ref,
   target_version and version onto its flags, binds source_ref,
   source_commit, tag_resolution and workspace_path (and the rest) from keys
   resolve prints, and dispatches on every status and failure reason it
@@ -16,7 +16,7 @@ Prose pins, each checked against the helper it names:
   chosen one as --target-ref reads it; close removes the tree.
 - metadata.json records SKF's clone as source_root, never the tree (the
   remote URL when the workspace path holds another folder, null for a
-  docs-only brief), and step 7 and every HALT after §2b remove the tree: the
+  docs-only brief), and step 7 and every HALT after §2a remove the tree: the
   [U] halt and report.md's HARD HALT contract name the close command. Every
   brief starts clean before the docs-only skip, so a --batch run never
   carries one brief's paths into the next.
@@ -47,6 +47,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -57,13 +58,16 @@ SRC = REPO_ROOT / "src"
 CS = SRC / "skf-create-skill"
 REFS = CS / "references"
 EXTRACT = REFS / "extract.md"
+# §2a's remote block, which §2a loads for a remote source at Forge tier and above (#1147).
+REMOTE_ACCESS = REFS / "remote-source-access.md"
 PROTOCOLS = REFS / "source-resolution-protocols.md"
 GENERATE = REFS / "generate-artifacts.md"
-FETCH_TEMPORAL = REFS / "sub" / "fetch-temporal.md"
-FETCH_DOCS = REFS / "sub" / "fetch-docs.md"
+FETCH_TEMPORAL = REFS / "fetch-temporal.md"
+FETCH_DOCS = REFS / "fetch-docs.md"
 AUTH_PROTOCOL = REFS / "authoritative-files-protocol.md"
 REPORT = REFS / "report.md"
 CS_SKILL = CS / "SKILL.md"
+CS_CONTRACT = REFS / "invocation-contract.md"
 SKILL_SECTIONS = CS / "assets" / "skill-sections.md"
 SCRIPTS = SRC / "shared" / "scripts"
 SOURCE_TREE = SCRIPTS / "skf-source-tree.py"
@@ -109,22 +113,27 @@ def _module(path: Path, name: str):
     return module
 
 
-def _section_2b() -> str:
-    return _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "**Deferred CCC Discovery")
+def _section_2a() -> str:
+    return _slice(_read(EXTRACT), "### 2a. Resolve Source Access", "**Deferred CCC Discovery")
+
+
+def _remote_block() -> str:
+    """The section of references/remote-source-access.md that §2a follows for a remote source."""
+    return _slice(_read(REMOTE_ACCESS), "## Read the Source Into a Private Tree", "## Deferred CCC Discovery")
 
 
 def _resolve_command() -> str:
-    """The fenced resolve command of §2b, its backslash continuations joined."""
-    [fence] = [f for f in _fences(_section_2b()) if " resolve " in f]
+    """The fenced resolve command of §2a's remote block, its backslash continuations joined."""
+    [fence] = [f for f in _fences(_remote_block()) if " resolve " in f]
     return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
 
 def _dispatch() -> str:
-    return _slice(_section_2b(), "Dispatch on `{source_resolve_status}`:", "Then run Source Commit Capture")
+    return _slice(_read(REMOTE_ACCESS), "Dispatch on `{source_resolve_status}`:", "## Deferred CCC Discovery")
 
 
 # --------------------------------------------------------------------------
-# extract.md §2b: the resolve call and what it binds
+# extract.md §2a: the resolve call and what it binds
 # --------------------------------------------------------------------------
 
 
@@ -136,21 +145,21 @@ def test_resolve_command_takes_the_brief_fields_and_moves_the_clone():
                  '[--version "{brief.version}" --implicit]', "--update-clone",
                  '[--hygiene-helper "{cccGitHygieneHelper}"]', '--timeout "{tree_timeout}"'):
         assert part in command, part
-    section = _section_2b()
+    section = _remote_block()
     assert ("Pass the first `--version` line when the brief sets `target_version`, else the second when it "
             "sets `version`, never both") in section
     table = _slice(_read(PROTOCOLS), "| The brief sets |", "\n\n")
     for row in ("| `target_ref` (it takes priority) |", "| `target_version` |", "| only `version` |",
                 "| none of them |"):
         assert row in table, row
-    # The field-to-flag mapping is written once, in §2b's command.
+    # The field-to-flag mapping is written once, in §2a's command.
     for flag in ('--target-ref "{brief.target_ref}"', '--version "{brief.target_version}"',
                  '--version "{brief.version}"', '--name "{brief.name}"'):
         assert flag not in _read(PROTOCOLS), flag
 
 
 def test_every_bound_key_is_a_key_resolve_prints(tmp_path):
-    bind = _slice(_section_2b(), "Bind from its JSON", "\n")
+    bind = _slice(_remote_block(), "Bind from its JSON", "\n")
     keys = set(re.findall(r"← `(\w+)`", bind))
     for handoff in ("source_ref", "source_commit", "tag_resolution", "workspace_path"):
         assert f"`{handoff}` ← `{handoff}`" in bind or f"`{{{handoff}}}` ← `{handoff}`" in bind, handoff
@@ -197,24 +206,27 @@ def test_ready_reads_the_tree_and_records_the_clone():
 
 def test_every_brief_starts_clean_before_the_docs_only_skip():
     """A docs-only brief after a remote one must not keep that brief's clone, tree or source_root."""
-    section = _section_2b()
+    section = _section_2a()
     start = _slice(section, "**Start clean:**", "\n")
     assert "for every brief, docs-only included" in start
     assert "set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null" in start
     assert "`{resolved-source-path}` to `{source_root}` (null for a docs-only brief)" in start
     assert "in a `--batch` run one brief's source never carries into the next" in start
-    skip = '**If `source_type: "docs-only"`:** skip the rest of §2b'
+    skip = '**If `source_type: "docs-only"`:** skip the rest of §2a'
     assert section.index("**Start clean:**") < section.index(skip)
-    assert section.index("### 2b. Resolve Source Access") < section.index("**Start clean:**")
-    assert "skip §2b entirely" not in section
+    assert section.index("### 2a. Resolve Source Access") < section.index("**Start clean:**")
+    assert "skip §2a entirely" not in section
 
 
 def test_unavailable_degrades_to_source_reading():
     unavailable = _slice(_dispatch(), "- **`unavailable`**", "\n")
     # A retry starts the fetch again with only a little more time: the first call gets the longest one.
     assert "run the command once more" not in unavailable and "without the retry" not in _dispatch()
-    remote = _slice(_section_2b(), "**Remote source at Forge, Forge+ or Deep tier:**", "\n")
+    remote = _slice(_remote_block(), "`{sourceTreeHelper}` reads the source into a private tree", "\n")
     assert "a little under the longest timeout your shell tool can be given" in remote
+    # §2a loads the block only for a remote source at Forge tier and above
+    load = _slice(_section_2a(), "**Remote source at Forge, Forge+ or Deep tier:**", "\n")
+    assert "load `{remoteSourceAccessData}` and follow its **Read the Source Into a Private Tree** section" in load
     assert "Give the command that longest shell timeout" in remote
     assert "Degrading to source reading (T1-low) for this run." in unavailable
     assert "Keep `{source_root}` the remote URL" in unavailable
@@ -224,7 +236,7 @@ def test_unavailable_degrades_to_source_reading():
 def test_only_the_tag_choice_stays_in_prose():
     protocols = _read(PROTOCOLS)
     several = _slice(protocols, "### Several Matching Tags", "### Local Source Warning")
-    assert "`tag_resolution.candidates` lists the matching tags in the priority order above" in several
+    assert "`tag_resolution.candidates` lists the matching tags in the order resolve tries the tag forms" in several
     assert "This is the one choice tag resolution leaves to you" in several
     headless = _slice(several, "- **GATE [default: first candidate]**", "\n")
     for token in ("under `{headless_mode}`, take the first candidate",
@@ -235,7 +247,7 @@ def test_only_the_tag_choice_stays_in_prose():
     ambiguous = _slice(_dispatch(), "- **`ambiguous`**", "\n")
     assert ('run the command again with `--target-ref "{chosen tag}"` (`HEAD` for the default branch) in '
             "place of `--version`, `--name`, `--implicit` and any `--target-ref` from the brief") in ambiguous
-    gates = next(line for line in _read(CS_SKILL).splitlines() if line.startswith("| **Gates** |"))
+    gates = next(line for line in _read(CS_CONTRACT).splitlines() if line.startswith("| **Gates** |"))
     assert "step 3: Tag Choice Gate" in gates
     for by_hand in ("--paginate", "ls-remote", "semver sort", "refs/tags/", "Closest available tags"):
         assert by_hand not in protocols, by_hand
@@ -254,28 +266,24 @@ def test_a_head_fallback_adds_to_the_warning_resolve_printed():
     assert "(nearest tags: " in helper
 
 
-def test_protocol_lists_the_tag_forms_resolve_tries_in_its_order():
+def test_protocol_lists_no_tag_form():
+    """#1148: resolve's `match_tags` is the one home of the tag forms and their order (test-skf-source-tree.py's
+    TestMatchTags pins them), so the protocol names no form: it keeps the outcomes, their warnings and the
+    `target_ref` advice."""
+    protocols = _read(PROTOCOLS)
+    forms = [span for line in protocols.splitlines() for span in re.findall(r"`([^`]+)`", line)
+             if re.search(r"\{(target_version|brief\.version|brief\.name|version|scope)\}", span)]
+    assert forms == []
+    for heading in ("- **Exact match:**", "- **With `v` prefix:**", "With package scope", "With crate/package-directory"):
+        assert heading not in protocols, heading
+    explicit = _slice(protocols, "### Explicit Tag Resolution", "### Implicit Tag Resolution")
+    implicit = _slice(protocols, "### Implicit Tag Resolution", "### Several Matching Tags")
+    for section in (explicit, implicit):
+        assert "Outcomes, from `tag_resolution.status`:" in section
+        assert "- **`fallback-head`:**" in section
+    assert "`target_ref` is the escape hatch for ref conventions the tag forms do not cover" in protocols
     helper = _module(SOURCE_TREE, "skf_source_tree_create_forms")
-    explicit = _slice(_read(PROTOCOLS), "### Explicit Tag Resolution", "Outcomes, from")
-    implicit = _slice(_read(PROTOCOLS), "### Implicit Tag Resolution", "Package-scoped monorepo forms")
-
-    def listed(section: str) -> list[str]:
-        forms = []
-        for line in section.splitlines():
-            if line.startswith("- **"):
-                forms += re.findall(r"`([^`]*\{[^`]*)`", line.split("(e.g", 1)[0])
-        return forms
-
-    fill = {"{target_version}": "1.0.0", "{brief.version}": "1.0.0", "{brief.name}": "lib", "{scope}": "acme"}
-    documented = []
-    for form in listed(explicit):
-        for key, value in fill.items():
-            form = form.replace(key, value)
-        documented.append(form)
-    tags = {tag: "0" * 40 for tag in documented}
-    assert helper.match_tags(tags, "1.0.0", "lib") == documented
-    documented_implicit = [form.replace("{brief.version}", "1.0.0") for form in listed(implicit)]
-    assert helper.match_tags(tags, "1.0.0", "lib", implicit=True) == documented_implicit == ["1.0.0", "v1.0.0"]
+    assert helper.match_tags(["v1.0.0", "1.0.0"], "1.0.0", "lib", implicit=True) == ["1.0.0", "v1.0.0"]
 
 
 def test_no_create_skill_step_resolves_or_locks_by_hand():
@@ -367,7 +375,7 @@ def upstream(tmp_path, monkeypatch):
 
 
 def _documented_resolve(brief: dict) -> list[str]:
-    """§2b's command filled in for `brief` as its "Pass ..." sentence says."""
+    """§2a's command filled in for `brief` as its "Pass ..." sentence says."""
     command = _resolve_command()
     keep = {
         "--target-ref": "target_ref" in brief,
@@ -497,12 +505,19 @@ def test_registry_changes_only_through_the_helper(path):
 
 @pytest.mark.parametrize("path", REGISTRY_FILES, ids=[p.name for p in REGISTRY_FILES])
 def test_a_missing_registry_helper_never_halts(path):
-    """Steps 3b, 3c and 7 share one policy: registration is skipped with a warning, never a HALT."""
+    """Steps 3b, 3c and 7 share one policy: registration is skipped with a warning, never a HALT. Each states it
+    once (#1147): where the body resolves the helper, or, for step 3c, whose §5b does not, in the one frontmatter
+    comment it keeps."""
     text = _read(path)
     end = text.index("\n---\n", 4)
-    comment = text[text.index("# Resolve `{forgeTierRwHelper}`"):text.index("forgeTierRwProbeOrder:")]
-    probe = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
-    assert "HALT" not in probe and "the registry change with a warning" in probe
+    comments = [line for line in text[:end].splitlines() if line.startswith("#")]
+    assert not any("HALT" in line for line in comments), comments
+    stated = {"fetch-temporal.md": "If a registry command fails, or `{forgeTierRwHelper}` does not resolve: log the "
+                                   "error, continue.",
+              "fetch-docs.md": "# If neither path exists, §5b skips the registry change with a warning.",
+              "generate-artifacts.md": 'If no candidate exists, warn "forge-tier.yaml registry not updated: '
+                                       'skf-forge-tier-rw.py is missing; re-install SKF"'}
+    assert stated[path.name] in text, path.name
     for line in text[end:].splitlines():
         assert not ("{forgeTierRwHelper}" in line and "HALT" in line), line[:100]
 
@@ -523,26 +538,45 @@ def test_registered_entries_are_json_the_helper_accepts_and_rolls_back(path, tmp
         result = _rw(target, subcommand, stdin=json.dumps(entry))
         assert result["action"] == "appended", result
         data = _rw(target, "read")["data"]
+        # The helper stamps the time (#1145): no stage file types one.
+        stamp = "created_at" if subcommand == "register-qmd-collection" else "indexed_at"
+        assert stamp not in entry and "{current ISO date}" not in body, body
+        registry = data["qmd_collections" if subcommand == "register-qmd-collection" else "ccc_index_registry"]
+        [stored] = [e for e in registry if {k: v for k, v in e.items() if k != stamp} == entry]
+        when = datetime.fromisoformat(stored[stamp])
+        assert when.utcoffset() == timedelta(0) and abs(datetime.now(timezone.utc) - when) < timedelta(minutes=5)
         if subcommand == "register-qmd-collection":
-            assert entry in data["qmd_collections"]
             rollback = f'remove-qmd-collection --target "{{forgeTierConfig}}" --name {json.loads(body)["name"]}'
             assert rollback in text, rollback
             removed = _rw(target, "remove-qmd-collection", "--name", entry["name"])
             assert removed["action"] == "removed"
         else:
             assert subcommand == "register-ccc-index"
-            assert entry in data["ccc_index_registry"] and entry["path"] == ccc_root
+            assert entry["path"] == ccc_root
 
 
-def test_cache_and_embed_checks_read_the_registry_json():
+def test_cache_and_embed_checks_read_the_helper_freshness():
+    """#1145: the helper judges a collection's age against the clock; no stage compares times by hand."""
     cache = _slice(_read(FETCH_TEMPORAL), "### 2. Check Cache", "### 3.")
-    assert 'uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"' in cache
-    assert "Bind `{registry_collections}` ← its `data.qmd_collections`" in cache
+    assert ('uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 168 '
+            '--name "{skill-name}-temporal"') in cache
+    assert ("Bind `{temporal_fresh}` ← its `fresh` and `{temporal_age_hours}` ← its `age_hours`: false and null "
+            "when the command fails or no candidate resolves.") in cache
+    assert "fresh ({temporal_age_hours} hours old)" in cache
     assert "Read `forge-tier.yaml` from the sidecar path." not in cache
     embed = _slice(_read(FETCH_TEMPORAL), "**Scope the embed:**", "\n")
-    assert "`{registry_collections}`" in embed
-    for path, section in ((FETCH_DOCS, ("### 5b.", "### 6.")), (GENERATE, ("### 6. ", "### 6b."))):
-        assert 'uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"' in _slice(_read(path), *section)
+    assert '--fresh-within-hours 24 --name "{skill-name}-temporal"`, and when its `fresh` is true skip' in embed
+    gates = ((FETCH_DOCS, ("### 5b.", "### 6."), '--fresh-within-hours 24 --name "{skill-name}-docs"'),
+             (GENERATE, ("### 6. ", "### 6b."), "--fresh-within-hours 24 --name {name}-extraction"))
+    for path, section, call in gates:
+        text = _slice(_read(path), *section)
+        assert f'uv run {{forgeTierRwHelper}} read --target "{{forgeTierConfig}}" {call}' in text, path.name
+        assert "when its `fresh` is true" in text, path.name
+    for path in REGISTRY_FILES:
+        text = _read(path)
+        for by_hand in ("{registry_collections}", "{current ISO date}", "within the last", "7 days", "24 hours",
+                        "older than", "{days} days old"):
+            assert by_hand not in text, (path.name, by_hand)
 
 
 def test_a_failed_add_rolls_the_registry_back_and_registers_nothing():

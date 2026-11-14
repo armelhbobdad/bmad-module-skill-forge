@@ -10,7 +10,7 @@ No test reaches GitHub or runs the gh a developer has installed:
   (POSIX only: the fake is a script), as test-skf-github-probe.py does.
 - repo reads a git repository made for the test.
 
-The last class pins sub/fetch-temporal.md to the helper (#605
+The last class pins fetch-temporal.md to the helper (#605
 determinism-13): the step calls it and holds no formatter of its own.
 """
 
@@ -31,7 +31,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "src" / "shared" / "scripts" / "skf-fetch-temporal.py"
-FETCH_TEMPORAL = REPO / "src" / "skf-create-skill" / "references" / "sub" / "fetch-temporal.md"
+FETCH_TEMPORAL = REPO / "src" / "skf-create-skill" / "references" / "fetch-temporal.md"
 
 _MODULE = None
 
@@ -682,7 +682,7 @@ class TestGhCall:
 
 
 # --------------------------------------------------------------------------
-# sub/fetch-temporal.md: the step calls the helper
+# fetch-temporal.md: the step calls the helper
 # --------------------------------------------------------------------------
 
 
@@ -778,7 +778,7 @@ class TestEnrichSearchesThisSkillOnly:
         pre_check = " ".join(self._enrich().split())
         assert "at most `{skill-name}-temporal` and `{skill-name}-docs`" in pre_check
         for step, name, kind in (("fetch-temporal.md", "temporal", "temporal"), ("fetch-docs.md", "docs", "docs")):
-            text = (REFERENCES / "sub" / step).read_text(encoding="utf-8")
+            text = (REFERENCES / step).read_text(encoding="utf-8")
             entry = (f'{{"name": "{{skill-name}}-{name}", "type": "{kind}", "source_workflow": "create-skill", '
                      f'"skill_name": "{{skill-name}}"')
             assert entry in text, step

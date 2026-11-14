@@ -51,6 +51,8 @@ BY_HAND = REFS / "extraction-patterns-by-hand.md"
 COMPONENT_EXTRACTION = REFS / "component-extraction.md"
 DATA_FILE = REPO / "src" / "shared" / "data" / "ast-grep-recipes.yaml"
 RUNNER = REPO / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
+# Phase 4's Step 4 call: it sorts the exports the recipes find (#1146)
+DETECT_REGISTRY = REPO / "src" / "shared" / "scripts" / "skf-detect-registry.py"
 
 
 def _pinned_version() -> str:
@@ -1658,8 +1660,10 @@ def test_component_extraction_names_its_recipes() -> None:
     assert _named_ids(steps[1]) == {"react-props-interfaces", "vue-define-props", "vue-define-props-tsx"}
     assert _named_ids(steps[2]) == {"react-component-functions", "react-component-arrow-functions",
                                     "react-wrapped-components", "js-local-exports"}
-    assert _named_ids(steps[4]) == {"ts-exported-types"}
-    assert "$NAME" not in steps[4], "Step 4 runs a recipe, not bare patterns"
+    assert _named_ids(steps[3]) == {"ts-exported-types"}
+    assert "$NAME" not in steps[3], "Step 3 runs a recipe, not bare patterns"
+    # Step 4 runs the sort, which names no recipe: the helper's docstring holds the rules
+    assert _named_ids(steps[4]) == set()
     for md in (REPO / "src").rglob("*.md"):
         assert "react-component-exports" not in md.read_text(encoding="utf-8"), md
 
@@ -1676,25 +1680,52 @@ def test_component_extraction_step_2_finds_the_issue_components() -> None:
     assert found == {"Button", "buttonVariants", "Card", "CardHeader", "Memoed", "Forwarded", "Lazy"}
 
 
+def _detect_registry():
+    """src/shared/scripts/skf-detect-registry.py, loaded as a module."""
+    spec = importlib.util.spec_from_file_location("skf_detect_registry_recipes", DETECT_REGISTRY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_component_extraction_step_2_sorts_a_radix_list() -> None:
     """A Radix primitive declares its Props interfaces unexported and lists
     them in `export type { ... }`: Step 1's recipes find none of them, Step
-    2's find them all, and Step 2 sorts a type-only item ending in Props
-    into the Props contracts, not the components."""
+    2's find them all, and Step 4's call (#1146: the helper, not the model)
+    sorts a type-only item ending in Props into the Props contracts, not the
+    components, whether the runner typed it by its declaration or, for an
+    imported type, left it a `re-export`."""
     steps = _component_steps()
     assert _found(_named_ids(steps[1]), {"dialog.tsx"}) == set()
     assert _found(_named_ids(steps[2]), {"dialog.tsx"}) == {"Dialog", "DialogTrigger", "DialogProps",
                                                             "DialogTriggerProps"}
     step_2 = " ".join(steps[2].split())
-    assert ("A type-only item (one in an `export type { ... }` list, or a `type X` specifier) is a type: "
-            "one whose name ends in `Props` is a Props contract for Steps 1 and 3") in step_2
-    assert "A PascalCase value item is a component" in step_2
+    assert "Step 4's call sorts a local list's items by what they name" in step_2
+    assert "A PascalCase value item is a component" not in step_2
+    module = _detect_registry()
+    doc = " ".join(module.__doc__.split())
+    assert ("A type is an export whose `export_type` is `interface`, `type` or `enum`, a `js-local-exports` item "
+            "whose `signature` opens `export type {` or names it `type <name>` or `type <local> as <name>` in its "
+            "braces, or an export whose `export_type` is `re-export` and whose name ends in `Props` (an imported type "
+            "a local list passes on).") in doc
+    values, types = "export { Dialog, DialogTrigger }", "export type { DialogProps, DialogTriggerProps }"
+    for props_type in ("interface", "re-export"):
+        rows = [("Dialog", "function", values, 15), ("DialogTrigger", "const", values, 15),
+                ("DialogProps", props_type, types, 16), ("DialogTriggerProps", props_type, types, 16)]
+        result = module.detect_components([
+            {"export_name": name, "export_type": kind, "signature": signature, "source_file": "dialog.tsx",
+             "source_line": line, "ast_recipe": "js-local-exports"} for name, kind, signature, line in rows], [])
+        assert [c["name"] for c in result["props_contracts"]] == ["DialogProps", "DialogTriggerProps"], props_type
+        assert [c["name"] for c in result["components"]] == ["Dialog", "DialogTrigger"], props_type
+        assert {link["props"]: (link["component"], link["link_method"]) for link in result["links"]} == {
+            "DialogProps": ("Dialog", "naming-convention"),
+            "DialogTriggerProps": ("DialogTrigger", "naming-convention")}, props_type
 
 
-def test_component_extraction_step_4_finds_the_types() -> None:
-    """Step 4's recipe finds the generic, `extends` and `declare` forms the
+def test_component_extraction_step_3_finds_the_types() -> None:
+    """Step 3's recipe finds the generic, `extends` and `declare` forms the
     bare patterns missed, and no namespace member (#559)."""
-    found = _found(_named_ids(_component_steps()[4]), {"types.ts"})
+    found = _found(_named_ids(_component_steps()[3]), {"types.ts"})
     assert {"Ext", "Gen", "GenericAlias", "Declared"} <= found
     assert found.isdisjoint({"Inner", "InnerT", "InnerE"})
     assert found == {"Plain", "Ext", "Gen", "Alias", "GenericAlias", "Color", "Flag", "Declared"}
@@ -1943,3 +1974,10 @@ def test_runner_output_on_fixtures(recipe_set: str, fixture_dir: Path, capsys: p
         types = {(e["source_file"], e["export_name"]): e["export_type"] for e in out["exports"]}
         assert [types[("dialog.tsx", name)] for name in ("Dialog", "DialogTrigger", "DialogProps")] == [
             "function", "const", "interface"]
+        # Step 4's call sorts the runner's own records: the Radix list's Props link to their components (#1146)
+        sorted_out = _detect_registry().detect_components(out["exports"], [])
+        links = {(link["props_file"], link["props"]): (link["component"], link["link_method"])
+                 for link in sorted_out["links"]}
+        assert links[("dialog.tsx", "DialogProps")] == ("Dialog", "naming-convention")
+        assert links[("dialog.tsx", "DialogTriggerProps")] == ("DialogTrigger", "naming-convention")
+        assert links[("decls.ts", "ButtonProps")] == ("Button", "naming-convention")

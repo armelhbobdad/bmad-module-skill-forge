@@ -32,7 +32,10 @@ Subcommands:
            runner warnings as lines (the head cap, each errors[] item, each
            file_issues[] file, each files_without_recipes extension, each
            warnings[] entry). From --detected (skf-detect-scripts-assets.py
-           detect): scripts_inventory and assets_inventory.
+           detect): scripts_inventory and assets_inventory. When the file
+           at --inventory is an inventory of the same --skill, its `run` is
+           kept (step 3 records it before it starts the inventory again);
+           nothing else carries over.
            Public surface. When the runner's scope.type is public-api (in
            any case) and its entry-point diff can be read, each export of a
            language family whose entry_points.by_language status is
@@ -98,8 +101,14 @@ Subcommands:
            Read a JSON object on stdin and set each of its keys: top_exports,
            co_imports, promoted_docs, component_catalog (lists),
            authoritative_files_scan (an object or null), files_scanned (an
-           integer), counts and arms (objects, merged into what is there)
-           and intent_mapping. intent_mapping maps `scripts` and `assets`
+           integer), counts and arms (objects, merged into what is there),
+           component_stats (a component library's aggregate counts, an
+           object replaced whole), run and intent_mapping. run, the run's
+           source as step 3 resolved it, is an object merged into the run
+           there: run_dir, source_ref, source_commit, source_tree,
+           resolved_source_path and version (each a string or null) and
+           tag_resolution (an object or null); any other key, or a value of
+           another type, is refused. intent_mapping maps `scripts` and `assets`
            to {"intent": "<free text>", "kept": [source_file, ...]}: the
            inventory keeps only the kept entries of that list and records
            the others in the mapping's `left_out`. A top_exports name every
@@ -109,8 +118,10 @@ Subcommands:
   provenance --inventory <file> --target <provenance-map.json> [--add-entries]
            Write the provenance map to --target, so compile never types an
            entry the inventory holds. stdin holds the map's header, a JSON
-           object: source_repo and source_commit (required, null allowed),
-           and source_ref (default null), provenance_version (default
+           object: source_repo (required, null allowed), source_commit
+           (required, null allowed; the inventory's run gives it when stdin
+           leaves it out), source_ref (the run's when stdin leaves it out,
+           else null), provenance_version (default
            "2.0"), skill_name (default the inventory's), skill_type
            (default "single") and generated_at (default now, ISO-8601
            UTC); any other key is refused. entries[] holds the entry of
@@ -152,7 +163,11 @@ Subcommands:
            source_commit, source_ref and qmd_version (strings or null),
            each required, and ast_grep_version (a string or null, default
            null) and stats_extra (an object, default {}); any other key is
-           refused. The rest comes from the files:
+           refused. When stdin leaves out version, source_root,
+           source_commit or source_ref, the inventory's run gives it (its
+           version, resolved_source_path, source_commit or source_ref; a
+           run whose version is null gives none), and a key stdin gives
+           wins; one neither gives is refused. The rest comes from the files:
            name, scope_type (the brief's scope.type, verbatim), source_repo
            and source_authority (default "community") from --brief;
            description from the frontmatter of the SKILL.md beside
@@ -192,9 +207,10 @@ Subcommands:
            --target. The inventory is not changed.
 
   summary  --inventory <file>
-           Print the inventory's counts without changing it, and in
+           Print the inventory's counts without changing it, in
            `not_public` each export marked `public: false` ({name, file}),
-           which the evidence report lists.
+           which the evidence report lists, and in `run` the inventory's
+           run (null when it records none).
 
 Inventory shape (the keys this helper reads or writes):
 
@@ -212,8 +228,13 @@ Inventory shape (the keys this helper reads or writes):
     "public_surface": {"by_language": {...}, "public": [...],
                        "other_definitions": [...],
                        "extraction_gaps": [...]} | null,
-    "t2_annotations": [...], "t3_items": [...], "warnings": ["..."]
+    "t2_annotations": [...], "t3_items": [...], "warnings": ["..."],
+    "component_stats": {...},
+    "run": {"run_dir", "source_ref", "source_commit", "tag_resolution",
+            "source_tree", "resolved_source_path", "version"}
   }
+
+component_stats and run are there once a `set` gives them.
 
 An export may carry `internal: true` (the runner's entry_point_diff.internal
 lists it) and `public: true` or `public: false` (see init's Public surface).
@@ -234,7 +255,8 @@ metadata:
     "added": N, "duplicates": N, "dropped": ["name"],   # add
     "patched": N, "unmatched": [...], "ambiguous": [...],  # patch
     "set": ["key", ...], "dropped": ["name"],           # set
-    "not_public": [{"name", "file"}, ...]               # summary
+    "not_public": [{"name", "file"}, ...],              # summary
+    "run": {...} | null                                 # summary
   }
 
 not_public counts the exports marked `public: false`, which the provenance
@@ -296,6 +318,18 @@ SETTABLE = {
     "counts": ((dict,), True),
     "arms": ((dict,), True),
     "intent_mapping": ((dict,), False),
+    "run": ((dict,), True),
+    "component_stats": ((dict,), False),
+}
+# set's run: the keys it takes, each with the JSON types it takes (step 3 §2a's record of the run's source).
+RUN_FIELDS = {
+    "run_dir": (str, type(None)),
+    "source_ref": (str, type(None)),
+    "source_commit": (str, type(None)),
+    "tag_resolution": (dict, type(None)),
+    "source_tree": (str, type(None)),
+    "resolved_source_path": (str, type(None)),
+    "version": (str, type(None)),
 }
 # intent_mapping kinds and the inventory list each one filters.
 INTENT_LISTS = {"scripts": "scripts_inventory", "assets": "assets_inventory"}
@@ -717,8 +751,9 @@ def set_fields(data: dict, values: dict) -> tuple[list[str], list[str]]:
     for key, value in values.items():
         types, _ = SETTABLE[key]
         if not isinstance(value, types) or (key == "files_scanned" and isinstance(value, bool)):
-            names = " or ".join("null" if t is type(None) else t.__name__ for t in types)
-            raise InventoryError(f"{key} must be {names}")
+            raise InventoryError(f"{key} must be {_type_names(types)}")
+    if "run" in values:
+        _check_run(values["run"])
     mapping = _intent_mapping(data, values["intent_mapping"]) if "intent_mapping" in values else {}
     dropped: list[str] = []
     if "top_exports" in values:
@@ -733,6 +768,45 @@ def set_fields(data: dict, values: dict) -> tuple[list[str], list[str]]:
         else:
             data[key] = value
     return list(values), dropped
+
+
+def _type_names(types: tuple) -> str:
+    """`str or null`: the JSON types a key takes, for an error message."""
+    return " or ".join("null" if t is type(None) else t.__name__ for t in types)
+
+
+def _check_run(run: dict) -> None:
+    """Refuse a run key set does not take, or a value of the wrong type, before anything is written."""
+    unknown = sorted(set(run) - set(RUN_FIELDS))
+    if unknown:
+        raise InventoryError(f"run takes only {', '.join(RUN_FIELDS)}; not {', '.join(unknown)}")
+    for key, value in run.items():
+        if not isinstance(value, RUN_FIELDS[key]):
+            raise InventoryError(f"run.{key} must be {_type_names(RUN_FIELDS[key])}")
+
+
+def _run_note(keys: list[str]) -> str:
+    """The end of a "needs" error for keys the inventory's run could have given."""
+    return f"; the inventory's run records no {', '.join(keys)} either" if keys else ""
+
+
+def run_record(data: dict) -> dict | None:
+    """The inventory's run (step 3 §2a's record of the run's source), or None when it records none."""
+    run = data.get("run")
+    return run if isinstance(run, dict) else None
+
+
+def kept_run(path: Path, skill: str) -> dict | None:
+    """The run of the inventory at `path` when it is an inventory of `skill`, which `init` keeps; None otherwise
+    (no file, one that is not JSON, another skill's or one with no run)."""
+    try:
+        old = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(old, dict) or old.get("skill_name") != skill:
+        return None
+    run = run_record(old)
+    return dict(run) if run is not None else None
 
 
 def _intent_mapping(data: dict, mapping: dict) -> dict:
@@ -798,10 +872,12 @@ MAP_HEADER = {
     "source_ref": None,
     "generated_at": None,  # now
 }
+# The header keys the inventory's run gives when stdin leaves them out.
+MAP_FROM_RUN = ("source_commit", "source_ref")
 
 
 def _labels(export: dict) -> dict:
-    """The labels the tool that found `export` gives its entry (compile.md §6)."""
+    """The labels the tool that found `export` gives its entry (compile.md §1c)."""
     if export.get("extraction_method") == "ast-grep":
         return {"confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": export.get("ast_node_type"),
                 "signature_source": "T1"}
@@ -841,16 +917,22 @@ def _utc_now() -> str:
 
 
 def map_header(data: dict, given) -> dict:
-    """The provenance map's header: stdin's keys over the defaults."""
+    """The provenance map's header: stdin's keys over the inventory run's source_commit and source_ref, over the
+    defaults."""
     if not isinstance(given, dict):
-        raise InventoryError("stdin must hold the map's header, a JSON object with source_repo and source_commit")
+        raise InventoryError("stdin must hold the map's header, a JSON object with source_repo, and source_commit "
+                             "when the inventory's run records none")
     unknown = sorted(set(given) - set(MAP_HEADER))
     if unknown:
         raise InventoryError(f"the map's header takes only {', '.join(MAP_HEADER)}; not {', '.join(unknown)}")
-    missing = [key for key, default in MAP_HEADER.items() if default is REQUIRED and key not in given]
+    run = run_record(data) or {}
+    recorded = {key: run[key] for key in MAP_FROM_RUN if key in run}
+    missing = [key for key, default in MAP_HEADER.items()
+               if default is REQUIRED and key not in given and key not in recorded]
     if missing:
-        raise InventoryError(f"the map's header needs {', '.join(missing)} (null when unknown)")
-    defaults = {"skill_name": data.get("skill_name"), "generated_at": _utc_now()}
+        raise InventoryError(f"the map's header needs {', '.join(missing)} (null when unknown)"
+                             + _run_note([key for key in missing if key in MAP_FROM_RUN]))
+    defaults = {"skill_name": data.get("skill_name"), "generated_at": _utc_now(), **recorded}
     return {key: given[key] if key in given else defaults.get(key, default) for key, default in MAP_HEADER.items()}
 
 
@@ -938,26 +1020,37 @@ METADATA_INPUT = {
 }
 METADATA_REQUIRED = ("version", "language", "source_root", "source_commit", "source_ref", "qmd_version")
 NON_EMPTY = ("version", "language")
+# The metadata keys the inventory's run gives when stdin leaves them out, each with the run key that gives it.
+METADATA_FROM_RUN = {"version": "version", "source_root": "resolved_source_path", "source_commit": "source_commit",
+                     "source_ref": "source_ref"}
 REFERENCE_APP = "reference-app"
 COMPONENT_LIBRARY = "component-library"
 
 
-def _metadata_input(given) -> dict:
-    """stdin's fields, checked, with the defaults of the optional ones."""
+def _metadata_input(given, run: dict | None = None) -> dict:
+    """stdin's fields over the run's (see METADATA_FROM_RUN), checked, with the defaults of the optional ones."""
     if not isinstance(given, dict):
-        raise InventoryError("stdin must hold a JSON object with " + ", ".join(METADATA_REQUIRED))
+        own = [key for key in METADATA_REQUIRED if key not in METADATA_FROM_RUN]
+        raise InventoryError(f"stdin must hold a JSON object with {', '.join(own)}, and "
+                             f"{', '.join(METADATA_FROM_RUN)} when the inventory's run records none")
     unknown = sorted(set(given) - set(METADATA_INPUT))
     if unknown:
         raise InventoryError(f"metadata takes only {', '.join(METADATA_INPUT)}; not {', '.join(unknown)}")
-    missing = [key for key in METADATA_REQUIRED if key not in given]
+    fields = dict(given)
+    for key, field in METADATA_FROM_RUN.items():
+        # a run that records no version gives none: the version is never null
+        if key not in fields and run and field in run and not (key in NON_EMPTY and run[field] is None):
+            fields[key] = run[field]
+    missing = [key for key in METADATA_REQUIRED if key not in fields]
     if missing:
+        note = _run_note([key for key in missing if key in METADATA_FROM_RUN])
         raise InventoryError(f"metadata needs {', '.join(missing)} (null when unknown, but for "
-                             f"{', '.join(NON_EMPTY)})")
-    for key, value in given.items():
+                             f"{', '.join(NON_EMPTY)}){note}")
+    for key, value in fields.items():
         if not isinstance(value, METADATA_INPUT[key]) or (key in NON_EMPTY and not value.strip()):
             names = " or ".join("null" if t is type(None) else t.__name__ for t in METADATA_INPUT[key])
             raise InventoryError(f"{key} must be {'a non-empty ' if key in NON_EMPTY else ''}{names}")
-    return {"ast_grep_version": None, "stats_extra": {}, **given}
+    return {"ast_grep_version": None, "stats_extra": {}, **fields}
 
 
 def read_description(skill_md: Path) -> str:
@@ -1022,7 +1115,7 @@ def _ast_grep_run(data: dict, given_version: str | None) -> tuple[str | None, in
 def build_metadata(data: dict, brief: dict, stats: object, given, skf_version: str,
                    description: str) -> tuple[dict, list[str]]:
     """(the skill's metadata.json, its warnings) (see `metadata` in the module docstring)."""
-    fields = _metadata_input(given)
+    fields = _metadata_input(given, run_record(data))
     if not isinstance(stats, dict) or not isinstance(stats.get("stats"), dict) \
             or not isinstance(stats.get("confidence_distribution"), dict):
         raise InventoryError("the --stats file must hold the stats helper's JSON: a stats and a "
@@ -1206,6 +1299,9 @@ def main(argv: list[str] | None = None) -> int:
             extraction = _read_json(args.extraction, "runner JSON") if args.extraction else None
             detected = _read_json(args.detected, "detector JSON") if args.detected else None
             data = init(args.skill, args.mode, args.tier, extraction, detected)
+            run = kept_run(path, args.skill)
+            if run is not None:
+                data["run"] = run
             write(path, data)
             result = _result(path, data)
         elif args.command == "provenance" and args.add_entries:
@@ -1245,7 +1341,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             data = load(path)
             if args.command == "summary":
-                result = _result(path, data, not_public=_not_public(data))
+                result = _result(path, data, not_public=_not_public(data), run=run_record(data))
             elif args.command == "add":
                 payload = _stdin_json()
                 added, duplicates, dropped = add(data, args.field, [] if payload is None else payload)

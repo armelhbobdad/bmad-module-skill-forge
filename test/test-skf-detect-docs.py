@@ -13,7 +13,6 @@ import importlib.util
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1286,6 +1285,163 @@ class TestRefreshDocHashes:
 
 
 # --------------------------------------------------------------------------
+# record-sources subcommand: create-skill step 5a writes doc_sources through
+# the helper instead of mapping the fields and retyping metadata.json (#1145)
+# --------------------------------------------------------------------------
+
+
+def _metadata_bytes(data: dict) -> bytes:
+    """metadata.json as the extraction inventory writes it."""
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _record(*argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "record-sources", *argv],
+                          capture_output=True, encoding="utf-8", timeout=60)
+
+
+class TestRecordSources:
+    STAGED = {
+        "name": "lib",
+        "stats": {"exports_total": 3, "notes": "Größe ok"},
+        "confidence_distribution": {"t1": 3, "t1_low": 0, "t2": 0, "t3": 0},
+        "doc_sources": [{"url": "https://old/stale", "content_hash": None}],
+        "generated_by": "skf-create-skill",
+    }
+
+    def test_detected_entries_keep_four_keys_and_the_readme(self, tmp_path):
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes(self.STAGED))
+        detected = tmp_path / "doc-detection.json"
+        detected.write_text(json.dumps([
+            {"url": "https://docs.lib.dev", "detected_via": "homepageUrl", "content_hash": "sha256:aa",
+             "content_type": "api-docs"},
+            {"url": "https://raw.githubusercontent.com/acme/lib/main/docs/readme.MD", "detected_via": "docs_folder",
+             "content_hash": "sha256:bb", "content_type": "guide"},
+            {"url": "https://docs.lib.dev", "detected_via": "readme_link", "content_hash": "sha256:cc"},
+        ]), encoding="utf-8")
+        result = _record(str(meta), "--detected", str(detected), "--source-repo", "https://github.com/acme/lib",
+                         "--ref", "v1.0.0")
+        assert result.returncode == 0, result.stderr
+        out = json.loads(result.stdout)
+        assert out == {"metadata": meta.as_posix(), "count": 2, "readme_tracked": True, "skip_reason": None}
+        written = json.loads(meta.read_bytes())
+        stamps = {e["recorded_at"] for e in written["doc_sources"]}
+        assert len(stamps) == 1
+        [stamp] = stamps
+        when = _datetime.fromisoformat(stamp)
+        assert when.utcoffset().total_seconds() == 0 and when.microsecond == 0
+        expected = {**self.STAGED, "doc_sources": [
+            {"url": "https://docs.lib.dev", "detected_via": "homepageUrl", "content_hash": "sha256:aa",
+             "recorded_at": stamp},
+            {"url": "https://raw.githubusercontent.com/acme/lib/main/docs/readme.MD", "detected_via": "docs_folder",
+             "content_hash": "sha256:bb", "recorded_at": stamp},
+        ]}
+        assert meta.read_bytes() == _metadata_bytes(expected)
+        assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+    def test_no_readme_appends_the_readme_entry(self, tmp_path, monkeypatch):
+        tree = tmp_path / "tree"
+        tree.mkdir()
+        (tree / "README.md").write_bytes(b"# lib\n")
+        monkeypatch.setattr(mod, "_fetch_and_hash_reason", lambda url: ("sha256:readme", None))
+        detected = [{"url": "https://docs.lib.dev", "detected_via": "homepageUrl", "content_hash": "sha256:aa",
+                     "content_type": "api-docs"}]
+        updated, summary = mod.record_sources({"name": "lib"}, detected, "https://github.com/acme/lib", "v1.0.0",
+                                              tree.as_posix(), recorded_at="2026-11-13T00:00:00+00:00")
+        assert summary == {"count": 2, "readme_tracked": True, "skip_reason": None}
+        assert updated["doc_sources"][1] == {
+            "url": "https://raw.githubusercontent.com/acme/lib/v1.0.0/README.md", "detected_via": "readme_always",
+            "content_hash": "sha256:readme", "recorded_at": "2026-11-13T00:00:00+00:00"}
+
+    def test_a_local_readme_is_recorded_with_its_hash(self, tmp_path):
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "README.rst").write_bytes(b"lib\n===\n")
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes({"name": "lib", "generated_by": "skf-create-skill"}))
+        result = _record(str(meta), "--source-repo", source.as_posix(), "--ref", "local",
+                         "--local-root", source.as_posix())
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["readme_tracked"] is True
+        written = json.loads(meta.read_bytes())
+        assert list(written) == ["name", "doc_sources", "generated_by"]
+        [entry] = written["doc_sources"]
+        assert entry["url"] == "file://" + (source / "README.rst").as_posix()
+        assert entry["detected_via"] == "readme_always" and entry["content_hash"] == _hash_bytes(b"lib\n===\n")
+
+    def test_another_host_tracks_no_readme(self, tmp_path):
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes({"name": "lib"}))
+        result = _record(str(meta), "--source-repo", "https://gitlab.com/acme/lib", "--ref", "v1.0.0")
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == {"metadata": meta.as_posix(), "count": 0, "readme_tracked": False,
+                                             "skip_reason": "not-github"}
+        assert meta.read_bytes() == _metadata_bytes({"name": "lib", "doc_sources": []})
+
+    def test_a_docs_only_hash_urls_object_is_recorded_as_given(self, tmp_path):
+        entries = [{"url": "https://docs.lib.dev/a", "detected_via": "brief_doc_urls", "content_hash": "sha256:a",
+                    "recorded_at": "2026-11-01T10:00:00.123456+00:00"},
+                   {"url": "https://docs.lib.dev/b", "detected_via": "brief_doc_urls", "content_hash": None,
+                    "recorded_at": "2026-11-01T10:00:00.123456+00:00"}]
+        detected = tmp_path / "doc-detection.json"
+        detected.write_text(json.dumps({"doc_sources": entries, "fetch_failed": [{"url": "https://docs.lib.dev/b"}],
+                                        "stats": {"total": 2, "hashed": 1, "fetch_failed": 1, "invalid": 0}}),
+                            encoding="utf-8")
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes(self.STAGED))
+        result = _record(str(meta), "--detected", str(detected))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["readme_tracked"] is False
+        assert meta.read_bytes() == _metadata_bytes({**self.STAGED, "doc_sources": entries})
+
+    @pytest.mark.parametrize("content", [None, b"{nope", b"[1, 2]"], ids=["missing", "not-json", "not-an-object"])
+    def test_unreadable_metadata_exits_2(self, tmp_path, content):
+        meta = tmp_path / "metadata.json"
+        if content is not None:
+            meta.write_bytes(content)
+        result = _record(str(meta))
+        assert result.returncode == 2 and json.loads(result.stderr)["code"] == "METADATA_UNREADABLE"
+        assert (meta.read_bytes() if content is not None else None) == content
+        assert result.stdout == ""
+
+    @pytest.mark.parametrize("detected", [b"{nope", b'[{"detected_via": "homepageUrl"}]', b'["https://a"]', None],
+                             ids=["not-json", "no-url", "not-an-object", "missing-file"])
+    def test_bad_detected_input_exits_2_and_writes_nothing(self, tmp_path, detected):
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes(self.STAGED))
+        path = tmp_path / "doc-detection.json"
+        if detected is not None:
+            path.write_bytes(detected)
+        result = _record(str(meta), "--detected", str(path))
+        assert result.returncode == 2 and json.loads(result.stderr)["code"] == "INVALID_INPUT"
+        assert meta.read_bytes() == _metadata_bytes(self.STAGED)
+
+    def test_a_failed_write_exits_2(self, tmp_path, monkeypatch, capsys):
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes(self.STAGED))
+
+        def fail(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(mod.os, "replace", fail)
+        monkeypatch.setattr(mod.sys, "argv", ["skf-detect-docs.py", "record-sources", str(meta)])
+        assert mod.main() == 2
+        assert json.loads(capsys.readouterr().err)["code"] == "WRITE_FAILED"
+        assert meta.read_bytes() == _metadata_bytes(self.STAGED)
+        assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+    @pytest.mark.parametrize("argv", [["--ref", "v1"], ["--source-repo", "acme/lib"], ["--local-root", "x"]],
+                             ids=["ref-alone", "no-ref", "root-alone"])
+    def test_readme_flags_come_together(self, tmp_path, argv):
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(_metadata_bytes(self.STAGED))
+        result = _record(str(meta), *argv)
+        assert result.returncode == 2 and meta.read_bytes() == _metadata_bytes(self.STAGED)
+        assert "--source-repo" in result.stderr and "need" in result.stderr
+
+
+# --------------------------------------------------------------------------
 # hash-urls subcommand — docs-only doc_sources from the brief's doc_urls (#475)
 # --------------------------------------------------------------------------
 
@@ -1858,10 +2014,10 @@ class TestFilterUrlsCli:
 
 
 # --------------------------------------------------------------------------
-# sub/fetch-docs.md reads the JSON instead of counting (#605 determinism-10)
+# fetch-docs.md reads the JSON instead of counting (#605 determinism-10)
 # --------------------------------------------------------------------------
 
-FETCH_DOCS = Path(__file__).parent.parent / "src" / "skf-create-skill" / "references" / "sub" / "fetch-docs.md"
+FETCH_DOCS = Path(__file__).parent.parent / "src" / "skf-create-skill" / "references" / "fetch-docs.md"
 
 
 def _fetch_docs_section_3() -> str:
@@ -1904,37 +2060,19 @@ class TestFetchDocsProse:
         assert "When it is false, the command exits non-zero, or no candidate resolves, keep the page" in section
         assert "When it exits non-zero, leave that input out." in section
 
-    @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None or shutil.which("xargs") is None,
-                        reason="POSIX shell")
-    def test_the_subpage_snippet_saves_only_fetched_pages(self, tmp_path):
-        """A failed fetch leaves no stub in the corpus §5b indexes and §5c keeps:
-        the snippet runs against a curl that fails for one URL."""
+    def test_a_subpage_is_saved_only_when_its_fetch_succeeded(self):
+        """A failed fetch leaves no stub in the corpus §5b indexes and §5c keeps (#1148: item 3 states the limits
+        and the save rule, and names no fetch pipeline)."""
         section = _fetch_docs_section_3()
-        assert "sha256sum" not in section and "subpage-{n}-{k}.md" in section
-        start = section.index("printf '%s\\n' \"${subpages[@]}\"")
-        snippet = section[start:section.index("```", start)]
-        staging = tmp_path / "docs"
-        staging.mkdir()
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        fake = bin_dir / "curl"
-        fake.write_bytes(
-            b'#!/bin/sh\n'
-            b'url=""; out=""\n'
-            b'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; --max-time) shift 2;; -*) shift;;'
-            b' *) url="$1"; shift;; esac; done\n'
-            b'case "$url" in *missing*) printf "404" > "$out"; exit 22;; esac\n'
-            b'printf "# page %s\\n" "$url" > "$out"\n'
-        )
-        fake.chmod(0o755)
-        script = ("subpages=(https://docs.example.com/api https://docs.example.com/missing "
-                  "https://docs.example.com/guide)\n"
-                  + snippet.replace("{docs_staging}", staging.as_posix()).replace("{n}", "1"))
-        proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60,
-                              env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
-        assert proc.returncode == 0, proc.stderr
-        assert sorted(p.name for p in staging.iterdir()) == ["subpage-1-1.md", "subpage-1-3.md"]
-        assert "fetch failed: https://docs.example.com/missing" in proc.stderr
+        three = section[section.index("3. **Fetch the top subpages:**"):section.index("4. **Rate limiting:**")]
+        assert "sha256sum" not in section and "xargs" not in section
+        for token in ("fetch up to 10 of the most relevant, at most 4 at a time",
+                      "Save each one whose fetch succeeded as `{docs_staging}/subpage-{n}-{k}.md`",
+                      "a failed fetch leaves no file", "Cite each one `[EXT:{subpage-url}]`."):
+            assert token in three, token
+        four = section[section.index("4. **Rate limiting:**"):]
+        assert ("on an HTTP 429, start no further subpage fetch for this root URL, keep what was saved, and log "
+                '"Subpage discovery stopped due to rate limiting."') in four
 
     def test_a_docs_only_corpus_is_kept(self):
         text = FETCH_DOCS.read_text(encoding="utf-8")

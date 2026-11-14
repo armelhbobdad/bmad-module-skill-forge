@@ -4,7 +4,7 @@
 
 ### Frontmatter
 
-The authoritative frontmatter contract — permitted fields, the `name`/`description` rules, the trigger-phrase/voice requirements, and the no-angle-brackets rule — is owned by `assets/compile-assembly-rules.md` (## Frontmatter). This catalog does not restate it (both files load together at compile.md §1).
+The authoritative frontmatter contract (permitted fields, the `name` and `description` rules, the trigger-phrase and voice requirements, and the no-angle-brackets rule) is owned by `assets/compile-assembly-rules.md` (## Frontmatter).
 
 ### Two-Tier Section Structure
 
@@ -42,7 +42,7 @@ Assembly ordering, the under-300-line Tier-1 budget, and split-body targeting ar
 
 ### Component Library Section Overrides
 
-The `component-library` section formats — Component Catalog (§4), Key Props (§5), the Props Reference Tier 2 layout, and the component-library `context-snippet.md` format — are owned by `assets/compile-assembly-rules.md` (### Component Library Assembly Overrides), alongside the `reference-app` and whole-language override sets. This catalog does not restate them (both files load together at compile.md §1).
+The `component-library` section formats (Component Catalog (§4), Key Props (§5), the Props Reference Tier 2 layout and the component-library `context-snippet.md` format) are owned by `references/assembly-component-library.md`, and the `reference-app` and whole-language override sets by `references/assembly-reference-app.md` and `references/assembly-whole-language.md`. compile.md §2 loads the one whose gate matches.
 
 ### Provenance Citation Format
 
@@ -152,7 +152,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
 
 ## references/ Directory Structure
 
-One file per major function group or type:
+One file per major function group or type, grouped by module, file or functional area, each named for what it covers (`form_validation_rules.md`, not `doc2.md`):
 
 ```
 references/
@@ -242,12 +242,12 @@ Each reference file includes:
 |---|---|---|---|---|
 | `"script"` | `scripts_inventory` | yes → `scripts/` | `"file-copy"` | Runnable scripts (CLI tools, validation scripts, etc.) bundled into the skill for execution. |
 | `"asset"` | `assets_inventory` | yes → `assets/` | `"file-copy"` | Data files (templates, JSON schemas, config fixtures) bundled for reference. |
-| `"doc"` | `promoted_docs` (from step 3 §2a) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill — its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
+| `"doc"` | `promoted_docs` (from step 3 §2b) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill: its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
 
 When `file_type: "doc"`:
 
 - `source_file` is the relative path from the source root to the authoritative doc.
-- `content_hash` is computed at promotion time (step 3 §2a) and persisted here so update-skill Category D can detect drift via hash comparison.
+- `content_hash` is computed at promotion time (step 3 §2b) and persisted here so update-skill Category D can detect drift via hash comparison.
 - `file_name` convention: use the source-relative path prefixed with `docs/authoritative/` to namespace doc entries away from script/asset filenames in tools that iterate `file_entries[]` by `file_name`. Example: `docs/authoritative/apps/docs/public/llms.txt`. Step-07 does not write this path — it is a synthetic namespace used only within the provenance map.
 - `confidence` is `"T1-low"` (the promotion decision is source-level but the content was not AST-parsed).
 
@@ -303,14 +303,11 @@ t2_future_count: {N}
 - {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: unchecked`, otherwise "none"}
 
 ## Remaining Warnings
-- {any warnings from extraction or validation}
+- {each warning from extraction and validation, the security findings among them, then each entry of {tessl_warnings}; "none" when there is none}
 
 ## Tessl Review
 - Result: {tessl_summary}
-- Workspace: {tessl_workspace or —} · tessl {tessl_version or —} · Run: {tessl_run_id or —}
-- Validation findings: {each {tessl_validation} finding as `name (status): message`, or "none"}
-- Description suggestions (to act on one, edit the description in the brief and re-run create-skill): {each of {tessl_description_suggestions}, or "none"}
-- Content suggestions (advisory, not applied): {each of {tessl_content_suggestions} with its `(not applicable: <rule-id>)` mark, or "none"}
+- {when step 6 §6b loaded references/tessl-review-collect.md: the lines its Report the Review section gives}
 ```
 
 **Frontmatter — pinned detection contract:** the `t2_future_count` field is the authoritative forward-looking-annotation count for downstream gate checks (e.g. skf-test-skill §2b migration-section rule). Emit **always**, even when 0 — omission is indistinguishable from "no T2-future data" and silently flips the gate into Case 2/3 for a Case-1 skill. `generated` and `forge_tier` mirror the narrative header for consumers that read only the frontmatter. Downstream gate rules parse `t2_future_count` from frontmatter, not prose — prose drift (heading renames, alternate phrasings like "forward-looking annotations") silently breaks grep-based detection.

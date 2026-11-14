@@ -296,10 +296,10 @@ async function runTests() {
     'create-skill': {
       steps: [
         'load-brief.md',
-        'sub/ccc-discover.md',
+        'ccc-discover.md',
         'extract.md',
-        'sub/fetch-temporal.md',
-        'sub/fetch-docs.md',
+        'fetch-temporal.md',
+        'fetch-docs.md',
         'component-extraction.md',
         'enrich.md',
         'compile.md',
@@ -315,6 +315,12 @@ async function runTests() {
         'entry-points-by-hand.md',
         'source-resolution-protocols.md',
         'tier-degradation-rules.md',
+        'remote-source-access.md',
+        'tessl-review-collect.md',
+        'assembly-component-library.md',
+        'assembly-reference-app.md',
+        'assembly-whole-language.md',
+        'invocation-contract.md',
       ],
     },
     'quick-skill': {

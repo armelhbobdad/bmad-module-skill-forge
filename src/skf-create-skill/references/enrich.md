@@ -1,12 +1,9 @@
 ---
 nextStepFile: 'compile.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
-# If neither path exists, §2 finds no enrichment collection and the step is
-# skipped.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
-# §4 appends the T2 annotations to the extraction inventory through it.
 extractionInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
   - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'

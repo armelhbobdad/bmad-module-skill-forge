@@ -100,6 +100,46 @@ Exit 0 once written; exit 2 on malformed args, JSON that is not the shape
 named, or a file that cannot be read or written.
 
 ---------------------------------------------------------------------------
+Subcommand: record-sources
+---------------------------------------------------------------------------
+
+Writes a skill's `doc_sources[]` into its staged metadata.json (create-skill
+step 5a), so the step never maps the detection fields or retypes the file.
+
+  uv run src/shared/scripts/skf-detect-docs.py record-sources <metadata.json> \\
+      [--detected <file>] [--source-repo <repo> --ref <ref> [--local-root <path>]]
+
+Input:
+  --detected     the detected entries: the detect array (the default mode's
+                 output) or the `hash-urls` object (its `doc_sources`)
+  --source-repo, --ref, --local-root
+                 the source whose README is tracked, as `readme-entry` takes
+                 them. The first entry whose URL's last path segment is
+                 `README.md` (any letter case) is the README; with none, the
+                 `readme-entry` entry is appended when it gives one. Without
+                 --source-repo no README entry is added.
+
+Each entry is recorded with exactly `url`, `detected_via`, `content_hash`
+and `recorded_at` (`content_type` and any other key dropped, a missing one
+null), `recorded_at` stamped with the current UTC time where it is missing,
+and only the first entry of each url kept. `doc_sources` is replaced where it
+stands, or inserted before `generated_by` when absent (else added last); every
+other key keeps its order and value. The file is written as the extraction
+inventory writes metadata.json (2-space indent, UTF-8 kept, trailing newline)
+through a temporary file and one rename.
+
+Output (JSON object on stdout):
+  {"metadata": <path>, "count": N, "readme_tracked": bool,
+   "skip_reason": null | "not-github"}
+
+`readme_tracked` says whether the recorded entries hold a README entry;
+`skip_reason` is `not-github` when `readme-entry` gave no entry for a source
+on another host. Exit 0 once written. Exit 2 leaves the file untouched, with
+`code` METADATA_UNREADABLE (missing, not JSON, or not an object),
+INVALID_INPUT (a --detected file that cannot be read or parsed, or an entry
+with no url string) or WRITE_FAILED.
+
+---------------------------------------------------------------------------
 Subcommand: hash-urls
 ---------------------------------------------------------------------------
 
@@ -1139,6 +1179,156 @@ def _cmd_readme_entry(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: record-sources, the doc_sources write create-skill step 5a runs
+# ---------------------------------------------------------------------------
+
+# The keys each recorded doc_sources[] entry holds, in this order.
+DOC_SOURCE_KEYS = ("url", "detected_via", "content_hash", "recorded_at")
+
+
+class RecordSourcesError(Exception):
+    """A record-sources failure: `code` is the error code printed with the message."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _is_readme_url(url: str) -> bool:
+    """True when the URL's last path segment is README.md in any letter case."""
+    path = urllib.parse.urlsplit(url).path
+    return path.rsplit("/", 1)[-1].lower() == "readme.md"
+
+
+def _recorded_entries(entries: List[Any], stamp: str) -> List[Dict[str, Any]]:
+    """Each entry cut to DOC_SOURCE_KEYS, recorded_at stamped where missing, first of each url kept."""
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for index, entry in enumerate(entries):
+        url = entry.get("url") if isinstance(entry, dict) else None
+        if not isinstance(url, str) or not url.strip():
+            raise RecordSourcesError("INVALID_INPUT", f"doc source entry {index} has no url string")
+        if url in seen:
+            continue
+        seen.add(url)
+        recorded = {key: entry.get(key) for key in DOC_SOURCE_KEYS}
+        if not recorded["recorded_at"]:
+            recorded["recorded_at"] = stamp
+        out.append(recorded)
+    return out
+
+
+def _with_doc_sources(metadata: Dict[str, Any], doc_sources: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """metadata with doc_sources replaced where it stands, else before generated_by, else last."""
+    if "doc_sources" in metadata:
+        return {key: (doc_sources if key == "doc_sources" else value) for key, value in metadata.items()}
+    out: Dict[str, Any] = {}
+    for key, value in metadata.items():
+        if key == "generated_by":
+            out["doc_sources"] = doc_sources
+        out[key] = value
+    out.setdefault("doc_sources", doc_sources)
+    return out
+
+
+def record_sources(
+    metadata: Dict[str, Any],
+    detected: List[Any],
+    source_repo: Optional[str] = None,
+    ref: Optional[str] = None,
+    local_root: Optional[str] = None,
+    recorded_at: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """(metadata with its new doc_sources, the summary fields of the output).
+
+    See the record-sources section of the module docstring. Raises
+    RecordSourcesError (INVALID_INPUT) for an entry with no url string.
+    """
+    stamp = recorded_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    entries = _recorded_entries(detected, stamp)
+    skip_reason = None
+    if source_repo is not None and not any(_is_readme_url(e["url"]) for e in entries):
+        readme = readme_entry(source_repo, ref or "", local_root, stamp)
+        skip_reason = readme.get("skip_reason")
+        known = {e["url"] for e in entries}
+        entries.extend(e for e in _recorded_entries(readme["doc_sources"], stamp) if e["url"] not in known)
+    readme_tracked = any(
+        _is_readme_url(e["url"]) or e.get("detected_via") == README_ALWAYS_DETECTED_VIA for e in entries
+    )
+    summary = {"count": len(entries), "readme_tracked": readme_tracked, "skip_reason": skip_reason}
+    return _with_doc_sources(metadata, entries), summary
+
+
+def _write_json(path: Path, data: Dict[str, Any]) -> None:
+    """Write `data` as the extraction inventory writes metadata.json: a temporary file, then one rename."""
+    tmp = path.with_name(f".{path.name}.skf-{os.getpid()}-tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _cmd_record_sources(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-docs.py record-sources",
+        description=(
+            "Write a skill's doc_sources (the detected entries, plus the README "
+            "entry when --source-repo is given) into its metadata.json."
+        ),
+        epilog=_doc_section("record-sources"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("metadata", help="the staged metadata.json, rewritten in place")
+    parser.add_argument(
+        "--detected", default=None,
+        help="the detect array, or the hash-urls object, whose entries are recorded",
+    )
+    parser.add_argument("--source-repo", default=None, help="the brief's source_repo, to track its README")
+    parser.add_argument("--ref", default=None, help="the ref the skill was built from (with --source-repo)")
+    parser.add_argument("--local-root", default=None, help="the folder the source was read from (with --source-repo)")
+    args = parser.parse_args(argv)
+    if args.source_repo is None and (args.ref is not None or args.local_root is not None):
+        parser.error("--ref and --local-root need --source-repo")
+    if args.source_repo is not None and args.ref is None:
+        parser.error("--source-repo needs --ref")
+
+    path = Path(args.metadata)
+    try:
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            raise RecordSourcesError("METADATA_UNREADABLE", f"cannot read {path.as_posix()}: {exc}") from exc
+        if not isinstance(metadata, dict):
+            raise RecordSourcesError("METADATA_UNREADABLE", f"{path.as_posix()} does not hold a JSON object")
+        detected: List[Any] = []
+        if args.detected is not None:
+            label = Path(args.detected).as_posix()
+            try:
+                detected = _load_doc_sources(Path(args.detected).read_text(encoding="utf-8"), label)
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                raise RecordSourcesError("INVALID_INPUT", f"cannot read {label}: {exc}") from exc
+        updated, summary = record_sources(metadata, detected, args.source_repo, args.ref, args.local_root)
+        try:
+            _write_json(path, updated)
+        except OSError as exc:
+            raise RecordSourcesError("WRITE_FAILED", f"cannot write {path.as_posix()}: {exc}") from exc
+    except RecordSourcesError as exc:
+        json.dump({"error": str(exc), "code": exc.code}, sys.stderr)
+        sys.stderr.write("\n")
+        return 2
+    json.dump({"metadata": path.as_posix(), **summary}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: page-metrics, the root-page test create-skill step 3c runs
 # ---------------------------------------------------------------------------
 
@@ -1491,6 +1681,8 @@ def main() -> int:
         return _cmd_compare_hashes(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "refresh-hashes":
         return _cmd_refresh_hashes(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "record-sources":
+        return _cmd_record_sources(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "hash-urls":
         return _cmd_hash_urls(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "readme-entry":

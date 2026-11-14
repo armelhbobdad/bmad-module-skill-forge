@@ -326,9 +326,8 @@ FENCE_LINE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Where SKF's snippet templates live today; a new template must be added here
 # (and so to the rename checks below) on purpose.
 TEMPLATE_SITES = {
-    "src/skf-create-skill/references/compile.md": 1,
     "src/skf-create-skill/assets/skill-sections.md": 1,
-    "src/skf-create-skill/assets/compile-assembly-rules.md": 1,
+    "src/skf-create-skill/references/assembly-component-library.md": 1,
     "src/skf-quick-skill/assets/skill-template.md": 1,
     "src/skf-export-skill/assets/snippet-format.md": 2,
     "src/skf-create-stack-skill/assets/stack-skill-template.md": 1,
@@ -460,7 +459,7 @@ class TestSnippetTemplates:
 
     def test_a_skill_called_like_a_field_label_rolls_back(self, tmp_path):
         """`api` renamed: the snippet keeps its `|api:` label and §5 stops the rename on it."""
-        template = next(t for t in SNIPPET_TEMPLATES if t.rel.endswith("skf-create-skill/references/compile.md"))
+        template = next(t for t in SNIPPET_TEMPLATES if t.rel.endswith("skf-create-skill/assets/skill-sections.md"))
         code, verdict = _rename_and_verify(tmp_path, "api", "api-client", _render(template, "api"))
         assert code == 1 and verdict["clean"] is False
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [
@@ -803,18 +802,18 @@ def _create_skill_json(name: str, repo: str = "acme/lib"):
     cloned where SKF keeps its workspace. Each provenance entry's
     source_library takes the template's own default, the skill name; a single
     skill omits integrations and constituents; doc_sources holds the README
-    entry step-doc-sources §3 adds for every repository.
+    entry step-doc-sources §3's record-sources call adds for every repository.
     """
     sections = (REPO / CREATE_SECTIONS).read_text(encoding="utf-8")
     assert '"source_library": "{library-name — defaults to skill name for single skills}"' in sections
     doc_step = DOC_SOURCES_STEP.read_text(encoding="utf-8")
-    assert "uv run {detectDocsHelper} readme-entry" in doc_step
+    assert "uv run {detectDocsHelper} record-sources" in doc_step and '--source-repo "{source_repo}"' in doc_step
     source = {"source_repo": f"https://github.com/{repo}",
               "source_commit": "2b5553f32895739befe549da1ceb6dee4fa1cd0b", "source_ref": "v1.0.0"}
     metadata = _fill(_template_json(CREATE_SECTIONS, "## metadata.json Structure"))
     metadata.update(name=name, source_root=f"/home/me/.skf/workspace/repos/github.com/{repo}", **source)
     readme = _fill(_template_optional(CREATE_SECTIONS, "## metadata.json Structure", "doc_sources")[0])
-    # The URL readme-entry builds from a tree whose README is README.md, as this checkout's is.
+    # The URL record-sources adds from a tree whose README is README.md, as this checkout's is.
     readme.update(url=detect_docs.readme_url(source["source_repo"], source["source_ref"], str(REPO)),
                   detected_via=detect_docs.README_ALWAYS_DETECTED_VIA)
     assert readme["url"] == f"https://raw.githubusercontent.com/{repo}/{source['source_ref']}/README.md"
@@ -844,7 +843,7 @@ class TestSkillNamedAfterItsLibrary:
 
     def test_a_create_skill_skill_renames_clean(self, tmp_path):
         metadata, provenance = _create_skill_json(self.OLD)
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 0 and verdict["clean"] is True, verdict["hard_matches"]
         assert [w["text"] for w in verdict["body_warnings"]] == [f"# {self.OLD}"]
@@ -863,7 +862,7 @@ class TestSkillNamedAfterItsLibrary:
         on it, with every file as it was.
         """
         metadata, provenance = _create_skill_json(self.OLD, repo=f"acme/{self.OLD}")
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 1
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [
@@ -877,7 +876,7 @@ class TestSkillNamedAfterItsLibrary:
         """
         metadata, provenance = _create_skill_json(self.OLD, repo=f"skills/{self.OLD}")
         metadata["source_ref"] = provenance["source_ref"] = f"skills/{self.OLD}/v1.0.0"
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         meta_after, after = self._after(tmp_path)
         assert meta_after == {**metadata, "name": self.NEW}
@@ -894,7 +893,7 @@ class TestSkillNamedAfterItsLibrary:
         script.update(file="scripts/fill.py", source_file=f"skills/{old}/scripts/fill.py")
         metadata["scripts"] = [script]
         provenance["file_entries"][0].update(file_name="scripts/fill.py", source_file=f"skills/{old}/scripts/fill.py")
-        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", old)
         code, verdict = _rename_and_verify(tmp_path, old, new, snippet, metadata, provenance)
         meta_after, after = self._after(tmp_path, new)
         assert meta_after == {**metadata, "name": new}
@@ -913,7 +912,7 @@ class TestSkillNamedAfterItsLibrary:
         else:
             provenance["entries"][0]["source_file"] = f"src/{self.OLD}/core.py"
             expected = ("provenance-json", f'"source_file": "src/{self.OLD}/core.py",')
-        snippet = _snippet("skf-create-skill/references/compile.md", self.OLD)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", self.OLD)
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 1
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [expected]
@@ -1250,7 +1249,7 @@ def _found(matches) -> list:
 def _named_after_its_library():
     """(old, new, snippet, metadata, provenance) of each TestSkillNamedAfterItsLibrary case."""
     old, new = TestSkillNamedAfterItsLibrary.OLD, TestSkillNamedAfterItsLibrary.NEW
-    create = "skf-create-skill/references/compile.md"
+    create = "skf-create-skill/assets/skill-sections.md"
     cases = {"create-skill": (old, new, _snippet(create, old), *_create_skill_json(old))}
     cases["named-like-its-repository"] = (old, new, _snippet(create, old),
                                           *_create_skill_json(old, repo=f"acme/{old}"))
@@ -1312,7 +1311,7 @@ class TestPredict:
     @pytest.mark.parametrize("where", ["metadata-json", "skill-frontmatter"])
     def test_a_description_that_names_the_library_predicts_a_hard_match_on_the_old_file(self, tmp_path, where):
         old, new = self.OLD, self.NEW
-        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", old)
         metadata, provenance = _create_skill_json(old)
         skill_md = None
         if where == "metadata-json":
@@ -1355,7 +1354,7 @@ class TestPredict:
         old, new = self.OLD, self.NEW
         metadata, provenance = _create_skill_json(old)
         metadata["update_source"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
-        rc, out, before = _predict(tmp_path, old, new, _snippet("skf-create-skill/references/compile.md", old),
+        rc, out, before = _predict(tmp_path, old, new, _snippet("skf-create-skill/assets/skill-sections.md", old),
                                    metadata, provenance)
         assert rc == 0 and out["renamed_versions"] == ["1.4.0"]
         assert _files(tmp_path) == before
@@ -1418,7 +1417,7 @@ class TestPredict:
         """A recorded path into skills/<old>/ or forge-data/<old>/ names the new folder once the batch ran, so
         neither §5 nor the prediction counts it."""
         old, new = self.OLD, self.NEW
-        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", old)
         metadata, provenance = _create_skill_json(old)
         metadata["update_source"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
         metadata["skill_path"] = f"skills/{old}/1.4.0/{old}/SKILL.md"

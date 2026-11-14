@@ -11,8 +11,8 @@ Covers:
     api_surface, the `outline` of the body's headings, and
     `frontmatter_description` (inline, block, empty)
   - every SKF template and override heading that serves a family
-    (compile-assembly-rules.md, the quick-skill skill-template.md) is a
-    synonym of that family
+    (compile-assembly-rules.md and the create-skill assembly-*.md override
+    files, the quick-skill skill-template.md) is a synonym of that family
   - fence balance: even → not unbalanced; odd → unbalanced
   - bare opening fence flagged; closing fences never flagged
   - table drift: header has N cols, body row has M ≠ N → flagged
@@ -70,6 +70,8 @@ ENUMERATE_PATH = (
     REPO_ROOT / "src" / "shared" / "scripts" / "skf-enumerate-stack-skills.py"
 )
 ASSEMBLY_RULES = REPO_ROOT / "src" / "skf-create-skill" / "assets" / "compile-assembly-rules.md"
+# The per-shape override files compile.md §2 loads one of (#1147).
+ASSEMBLY_OVERRIDES = sorted((REPO_ROOT / "src" / "skf-create-skill" / "references").glob("assembly-*.md"))
 QUICK_TEMPLATE = REPO_ROOT / "src" / "skf-quick-skill" / "assets" / "skill-template.md"
 
 spec = importlib.util.spec_from_file_location("skf_scan_skill_md_structure", SCRIPT_PATH)
@@ -331,16 +333,23 @@ class TestRequiredSections:
 # The Tier 1 sections of the create-skill assembly that serve a family, by
 # number, as compile-assembly-rules.md numbers them.
 SECTION_FAMILY = {1: "description", 2: "usage", 3: "usage", 4: "api_surface"}
-# `**Section 4 (Key API Summary) <dash> Component Catalog override:**` and
+# `**Section 4 (Key API Summary), Component Catalog override:**` and
 # `**Section 1 <dash> Overview (~10 lines):**`; a lettered section (4b) is
 # not one of the four.
 SECTION_RE = re.compile(r"^\*\*Section (\d+)(?: \(([^)]+)\))?\W+(.+?)(?: \(~[^)]*\))?:\*\*$")
 
 
 def _template_headings() -> set[tuple[str, str]]:
-    """(family, heading) for each Tier 1 section and each override heading of
-    compile-assembly-rules.md that serves a family."""
-    lines = ASSEMBLY_RULES.read_text(encoding="utf-8").splitlines()
+    """(family, heading) for each Tier 1 section of compile-assembly-rules.md
+    and each heading of an override file that serves a family."""
+    assert len(ASSEMBLY_OVERRIDES) == 3, ASSEMBLY_OVERRIDES
+    found: set[tuple[str, str]] = set()
+    for path in (ASSEMBLY_RULES, *ASSEMBLY_OVERRIDES):
+        found |= _headings_in(path.read_text(encoding="utf-8").splitlines())
+    return found
+
+
+def _headings_in(lines: list[str]) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     for i, line in enumerate(lines):
         m = SECTION_RE.match(line)
