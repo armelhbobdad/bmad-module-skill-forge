@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   A placeholder Cross-Cutting Patterns bullet such as `None detected` no longer counts as an integration pattern, so it no longer lifts a stack skill's Coherence score.
 issues: [1187]
+prs: [1224]
