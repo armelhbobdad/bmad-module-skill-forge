@@ -124,9 +124,10 @@ knowledge/version-paths.md, with each version's provenance `generated_at`),
 `forge_version`, the metadata.json, provenance-map.json and
 evidence-report.md paths (versioned first, flat as the fallback), the
 `source_authority` that metadata.json gives (null without one), and every
-version newest first with its manifest status and the counts drop-skill
-reads. `--version` names the version instead (an operator's choice). It
-reads, never writes, and does not decide ownership.
+version newest first with its manifest status (the version list drop-skill
+reads, through drop-roster.py) and their counts. `--version` names the
+version instead (an operator's choice). It reads, never writes, and does
+not decide ownership.
 
 Migrate. `migrate` moves one flat SKF skill into the versioned layout in
 one checked step (see `migrate_skill`), by the Migration: Flat to
