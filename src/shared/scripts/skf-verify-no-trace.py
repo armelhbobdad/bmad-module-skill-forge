@@ -203,14 +203,46 @@ def _scan_lines(numbered, pattern):
     return [(n, text) for (n, text) in numbered if pattern.search(text)]
 
 
+# The kinds scan_content takes: SKILL.md, then the three whole-file scans.
+SCAN_KINDS = ("skill-md", "metadata-json", "context-snippet", "provenance-json")
+
+
+def scan_content(content: str, kind: str, old_name: str):
+    """Scan one file's text as verify() does: (hard_matches, body_warnings).
+
+    Each is a list of {region, line, text}. A `skill-md` file is split at its
+    frontmatter: a match above the closing `---` is hard (region
+    `skill-frontmatter`), one below it a warning (region `skill-body`). Every
+    match in the other kinds is hard, its region the kind; the two JSON kinds
+    skip the values of the source-fact keys. skf-rewrite-skill-name.py
+    --predict loads this module and calls this function on the text its
+    rewrite would write, so the prediction and the commit gate scan by one rule.
+    """
+    if kind not in SCAN_KINDS:
+        raise ValueError(f"unknown kind: {kind}")
+    pattern = _name_token_re(old_name)
+    if kind == "skill-md":
+        fm, body = _split_frontmatter_body(content)
+        hard = [{"region": "skill-frontmatter", "line": n, "text": text.strip()}
+                for n, text in _scan_lines(fm, pattern)]
+        warnings = [{"region": "skill-body", "line": n, "text": text.strip()}
+                    for n, text in _scan_lines(body, pattern)]
+        return hard, warnings
+    is_json = kind in ("metadata-json", "provenance-json")
+    scanned = _mask_spans(content, _source_fact_spans(content)) if is_json else content
+    lines = content.split("\n")
+    hard = [{"region": kind, "line": n, "text": lines[n - 1].strip()}
+            for n, _ in _scan_lines(list(enumerate(scanned.split("\n"), start=1)), pattern)]
+    return hard, []
+
+
 def verify(skill_group: Path, forge_group: Path, old_name: str, new_name: str, versions):
     hard_matches = []
     body_warnings = []
     dir_violations = []
     skipped = []
-    pattern = _name_token_re(old_name)
 
-    def scan_file(path: Path, region: str, version: str):
+    def read(path: Path, version: str):
         if not path.exists():
             skipped.append({"version": version, "file": str(path), "reason": "missing"})
             return None
@@ -223,38 +255,20 @@ def verify(skill_group: Path, forge_group: Path, old_name: str, new_name: str, v
     for v in versions:
         inner = skill_group / v / new_name
 
-        # SKILL.md — region-partitioned (frontmatter=hard, body=warning).
-        skill_md = inner / "SKILL.md"
-        content = scan_file(skill_md, "skill-md", v)
-        if content is not None:
-            fm, body = _split_frontmatter_body(content)
-            for n, text in _scan_lines(fm, pattern):
-                hard_matches.append(
-                    {"version": v, "file": str(skill_md), "region": "skill-frontmatter",
-                     "line": n, "text": text.strip()}
-                )
-            for n, text in _scan_lines(body, pattern):
-                body_warnings.append(
-                    {"version": v, "file": str(skill_md), "region": "skill-body",
-                     "line": n, "text": text.strip()}
-                )
-
-        # Whole-file hard scans; the two JSON files skip source-fact values.
-        for rel, region, is_json in (
-            (inner / "metadata.json", "metadata-json", True),
-            (inner / "context-snippet.md", "context-snippet", False),
-            (forge_group / v / "provenance-map.json", "provenance-json", True),
+        # SKILL.md is region-partitioned (frontmatter hard, body a warning); the
+        # other three are whole-file hard scans, the JSON files skipping source facts.
+        for path, kind in (
+            (inner / "SKILL.md", "skill-md"),
+            (inner / "metadata.json", "metadata-json"),
+            (inner / "context-snippet.md", "context-snippet"),
+            (forge_group / v / "provenance-map.json", "provenance-json"),
         ):
-            content = scan_file(rel, region, v)
+            content = read(path, v)
             if content is None:
                 continue
-            scanned = _mask_spans(content, _source_fact_spans(content)) if is_json else content
-            lines = content.split("\n")
-            for n, _ in _scan_lines(list(enumerate(scanned.split("\n"), start=1)), pattern):
-                hard_matches.append(
-                    {"version": v, "file": str(rel), "region": region,
-                     "line": n, "text": lines[n - 1].strip()}
-                )
+            hard, warnings = scan_content(content, kind, old_name)
+            hard_matches += [{"version": v, "file": str(path), **m} for m in hard]
+            body_warnings += [{"version": v, "file": str(path), **m} for m in warnings]
 
         # Directory listing: must contain {new_name}/, must not contain {old_name}/.
         version_dir = skill_group / v

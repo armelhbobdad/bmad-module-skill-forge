@@ -2097,6 +2097,67 @@ class TestResolve:
         assert (out["symlink_target"], out["chosen_version"]) == (None, "0.5.0")
         assert any("does not lead to a version folder" in e for e in out["errors"])
 
+    def test_link_into_another_skills_version_folder_names_no_version(self, tmp_path, links_ok):
+        """#1180: `../other/0.6.0` ends in a version this skill also has, but it is not this skill's folder,
+        so rename's §4 rolls back on the `active` error rather than repoint the new link at `0.6.0`."""
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.6.0"))
+        _make_version(skills, "other", "0.6.0", metadata=MARKED)
+        (skills / "cognee" / "active").symlink_to(Path("..") / "other" / "0.6.0", target_is_directory=True)
+        out = _resolve(skills, forge)
+        assert out["symlink_target"] is None and out["candidates"]["symlink"] is None
+        [error] = out["errors"]
+        assert error.startswith("`active` link does not lead to a version folder of the skill")
+        assert (out["chosen_version"], out["reason"]) == ("0.6.0", "manifest")
+
+    @pytest.mark.parametrize("content, expected", [
+        ({**MARKED, "source_authority": "official"}, "official"),
+        (None, None),
+        ("{not json", None),
+        ([{"source_authority": "official"}], None),
+        (MARKED, None),
+        ({**MARKED, "source_authority": 5}, None),
+        (b"\xff\xfe not UTF-8", None),
+    ], ids=["official", "no-file", "not-json", "not-an-object", "no-key", "not-a-string", "unreadable"])
+    def test_source_authority_from_the_resolved_metadata(self, tmp_path, content, expected):
+        """#1180 determinism-6: the value of the chosen version's metadata.json, null for anything else."""
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.6.0"))
+        metadata = skills / "cognee" / "0.6.0" / "cognee" / "metadata.json"
+        if content is None:
+            metadata.unlink()
+        elif isinstance(content, bytes):
+            metadata.write_bytes(content)
+        else:
+            _write(metadata, content)
+        out = _resolve(skills, forge)
+        assert out["source_authority"] == expected
+        assert out["paths"]["metadata"]["path"] == (None if content is None else str(metadata))
+
+    def test_source_authority_follows_the_chosen_version(self, tmp_path, links_ok):
+        """The link wins when the manifest lags it, and a flat skill reads its root metadata.json."""
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), link="0.6.0")
+        _write(skills / "cognee" / "0.5.0" / "cognee" / "metadata.json", {**MARKED, "source_authority": "community"})
+        _write(skills / "cognee" / "0.6.0" / "cognee" / "metadata.json", {**MARKED, "source_authority": "official"})
+        assert _resolve(skills, forge)["source_authority"] == "official"
+        assert _resolve(skills, forge, version="0.5.0")["source_authority"] == "community"
+        flat = tmp_path / "flat"
+        _make_flat(flat / "skills", "cognee", metadata={**MARKED, "source_authority": "official"})
+        assert _resolve(flat / "skills", flat / "forge")["source_authority"] == "official"
+
+    def test_the_knowledge_lists_the_field_as_the_docstring_does(self):
+        """#1180: both copies of `resolve`'s field list name `source_authority` and say drop-skill reads its
+        version list (drop-roster.py counts the rows itself); the knowledge also says what rename reads from it,
+        its `active` link and `source_authority`."""
+        knowledge = (Path(__file__).parent.parent / "src" / "knowledge" / "version-paths.md").read_text(encoding="utf-8")
+        paragraph = knowledge[knowledge.index("**The resolve command.**"):]
+        paragraph = paragraph[:paragraph.index("\n")]
+        assert "the `source_authority` that `metadata.json` gives (null without one)" in paragraph
+        assert "rename-skill its `active` link and `source_authority`" in paragraph
+        assert "drop-skill reads its version lists from it" in paragraph
+        doc = " ".join(mod.__doc__.split())
+        assert "the `source_authority` that metadata.json gives (null without one)" in doc
+        assert "with its manifest status (the version list drop-skill reads, through drop-roster.py)" in doc
+        assert "the counts drop-skill reads" not in doc
+
     def test_broken_link_and_real_active_folder(self, tmp_path, links_ok):
         skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), versions=("0.5.0",))
         (skills / "cognee" / "active").symlink_to("gone")

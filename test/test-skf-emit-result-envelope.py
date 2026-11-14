@@ -2965,6 +2965,151 @@ def test_emit_halt_options_build_the_envelope_a_typed_payload_builds(tmp_path):
     assert "path" not in blank["error"] and blank["old_name"] is None
 
 
+# ─── skf-rename-skill: a finished rename's versions and outputs from its record ─
+
+
+RENAME_RECORD = {"renamed_versions": ["2.0.0", "1.0.0"],
+                 "files_rewritten": [{"kind": "skill-md", "path": "C:\\s\\demo-kit\\2.0.0\\demo-kit\\SKILL.md"},
+                                     {"kind": "provenance-json", "path": "/p/forge/demo-kit/1.0.0/provenance-map.json"}],
+                 "counts": {"skill-md": 1, "provenance-json": 1}, "package_warnings": [], "missing_files": []}
+RENAME_SUCCESS = {"status": "success", "old_name": "demo", "new_name": "demo-kit", "manifest_rekeyed": True,
+                  "context_files_updated": ["CLAUDE.md"], "halt_reason": None,
+                  "result_contract": {"skill": "skf-rename-skill", "status": "success",
+                                      "summary": {"old_name": "demo", "new_name": "demo-kit",
+                                                  "manifest_rekeyed": True, "context_files_updated": ["CLAUDE.md"],
+                                                  "context_files_failed": [], "forge_left_in_place": None}}}
+
+
+def _rename_emit(tmp_path: Path, payload: dict, record=None, run_dir: bool = True,
+                 result_dir: bool = True) -> subprocess.CompletedProcess:
+    """`emit --workflow skf-rename-skill` as report.md §1 runs it, with `record` staged as rename-rewrite.json
+    (bytes as given, anything else as JSON; None stages nothing)."""
+    folder = tmp_path / RENAME_RUN
+    folder.mkdir(exist_ok=True)
+    if record is not None:
+        (folder / "rename-rewrite.json").write_bytes(
+            record if isinstance(record, bytes) else json.dumps(record).encode("utf-8"))
+    group = tmp_path / "skills" / "demo-kit"
+    group.mkdir(parents=True, exist_ok=True)
+    args = ["emit", "--workflow", "skf-rename-skill"]
+    args += ["--run-dir", str(folder)] if run_dir else []
+    args += ["--result-dir", str(group)] if result_dir else []
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), *args], input=json.dumps(payload).encode("utf-8"),
+                          capture_output=True, timeout=10)
+
+
+def _stdout_envelope(done: subprocess.CompletedProcess) -> dict:
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line.removeprefix("SKF_RENAME_SKILL_RESULT_JSON: "))
+    schema, _ = mod.load_workflow_schema("skf-rename-skill")
+    assert mod.contract_errors(schema, envelope) == []
+    return envelope
+
+
+def test_a_finished_rename_takes_its_versions_and_outputs_from_the_record(tmp_path):
+    """#1180 determinism-3: the record's versions replace the payload's, and each rewritten file is an output
+    written with `/`, a Windows path included. Typed values, a dry run's versions say, never win."""
+    contract = RENAME_SUCCESS["result_contract"]
+    contract = {**contract, "outputs": [{"type": "skill", "path": "typed/SKILL.md"}],
+                "summary": {**contract["summary"], "versions_renamed": ["9.9.9"]}}
+    payload = {**RENAME_SUCCESS, "versions_renamed": ["9.9.9"], "result_contract": contract}
+    env = _stdout_envelope(_rename_emit(tmp_path, payload, RENAME_RECORD))
+    assert env["versions_renamed"] == ["2.0.0", "1.0.0"]
+    latest = json.loads((tmp_path / "skills" / "demo-kit" / "rename-skill-result-latest.json").read_text("utf-8"))
+    assert latest["outputs"] == [{"type": "skill", "path": "C:/s/demo-kit/2.0.0/demo-kit/SKILL.md"},
+                                 {"type": "skill", "path": "/p/forge/demo-kit/1.0.0/provenance-map.json"}]
+    assert latest["summary"]["versions_renamed"] == ["2.0.0", "1.0.0"]
+    assert latest["summary"]["forge_left_in_place"] is None and latest["skill"] == "skf-rename-skill"
+
+
+def test_the_fold_reads_the_record_skf_rewrite_skill_name_writes(tmp_path):
+    """execute.md §2's batch writes the record report.md §1's emit folds: a change to the record's shape fails
+    here, not as a finished rename with no result line."""
+    group, forge = tmp_path / "skills" / "demo-kit", tmp_path / "forge" / "demo-kit"
+    for version in ("2.0.0", "1.0.0"):
+        package = group / version / "demo"
+        package.mkdir(parents=True)
+        (package / "SKILL.md").write_bytes(b"---\nname: demo\ndescription: x\n---\n# demo\n")
+        (package / "metadata.json").write_bytes(json.dumps({"name": "demo"}).encode("utf-8"))
+        (forge / version).mkdir(parents=True)
+        (forge / version / "provenance-map.json").write_bytes(
+            json.dumps({"skill_name": "demo", "entries": []}).encode("utf-8"))
+    run = tmp_path / RENAME_RUN
+    run.mkdir()
+    rewrite = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH.with_name("skf-rewrite-skill-name.py")), "--skill-group", str(group),
+         "--versions", "2.0.0,1.0.0", "--old-name", "demo", "--new-name", "demo-kit",
+         "--moved-folder", str(tmp_path / "skills"), "--forge-group", str(forge),
+         "--moved-folder", str(tmp_path / "forge"), "--result-to", str(run / "rename-rewrite.json")],
+        capture_output=True, timeout=30)
+    assert rewrite.returncode == 0, rewrite.stderr.decode("utf-8", "replace")
+    record = json.loads((run / "rename-rewrite.json").read_text("utf-8"))
+    env = _stdout_envelope(_rename_emit(tmp_path, RENAME_SUCCESS))
+    assert env["versions_renamed"] == record["renamed_versions"] == ["2.0.0", "1.0.0"]
+    latest = json.loads((group / "rename-skill-result-latest.json").read_text("utf-8"))
+    assert len(record["files_rewritten"]) == 6, "SKILL.md, metadata.json and provenance-map.json of each version"
+    assert latest["outputs"] == [{"type": "skill", "path": entry["path"].replace("\\", "/")}
+                                 for entry in record["files_rewritten"]]
+    assert latest["summary"]["versions_renamed"] == record["renamed_versions"]
+
+
+def test_a_payload_without_a_result_contract_records_the_envelope(tmp_path):
+    """The fold adds no `result_contract`: a finished rename whose payload has none records its envelope, as the
+    Result files rule says, never a contract with no `skill`."""
+    payload = {k: v for k, v in RENAME_SUCCESS.items() if k != "result_contract"}
+    (tmp_path / "rename-rewrite.json").write_text(json.dumps(RENAME_RECORD), encoding="utf-8")
+    folded = mod.fold_rename_record(payload, tmp_path, "emit")
+    assert folded["versions_renamed"] == ["2.0.0", "1.0.0"] and "result_contract" not in folded
+    assert "versions_renamed" not in payload, "the payload given is not changed"
+    env = _stdout_envelope(_rename_emit(tmp_path, payload, RENAME_RECORD))
+    latest = json.loads((tmp_path / "skills" / "demo-kit" / "rename-skill-result-latest.json").read_text("utf-8"))
+    assert (latest["status"], latest["old_name"], latest["versions_renamed"]) == ("success", "demo", ["2.0.0", "1.0.0"])
+    assert latest["versions_renamed"] == env["versions_renamed"] and "outputs" not in latest
+    assert "a payload with no `result_contract` gets none, so its result file is the envelope" in _folded_doc().lower()
+
+
+def test_the_rename_paragraph_follows_the_setup_section():
+    """One section per workflow: skf-rename-skill's paragraph comes after skf-setup's last line, not inside it."""
+    doc = _folded_doc()
+    assert (doc.index("Setup's step 4 passes no `error`") < doc.index("skf-rename-skill. Step 2 stages")
+            < doc.index("CLI: the step files invoke it"))
+
+
+@pytest.mark.parametrize("record, run_dir, needle", [
+    (RENAME_RECORD, False, "rename-rewrite.json"),
+    (None, True, "no rewrite record at"),
+    (b"{not json", True, "cannot read the rewrite record"),
+    (b"\xff\xfe", True, "cannot read the rewrite record"),
+    (["2.0.0"], True, "is not an object with"),
+    ({"renamed_versions": "2.0.0", "files_rewritten": []}, True, "is not an object with"),
+    ({"renamed_versions": [2], "files_rewritten": []}, True, "is not an object with"),
+    ({"renamed_versions": ["2.0.0"]}, True, "is not an object with"),
+    ({"renamed_versions": ["2.0.0"], "files_rewritten": ["SKILL.md"]}, True, "is not an object with"),
+    ({"renamed_versions": ["2.0.0"], "files_rewritten": [{"kind": "skill-md"}]}, True, "is not an object with"),
+], ids=["no-run-dir", "no-record", "not-json", "not-utf8", "not-an-object", "versions-not-a-list",
+        "version-not-a-string", "no-files", "file-not-an-object", "file-without-path"])
+def test_a_finished_rename_without_a_readable_record_is_refused(tmp_path, record, run_dir, needle):
+    """Exit 1 before any result file is written, with a message that names the record."""
+    done = _rename_emit(tmp_path, RENAME_SUCCESS, record, run_dir=run_dir)
+    assert done.returncode == 1 and done.stdout == b""
+    message = json.loads(done.stderr.decode("utf-8"))["message"]
+    assert needle in message and "rename-rewrite.json" in message
+    assert list((tmp_path / "skills" / "demo-kit").iterdir()) == [], "no result file"
+
+
+def test_a_dry_run_and_a_halt_read_no_record(tmp_path):
+    """Only a finished rename folds the record: a dry run emits as before, and a halt never needs one."""
+    dry = {"status": "dry-run", "old_name": "demo", "new_name": "demo-kit", "versions_renamed": ["2.0.0"],
+           "manifest_rekeyed": False, "context_files_updated": [], "halt_reason": None}
+    env = _stdout_envelope(_rename_emit(tmp_path, dry, result_dir=False))
+    assert (env["status"], env["versions_renamed"], env["result_path"]) == ("dry-run", ["2.0.0"], None)
+    halt = _rename_line(_halt(tmp_path, "--phase", "execute:copy", "--halt-reason", "copy-failed",
+                              "--old-name", "demo", "--reason", "Copy failed."))
+    assert (halt["status"], halt["versions_renamed"]) == ("error", [])
+    assert not (tmp_path / RENAME_RUN / "rename-rewrite.json").exists()
+
+
 def test_emit_halt_takes_the_skill_name_as_an_option(tmp_path):
     """A Test Skill halt before its run folder exists, whose message quotes a helper's error, names the skill
     with --skill-name, so its envelope keeps `skill_name` with no payload typed as JSON."""

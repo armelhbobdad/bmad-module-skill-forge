@@ -36,20 +36,20 @@ End the rename with one terminal sequence: write the result files and the envelo
 
 ### 1. Write the Result Files and the Envelope
 
-Read `{run_dir}/rename-rewrite.json`, the record step 2 §2's helper wrote (step 2 rolls back a run whose record it could not write), and bind from it `renamed_versions`, `files_rewritten`, `rewrite_counts` ← `counts`, `package_warnings` and `missing_files`.
+Read `{run_dir}/rename-rewrite.json`, the record step 2 §2's helper wrote (step 2 rolls back a run whose record it could not write), and bind from it `renamed_versions`, `rewrite_counts` ← `counts`, `package_warnings` and `missing_files`.
 
-Stage the rename's result in the run folder, every value from what step 2 recorded: write each string as JSON (escape `"`, `\` and control characters, and write every path with `/`). Then let the shared emitter write the result files. From `{project-root}`:
+Stage the rename's result in the run folder, every value from what step 2 recorded: write each string as JSON (escape `"`, `\` and control characters), and `forge_left_in_place` with `/`. Then let the shared emitter write the result files. From `{project-root}`:
 
 ```bash
 cat > "{run_dir}/result-context.json" <<'SKF_RESULT'
-{"status": "success", "old_name": "{old_name}", "new_name": "{new_name}", "versions_renamed": <renamed_versions as a JSON array>, "manifest_rekeyed": <manifest_rekeyed>, "context_files_updated": <context_files_updated as a JSON array>, "halt_reason": null, "result_contract": {"skill": "skf-rename-skill", "status": "success", "outputs": <one {"type": "skill", "path": "<path>"} per path in files_rewritten>, "summary": {"old_name": "{old_name}", "new_name": "{new_name}", "versions_renamed": <renamed_versions>, "manifest_rekeyed": <manifest_rekeyed>, "context_files_updated": <context_files_updated>, "context_files_failed": <context_files_failed>, "forge_left_in_place": <forge_left_in_place, or null>}}}
+{"status": "success", "old_name": "{old_name}", "new_name": "{new_name}", "manifest_rekeyed": <manifest_rekeyed>, "context_files_updated": <context_files_updated as a JSON array>, "halt_reason": null, "result_contract": {"skill": "skf-rename-skill", "status": "success", "summary": {"old_name": "{old_name}", "new_name": "{new_name}", "manifest_rekeyed": <manifest_rekeyed>, "context_files_updated": <context_files_updated>, "context_files_failed": <context_files_failed>, "forge_left_in_place": <forge_left_in_place, or null>}}}
 SKF_RESULT
 uv run {emitEnvelopeHelper} emit --workflow skf-rename-skill --run-dir "{run_dir}" --result-dir "{skills_output_folder}/{new_name}" < "{run_dir}/result-context.json"
 ```
 
-The emitter checks the envelope against `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`, adds the decisions and warnings the run recorded, and writes the result files in `{skills_output_folder}/{new_name}/` as `shared/references/output-contract-schema.md` describes. It prints the `SKF_RENAME_SKILL_RESULT_JSON:` line on stdout: bind `{result_line}` ← that line, and from its JSON `{result_path}` ← `result_path` (the per-run record, or null when it could not be written), `{headless_decisions}` ← `headless_decisions` and `{run_warnings}` ← `warnings` (empty when absent).
+The emitter takes `versions_renamed` and one output per rewritten file from that record, checks the envelope against `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`, adds the decisions and warnings the run recorded, and writes the result files in `{skills_output_folder}/{new_name}/` as `shared/references/output-contract-schema.md` describes. It prints the `SKF_RENAME_SKILL_RESULT_JSON:` line on stdout: bind `{result_line}` ← that line, and from its JSON `{result_path}` ← `result_path` (the per-run record, or null when it could not be written), `{headless_decisions}` ← `headless_decisions` and `{run_warnings}` ← `warnings` (empty when absent).
 
-When the emitter exits non-zero and its `message` names the payload, fix `{run_dir}/result-context.json` once and run it again. If it still exits non-zero, or prints no line, the rename stays committed: show its stderr message as a warning, bind `{result_line}` and `{result_path}` to null and `{headless_decisions}` and `{run_warnings}` to empty lists, and go on. No result file was written, and §4 keeps the run folder.
+When the emitter exits non-zero and its `message` names the payload, fix `{run_dir}/result-context.json` once and run it again. When its `message` names the record, `rename-rewrite.json`, which a retry cannot fix, or it still exits non-zero, or prints no line, the rename stays committed: show its stderr message as a warning, bind `{result_line}` and `{result_path}` to null and `{headless_decisions}` and `{run_warnings}` to empty lists, and go on. No result file was written, and §4 keeps the run folder.
 
 ### 2. Render the Report
 

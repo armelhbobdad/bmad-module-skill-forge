@@ -122,10 +122,12 @@ the manifest's `active_version`, the `active` link's target, the version a
 reading workflow uses and why (the Manifest-lag guard of
 knowledge/version-paths.md, with each version's provenance `generated_at`),
 `forge_version`, the metadata.json, provenance-map.json and
-evidence-report.md paths (versioned first, flat as the fallback), and every
-version newest first with its manifest status and the counts drop-skill and
-rename-skill read. `--version` names the version instead (an operator's
-choice). It reads, never writes, and does not decide ownership.
+evidence-report.md paths (versioned first, flat as the fallback), the
+`source_authority` that metadata.json gives (null without one), and every
+version newest first with its manifest status (the version list drop-skill
+reads, through drop-roster.py) and their counts. `--version` names the
+version instead (an operator's choice). It reads, never writes, and does
+not decide ownership.
 
 Migrate. `migrate` moves one flat SKF skill into the versioned layout in
 one checked step (see `migrate_skill`), by the Migration: Flat to
@@ -1742,8 +1744,11 @@ def resolve_skill(skills_folder, skill_name, forge_data_folder, version=None):
     `paths` gives metadata.json, provenance-map.json and evidence-report.md,
     each the versioned path when that file exists, else the flat one
     (`{skill_group}/metadata.json`, `{forge_group}/<file>`), else null.
-    `versions` lists the manifest's and the on-disk versions newest first,
-    with the manifest status of each; `counts` and `newest_non_deprecated`
+    `source_authority` is that metadata.json's string value of the key,
+    else null (no file, one that cannot be read or is not a JSON object,
+    no key, or a value that is not a string). `versions` lists the
+    manifest's and the on-disk versions newest first, with the manifest
+    status of each; `counts` and `newest_non_deprecated`
     (the newest manifest version whose status is not "deprecated") read
     them. Returns None when neither the manifest nor the skills folder
     knows the skill.
@@ -1812,6 +1817,9 @@ def resolve_skill(skills_folder, skill_name, forge_data_folder, version=None):
     for status in statuses.values():
         key = status if status is not None else "unknown"
         counts["by_status"][key] = counts["by_status"].get(key, 0) + 1
+    metadata = _artifact(package / "metadata.json" if chosen else None, group / "metadata.json")
+    meta, _ = read_json_file(metadata["path"]) if metadata["path"] else (None, None)
+    authority = meta.get("source_authority") if isinstance(meta, dict) else None
     return {
         "name": skill_name,
         "layout": "flat" if reason == "flat-layout" else ("versioned" if chosen else "none"),
@@ -1828,13 +1836,13 @@ def resolve_skill(skills_folder, skill_name, forge_data_folder, version=None):
         "forge_group": str(forge_group),
         "forge_version": str(forge_version) if forge_version else None,
         "paths": {
-            "metadata": _artifact(package / "metadata.json" if chosen else None,
-                                  group / "metadata.json"),
+            "metadata": metadata,
             "provenance_map": _artifact(forge_version / "provenance-map.json" if chosen else None,
                                         forge_group / "provenance-map.json"),
             "evidence_report": _artifact(forge_version / "evidence-report.md" if chosen else None,
                                          forge_group / "evidence-report.md"),
         },
+        "source_authority": authority if isinstance(authority, str) else None,
         "versions": [{"version": v, "status": statuses.get(v), "in_manifest": v in statuses,
                       "on_disk": v in on_disk} for v in listed],
         "newest_non_deprecated": next(

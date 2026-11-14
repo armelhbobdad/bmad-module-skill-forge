@@ -467,6 +467,23 @@ class TestSnippetTemplates:
             ("context-snippet", "|api: details")]
 
 
+def _write_version(skill_group: Path, forge_group: Path, old, snippet, metadata=None, provenance=None,
+                   skill_md=None):
+    """Version 1.4.0 of a skill named `old`: its package in `skill_group`, its provenance map in `forge_group`."""
+    package = skill_group / "1.4.0" / old
+    package.mkdir(parents=True)
+    (forge_group / "1.4.0").mkdir(parents=True)
+    files = {
+        package / "SKILL.md": skill_md or f"---\nname: {old}\ndescription: Use when x.\n---\n# {old}\n",
+        package / "metadata.json": json.dumps(metadata or {"name": old, "version": "1.4.0"}, indent=2) + "\n",
+        package / "context-snippet.md": snippet,
+        forge_group / "1.4.0" / "provenance-map.json": (
+            json.dumps(provenance or {"skill_name": old, "entries": []}, indent=2) + "\n"),
+    }
+    for path, text in files.items():
+        path.write_bytes(text.encode("utf-8"))
+
+
 def _rename_and_verify(tmp_path, old, new, snippet, metadata=None, provenance=None, moved_folders=None):
     """Rename §2's batch call on one version as §1 leaves it, then the §5 verifier: (exit code, verdict).
 
@@ -475,20 +492,9 @@ def _rename_and_verify(tmp_path, old, new, snippet, metadata=None, provenance=No
     """
     skills, forge = tmp_path / "skills", tmp_path / "forge-data"
     skill_group, forge_group = skills / new, forge / new
-    package = skill_group / "1.4.0" / old
-    package.mkdir(parents=True)
-    (forge_group / "1.4.0").mkdir(parents=True)
+    _write_version(skill_group, forge_group, old, snippet, metadata, provenance)
     if moved_folders is None:
         moved_folders = [str(skills), str(forge)]
-    files = {
-        package / "SKILL.md": f"---\nname: {old}\ndescription: Use when x.\n---\n# {old}\n",
-        package / "metadata.json": json.dumps(metadata or {"name": old, "version": "1.4.0"}, indent=2) + "\n",
-        package / "context-snippet.md": snippet,
-        forge_group / "1.4.0" / "provenance-map.json": (
-            json.dumps(provenance or {"skill_name": old, "entries": []}, indent=2) + "\n"),
-    }
-    for path, text in files.items():
-        path.write_bytes(text.encode("utf-8"))
     extra = [arg for folder in moved_folders for arg in ("--moved-folder", folder)]
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--skill-group", str(skill_group), "--versions", "1.4.0",
@@ -989,13 +995,29 @@ class TestRenameProse:
         workflows = (REPO / "docs" / "workflows.md").read_text(encoding="utf-8")
         rs = next(line for line in workflows.split("\n") if line.startswith("- **`/skf-rename-skill` (RS)**"))
         assert "`3` resolution-failure (`manifest-corrupt`, `nothing-to-rename`)" in rs
-        assert "`verify-failed` when the old name is still in the renamed files" in rs
+        # #1181: the check runs before the copy too, a dry run included, so not every stop is a rollback.
+        assert "`verify-failed` when the old name would stay in the renamed files, found before anything is " \
+               "copied, a `--dry-run` included, or after the copy, which then rolls the rename back" in rs
+        rename = _between(workflows, "### Rename Skill (RS)", "### Drop Skill (DS)")
+        assert "A rename's dry run also runs the check for leftovers of the old name, so it stops with " \
+               "`verify-failed` (exit `5`)" in rename
+        # The RS and DS sections each carry the dry-run line that names both workflows: the copies stay equal.
+        previews = [line for line in workflows.split("\n") if line.startswith("**Preview first:**")]
+        assert len(previews) == 2 and previews[0] == previews[1]
+        knowledge = _between(VERSION_PATHS.read_text(encoding="utf-8"), "### Rename (RS - Rename Skill)", "### Drop")
+        assert "Before anything is copied, rename runs the same check on what its rewrite would make of the " \
+               "old skill's files, a `--dry-run` included, and stops with nothing changed on a match." in knowledge
+        assert "the no-trace check then stops the rename" in knowledge
         trouble = _between((REPO / "docs" / "troubleshooting.md").read_text(encoding="utf-8"),
                            "### Rename Skill stops with `verify-failed`", "\n### ")
         for phrase in ("(exit `5`)", "the skill keeps its old name and every file as it was",
                        "such as a test report path an update run recorded",
                        "**The skill is named after its library or repository**",
-                       "(`api`, `root`, `data`), the skill cannot be renamed"):
+                       "(`api`, `root`, `data`), the skill cannot be renamed",
+                       # #1181: the check runs before the copy too, so a dry run reports it.
+                       "(`error.phase` is `select:predict-verify`), so `--dry-run` reports it too",
+                       "again before it deletes anything (`execute:verify`)",
+                       "at `select:predict-verify` the old skill's file, the one to edit"):
             assert phrase in trouble, phrase
 
     def test_every_description_of_section_5_names_the_verifiers_source_facts(self):
@@ -1193,3 +1215,286 @@ def test_rename_section_2_runs_the_batch_it_documents(tmp_path, forge_move):
               "--old-name", OLD, "--new-name", NEW, "--versions", ",".join(out["renamed_versions"])]
     proc = subprocess.run(verify, capture_output=True, encoding="utf-8")
     assert proc.returncode == 0 and json.loads(proc.stdout)["clean"] is True, proc.stdout
+
+
+# --- Predict mode: rename select §7b, before anything is copied ---------------------
+
+
+def _predict(root: Path, old, new, snippet, metadata=None, provenance=None, skill_md=None, forge=True,
+             script=SCRIPT, extra=()):
+    """§7b's prediction on version 1.4.0 of `old` as SKF left it: (exit code, result, the files before it ran)."""
+    skills, forge_data = root / "skills", root / "forge-data"
+    _write_version(skills / old, forge_data / old, old, snippet, metadata, provenance, skill_md)
+    before = _files(root)
+    args = ["--predict", "--skill-group", skills / old, "--versions", "1.4.0", "--old-name", old, "--new-name", new,
+            "--moved-folder", skills, *extra]
+    if forge:
+        args += ["--forge-group", forge_data / old, "--moved-folder", forge_data]
+    proc = subprocess.run([sys.executable, str(script), *[str(a) for a in args]], capture_output=True,
+                          encoding="utf-8")
+    try:
+        out = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        out = None
+    return proc.returncode, out, before
+
+
+def _files(root: Path) -> dict:
+    return {p.relative_to(root).as_posix(): p.read_bytes() if p.is_file() else None for p in sorted(root.rglob("*"))}
+
+
+def _found(matches) -> list:
+    return [(m["region"], m["line"], m["text"]) for m in matches]
+
+
+def _named_after_its_library():
+    """(old, new, snippet, metadata, provenance) of each TestSkillNamedAfterItsLibrary case."""
+    old, new = TestSkillNamedAfterItsLibrary.OLD, TestSkillNamedAfterItsLibrary.NEW
+    create = "skf-create-skill/references/compile.md"
+    cases = {"create-skill": (old, new, _snippet(create, old), *_create_skill_json(old))}
+    cases["named-like-its-repository"] = (old, new, _snippet(create, old),
+                                          *_create_skill_json(old, repo=f"acme/{old}"))
+    metadata, provenance = _create_skill_json(old, repo=f"skills/{old}")
+    metadata["source_ref"] = provenance["source_ref"] = f"skills/{old}/v1.0.0"
+    cases["source-values-hold-a-moved-path"] = (old, new, _snippet(create, old), metadata, provenance)
+    metadata, provenance = _create_skill_json("pdf", repo="acme/agent-skills")
+    script = _fill(_template_optional(CREATE_SECTIONS, "## metadata.json Structure", "scripts")[0])
+    script.update(file="scripts/fill.py", source_file="skills/pdf/scripts/fill.py")
+    metadata["scripts"] = [script]
+    provenance["file_entries"][0].update(file_name="scripts/fill.py", source_file="skills/pdf/scripts/fill.py")
+    cases["source-file-under-a-skills-folder"] = ("pdf", "pdf-forms", _snippet(create, "pdf"), metadata, provenance)
+    metadata, provenance = _create_skill_json(old)
+    metadata["description"] = f"Text utilities from the {old} package."
+    cases["metadata-description"] = (old, new, _snippet(create, old), metadata, provenance)
+    metadata, provenance = _create_skill_json(old)
+    provenance["entries"][0]["source_file"] = f"src/{old}/core.py"
+    cases["provenance-source-file"] = (old, new, _snippet(create, old), metadata, provenance)
+    spec = importlib.util.spec_from_file_location("skf_render_quick_metadata_for_predict", QUICK_METADATA)
+    quick = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(quick)
+    metadata = quick.render_metadata(
+        {"name": "zod", "language": "typescript", "source_repo": "https://github.com/colinhacks/zod",
+         "source_root": "/home/me/.skf/workspace/colinhacks/zod", "source_commit": "4b7b5c1d",
+         "description": "TypeScript-first schema validation. Use when validating input.", "exports": ["object"]},
+        now_fn=lambda: "2026-09-28T00:00:00Z")
+    cases["quick-skill"] = ("zod", "zod-kit", _snippet("skf-quick-skill/assets/skill-template.md", "zod"), metadata,
+                            None)
+    template = next(t for t in SNIPPET_TEMPLATES if t.rel.endswith("skf-export-skill/assets/snippet-format.md"))
+    gotchas = _render(template, "oms-cognee").replace("|gotchas: details", "|gotchas: oms-cognee.add() needs await")
+    cases["snippet-mention-outside-the-slots"] = ("oms-cognee", "cognee", gotchas, None, None)
+    return cases
+
+
+PARITY_CASES = _named_after_its_library()
+
+
+class TestPredict:
+    """§7b runs the batch's rewrite on the old folder in memory and scans it with §5's own scan_content."""
+
+    OLD, NEW = TestSkillNamedAfterItsLibrary.OLD, TestSkillNamedAfterItsLibrary.NEW
+
+    @pytest.mark.parametrize("case", sorted(PARITY_CASES))
+    def test_it_finds_what_section_5_finds_after_the_batch(self, tmp_path, case):
+        old, new, snippet, metadata, provenance = PARITY_CASES[case]
+        code, verdict = _rename_and_verify(tmp_path / "rename", old, new, snippet, metadata, provenance)
+        rc, out, _ = _predict(tmp_path / "predict", old, new, snippet, metadata, provenance)
+        assert rc == 0 and out["status"] == "ok", out
+        assert out["clean"] is verdict["clean"] is (code == 0)
+        assert _found(out["hard_matches"]) == _found(verdict["hard_matches"])
+        assert _found(out["body_warnings"]) == _found(verdict["body_warnings"])
+        # Each match names the old skill's file, the one to edit.
+        old_root = (tmp_path / "predict").as_posix()
+        for match in out["hard_matches"] + out["body_warnings"]:
+            path = Path(match["file"]).as_posix()
+            assert path.startswith(old_root) and f"/{new}/" not in path, path
+        assert (case in ("create-skill", "quick-skill")) is out["clean"]
+
+    @pytest.mark.parametrize("where", ["metadata-json", "skill-frontmatter"])
+    def test_a_description_that_names_the_library_predicts_a_hard_match_on_the_old_file(self, tmp_path, where):
+        old, new = self.OLD, self.NEW
+        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        metadata, provenance = _create_skill_json(old)
+        skill_md = None
+        if where == "metadata-json":
+            metadata["description"] = f"Text utilities from the {old} package."
+            file, text = "metadata.json", f'"description": "Text utilities from the {old} package.",'
+        else:
+            skill_md = f"---\nname: {old}\ndescription: Use when working with {old}.\n---\n# {old}\n"
+            file, text = "SKILL.md", f"description: Use when working with {old}."
+        rc, out, before = _predict(tmp_path, old, new, snippet, metadata, provenance, skill_md)
+        assert (rc, out["status"], out["clean"], out["error"]) == (0, "ok", False, None)
+        [match] = out["hard_matches"]
+        assert Path(match["file"]) == tmp_path / "skills" / old / "1.4.0" / old / file
+        assert (match["version"], match["region"], match["text"]) == ("1.4.0", where, text)
+        assert _files(tmp_path) == before, "nothing written"
+
+    def test_the_line_is_the_one_section_5_names_in_the_rewritten_file(self, tmp_path):
+        """A one-line metadata.json is re-emitted indented: the match is on the line §5 would report."""
+        old, new = self.OLD, self.NEW
+        package = tmp_path / "skills" / old / "1.4.0" / old
+        package.mkdir(parents=True)
+        (package / "metadata.json").write_bytes(
+            json.dumps({"name": old, "description": f"From {old}."}).encode("utf-8"))
+        rc, out = run_cli("--predict", "--skill-group", tmp_path / "skills" / old, "--versions", "1.4.0",
+                          "--old-name", old, "--new-name", new)[:2]
+        assert rc == 0 and _found(out["hard_matches"]) == [("metadata-json", 3, f'"description": "From {old}."')]
+        assert (package / "metadata.json").read_bytes().count(b"\n") == 0, "the file itself stays one line"
+
+    def test_the_text_is_the_rewritten_line_with_its_escapes(self, tmp_path):
+        """select.md §7b says a non-ASCII letter shows as a `\\u` escape: the rewrite writes JSON that way."""
+        old, new = self.OLD, self.NEW
+        package = tmp_path / "skills" / old / "1.4.0" / old
+        package.mkdir(parents=True)
+        (package / "metadata.json").write_bytes(
+            json.dumps({"name": old, "description": f"Café {old}."}, ensure_ascii=False, indent=2).encode("utf-8"))
+        rc, out = run_cli("--predict", "--skill-group", tmp_path / "skills" / old, "--versions", "1.4.0",
+                          "--old-name", old, "--new-name", new)[:2]
+        assert rc == 0 and _found(out["hard_matches"]) == [("metadata-json", 3, f'"description": "Caf\\u00e9 {old}."')]
+
+    def test_it_writes_and_moves_nothing(self, tmp_path):
+        old, new = self.OLD, self.NEW
+        metadata, provenance = _create_skill_json(old)
+        metadata["update_source"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
+        rc, out, before = _predict(tmp_path, old, new, _snippet("skf-create-skill/references/compile.md", old),
+                                   metadata, provenance)
+        assert rc == 0 and out["renamed_versions"] == ["1.4.0"]
+        assert _files(tmp_path) == before
+        assert not (tmp_path / "skills" / old / "1.4.0" / new).exists()
+        assert not list(tmp_path.rglob("*.skf-tmp"))
+
+    @pytest.mark.parametrize("forge", [True, False], ids=["forge-moves", "forge-stays"])
+    def test_the_provenance_map_is_read_only_when_the_forge_folder_moves(self, tmp_path, forge):
+        old, new = self.OLD, self.NEW
+        rc, out, _ = _predict(tmp_path, old, new, f"[{old} v1.4.0]|root: skills/{old}/\n", forge=forge,
+                              provenance={"skill_name": old, "entries": [{"note": f"made by {old}"}]})
+        assert rc == 0 and out["forge_group"] == (str(tmp_path / "forge-data" / old) if forge else None)
+        provenance = [m for m in out["hard_matches"] if m["region"] == "provenance-json"]
+        assert _found(provenance) == ([("provenance-json", 5, f'"note": "made by {old}"')] if forge else [])
+
+    def test_a_version_without_a_package_is_named_and_its_files_missing(self, tmp_path):
+        old, new = self.OLD, self.NEW
+        (tmp_path / "skills" / old / "1.3.0").mkdir(parents=True)
+        (tmp_path / "skills" / old / "1.4.0" / old).mkdir(parents=True)
+        rc, out = run_cli("--predict", "--skill-group", tmp_path / "skills" / old, "--versions", "1.4.0,1.3.0",
+                          "--old-name", old, "--new-name", new)[:2]
+        assert rc == 0 and out["status"] == "ok" and out["clean"] is True
+        assert out["renamed_versions"] == ["1.4.0"]
+        assert out["package_warnings"] == [f"1.3.0: no {old}/ package in {tmp_path / 'skills' / old / '1.3.0'}; "
+                                           "skipped"]
+        assert [Path(m).name for m in out["missing_files"]] == ["SKILL.md", "metadata.json", "context-snippet.md"]
+
+    @pytest.mark.parametrize("same_folder", [False, True], ids=["forge-moves", "same-folder"])
+    def test_a_version_without_a_package_is_left_out_as_section_5_leaves_it_out(self, tmp_path, same_folder):
+        """§5 checks only the versions whose package moved: the provenance map of a version without a package,
+        which names the old name in a note, stops neither the rename nor the prediction."""
+        old, new = self.OLD, self.NEW
+        note = json.dumps({"skill_name": old, "entries": [{"note": f"made by {old}"}]}, indent=2) + "\n"
+
+        def lay_out(root: Path, name: str) -> list:
+            skills = root / "skills"
+            forge = skills if same_folder else root / "forge-data"
+            package = skills / name / "1.4.0" / old
+            package.mkdir(parents=True)
+            (package / "SKILL.md").write_bytes(f"---\nname: {old}\ndescription: Use when x.\n---\n".encode("utf-8"))
+            (package / "metadata.json").write_bytes((json.dumps({"name": old}, indent=2) + "\n").encode("utf-8"))
+            (forge / name / "1.3.0").mkdir(parents=True)
+            (forge / name / "1.3.0" / "provenance-map.json").write_bytes(note.encode("utf-8"))
+            return ["--skill-group", skills / name, "--versions", "1.4.0,1.3.0", "--old-name", old,
+                    "--new-name", new, "--moved-folder", skills, "--forge-group", forge / name, "--moved-folder", forge]
+
+        rc, out = run_cli("--predict", *lay_out(tmp_path / "predict", old))[:2]
+        args = lay_out(tmp_path / "rename", new)
+        rc_batch, batch = run_cli(*args)[:2]
+        assert rc == rc_batch == 0 and out["renamed_versions"] == batch["renamed_versions"] == ["1.4.0"], out
+        proc = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), str(args[1]), "--forge-group", str(args[-3]), "--old-name", old,
+             "--new-name", new, "--versions", ",".join(batch["renamed_versions"])],
+            capture_output=True, encoding="utf-8")
+        verdict = json.loads(proc.stdout)
+        assert verdict["clean"] is out["clean"] is True, (verdict, out)
+        assert _found(out["hard_matches"]) == _found(verdict["hard_matches"]) == []
+
+    def test_a_path_into_a_moved_folder_is_rewritten_before_the_scan(self, tmp_path):
+        """A recorded path into skills/<old>/ or forge-data/<old>/ names the new folder once the batch ran, so
+        neither §5 nor the prediction counts it."""
+        old, new = self.OLD, self.NEW
+        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        metadata, provenance = _create_skill_json(old)
+        metadata["update_source"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
+        metadata["skill_path"] = f"skills/{old}/1.4.0/{old}/SKILL.md"
+        provenance["test_report"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
+        code, verdict = _rename_and_verify(tmp_path / "rename", old, new, snippet, metadata, provenance)
+        rc, out, _ = _predict(tmp_path / "predict", old, new, snippet, metadata, provenance)
+        assert (code, verdict["clean"]) == (0, True), verdict
+        assert (rc, out["status"], out["clean"], out["hard_matches"]) == (0, "ok", True, []), out
+
+    def test_a_file_it_cannot_read_stops_it(self, tmp_path, monkeypatch):
+        old, new = self.OLD, self.NEW
+        package = tmp_path / "skills" / old / "1.4.0" / old
+        package.mkdir(parents=True)
+        (package / "metadata.json").write_bytes(b"{}\n")
+
+        def unreadable(path, *args):
+            raise PermissionError(13, "Permission denied", str(path))
+
+        monkeypatch.setattr(mod, "process", unreadable)
+        out = mod.run_predict(tmp_path / "skills" / old, ["1.4.0"], old, new)
+        assert (out["status"], out["clean"], out["error"]["stage"]) == ("error", False, "rewrite")
+        assert Path(out["error"]["path"]) == package / "metadata.json"
+        assert out["error"]["message"].startswith("cannot read it: ")
+
+    def test_a_package_already_at_the_new_name_stops_it(self, tmp_path):
+        old, new = self.OLD, self.NEW
+        (tmp_path / "skills" / old / "1.4.0" / new).mkdir(parents=True)
+        rc, out, before = _predict(tmp_path, old, new, "x\n")
+        assert (rc, out["status"], out["clean"], out["error"]["stage"]) == (2, "error", False, "inner-rename")
+        assert Path(out["error"]["path"]) == tmp_path / "skills" / old / "1.4.0" / new
+        assert _files(tmp_path) == before
+
+    @pytest.mark.parametrize("bad", ["metadata.json", "SKILL.md"])
+    def test_a_file_it_cannot_rewrite_stops_it(self, tmp_path, bad):
+        old, new = self.OLD, self.NEW
+        package = tmp_path / "skills" / old / "1.4.0" / old
+        content = b"{not json" if bad == "metadata.json" else b"# no frontmatter\n"
+        package.mkdir(parents=True)
+        (package / bad).write_bytes(content)
+        rc, out = run_cli("--predict", "--skill-group", tmp_path / "skills" / old, "--versions", "1.4.0",
+                          "--old-name", old, "--new-name", new)[:2]
+        assert (rc, out["status"], out["error"]["stage"]) == (2, "error", "rewrite")
+        assert Path(out["error"]["path"]) == package / bad and "transform failed" in out["error"]["message"]
+        assert (package / bad).read_bytes() == content
+
+    @pytest.mark.parametrize("verifier", [None, "def verify():\n    pass\n"], ids=["missing", "no-scan-content"])
+    def test_a_verifier_it_cannot_load_stops_it(self, tmp_path, verifier):
+        """An installed skf-verify-no-trace.py that is missing, or older than scan_content."""
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        script = scripts / SCRIPT.name
+        script.write_bytes(SCRIPT.read_bytes())
+        if verifier is not None:
+            (scripts / VERIFY_SCRIPT.name).write_bytes(verifier.encode("utf-8"))
+        rc, out, before = _predict(tmp_path / "project", self.OLD, self.NEW, "x\n", script=script)
+        assert (rc, out["status"], out["error"]["stage"]) == (2, "error", "predict")
+        assert Path(out["error"]["path"]) == scripts / VERIFY_SCRIPT.name
+        assert "re-install SKF" in out["error"]["message"]
+        assert out["renamed_versions"] == [] and _files(tmp_path / "project") == before
+
+    @pytest.mark.parametrize("args, message", [
+        (["--predict", "--versions", "1.4.0"], "--versions, --predict need --skill-group"),
+        (["--predict"], "--predict needs --skill-group"),
+        (["--predict", "--skill-group", "{group}", "--versions", "1.4.0", "--result-to", "{group}/r.json"],
+         "--predict writes nothing: it takes no --result-to"),
+        (["--predict", "--skill-group", "{group}", "--versions", "1.4.0", "--kind", "metadata-json"],
+         "--skill-group takes no target, --kind or --dry-run"),
+        (["--predict", "--skill-group", "{group}", "--versions", "1.4.0", "--dry-run"],
+         "--skill-group takes no target, --kind or --dry-run"),
+        (["{group}/metadata.json", "--predict", "--skill-group", "{group}", "--versions", "1.4.0"],
+         "--skill-group takes no target, --kind or --dry-run"),
+        (["--predict", "--skill-group", "{group}"], "--skill-group needs --versions"),
+    ], ids=["versions-without-group", "no-group", "result-to", "kind", "dry-run", "target", "no-versions"])
+    def test_usage_errors_exit_1(self, tmp_path, args, message):
+        group = tmp_path / "group"
+        group.mkdir()
+        rc, out, err = run_cli("--old-name", OLD, "--new-name", NEW, *[a.format(group=group) for a in args])
+        assert rc == 1 and out is None and message in json.loads(err)["message"], err
+        assert not (tmp_path / "group" / "r.json").exists()
