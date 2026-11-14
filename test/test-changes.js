@@ -2059,6 +2059,28 @@ test('extractSurfaces: menu codes, aliases, flags, exit codes, halts, keys and s
   assert.deepStrictEqual(found.skillFiles, ['src/skf-forger/SKILL.md', 'src/skf-setup/SKILL.md']);
 });
 
+test('extractSurfaces: an error.phase whose step holds a space or a hyphen counts, the prose around it does not', () => {
+  const found = surfaces.extractSurfaces(
+    memoryTree({
+      'src/skf-create-stack-skill/references/halts.md':
+        'HALT (exit 4, `halt_reason: "write-failure"`, phase `generate-output:not-a-stack`, `path` `{skill_group}`) with "**Cannot proceed.**"\n' +
+        '{"phase":"compose-skills:enumerate"}, `"phase": "write:run-lock"`, phase: "step 1:run-folder" and phase `on-activation:config`.\n' +
+        "`emit-halt --phase '<phase>'`, phase `-leading:x`, phase `trailing-:x`, phase `no-colon`, the phases `a-b:c`\n",
+    }),
+  );
+  const phases = [...found.items.values()]
+    .filter((item) => item.kind === 'error-phase')
+    .map((item) => `${item.workflow} ${item.token}`)
+    .sort();
+  assert.deepStrictEqual(phases, [
+    'skf-create-stack-skill compose-skills:enumerate',
+    'skf-create-stack-skill generate-output:not-a-stack',
+    'skf-create-stack-skill on-activation:config',
+    'skf-create-stack-skill step 1:run-folder',
+    'skf-create-stack-skill write:run-lock',
+  ]);
+});
+
 test('extractSurfaces: a halt_reason an emitter call gives as --halt-reason counts, a placeholder does not', () => {
   const found = surfaces.extractSurfaces(
     memoryTree({
