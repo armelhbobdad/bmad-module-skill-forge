@@ -29,7 +29,7 @@ that reports 3.10 first on PATH, the bare form fails and the documented
 `--project-root` and from one before 6.11.0 that does not: the stub does not
 answer uv's interpreter query, so uv skips it and picks an interpreter that
 meets the helper's `requires-python`, which the helper runs core under. No
-step runs core's resolver directly, and the helper runs at all twenty-three
+step runs core's resolver directly, and the helper runs at all twenty-four
 call sites. A report step that runs an `on_complete` hook binds a lost
 `{onCompleteCommand}` from the helper right before the hook (#1116), and
 that call returns a team's hook. Ferris states the module-level and
@@ -184,9 +184,9 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
     assert AC.CORE_RESOLVER not in _skill_md(skill)
 
 
-# The seven calls outside an activation: the on_complete hooks of the report steps of Create, Drop, Update, Audit,
-# Test and Rename Skill (#1116), and Campaign's kickoff pipe, each with the key it reads and a probe list for the
-# helper, since a compaction may have lost the activation's binding.
+# The eight calls outside an activation: the on_complete hooks of the report steps of Create, Drop, Update, Audit,
+# Test and Rename Skill (#1116) and Refine Architecture (#1178), and Campaign's kickoff pipe, each with the key it
+# reads and a probe list for the helper, since a compaction may have lost the activation's binding.
 STAGE_CALLS = {
     "src/skf-create-skill/references/report.md": "workflow.on_complete",
     "src/skf-drop-skill/references/report.md": "workflow.on_complete",
@@ -194,6 +194,7 @@ STAGE_CALLS = {
     "src/skf-audit-skill/references/report.md": "workflow.on_complete",
     "src/skf-test-skill/references/report.md": "workflow.on_complete",
     "src/skf-rename-skill/references/report.md": "workflow.on_complete",
+    "src/skf-refine-architecture/references/report.md": "workflow.on_complete",
     "src/skf-campaign/references/step-05-skill-loop.md": "workflow.persistent_facts",
 }
 PROBE_ORDER = [f"{{project-root}}/_bmad/skf/shared/scripts/{AC.HELPER}",
@@ -269,7 +270,7 @@ def test_the_hook_call_returns_a_team_on_complete(tmp_path, rel):
 def test_no_step_runs_core_s_resolver_directly():
     """Every customization call goes through the helper, which serves a core before 6.11.0 too: core's
     resolver is named in no src/ Markdown file, and the helper runs at the sixteen activations and the
-    seven stage calls."""
+    eight stage calls."""
     direct, calls = [], 0
     for md in sorted(SRC.rglob("*.md")):
         text = _read(md)
@@ -279,7 +280,7 @@ def test_no_step_runs_core_s_resolver_directly():
         calls += len(re.findall(r"uv run \{resolveCustomizationHelper\} --skill \{skill-root\} "
                                 r"--project-root \{project-root\} --key [\w.]+", text))
     assert not direct, f"run core's resolver through {AC.HELPER}: {direct}"
-    assert calls == len(ACTIVATIONS) + len(STAGE_CALLS) == 23
+    assert calls == len(ACTIVATIONS) + len(STAGE_CALLS) == 24
 
 
 @pytest.mark.parametrize("skill", ACTIVATIONS)

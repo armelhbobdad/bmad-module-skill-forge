@@ -1,0 +1,6 @@
+type: changed
+scope: skf-refine-architecture
+summary: |
+  When the architecture document names none of the generated skills, Refine Architecture no longer goes on in silence with every skill in scope. An interactive run now shows the scope confirmation with every skill in scope and asks you to check that the document is the one you meant, with the same choices: `C` keeps every skill, a `-<name>` takes a skill out, and `X` cancels with exit `6` (`user-cancelled`). A headless run still keeps every skill in scope and records the `scope_fallback_all_skills` warning, and now also records the scope decision that picked that default.
+issues: [1179]
+prs: [1219]

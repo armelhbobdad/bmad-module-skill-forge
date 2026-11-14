@@ -27,7 +27,11 @@ Plus:
   - candidates: explicit, manifest and active-link candidates, the
     exclusion reasons, stale manifest keys and manifest parse errors
   - scope: the --pairs pairs split by the skills in scope, and the in-scope
-    names that are no inventory skill
+    names that are no inventory skill, with the names given as --skills or
+    read from a saved enumerate result with --inventory (one of the two)
+  - terms: each skill's name and source basenames as aliases, deduped in
+    inventory order, written and printed, and the inputs that exit 1
+    writing nothing
   - CLI subprocess invocation produces valid JSON
   - Empty skills root → empty inventory, exit 0
   - Bad skills root → exit 1
@@ -2088,3 +2092,178 @@ class TestScope:
 
     def test_docstring_lists_the_scope_subcommand(self) -> None:
         assert "scope --skills a,b,c --in-scope a,b" in mod.__doc__
+
+    def test_docstring_lists_the_inventory_forms(self) -> None:
+        assert "scope --inventory FILE --in-scope a,b" in mod.__doc__
+        assert "terms --inventory FILE -o FILE" in mod.__doc__
+
+
+# --------------------------------------------------------------------------
+# scope --inventory: the names read from a saved enumerate result (#1177)
+# --------------------------------------------------------------------------
+
+
+def _save_inventory(tmp_path: Path, skills: list, name: str = "skill-inventory.json") -> Path:
+    path = tmp_path / name
+    path.write_bytes(json.dumps({"skills": skills, "warnings": []}).encode("utf-8"))
+    return path
+
+
+class TestScopeInventory:
+    def test_inventory_gives_the_same_split_as_skills(self, tmp_path: Path) -> None:
+        names = ["zod", "react", "vite", "loro", "yjs"]
+        inventory = _save_inventory(tmp_path, [{"name": n, "exports": []} for n in names])
+        by_file = _run_cli("scope", "--inventory", str(inventory), "--in-scope", "react,vite")
+        assert by_file.returncode == 0, by_file.stderr
+        by_names = _run_cli("scope", "--skills", ",".join(names), "--in-scope", "react,vite")
+        assert json.loads(by_file.stdout) == json.loads(by_names.stdout)
+        payload = json.loads(by_file.stdout)
+        n = len(names)
+        assert payload["pair_count"] == n * (n - 1) // 2 == 10
+        assert payload["in_scope_pairs"] == [{"library_a": "react", "library_b": "vite"}]
+
+    def test_inventory_from_enumerate_reads_every_skill(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        for name in ("vite", "react", "zod", "loro"):
+            _make_skill(root, name, metadata={"name": name, "exports": ["x"]})
+        enumerated = _run_cli("enumerate", str(root), "--pairs")
+        inventory = tmp_path / "skill-inventory.json"
+        inventory.write_bytes(enumerated.stdout.encode("utf-8"))
+        payload = json.loads(_run_cli("scope", "--inventory", str(inventory), "--in-scope", "").stdout)
+        assert payload["pair_count"] == json.loads(enumerated.stdout)["pair_count"] == 6
+        assert payload["in_scope"] == [] and payload["out_of_scope"] == ["loro", "react", "vite", "zod"]
+
+    def test_an_inventory_naming_no_skill_exits_1(self, tmp_path: Path) -> None:
+        inventory = _save_inventory(tmp_path, [])
+        result = _run_cli("scope", "--inventory", str(inventory), "--in-scope", "a")
+        assert result.returncode == 1 and result.stdout == ""
+        assert result.stderr.startswith("error: --inventory ") and "names no skill" in result.stderr
+        assert str(inventory) in result.stderr
+
+    def test_an_unreadable_inventory_exits_1_naming_it(self, tmp_path: Path) -> None:
+        inventory = tmp_path / "skill-inventory.json"
+        inventory.write_bytes(b"not json")
+        result = _run_cli("scope", "--inventory", str(inventory), "--in-scope", "a")
+        assert result.returncode == 1 and result.stdout == ""
+        [line] = result.stderr.splitlines()
+        assert line.startswith("error: --inventory ") and str(inventory) in line and "not JSON" in line
+
+    @pytest.mark.parametrize(
+        "argv",
+        [["scope", "--skills", "a,b", "--inventory", "inv.json", "--in-scope", "a"], ["scope", "--in-scope", "a"]],
+        ids=["both", "neither"],
+    )
+    def test_skills_and_inventory_are_exclusive_and_one_is_required(self, argv: list[str]) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            mod._build_parser().parse_args(argv)
+        assert excinfo.value.code == 2
+        result = _run_cli(*argv)
+        assert result.returncode == 2 and result.stdout == ""
+
+
+# --------------------------------------------------------------------------
+# terms: each skill's name and aliases from a saved enumerate result (#1177)
+# --------------------------------------------------------------------------
+
+
+class TestTerms:
+    def test_aliases_are_the_source_basenames_deduped_in_inventory_order(self) -> None:
+        skills = [
+            {"name": "zod", "source_repo_basename": None, "source_root_basename": None},
+            {"name": "oms-cognee", "source_repo_basename": "Cognee", "source_root_basename": "cognee"},
+            {"name": "react", "source_repo_basename": "REACT", "source_root_basename": "packages"},
+            {"name": "loro", "source_repo_basename": "loro-crdt", "source_root_basename": "crates"},
+        ]
+        assert mod.compute_terms(skills) == [
+            {"name": "zod", "aliases": []},
+            {"name": "oms-cognee", "aliases": ["Cognee"]},
+            {"name": "react", "aliases": ["packages"]},
+            {"name": "loro", "aliases": ["loro-crdt", "crates"]},
+        ]
+
+    def test_a_repeated_name_keeps_its_first_entry_and_odd_aliases_are_skipped(self) -> None:
+        skills = [
+            {"name": "vite", "source_repo_basename": 7, "source_root_basename": "  "},
+            {"name": "vite", "source_repo_basename": "vitejs"},
+            {"name": "yjs"},
+        ]
+        assert mod.compute_terms(skills) == [{"name": "vite", "aliases": []}, {"name": "yjs", "aliases": []}]
+
+    def test_no_skills_gives_an_empty_list(self) -> None:
+        assert mod.compute_terms([]) == []
+
+    def test_cli_writes_and_prints_the_terms_of_an_enumerate_result(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        _make_skill(root, "oms-cognee", metadata={
+            "name": "oms-cognee", "exports": ["add"], "source_repo": "https://github.com/topoteretes/cognee.git",
+            "source_root": "cognee"})
+        _make_skill(root, "react", metadata={"name": "react", "exports": ["useState"], "source_repo": "facebook/react"})
+        _make_skill(root, "zod", metadata={"name": "zod", "exports": ["z"]})
+        inventory = tmp_path / "skill-inventory.json"
+        inventory.write_bytes(_run_cli("enumerate", str(root), "--reliability").stdout.encode("utf-8"))
+        out = tmp_path / "skill-terms.json"
+        result = _run_cli("terms", "--inventory", str(inventory), "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        expected = [{"name": "oms-cognee", "aliases": ["cognee"]}, {"name": "react", "aliases": []},
+                    {"name": "zod", "aliases": []}]
+        assert json.loads(out.read_bytes().decode("utf-8")) == expected
+        assert json.loads(result.stdout) == expected
+        assert result.stderr == ""
+
+    def test_cli_an_empty_inventory_writes_an_empty_list(self, tmp_path: Path) -> None:
+        inventory = _save_inventory(tmp_path, [])
+        out = tmp_path / "skill-terms.json"
+        result = _run_cli("terms", "--inventory", str(inventory), "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(out.read_bytes().decode("utf-8")) == [] and json.loads(result.stdout) == []
+
+    @pytest.mark.parametrize(
+        "content, needle",
+        [
+            (None, "skill-inventory.json"),
+            (b"{not json", "not JSON"),
+            (b"\xff\xfe{}", "not UTF-8"),
+            (b"{}", "no `skills` list"),
+            (b"[]", "no `skills` list"),
+            (b'{"skills": {"name": "zod"}}', "no `skills` list"),
+            (b'{"skills": [{"name": "zod"}, {"exports": []}]}', "skills[1] has no `name`"),
+            (b'{"skills": [{"name": "  "}]}', "skills[0] has no `name`"),
+            (b'{"skills": ["zod"]}', "skills[0] has no `name`"),
+        ],
+        ids=["missing", "not-json", "not-utf8", "empty-object", "array", "skills-not-a-list", "nameless",
+             "blank-name", "string-entry"],
+    )
+    def test_cli_an_inventory_it_cannot_read_exits_1_and_writes_nothing(
+        self, tmp_path: Path, content: bytes | None, needle: str
+    ) -> None:
+        inventory = tmp_path / "skill-inventory.json"
+        if content is not None:
+            inventory.write_bytes(content)
+        out = tmp_path / "skill-terms.json"
+        result = _run_cli("terms", "--inventory", str(inventory), "-o", str(out))
+        assert result.returncode == 1 and result.stdout == ""
+        [line] = result.stderr.splitlines()
+        assert line.startswith("error: --inventory ") and str(inventory) in line and needle in line, line
+        assert not out.exists()
+
+    @pytest.mark.parametrize("target", ["missing-folder", "a-folder"])
+    def test_cli_an_output_it_cannot_write_exits_1_and_writes_nothing(self, tmp_path: Path, target: str) -> None:
+        inventory = _save_inventory(tmp_path, [{"name": "zod", "exports": []}])
+        if target == "a-folder":
+            out = tmp_path / "skill-terms.json"
+            out.mkdir()
+        else:
+            out = tmp_path / "missing" / "skill-terms.json"
+        before = sorted(p.name for p in tmp_path.iterdir())
+        result = _run_cli("terms", "--inventory", str(inventory), "-o", str(out))
+        assert result.returncode == 1 and result.stdout == ""
+        [line] = result.stderr.splitlines()
+        assert line.startswith("error: -o ") and str(out) in line, line
+        assert sorted(p.name for p in tmp_path.iterdir()) == before, "no file and no temporary file is left"
+        assert not out.is_file()
+
+    def test_cli_needs_both_the_inventory_and_the_output(self) -> None:
+        for argv in (["terms", "--inventory", "inv.json"], ["terms", "-o", "out.json"]):
+            with pytest.raises(SystemExit) as excinfo:
+                mod._build_parser().parse_args(argv)
+            assert excinfo.value.code == 2

@@ -847,6 +847,7 @@ def test_init_persists_the_inventory_in_the_run_folder():
 
 
 MENTIONS_CALL = 'uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - > "{docMentionsFile}"'
+TERMS_CALL = 'uv run {enumerateStackSkillsHelper} terms --inventory "{inventoryFile}" -o "{run_dir}/skill-terms.json"'
 TECHNOLOGIES_CALL = ('uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - '
                      '--technologies "{run_dir}/technologies.json" > "{docMentionsFile}"')
 
@@ -871,11 +872,14 @@ def _write_technologies(run_dir: Path, names: list[str]) -> None:
     (run_dir / "technologies.json").write_bytes(json.dumps(names).encode("utf-8"))
 
 
-def _mentions_skills(inventory: dict) -> list[dict]:
-    """The --skills array coverage.md pipes: each name, its source basenames as aliases."""
-    return [{"name": s["name"],
-             "aliases": [s[k] for k in ("source_repo_basename", "source_root_basename") if s.get(k)]}
-            for s in inventory["skills"]]
+def _terms(inventory_file: Path, run_dir: Path) -> list[dict]:
+    """The --skills array coverage.md pipes: the file its documented `terms` call writes from the inventory (#1177)."""
+    words = shlex.split(TERMS_CALL.replace("{inventoryFile}", inventory_file.as_posix())
+                        .replace("{run_dir}", run_dir.as_posix()))
+    assert words[:3] == ["uv", "run", "{enumerateStackSkillsHelper}"], words
+    proc = _run([ENUMERATE, *words[3:]])
+    assert proc.returncode == 0, proc.stderr
+    return json.loads((run_dir / "skill-terms.json").read_bytes().decode("utf-8"))
 
 
 def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
@@ -885,14 +889,28 @@ def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
             "  - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'\n"
             "  - '{project-root}/src/shared/scripts/skf-comention-pairs.py'\n") in frontmatter
     assert "docMentionsFile: '{run_dir}/doc-mentions.json'" in frontmatter
+    assert ("enumerateStackSkillsProbeOrder:\n"
+            "  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'\n") in frontmatter
     extract = _section(coverage, "### 2. Extract Technology References", "### 3.")
     assert MENTIONS_CALL in extract
+    # #1177: the enumerate helper writes the array the mentions call reads, so no stage builds it by hand.
+    assert TERMS_CALL in extract and extract.index(TERMS_CALL) < extract.index(MENTIONS_CALL)
+    assert "piping `{run_dir}/skill-terms.json` on stdin" in extract
+    assert "a `terms` call that exits non-zero halts the same way" in extract
     assert "`source_repo_basename` and `source_root_basename` that are not null" in extract
     assert "each other name a persistent fact gives the skill" in extract
+    # The persistent-fact names go into the file before the mentions call, which the lead-in says ahead of the calls.
+    lead_in = _section(extract, "**Run the mentions helper once.**", "```bash")
+    assert "add to the `aliases` of each skill in `{run_dir}/skill-terms.json` each other name a persistent fact" \
+        in lead_in
     assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:mentions`' in extract
     # No hand scan for skill names and no hand equality on the source basenames.
     match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
     assert "A `mentioned` skill matches its own row" in match
+    # Section 3 reruns the mentions call alone and extends the same file, so the added aliases stay.
+    assert "Run the §2 mentions command again (never the `terms` call" in match
+    assert "to that skill's `aliases` in `{run_dir}/skill-terms.json`" in match
     # The other technologies go to the helper too, by the call the fixture below runs (#1199).
     assert TECHNOLOGIES_CALL in match
     for stale in ("Direct name matching", "for equality with", "extract the basename",
@@ -915,7 +933,12 @@ def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
                      "```mermaid\ngraph LR\n  zod --> app\n```\n").encode("utf-8"))
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    mentions = _mentions(MENTIONS_CALL, doc, run_dir, _mentions_skills(json.loads(enum.stdout)))
+    inventory_file = run_dir / "skill-inventory.json"
+    inventory_file.write_bytes(enum.stdout.encode("utf-8"))
+    terms = _terms(inventory_file, run_dir)
+    assert terms == [{"name": "oms-cognee", "aliases": ["cognee"]}, {"name": "react-query", "aliases": []},
+                     {"name": "zod", "aliases": []}]
+    mentions = _mentions(MENTIONS_CALL, doc, run_dir, terms)
     # "Cognee" names oms-cognee by its repository; "React Query" names no skill
     # at a word boundary, so section 2 lists it as another technology.
     assert mentions["mentioned"] == ["oms-cognee"]
@@ -926,7 +949,7 @@ def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
     # Section 3's --technologies run: the helper finds "React Query" equal to
     # the react-query skill's name, so the model judges nothing.
     _write_technologies(run_dir, ["React Query"])
-    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, _mentions_skills(json.loads(enum.stdout)))
+    matched = _mentions(TECHNOLOGIES_CALL, doc, run_dir, terms)
     [technology] = matched["technologies"]
     assert technology["name"] == "React Query"
     assert [(c["skill"], c["kind"]) for c in technology["covered_by"]] == [("react-query", "name")]
@@ -934,7 +957,7 @@ def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
 
     # The run again §3 documents: the document's "React Query" is now an
     # alias of react-query, so the skill is named and its pair is a candidate.
-    rerun = _with_alias(_mentions_skills(json.loads(enum.stdout)), "react-query", "React Query")
+    rerun = _with_alias(terms, "react-query", "React Query")
     mentions = _mentions(TECHNOLOGIES_CALL, doc, run_dir, rerun)
     assert mentions["mentioned"] == ["oms-cognee", "react-query"]
     assert [(c["a"], c["b"]) for c in mentions["candidates"]] == [("oms-cognee", "react-query")]

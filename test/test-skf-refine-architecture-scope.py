@@ -12,18 +12,26 @@ These tests keep the step files on that contract:
   4 loads the API surfaces: the gate's default is a listed option, the Why
   column and a headless run's log name the term that named each skill, the
   cancel tokens halt with exit 6 ahead of the edit branch, and a
-  `--scope-skills` scope or the safe default shows no gate;
+  `--scope-skills` scope shows no gate, while a document that names no
+  inventory skill (the safe default) shows it with every skill in scope
+  (#1179);
 - the mentions helper, not the prose, decides which technologies a skill
   covers, and gives the term that named each skill for the gate;
-- section 6 names the technologies with no skill and appends the
-  `[RA-SCOPE]` block that steps 4 and 5 read back;
-- improvements sections 3 and 4 compare in-scope skills and in-scope pairs
-  only, and anything that involves an out-of-scope skill goes under
-  `[RA-OUT-OF-SCOPE]`, never `[RA-IMPROVEMENTS]`;
-- compile inserts only in-scope improvements, recovers `[RA-SCOPE]`, and
-  writes the "Not verified (no skill)" row, the VS Coverage row (only with a
-  VS report, `not recorded` when that run never reached its coverage step,
-  and naming the report by file name only) and a [CS] or [QS] next step;
+- section 6 names the technologies with no skill, and section 3 appends
+  the `[RA-SCOPE]` block that section 4 and steps 3 to 5 read back, once
+  its bindings are final and before section 4 reads a surface (#1178);
+- gap analysis sections 4 and 5 and improvements sections 3 and 4 read
+  in-scope skills and in-scope pairs only (#1177): no gap, issue or
+  improvement is looked for with an out-of-scope skill, gap analysis names
+  those skills once, issue detection sets a claim that names one aside,
+  and `[RA-OUT-OF-SCOPE]` holds only those names, claims and [VS] verdicts,
+  never an improvement;
+- compile inserts only in-scope improvements, recovers `[RA-SCOPE]`, leaves
+  the Changes Made rows to the preservation script's `{changes_rows}`
+  (#1176), which writes, as apply's output shows, the "Not verified (no
+  skill)" row and the VS Coverage row (only with the plan's `vs_report`,
+  `not recorded` when that run never reached its coverage step, and naming
+  the report by file name only), and adds a [CS] or [QS] next step;
 - the report takes what it shows from the record of the draft's build
   (never from a Refinement Summary), repeats no count table (the review
   showed it, and a headless run reads the counts in its result line) and
@@ -37,7 +45,9 @@ It also pins how the steps read the [VS] feasibility report and the scope
 through the shared helpers (#590, #598):
 
 - init runs skf-validate-feasibility-report.py `--locate` before its prompt
-  and offers the report it finds as the default, reads a given report path
+  and offers the report it finds as the default, offers the document that
+  report verified (`architectureDoc`) as the architecture question's default
+  and says once when another one is refined (#1179), reads a given report path
   through the same helper's path mode, halts `input-invalid` on a report
   that breaks the contract, caches the helper's JSON as the only source for
   the report, and records it in the `[RA-VS]` state block; the input flags
@@ -51,16 +61,23 @@ through the shared helpers (#590, #598):
   routes a row naming no skill out of scope, gives each in-scope row the
   tier its token raises (the Plausible rule keys on the token), and reports
   a report [VS] rewrote meanwhile, or rules that no longer pass step 1's
-  check, which halt with exit 8;
-- gap analysis runs skf-comention-pairs.py `mentions` once, on the analysis
-  copy that sets an earlier RA pass aside (documented-pair candidates, the
-  Mermaid note, the derived scope, the technologies no skill covers),
-  splits the pairs once with skf-enumerate-stack-skills.py `scope` (naming
-  a `--scope-skills` name that is no inventory skill), and reads
-  `language` from the inventory;
-- compile fills the VS Coverage row from the JSON's `coverageMeasured`;
+  check, which halt with exit 8; and it looks each claimed export up with
+  the script's `exports` (#1176), never by hand;
+- init writes the skill terms both helpers read with
+  skf-enumerate-stack-skills.py `terms`, and gap analysis runs
+  skf-comention-pairs.py `mentions` once, on the analysis copy that sets
+  an earlier RA pass aside (documented-pair candidates, the Mermaid note,
+  the derived scope, the technologies no skill covers), splits the pairs
+  once with `scope --inventory` (naming a `--scope-skills` name that is no
+  inventory skill, checking `pair_count` against `{skill_count}`, halting
+  at `gap-analysis:split` when it fails), and reads `language` from the
+  inventory;
+- compile passes the JSON's `path`, `coveragePercentage` and
+  `coverageMeasured` as the plan's `vs_report`, never read from the report
+  file;
 - the helper calls fit the helpers' CLIs and quote every placeholder they
-  pass, and every key the steps read is one the feasibility helper emits.
+  pass (but the customization resolver call every workflow shares), and
+  every key the steps read is one the feasibility helper emits.
 
 And it pins the split of the rules a team may swap from the ones it may not
 (#596, #599, #600):
@@ -81,7 +98,15 @@ And it pins the split of the rules a team may swap from the ones it may not
 - the per-refinement walkthrough is [R] at the step 5 review gate, step 6 has
   no menu, step 4 reads the capabilities step 2 collected instead of a
   second subagent round, and the split names the skills a run left out of
-  scope in an `out_of_scope_skills` warning.
+  scope in an `out_of_scope_skills` warning;
+- step 2 appends each round's API surfaces to the RA state file as the
+  round returns, and without subagents reads the in-scope skills one at a
+  time, appending each before the next, so a context loss keeps every
+  surface read; steps 3 and 4 read the blocks back, and steps 2 to 4 and
+  the finding storage read `{run_dir}`, `{analysis_doc}`,
+  `{headless_mode}`, the refinement rules path and the bindings of the
+  dropped-findings record back from the `[RA-RUN]` block; a resumed
+  review keeps the drops its stopped review staged (#1178).
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -210,6 +235,16 @@ def _gap_split() -> str:
     return _slice(_read(GAP), "### 3. Split the Library Pairs by Scope", "### 4.")
 
 
+def _init_terms() -> str:
+    return _slice(_read(INIT), "**Write the skill terms.**", "**Failure-budget guard:**")
+
+
+SCOPE_CALL = ('uv run {enumerateStackSkillsHelper} scope --inventory "{run_dir}/skill-inventory.json" '
+              '--in-scope "{in_scope_names}"')
+TERMS_CALL = ('uv run {enumerateStackSkillsHelper} terms --inventory "{run_dir}/skill-inventory.json" '
+              '-o "{run_dir}/skill-terms.json"')
+
+
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -262,9 +297,10 @@ def test_scope_gate_shows_only_for_a_derived_scope_to_confirm():
     condition = gate.splitlines()[0]
     assert "derived (no `{scope_skills}`)" in condition
     assert "`{out_of_scope_skills}` is not empty or an in-scope skill is ambiguous" in condition
-    assert "`--scope-skills`" in condition and "safe default" in condition, (
-        "the gate must say that a --scope-skills scope and the safe default skip it"
-    )
+    # #1179: a document that names no inventory skill shows the gate too, so only --scope-skills skips it.
+    assert "or the safe default applies, show the split once" in condition
+    assert "A scope from `--scope-skills` is already the user's choice, so it shows no gate." in condition
+    assert "so neither shows this gate" not in condition
 
 
 def test_a_common_word_alias_makes_a_skill_ambiguous():
@@ -361,6 +397,10 @@ def test_the_mentions_helper_decides_what_a_skill_covers():
     assert "§2's matching rule" not in rule and "once case, spaces, hyphens" not in rule
     assert "no step compares a technology with a skill by hand" in rule
     assert '--technologies "{run_dir}/technologies.json"' in _gap_claims()
+    # #1177 leanness-3: the helper's docstring holds its matching rule, so section 2 restates none of it.
+    assert "Its module docstring gives the contract." in _gap_claims()
+    for gone in ("word boundaries", "longest term", "react-dom"):
+        assert gone not in _gap_claims(), gone
     # The examples the prose gave hold for the helper, one way only: a term covers by squashed
     # equality, and a skill name only inside a longer name is left for the step to judge.
     helper = _comention_helper()
@@ -394,11 +434,13 @@ def test_gap_report_names_unverified_technologies_and_stores_the_scope():
     signal = _bullet(report, "**The architecture names technologies with no skill")
     assert "`{unverified_technologies}`" in signal
     assert "[CS] or [QS]" in signal and "re-running [RA]" in signal
-    block = _slice(report, "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
+    # #1178: section 3 appends the block once its bindings are final, so a context loss in section 4 keeps the scope.
+    block = _slice(_gap_split(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
     for field in ("`{in_scope_skills}`", "`{out_of_scope_skills}`", "`{unverified_technologies}`"):
         assert field in block, f"the [RA-SCOPE] block must record {field}"
     assert "how the scope was set" in block
     assert "Step 04 and Step 05 read the block back" in block
+    assert "Append the scope under" not in report and "§3 already appended the scope's" in report
 
 
 # --- Step 4: improvements stay inside the scope ---
@@ -411,7 +453,21 @@ def test_improvements_compare_in_scope_skills_only():
     routing = _slice(compare, "**Scope routing (from Step 02 §2b):**", "\n\n")
     assert "`{out_of_scope_skills}`" in routing
     assert "`[RA-SCOPE]` block" in routing, "step 4 must recover the sets after a context loss"
-    assert "**Out-of-Scope** bucket" in routing
+    # #1177 enhancement-2: step 2 read no out-of-scope surface, so nothing is set aside here.
+    assert ("Step 02 §4 read no surface of a skill in `{out_of_scope_skills}`, so no improvement or synergy involves "
+            "one") in routing
+    assert "Out-of-Scope" not in routing
+    # #1177 leanness-1: one goal paragraph in place of the usage map and the question bank.
+    improvements = _read(IMPROVEMENTS)
+    for gone in ("### 2. Build Architecture Usage Map", "usage map", "{described_usage[]}", "**For each unreferenced"):
+        assert gone not in improvements, gone
+    goal = _slice(compare, "For each skill in `{in_scope_skills}`:", "Never re-read a SKILL.md")
+    for needle in ("Compare its `{skill_api_surfaces}` entry", "says the library does",
+                   "An export or capability the architecture never uses counts when it would strengthen the "
+                   "architecture",
+                   "a pattern the skill documents that beats the approach the architecture describes",
+                   "an internal utility, helper or debug function does not"):
+        assert needle in goal, needle
 
 
 def test_improvements_examine_in_scope_pairs_only():
@@ -421,16 +477,20 @@ def test_improvements_examine_in_scope_pairs_only():
     assert "A pair in `{out_of_scope_pairs}` is out of scope" in synergies
     assert "skip it" in synergies
     assert "Examine pairs of skills for" not in synergies
+    # #1177 leanness-1: one paragraph that keeps the documented-APIs rule.
+    assert synergies.strip().count("\n\n") == 1, "the heading and one paragraph"
+    assert "Flag a synergy only where both sides have documented APIs." in synergies
+    assert "ask:" not in synergies
 
 
-def test_improvements_store_out_of_scope_findings_apart():
+def test_improvements_store_in_scope_findings_only():
+    # #1177: no improvement involves an out-of-scope skill, so step 4 sets nothing aside.
     store = _improvements_store()
     assert "Report the in-scope improvement count" in store
-    signal = _bullet(store, "**Out-of-scope improvements or synergies were set aside")
-    assert "`--scope-skills`" in signal
+    assert "Out-of-scope improvements or synergies" not in store and "not inferable" not in store
     assert "Store the **in-scope** improvement findings" in store
     assert "`<!-- [RA-IMPROVEMENTS] ... -->`" in store
-    assert "under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker" in store
+    assert "[RA-OUT-OF-SCOPE]" not in _read(IMPROVEMENTS)
 
 
 # --- Step 5: compile and the Refinement Summary ---
@@ -440,7 +500,8 @@ def test_compile_inserts_only_in_scope_improvements():
     first = _compile_improvements().split("\n\n")[1]
     assert first.startswith("For each in-scope improvement finding from Step 04")
     assert "`[RA-IMPROVEMENTS]`" in first
-    assert "`[RA-OUT-OF-SCOPE]` and never enter the refined document" in first
+    assert "`[RA-OUT-OF-SCOPE]` never enters the refined document" in first
+    assert "out-of-scope improvements" not in first
 
 
 def _compile_recovery() -> str:
@@ -449,31 +510,85 @@ def _compile_recovery() -> str:
 
 def test_compile_recovers_the_scope_block():
     recovery = _compile_recovery()
-    assert "`{unverified_technologies}` (Step 02 §2b), which the plan (§6) needs: the `<!-- [RA-SCOPE] -->` block" in recovery
+    # The plan's skill_count counts `{in_scope_skills}` (#1177), so a lost context reads it back too.
+    assert ("`{unverified_technologies}` (Step 02 §2b) and `{in_scope_skills}` (Step 02 §3), which the plan (§6) "
+            "needs: the `<!-- [RA-SCOPE] -->` block") in recovery
     assert "When a block is still missing" in recovery
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
 
+def _summary_table() -> str:
+    return _slice(_compile_summary(), "| Category | Count | Breakdown |", "\n\n")
+
+
+def _apply_compile_summary(tmp_path: Path, **plan) -> tuple[int, dict]:
+    """Run apply on a plan whose summary is compile §5's Changes Made table: one gap, one issue."""
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(b"# App\n\n## Data Layer\n\nLoro stores documents.\n")
+    summary = f"## Refinement Summary\n\n{_summary_table()}\n\n| Skill | Refinements |\n|---|---|\n{{evidence_rows}}\n"
+    plan = {"entries": [
+        {"id": "gap-1", "kind": "gap", "anchor": None, "skills": ["loro", "fastapi"],
+         "block": "#### RA: Loro <-> FastAPI Integration Path"},
+        {"id": "issue-1", "kind": "issue", "tier": "Major", "anchor": None, "skills": ["loro"],
+         "block": "> [!WARNING] **Issue Detected by Refine Architecture**"},
+    ], "summary": summary, "unverified_technologies": ["Redis", "Kafka"], "skill_count": 2, **plan}
+    plan_path = tmp_path / "insertion-plan.json"
+    plan_path.write_bytes(json.dumps(plan).encode("utf-8"))
+    proc = subprocess.run(
+        [sys.executable, str(PRESERVATION_SCRIPT), "apply", "--original", str(doc), "--plan", str(plan_path),
+         "--draft", str(tmp_path / "draft.md")],
+        capture_output=True, text=True, encoding="utf-8", check=False,
+    )
+    return proc.returncode, json.loads(proc.stdout)
+
+
 def test_refinement_summary_rows():
+    # #1176: the script writes the Changes Made rows, so §5 keeps the header row, its separator and
+    # {changes_rows}, and says what the script writes there.
     summary = _compile_summary()
-    rows = _table_rows(summary)
-    labels = list(rows)
-    assert labels[-3:] == ["Skills Used as Evidence", NOT_VERIFIED, VS_COVERAGE], labels
-    assert rows[NOT_VERIFIED][1:] == ["{unverified_count}", "{unverified_technologies}"]
-    assert rows[VS_COVERAGE][1] == "{vs_coverage}"
-    rule = _slice(summary, f"The {NOT_VERIFIED} row is always written", "\n\n")
-    assert "reads `none`" in rule
-    assert "only when a VS report was used (`vs_report_available` is true)" in rule
-    assert "`coveragePercentage`" in rule and "`not recorded`" in rule
+    assert _summary_table().splitlines() == ["| Category | Count | Breakdown |", "|----------|-------|-----------|",
+                                             "{changes_rows}"]
+    rule = _slice(summary, "The script writes the rows in this order", "\n\n")
+    for needle in (f"{NOT_VERIFIED}, always written", "reads `none`", "VS Coverage, only when the plan gives "
+                   "`vs_report`", "`coveragePercentage` followed by `%` when `coverageMeasured` is true",
+                   "`not recorded` when `coverageMeasured` is false", "names the report by the file name of its "
+                   "`path` alone"):
+        assert needle in rule, needle
     # The helper decides whether coverage was measured: a VS run that stopped
     # before its coverage step leaves coveragePercentage: 0, which must not read as 0%.
-    assert "from the report JSON Step 01 §1 cached (`{vs_report}`), never from the report file" in rule
-    assert "followed by `%` when its `coverageMeasured` is true" in rule
-    assert "`not recorded` when `coverageMeasured` is false" in rule
-    assert "frontmatter" not in rule, "the row is filled from the helper's JSON, not the report's frontmatter"
-    assert "{vs_report_path}" not in rows[VS_COVERAGE][2], "the refined document is shared: no local path"
-    assert "`{vs_report_name}`" in rows[VS_COVERAGE][2]
-    assert "`{vs_report_name}` is the file name of the JSON's `path`" in rule
+    build = _slice(_read(COMPILE), "### 6. Build the Draft", "### 7.")
+    assert ("`vs_report` (only when `vs_report_available` is true: the `path`, `coveragePercentage` and "
+            "`coverageMeasured` of the report JSON Step 01 §1 cached as `{vs_report}`, never read from the report "
+            "file)") in build
+    assert "frontmatter" not in rule + build, "the row is filled from the helper's JSON, not the report's frontmatter"
+
+
+@pytest.mark.parametrize(
+    ("vs_report", "vs_row"),
+    [({"path": "/home/me/app/_bmad-output/forge/feasibility-report-app-latest.md", "coveragePercentage": 80,
+       "coverageMeasured": True},
+      ["80%", "technologies with a skill when [VS] ran, from `feasibility-report-app-latest.md`"]),
+     ({"path": "forge/feasibility-report-app-latest.md", "coveragePercentage": 0, "coverageMeasured": False},
+      ["not recorded", "technologies with a skill when [VS] ran, from `feasibility-report-app-latest.md`"]),
+     (None, None)],
+    ids=["measured", "not-measured", "no-report"],
+)
+def test_the_summary_rows_come_from_apply(tmp_path, vs_report, vs_row):
+    code, result = _apply_compile_summary(tmp_path, **({"vs_report": vs_report} if vs_report else {}))
+    assert code == 0, result
+    rows = _table_rows(result["summary"])
+    labels = list(rows)
+    labels = labels[labels.index("Category") + 1:labels.index("Skill")]
+    expected = ["Gaps Filled", "Issues Flagged", "Improvements Suggested", "Skills Used as Evidence", NOT_VERIFIED]
+    assert labels == ([*expected, VS_COVERAGE] if vs_row else expected), labels
+    assert rows["Issues Flagged"][1:] == ["1", "Critical: 0, Major: 1, Minor: 0"]
+    assert rows["Improvements Suggested"][1:] == ["0", "High: 0, Medium: 0, Low: 0"]
+    assert rows[NOT_VERIFIED][1:] == ["2", "Redis, Kafka"]
+    if vs_row:
+        assert rows[VS_COVERAGE][1:] == vs_row
+        assert "/" not in rows[VS_COVERAGE][2], "the refined document is shared: no local path"
+    else:
+        assert VS_COVERAGE not in rows
 
 
 def test_refinement_summary_next_step_points_to_cs_or_qs():
@@ -528,9 +643,10 @@ def test_a_headless_run_keeps_the_counts_in_its_result():
     assert set(HEADLESS_COUNTS) <= set(_schema()["required"])
 
 
-def test_the_summary_rows_live_in_compile_only():
-    compiled = set(_table_rows(_compile_summary()))
-    assert {NOT_VERIFIED, VS_COVERAGE} <= compiled
+def test_the_summary_rows_live_in_the_script_only():
+    # #1176: compile types no row of the Changes Made table, and the report repeats none.
+    assert set(_table_rows(_compile_summary())) == {"Category"}
+    assert "{changes_rows}" in _compile_summary() and "{vs_coverage}" not in _read(COMPILE)
     assert not set(_table_rows(_report_summary())), "the report repeats no row of the Refinement Summary"
 
 
@@ -555,6 +671,10 @@ def test_skill_md_lists_the_scope_gate():
     assert step_2 == ["| 2 | Gap Analysis | references/gap-analysis.md | Conditional (confirm a derived scope) |"]
     gates = [line for line in text.splitlines() if line.startswith("| **Gates** |")]
     assert len(gates) == 1 and "step 2: Scope Confirm Gate [C] continue / [X] cancel" in gates[0]
+    # #1179: the gate also shows when the document names no inventory skill (the safe default).
+    assert ("[C] continue / [X] cancel (when a derived scope drops skills or keeps an ambiguous one, or the document "
+            "names no skill)") in gates[0]
+    assert "only when a derived scope" not in gates[0]
     flags = [line for line in text.splitlines() if line.startswith("| **Flags** |")]
     assert len(flags) == 1 and "so step 2 asks no scope confirmation" in flags[0]
     headless = [line for line in text.splitlines() if line.startswith("| **Headless** |")]
@@ -572,8 +692,9 @@ def test_every_state_block_compile_reads_is_written_by_a_step():
     assert {"[RA-GAPS]", "[RA-ISSUES]", "[RA-IMPROVEMENTS]", "[RA-DISMISSED]", "[RA-SCOPE]", "[RA-VS]"} <= read_back
     assert read_back <= written, f"compile reads blocks no step writes: {sorted(read_back - written)}"
     assert "[RA-OUT-OF-SCOPE]" not in read_back, "out-of-scope records never enter the refined document"
-    for path in (GAP, ISSUES, IMPROVEMENTS):
-        assert "`<!-- [RA-OUT-OF-SCOPE] ... -->` marker" in _read(path), f"{path.name} must record out-of-scope findings"
+    for path in (GAP, ISSUES):
+        assert "`<!-- [RA-OUT-OF-SCOPE] ... -->` marker" in _read(path), f"{path.name} must record what it set aside"
+    assert "[RA-OUT-OF-SCOPE]" not in _read(IMPROVEMENTS), "no improvement involves an out-of-scope skill"
 
 
 # --- Step 1: the [VS] report through the feasibility helper (#590) ---
@@ -606,7 +727,47 @@ def test_the_probe_runs_before_the_prompt():
     assert probe < prompt
     assert "Unless `--vs-report-path` was passed, run the probe (the first command) before asking anything" in inputs
     assert "Found the [VS] report from {vs_report_date}: press Enter to use it, or give another path." in inputs
-    assert "`{vs_report_date}` is the date in the probe's `generatedAt`" in inputs
+    # #1179: the date is the report's, so the note on the verified document can name a --vs-report-path report too.
+    assert "`{vs_report_date}` is the date in the report's `generatedAt` (the probe's, or the path mode's)" in inputs
+
+
+def test_the_architecture_question_offers_the_document_the_report_verified():
+    """#1179: the [VS] report records the document it verified, so the architecture question offers that document
+    when the file exists, from the report in hand when the prompt shows; headless never takes it."""
+    inputs = _init_inputs()
+    [question] = [line for line in inputs.splitlines() if line.startswith("1. **Architecture document path**")]
+    assert ("{IF `{vs_architecture_doc}` is set:}The [VS] report verified `{vs_architecture_doc}`: press Enter to use "
+            "it, or give another path.{ELSE:}your project's architecture doc to refine{END IF}") in question
+    binding = _slice(inputs, "`{vs_architecture_doc}` is the `architectureDoc`", "\n")
+    for needle in ("of the report JSON in hand when the prompt shows",
+                   "(the path mode's when it read the `--vs-report-path` report, which runs before the prompt, "
+                   "else the probe's)",
+                   "when it is not null and names a file that exists (a relative path resolves from "
+                   "`{project-root}`), else empty"):
+        assert needle in binding, needle
+    # It is bound before the prompt waits, from a report the probe or the path mode already read.
+    assert inputs.index("uv run {validateFeasibilityReportHelper} --locate") < inputs.index(binding)
+    [gate] = [line for line in inputs.splitlines() if line.startswith("Wait for user input.")]
+    assert ("Store the validated architecture document path as `architecture_doc`: Enter at the architecture "
+            "question takes `{vs_architecture_doc}` when it is set.") in gate
+    assert ('If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) at '
+            "phase `init:inputs`, since headless never takes `{vs_architecture_doc}` as its default.") in gate
+    # The helper gives the key, so no step reads it from the report file.
+    assert "`architectureDoc`" in inputs and "Read the report's frontmatter" not in inputs
+
+
+def test_init_says_once_which_document_the_report_verified():
+    """#1179: refining another document than the one the report verified says so once; a headless run logs it and
+    records no warning, so the result schema is unchanged."""
+    inputs = _init_inputs()
+    note = _slice(inputs, "**The document the report verified.**", "\n\n")
+    assert ("When the `architectureDoc` of `{vs_report}` is not null and names another file than `{architecture_doc}` "
+            "(each relative path resolved from `{project-root}`), say once:") in note
+    assert ('"The [VS] report from {vs_report_date} verified `{architectureDoc}`, not `{architecture_doc}`: its '
+            'verdicts are about that document." (in headless, log it).') in note
+    assert "warning" not in note
+    # It follows the report this run uses, which **Record the VS report.** caches.
+    assert inputs.index("**Record the VS report.**") < inputs.index(note) < inputs.index("**Scope hint")
 
 
 def test_the_input_flags_apply_in_every_mode():
@@ -705,13 +866,21 @@ def test_a_missing_or_failing_inventory_or_mentions_helper_halts():
             + RESOLUTION_HALT.format("gap-analysis:comention")) in run
     assert "{its first stderr line, or with no candidate: `skf-comention-pairs.py` is not installed." in run
     assert "On exit 1 (its stderr names a staged input it refuses), fix that file and run the command once more before halting" in run
+    # Step 01 §2 writes the terms with the helper (#1177), so a refused copy is written again the same way, as in
+    # Step 03 §4, and never edited by hand.
+    assert ("a refused `{run_dir}/skill-terms.json` is not edited but written again with the enumerate helper "
+            "(`{enumerateStackSkillsHelper}`, resolved from `{enumerateStackSkillsProbeOrder}`), as Step 01 §2 did: "
+            '`uv run {enumerateStackSkillsHelper} terms --inventory "{run_dir}/skill-inventory.json" -o '
+            '"{run_dir}/skill-terms.json"`') in run
     assert "No step finds the mentions by hand" in run
     gap = _read(GAP)
     for gone in ("Graceful degradation", "derive the pairs from the inventory"):
         assert gone not in gap, gone
-    # Step 03 reads no pair list: it passes the scope to the `verdicts` join.
-    assert ("§5 and Step 04 §4 read these two pair lists instead of checking each pair's scope again; Step 03 §4 "
-            "passes `{in_scope_skills}` to the `verdicts` join") in _gap_split()
+    # Step 03 reads no pair list: it passes the scope to the `verdicts` join (#1177: the analysis reads in-scope only).
+    closing = ("§4 reads the surfaces of `{in_scope_skills}` only, and §5 and Step 04 §4 read `{in_scope_pairs}` "
+               "only, instead of checking each pair's scope again; Step 03 §3 sets aside a claim that names a skill "
+               "of `{out_of_scope_skills}`, and Step 03 §4 passes `{in_scope_skills}` to the `verdicts` join")
+    assert closing in _gap_split()
     scan = _slice(_read(INIT), "### 2. Scan Skills Folder", "```bash")
     assert ("If no candidate exists, `uv` cannot start it, or the command below exits non-zero (a "
             "`{skills_output_folder}` that does not exist, say), " + RESOLUTION_HALT.format("init:inventory")) in scan
@@ -747,6 +916,9 @@ def test_feasibility_helper_calls_fit_its_cli():
 
 
 HELPER_CALL_RE = re.compile(r"^uv run \{[A-Za-z]+Helper\} (.+)$", re.M)
+# The customization resolver call report.md binds a lost `{onCompleteCommand}` with: the words every workflow's
+# activation and report steps share, which test-skf-resolver-block.py pins and runs, so it is not checked here.
+RESOLVER_CALL = "--skill {skill-root} --project-root {project-root} --key workflow.on_complete"
 
 
 def test_helper_calls_quote_every_placeholder():
@@ -754,14 +926,16 @@ def test_helper_calls_quote_every_placeholder():
     # exits 2 with no JSON, which step 1 would read as an unusable report.
     calls = [call for path in sorted(REFS.glob("*.md")) for call in HELPER_CALL_RE.findall(_read(path))]
     assert len(calls) >= 6, calls
+    assert calls.count(RESOLVER_CALL) == 1, calls
     for call in calls:
-        assert "{" not in re.sub(r'"[^"]*"', "", call), f"quote each placeholder of: {call}"
+        if call != RESOLVER_CALL:
+            assert "{" not in re.sub(r'"[^"]*"', "", call), f"quote each placeholder of: {call}"
 
 
 # The report JSON keys the steps name; each must be one the helper emits.
 REPORT_KEYS = ("status", "path", "generatedAt", "schemaVersionOk", "missingHeadings", "orderViolations",
                "verdictTableFound", "duplicateVerdictTableLine", "unknownTokens", "pairVerdicts",
-               "coveragePercentage", "coverageMeasured")
+               "coveragePercentage", "coverageMeasured", "architectureDoc")
 
 
 def test_the_report_keys_the_steps_read_are_the_helpers(tmp_path):
@@ -779,6 +953,8 @@ def test_the_report_keys_the_steps_read_are_the_helpers(tmp_path):
 # --- Step 3: VS verdicts by their token, scoped by the pair lists ---
 
 
+EXPORTS_CALL = ('uv run {preservationScript} exports --inventory "{run_dir}/skill-inventory.json" '
+                '--claims "{run_dir}/claimed-names.json"')
 VERDICTS_CALL = ('uv run {preservationScript} verdicts --report "{vs_report_path}" --generated-at "{vs_generated_at}" '
                  '--skills "{run_dir}/skill-terms.json" --in-scope "{in_scope_names}" --rules "{refinementRulesData}"')
 
@@ -790,14 +966,15 @@ def test_issue_detection_joins_the_verdicts_with_the_script():
     assert "preservationScript: 'scripts/skf-check-preservation.py'" in _frontmatter(_read(ISSUES))
     join = _slice(vs, "**Join the verdicts to the scope.**", "\n\n")
     for needle in ("(`pairVerdicts`) again through the shared feasibility-report reader",
-                   "the skill names and aliases in `{run_dir}/skill-terms.json` (Step 02 §2)",
+                   "the skill names and aliases in `{run_dir}/skill-terms.json` (Step 01 §2)",
                    "the scope Step 02 §3 settled", "the VS Report Integration table of `{refinementRulesData}`"):
         assert needle in join, needle
     for gone in ("**Scope filter", "**Read the verdicts from `{vs_report}`**", "Map each pair's `lib_a`"):
         assert gone not in vs, gone
     assert "(match case-insensitively)" not in vs
-    # Step 02 stages the skill terms both helpers read.
-    assert "Step 03 §4 reads it too" in _bullet(_gap_claims(), "`{run_dir}/skill-terms.json`")
+    # #1177 determinism-2: Step 01 writes the skill terms both helpers read, with the enumerate helper.
+    assert "the `verdicts` join (Step 03 §4)" in _init_terms()
+    assert not [line for line in _gap_claims().splitlines() if line.startswith("- `{run_dir}/skill-terms.json`")]
 
 
 def test_issue_detection_halts_when_the_verdicts_are_gone():
@@ -878,7 +1055,10 @@ def test_the_mentions_helper_runs_once_with_aliases():
     assert ('uv run {comentionHelper} mentions --doc "{analysis_doc}" --skills "{run_dir}/skill-terms.json" '
             '--technologies "{run_dir}/technologies.json"') in claims
     assert "with any earlier Refine Architecture pass set aside (Step 01 §1b)" in claims
-    assert "`source_repo_basename` and `source_root_basename`" in claims
+    assert "the skill names and aliases Step 01 §2 wrote to `{run_dir}/skill-terms.json`" in claims
+    # #1177 determinism-2: the aliases come from the helper's `terms`, never staged by hand.
+    assert "`source_repo_basename` and `source_root_basename`" not in claims
+    assert "`source_repo_basename` and `source_root_basename` that are not null" in _init_terms()
     assert "Cache its JSON as `{doc_mentions}`" in claims
 
 
@@ -917,7 +1097,7 @@ def test_scope_skills_names_are_checked_not_used_verbatim():
 
 def test_the_pairs_are_split_once_after_the_gate():
     text = _read(GAP)
-    call = 'uv run {enumerateStackSkillsHelper} scope --skills "{inventory_names}" --in-scope "{in_scope_names}"'
+    call = SCOPE_CALL
     assert text.count("uv run {enumerateStackSkillsHelper} scope") == 1
     assert text.index("**Confirm a derived scope.**") < text.index(call) < text.index("### 4. Load Skill API Surfaces")
     split = _gap_split()
@@ -926,19 +1106,138 @@ def test_the_pairs_are_split_once_after_the_gate():
         assert binding in split, binding
     unknown = _bullet(split, "When `unknown` is not empty")
     assert '"Not an inventory skill, left out of the scope: {unknown}."' in unknown
-    assert "`pair_count` equals `skill_inventory.pair_count`" in split
+    # #1177 architecture-5: the helper reads every name, so only the {skill_count} binding can be wrong.
+    guard = _bullet(split, "`pair_count` equals")
+    assert "`pair_count` equals `{skill_count}*({skill_count}-1)/2`" in guard
+    assert "`{skill_count}` was lost: bind it again from `skill_count` in `{run_dir}/skill-inventory.json`" in guard
+    assert "skill_inventory.pair_count" not in text and "{inventory_names}" not in text
+    assert "builds every unique pair of those skills" in split
+
+
+def test_the_safe_default_reruns_the_split_with_every_skill():
+    # #1177: an empty `in_scope` (the safe default, or --scope-skills naming no inventory skill) reruns with the
+    # first result's out_of_scope names, and only --scope-skills records a second warning.
+    split = _gap_split()
+    assert "`{in_scope_names}` is every name in `{in_scope_skills}`, comma-separated, and empty under the §2b safe " \
+        "default" in split
+    rerun = _bullet(split, "When `in_scope` is empty")
+    for needle in ("(the §2b safe default, or `--scope-skills` named no inventory skill at all)",
+                   "run the command again with the first result's `out_of_scope` names, comma-separated, as "
+                   "`--in-scope`",
+                   "When `--scope-skills` named no inventory skill, record the warning `scope_fallback_all_skills: "
+                   "--scope-skills named no inventory skill, so every skill is in scope`",
+                   "(the safe default recorded its own in §2b)",
+                   # The rerun copies names by hand, so a name it drops shows as out of scope and runs it again.
+                   "That second result's `out_of_scope` is empty; when it is not, a name was left out: run the "
+                   "command again with its `out_of_scope` names added."):
+        assert needle in rerun, needle
+    # Section 2b leaves the set empty under the safe default, as section 3 expects, so no step lists the names.
+    safe_default = _slice(_read(GAP), "**Safe default:**", "\n\n")
+    assert "leave `{in_scope_skills}` empty: §3 then puts every skill in scope" in safe_default
 
 
 def test_gap_routing_reads_the_pair_lists():
+    # #1177 enhancement-2: section 5 judges in-scope pairs only, so no out-of-scope pair is routed anywhere.
     cross = _slice(_read(GAP), "### 5. Cross-Reference: Identify Gaps", "### 6.")
-    assert "For each pair in `{in_scope_pairs}` or `{out_of_scope_pairs}` (from §3)" in cross
-    routing = _slice(cross, "**Scope routing (from §3):**", "\n\n")
-    assert "A pair in `{out_of_scope_pairs}` does not go to the gap list" in routing
-    assert "Only pairs in `{in_scope_pairs}` proceed to gap classification" in routing
+    assert "For each pair in `{in_scope_pairs}` (from §3) not already documented" in cross
+    assert "`{out_of_scope_pairs}`" not in cross and "**Scope routing" not in cross
+    assert "Out-of-Scope" not in cross
+
+
+def test_the_surfaces_are_read_for_in_scope_skills_only():
+    # #1177 enhancement-2: the fan-out waits for section 3's final sets and covers the in-scope skills.
+    gap = _read(GAP)
+    surfaces = _slice(gap, "### 4. Load Skill API Surfaces for Cross-Reference", "### 5.")
+    first = surfaces.split("\n\n")[1]
+    assert first.startswith("Once §3's bindings are final, for each skill in `{in_scope_skills}`, delegate reading to "
+                            "a parallel subagent.")
+    assert "For each library in the skill inventory" not in gap
+    assert gap.index("Once these bindings are final") < gap.index("Once §3's bindings are final")
+
+
+def test_the_gap_report_names_the_skills_left_out_once():
+    # #1177 enhancement-2: no out-of-scope pair is judged, so section 6 names the skills and points at --scope-skills.
+    report = _gap_report()
+    signal = _bullet(report, "**Skills were left out of the scope")
+    for needle in ("`{out_of_scope_skills}` from §3 is not empty", "name them in one line",
+                   '"Not analyzed, outside this document\'s scope: {out_of_scope_skills}.', "`--scope-skills`"):
+        assert needle in signal, needle
+    assert "compatible pairs" not in report
+    # Section 4 loads only the in-scope surfaces, so the one-skill signal counts the inventory.
+    assert "**N == 1 (`{skill_count}` is 1: the inventory holds one skill):**" in report
+    store = _slice(report, "Store the gap findings", "\n\n")
+    assert "the names of `{out_of_scope_skills}` under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker" in store
+
+
+def test_the_gate_and_the_storage_keep_the_bucket_to_names_claims_and_verdicts():
+    # #1177: the gate says what the scope leaves out, and finding-storage.md lists what the bucket holds.
+    gate = _scope_gate()
+    assert ("No gap, issue or improvement is looked for with an out-of-scope skill: the VS verdicts and the "
+            "document's claims that involve one are listed for awareness only and stay out of the refined "
+            "document.") in gate
+    assert "Pairs, VS verdicts and improvement suggestions" not in gate
+    storage = _read(STORAGE)
+    for needle in ("No gap, issue or improvement is looked for with a skill outside the document's scope",
+                   "the names of the out-of-scope skills (Step 02 §6)",
+                   "the document's claims that name one (Step 03 §3)",
+                   "the [VS] verdicts that involve one (Step 03 §4)"):
+        assert needle in storage, needle
+    assert "A finding that involves a skill or a pair outside" not in storage
+
+
+def test_issue_detection_sets_an_out_of_scope_claim_aside():
+    # #1177 enhancement-2: a claim that names an out-of-scope skill stages no pair and is never checked.
+    issues = _read(ISSUES)
+    staging = _slice(issues, "**Stage the claimed exports.**", "\n\n")
+    assert "pair per API claim that names an export and no skill of `{out_of_scope_skills}` (§3 sets such a " \
+        "claim aside)" in staging
+    # Section 2 is the first to read the set, so it says where to find it after a context loss.
+    assert "If `{out_of_scope_skills}` is no longer in context, read it from the `[RA-SCOPE]` block" in staging
+    verify = _slice(issues, "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
+    routing = _slice(verify, "**Scope routing (from Step 02 §3):**", "\n\n")
+    for needle in ("a claim that names a skill of `{out_of_scope_skills}` is not checked",
+                   "Step 02 §4 read no surface of that skill", "informational Out-of-Scope bucket",
+                   "`[RA-SCOPE]` block of the RA state file"):
+        assert needle in routing, needle
+    assert verify.index("**Scope routing") < verify.index("Check each other claim")
+    report = _slice(issues, "### 6. Report Issues & Store Findings", "### 7.")
+    assert "**Out-of-scope claims and VS verdicts were set aside (from §3 and §4):**" in report
+    assert "the out-of-scope claims and VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker" in report
+
+
+def test_no_step_names_the_pairs_init_no_longer_binds():
+    # #1177 architecture-5: init runs enumerate without --pairs, and no step reads a pair list it would bind.
+    for path in sorted(REFS.glob("*.md")):
+        text = _read(path)
+        for gone in ("{pairs}", "{pair_count}", "--pairs", "{inventory_names}", "skill_inventory.pairs"):
+            assert gone not in text, f"{path.name}: {gone}"
+
+
+def test_the_terms_and_the_split_halt_at_their_phase():
+    # #1177: init's `terms` halts as its enumerate call does, the split at its own phase, and issue detection
+    # writes the terms again on `verdicts` exit 2 and halts when that fails; exit-codes.md names both phases.
+    terms = _init_terms()
+    assert ("If `uv` cannot start it or it exits non-zero, " + RESOLUTION_HALT.format("init:inventory")) in terms
+    assert "No step builds the terms by hand." in terms
+    split = _gap_split()
+    assert ("If no candidate exists, `uv` cannot start it, or the command exits non-zero, "
+            + RESOLUTION_HALT.format("gap-analysis:split")) in split
+    assert "No step lists the skill names or builds a pair by hand." in split
+    rerun = _slice(_issue_vs(), "- **2** with a JSON", "- **3**")
+    assert TERMS_CALL in rerun and "then run the `verdicts` command again" in rerun
+    assert ("If no candidate exists, `uv` cannot start it, or this command exits non-zero, "
+            + RESOLUTION_HALT.format("issue-detection:vs-report")) in rerun
+    assert "or with no candidate: `skf-enumerate-stack-skills.py` is not installed." in rerun
+    assert "enumerateStackSkillsProbeOrder:" in _frontmatter(_read(ISSUES))
+    assert _read(ISSUES).count(TERMS_CALL) == 1 and _read(INIT).count(TERMS_CALL) == 1
+    codes = _slice(_read(REFS / "exit-codes.md"), "| Code |", "## Result Envelope")
+    [exit_3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    for phase in ("gap-analysis:split", "issue-detection:vs-report"):
+        assert f"phase `{phase}`" in exit_3, phase
 
 
 def test_the_scope_block_holds_the_pair_lists():
-    block = _slice(_gap_report(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
+    block = _slice(_gap_split(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
     assert "`{in_scope_pairs}`" in block and "`{out_of_scope_pairs}`" in block
     assert "Step 03, Step 04 and Step 05 read the block back" in block
 
@@ -948,7 +1247,8 @@ def test_existence_is_read_from_the_saved_inventory():
     # reads its skill's exports[] from that file and its references/ for signatures, and step 3 checks
     # that a named export exists by membership in the file's list, so no copy of the names decides it.
     scan = _slice(_read(INIT), "### 2. Scan Skills Folder", "### 3.")
-    assert '--pairs --reliability > "{run_dir}/skill-inventory.json"' in scan
+    assert 'enumerate "{skills_output_folder}" --reliability > "{run_dir}/skill-inventory.json"' in scan
+    assert "--pairs" not in scan and "`{pairs}`" not in scan and "`{pair_count}`" not in scan
     assert "as `skill_inventory`" in scan
     surfaces = _slice(_read(GAP), "### 4. Load Skill API Surfaces for Cross-Reference", "### 5.")
     for needle in ("`exports[]` from the `skills[]` entry of that name in `{run_dir}/skill-inventory.json`",
@@ -957,11 +1257,56 @@ def test_existence_is_read_from_the_saved_inventory():
         assert needle in surfaces, needle
     assert "Hand each its skill's `exports[]`" not in surfaces, "the parent still types each export list"
     verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
-    for needle in ("membership lookup in the skill's `exports[]` in `{run_dir}/skill-inventory.json`",
-                   "fails on existence only when that list lacks the name",
-                   "judge only the signature, protocol or types the claim states",
-                   "When that list is empty", "never taking a missing name as proof"):
+    # #1176: the preservation script's `exports` looks each claimed export up, so §3 states no lookup by hand.
+    for needle in (EXPORTS_CALL, "Whether a named export exists is never looked up by hand",
+                   "Judge only the signature, protocol or types the claim states",
+                   "`absent`: the list holds neither the name nor the type or module before it. The claim fails on "
+                   "existence", "The list names only top-level exports", "(a stack skill, or `exports_source` "
+                   "`unknown`)", "never taking a missing name as proof"):
         assert needle in verify, needle
+    assert "membership lookup" not in verify and "lacks the name, and for a name it holds" not in verify
+
+
+def test_issue_detection_stages_the_claims_and_branches_on_every_status():
+    # #1176 determinism-1: §2 stages one {skill, claimed} pair per API claim that names an export, and §3 runs the
+    # script once on them, branching on each status it prints and on its exit code.
+    claims = _slice(_read(ISSUES), "### 2. Extract Integration Claims from Architecture", "### 3.")
+    staging = _slice(claims, "**Stage the claimed exports.**", "\n\n")
+    for needle in ("Write `{run_dir}/claimed-names.json`", '`{"skill": "<skill>", "claimed": "<export>"}` pair per '
+                   "API claim that names an export", "by its inventory `name` or an alias `{run_dir}/skill-terms.json` "
+                   "(Step 01 §2) gives it", "the export's name, call or signature alone",
+                   "Write a method the claim calls on an object of a type it names as `Type.method`",
+                   # A variable's method is no top-level export: staged, it would read absent.
+                   "one called on a variable whose type the claim does not name (`doc.getText()`) names no export "
+                   "the list can hold, so stage no pair for it",
+                   "Write `[]` when no claim names an export: §3 then skips its call"):
+        assert needle in staging, needle
+    verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
+    assert _read(ISSUES).count("exports --inventory") == 1
+    assert "unless §2 staged `[]`, one call looks every staged pair up" in verify
+    script = _load("ra_scope_exports_statuses", PRESERVATION_SCRIPT)
+    found = [line.split("`")[1] for line in verify.splitlines() if line.startswith("  - `")]
+    assert sorted(found) == sorted(script.EXPORT_STATUSES), found
+    assert "`list-empty`: the list is empty" in verify and "`unknown-skill`: no inventory skill has" in verify
+    # An alias two skills share names neither, so the step writes the skill's own name.
+    assert "as an alias no other skill shares" in verify and "Write the skill's inventory `name` as `skill`" in verify
+    unreadable = _bullet(verify, "**2** with a JSON")
+    assert "whose `error` names `{run_dir}/claimed-names.json`: stage it again as §2 says" in unreadable
+    # A pair that names no identifier is rewritten by its name or dropped, never staged the same way again.
+    for needle in ("write that export by its name alone", "or drop the pair when the claim names none"):
+        assert needle in unreadable, needle
+    assert ('One whose `error` names `{run_dir}/skill-inventory.json`: the inventory Step 01 §2 saved can no longer be '
+            'read, so HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:exports`, '
+            'naming its `error`, with `"path"` set to `{run_dir}/skill-inventory.json`') in unreadable
+    assert "**2 with no JSON:** a malformed call" in unreadable
+    missing = _bullet(verify, "If `uv` cannot start the script")
+    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `issue-detection:exports`' in missing
+    exit_codes = _slice(_read(RA / "references" / "exit-codes.md"), "| Code |", "## Result Envelope")
+    [exit_3] = [line for line in exit_codes.splitlines() if line.startswith("| 3 ")]
+    assert "step 3 §3 (phase `issue-detection:exports`) and §4" in exit_3
+    [exit_8] = [line for line in exit_codes.splitlines() if line.startswith("| 8 ")]
+    assert ("step 3 §3 (the skill inventory step 1 saved can no longer be read as one, phase "
+            "`issue-detection:exports`)") in exit_8
 
 
 def test_language_comes_from_the_inventory():
@@ -976,7 +1321,7 @@ def test_language_comes_from_the_inventory():
 
 def test_compile_recovers_the_vs_report_block():
     recovery = _compile_recovery()
-    assert "which the VS Coverage row (§5) needs: the `<!-- [RA-VS] -->` block" in recovery
+    assert "which the plan's `vs_report` (§6) needs: the `<!-- [RA-VS] -->` block" in recovery
     assert "`coverageMeasured`" in recovery and "`none`" in recovery
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
@@ -1052,11 +1397,8 @@ def test_the_steps_classify_with_the_loaded_rules():
         text = _read(path)
         for name in BUNDLED_TYPES:
             assert name not in text, f"{path.name} restates the bundled type {name!r}"
-        if path != COMPILE:
-            assert not TIER_RE.search(text), f"{path.name} restates a bundled tier: {TIER_RE.search(text).group(0)}"
-    # Compile shows the bundled tiers only as the example rows of the Changes Made table.
-    rows = [line for line in _read(COMPILE).splitlines() if TIER_RE.search(line)]
-    assert [row.split(" | ")[0] for row in rows] == ["| Issues Flagged", "| Improvements Suggested"]
+        # #1176: compile no longer shows example rows, since the script writes the Changes Made rows.
+        assert not TIER_RE.search(text), f"{path.name} restates a bundled tier: {TIER_RE.search(text).group(0)}"
 
 
 def test_compile_and_the_report_take_the_tiers_from_the_rules():
@@ -1064,9 +1406,8 @@ def test_compile_and_the_report_take_the_tiers_from_the_rules():
     assert "a tier of the Issue Severity table of `{refinementRulesData}`" in _slice(text, "### 3.", "### 4.")
     assert "a tier of the Improvement Value table of `{refinementRulesData}`" in _slice(text, "### 4.", "### 5.")
     summary = _compile_summary()
-    assert "a `{<tier>_count}` for each severity and value tier" in summary
-    # Section 5 and section 6 read the one list Step 01's `rules` check printed.
-    assert "breakdowns name each tier of `{rule_tiers}` (its `issue`, then its `improvement` list)" in summary
+    # Section 6 passes the one list Step 01's `rules` check printed, and the script names every tier of it.
+    assert "whose Breakdowns name every tier of `tiers` in order with its count, `0` included" in summary
     assert "of the Issue Severity and Improvement Value tables" not in summary
     build = _slice(text, "### 6. Build the Draft", "### 7.")
     assert '`tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`' in build
@@ -1100,7 +1441,8 @@ def test_a_copy_learns_the_tier_rules_and_step_1_checks_them():
     # Each tier becomes a {<tier>_count} the preservation script fills, so the
     # names it cannot count are named where a copy is written and checked.
     script = _load("ra_scope_preservation", PRESERVATION_SCRIPT)
-    fixed = sorted({name.removesuffix("_count") for name in script.REQUIRED_PLACEHOLDERS} | {"unverified", "skill"})
+    fixed = sorted({name.removesuffix("_count") for name in script.REQUIRED_PLACEHOLDERS if name.endswith("_count")}
+                   | {"unverified", "skill"})
     copy = _slice(_read(RULES), "## What a Copy Can Change", "\n---")
     check = _slice(_read(INIT), "### 4. Check the Refinement Rules", "### 5.")
     comment = _rules_comment()
@@ -1131,7 +1473,8 @@ def _apply_with_tiers(tmp_path, severity: list[str], value: list[str], raised: s
     doc.write_bytes(b"# App\n\n## Data Layer\n\nLoro stores documents.\n")
     counts = ", ".join(f"{tier}: {{{re.sub(r'[ ]+', '_', tier.lower())}_count}}" for tier in [*severity, *value])
     summary = ("## Refinement Summary\n\nGaps: {gap_count}, issues: {issue_count}, "
-               f"improvements: {{improvement_count}}\n\n{counts}\n")
+               f"improvements: {{improvement_count}}\n\n{counts}\n\n| Category | Count | Breakdown |\n|---|---|---|\n"
+               "{changes_rows}\n\n| Skill | Refinements |\n|---|---|\n{evidence_rows}\n")
     plan = {"entries": [
         {"id": "gap-1", "kind": "gap", "anchor": None, "skills": ["loro", "fastapi"],
          "block": "#### RA: Loro <-> FastAPI Integration Path"},
@@ -1181,6 +1524,9 @@ def test_a_renamed_tier_set_fills_its_own_counts(tmp_path):
     assert result["counts"]["improvement_tiers"] == {"Worth it": 0, "Later on": 0}
     assert "Gaps: 1, issues: 1, improvements: 0" in result["summary"]
     assert "Blocker: 0, Should fix: 1, Worth it: 0, Later on: 0" in result["summary"]
+    # {changes_rows} names the renamed tiers, a tier no finding has included.
+    assert "| Issues Flagged | 1 | Blocker: 0, Should fix: 1 |" in result["summary"]
+    assert "| Improvements Suggested | 0 | Worth it: 0, Later on: 0 |" in result["summary"]
     assert "{" not in result["summary"]
 
 
@@ -1303,6 +1649,112 @@ def test_step_4_reads_the_surfaces_step_2_collected():
         assert "`{exports, protocols, data_formats, capabilities}`" in text, path.name
         assert "the `<!-- [RA-SURFACES] ... -->` block" in text, path.name
         assert "Reload a" not in text, path.name
+
+
+# --- The run survives a context loss and a runtime without subagents (#1178) ---
+
+
+def test_the_surfaces_survive_a_context_loss_and_a_runtime_without_subagents():
+    # enhancement-3: each round's summaries reach the state file as the round returns, and the fallback appends
+    # each skill's before it reads the next, as Verify Stack's integrations stage does.
+    surfaces = _slice(_read(GAP), "### 4. Load Skill API Surfaces for Cross-Reference", "### 5.")
+    assert "Launch up to **8 subagents concurrently** (batch larger inventories in rounds of 8)" in surfaces
+    collect = _slice(surfaces, "**Parent collects all subagent JSON summaries.**", "\n\n")
+    for needle in ("Apart from the fallback's reads, do not load full SKILL.md content into parent context.",
+                   "As each round returns, append its summaries to the RA state file",
+                   "as a `<!-- [RA-SURFACES] ... -->` block, before the next round starts",
+                   "Steps 03 and 04 read the blocks back from it if context degrades on a long run",
+                   "the blocks already appended name the skills read, so only the others are read",
+                   "If `{run_dir}` or `{in_scope_skills}` is no longer bound, read `{run_dir}` from the "
+                   "`<!-- [RA-RUN] ... -->` block of the same file and `{in_scope_skills}` from its "
+                   "`<!-- [RA-SCOPE] ... -->` block (§3)"):
+        assert needle in collect, needle
+    assert "Append them to the RA state file" not in surfaces, "no single block once every round returned"
+    fallback = _slice(surfaces, "**When subagents are unavailable**", "\n\n")
+    for needle in ("read the in-scope skills yourself, one at a time",
+                   "in the order of the `skills[]` of `{run_dir}/skill-inventory.json`",
+                   "write its compact JSON by the rules above",
+                   "as its own `<!-- [RA-SURFACES] ... -->` block before going on to the next",
+                   "so a context compaction loses none"):
+        assert needle in fallback, needle
+    assert (surfaces.index("**Extraction rules for subagents:**") < surfaces.index("**When subagents are unavailable**")
+            < surfaces.index("**Parent collects all subagent JSON summaries.**"))
+    for path in (ISSUES, IMPROVEMENTS):
+        assert "the `<!-- [RA-SURFACES] ... -->` blocks of" in _read(path), path.name
+
+
+def test_the_scope_is_saved_before_the_surfaces_are_read():
+    # review loop 1: section 4's recovery reads the scope back, so section 3 appends it, once, before section 4.
+    gap = _read(GAP)
+    split = _gap_split()
+    block = _slice(split, "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
+    assert "once these bindings are final, before §4 reads a surface" in block
+    assert "A run appends it once: §4, Step 03, Step 04 and Step 05 read the block back" in block
+    assert split.index("Once these bindings are final") < split.index("Append the scope under")
+    assert gap.count("Append the scope under") == 1
+    assert gap.index("Append the scope under") < gap.index("### 4. Load Skill API Surfaces")
+    assert "§3 also records them all in the RA state file, once it settles them" in _slice(
+        _gap_scope(), "Store `{in_scope_skills}`", "\n\n")
+
+
+RUN_BLOCK = "`<!-- [RA-RUN] ... -->` block"
+ANALYSIS_DOC = "(`{analysis_doc}` is `{run_dir}/analysis-doc.md`)"
+RULES_BACK = ("If `{refinementRulesPath}`, which `{refinementRulesData}` names, is no longer bound, read it from "
+              f"the {RUN_BLOCK} of the RA state file")
+
+
+def test_the_steps_recover_their_run_bindings_from_the_run_block():
+    # architecture-1: each place steps 2 to 4 read a run binding names the block it comes back from.
+    claims = _gap_claims()
+    assert (f"If `{{run_dir}}` is no longer bound (a long run's context degraded), read it from the {RUN_BLOCK} of "
+            "the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), as Step 01 §3c maps its keys. "
+            "The technology list and the helper both read the document as `{analysis_doc}`") in claims
+    gate_line = [line for line in _scope_gate().splitlines() if "GATE [default: C]" in line][0]
+    assert (f"When `{{headless_mode}}` is no longer bound, read it from the {RUN_BLOCK} of the RA state file. "
+            "If `{headless_mode}`:") in gate_line
+    cross = _slice(_read(GAP), "### 5. Cross-Reference: Identify Gaps", "### 6.")
+    assert f"Type the gap by the Gap Classification of `{{refinementRulesData}}`. {RULES_BACK}" in cross
+    issue_claims = _slice(_read(ISSUES), "### 2. Extract Integration Claims from Architecture", "### 3.")
+    assert (f"If `{{run_dir}}` is no longer bound, read it from the {RUN_BLOCK} of the RA state file "
+            "(`{forge_data_folder}/ra-state-{project_name}.md`), as Step 01 §3c maps its keys: `{analysis_doc}` is "
+            "`{run_dir}/analysis-doc.md`.") in issue_claims
+    verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
+    routing = _slice(verify, "**Scope routing (from Step 02 §3):**", "\n\n")
+    assert f"and `{{run_dir}}` from its {RUN_BLOCK} when it is no longer bound {ANALYSIS_DOC}" in routing
+    assert f"type it by the Issue Classification of `{{refinementRulesData}}`. {RULES_BACK}" in verify
+    vs = _issue_vs()
+    assert f"and `{{run_dir}}` and `{{refinementRulesPath}}` from its {RUN_BLOCK} when they are no longer bound" in vs
+    compare = _slice(_improvements_compare(), "**Scope routing (from Step 02 §2b):**", "\n\n")
+    assert f"and `{{run_dir}}` from its {RUN_BLOCK} when it is no longer bound {ANALYSIS_DOC}" in compare
+    typed = _slice(_read(IMPROVEMENTS), "**Type and value:**", "\n\n")
+    assert f"one tier of its Improvement Value table. {RULES_BACK}" in typed
+    for path in (GAP, ISSUES, IMPROVEMENTS):
+        assert "refinementRulesData: '{refinementRulesPath}'" in _frontmatter(_read(path)), path.name
+    dropped = _slice(_read(STORAGE), "## Findings a Review Dropped", "Compare each in-scope finding")
+    assert (f"taking `{{previous_pass}}`, `{{outputFolderPath}}` and `{{arch_project_name}}` from the {RUN_BLOCK} of "
+            "the RA state file when they are no longer bound") in dropped
+    path = DISMISSED_FILE.split("'")[1]
+    assert f"`{{dismissedFile}}` is `{path}`" in dropped
+    # review loop 2: a halt after a context loss still knows whether to print its envelope.
+    for step in (GAP, ISSUES):
+        envelope = _slice(_read(step), "**Halt envelope.**", "```bash")
+        assert (f"When `{{headless_mode}}` or `{{run_dir}}` is no longer bound, read it from the {RUN_BLOCK} of the "
+                "RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). In headless mode, stage") in envelope
+
+
+def test_a_resumed_review_keeps_the_drops_its_stopped_review_staged():
+    # review loop 1: the resumed review's run folder is the stopped one's, whose dismissed.json holds its rounds'
+    # drops and take-backs, so they are neither lost nor listed again as left out.
+    resumed = _slice(_compile_base(), "**A resumed review.**", "\n\n")
+    for needle in ("A `{run_dir}/dismissed.json` the stopped review's feedback rounds left counts as staged",
+                   "a later round changes it instead of starting again from `{dismissedFile}`",
+                   "and [C] writes it as §8 says",
+                   "§7 does not list as left out a dismissed finding the kept plan already holds"):
+        assert needle in resumed, needle
+    record = _slice(_read(STORAGE), "**How Step 05 records a drop.**", "\n\n")
+    assert "which the first round that changes it starts from `{dismissedFile}`" in record
+    approve = _slice(_read(COMPILE), "- IF C (only while the last `apply` exited 0)", "- IF cancel")
+    assert "When a feedback round staged `{run_dir}/dismissed.json`, only now write it to `{dismissedFile}`" in approve
 
 
 # --- Headless envelopes name what a run left out (#593 follow-up) ---

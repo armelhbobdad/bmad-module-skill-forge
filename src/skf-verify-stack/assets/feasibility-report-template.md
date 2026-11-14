@@ -13,9 +13,9 @@ pairsRisky: 0
 pairsBlocked: 0
 recommendationCount: 0
 prdAvailable: false
+architectureDoc: ''
 # Producer-local bookkeeping (not part of the shared consumer contract):
 workflowType: 'verify-stack'
-architectureDoc: ''
 prdDoc: ''
 previousReport: ''
 skillsAnalyzed: 0

@@ -1,0 +1,6 @@
+type: added
+scope: skf-refine-architecture
+summary: |
+  Refine Architecture can now resume a review that stopped before you approved it with `[C]` or cancelled it with `[X]`, when the session ended or lost its context. The next interactive run on the same architecture document, unchanged since that run read it, while that run's plan, its build record and its draft are still there, offers `[R] Resume the review of the draft from <timestamp>` or `[N] Start a new run`. `[R]` takes that run's settings back (its scope, its Verify Stack report, its output folder and its refinement rules), checks the refinement rules again, rebuilds the draft from the kept plan and shows the review again without reading the skills again; findings that review dropped or took back stay as it left them. `[N]` leaves the stopped run's folder as it is. A cancel at that prompt stops with exit `6` (`user-cancelled`). When the document was edited after that run read it, the run says so and starts over. A headless run, a run on another document, a review that ended with `[X]` or with a `[C]` that wrote the refined document, and a review a headless run stopped are never offered a resume, and any other run in between ends the chance to resume it once it has checked its inputs and found the skills.
+issues: [1178]
+prs: [1219]

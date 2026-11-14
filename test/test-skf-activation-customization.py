@@ -26,11 +26,12 @@ block across all sixteen activations.
   the sibling-skill rule wherever the skill names another skill's folder.
 - #603: headless_mode is read from `{sidecar_path}/preferences.yaml`.
 - #1111: every workflow but Drop Skill (which documents its earlier run
-  point) runs `activation_steps_append` at the On Activation step that loads
-  its first stage, after every On Activation step that can halt: inside that
-  step, before the file it loads, or in a clause that runs them before or at
-  that step and names each step that can halt in between as passed. Ferris
-  is an agent with no first stage.
+  point) and Refine Architecture (whose init.md section 0 runs them once its
+  pre-flight has passed, #1179) runs `activation_steps_append` at the On
+  Activation step that loads its first stage, after every On Activation step
+  that can halt: inside that step, before the file it loads, or in a clause
+  that runs them before or at that step and names each step that can halt in
+  between as passed. Ferris is an agent with no first stage.
 """
 
 from __future__ import annotations
@@ -107,7 +108,7 @@ ROUTES = {
     "skf-create-stack-skill": ("`references/init.md` records it as the run's first warning",),
     "skf-quick-skill": ("record it in the run sink", RECORD,
                         "Under `--batch`, `references/batch-mode.md` §2 records that file in each target's run folder"),
-    "skf-refine-architecture": ("for §5 to record",),
+    "skf-refine-architecture": ("for init.md §0 to record once it has created `{run_dir}`",),
     "skf-rename-skill": ("for select.md §1 to record once it has created `{run_dir}`",),
     "skf-test-skill": ("keep the reason as `{customization_resolver_unavailable}`: report.md §4c hands it to the "
                        "result as a warning",),
@@ -204,13 +205,11 @@ def test_the_reason_takes_the_route_the_result_takes(skill):
 
 
 def test_the_late_routes_record_once_the_run_folder_exists():
-    """Analyze-source and refine-architecture record in the step that creates the run folder, after it."""
-    for skill, folder_step, nxt in (("skf-analyze-source", "5. **Create the run folder.**", "6. Run"),
-                                    ("skf-refine-architecture", "**Run folder (exit 4).**", "6. Load")):
-        step = _flat(_section(_skill_md(skill), folder_step, nxt))
-        assert step.index("mkdir -p") < step.index("Once the folder exists" if skill == "skf-analyze-source"
-                                                   else "Once it exists") < step.index(RECORD), skill
-        assert "`{customization_resolver_unavailable}` is set, record the reason in the run sink" in step
+    """Analyze-source records in the On Activation step that creates the run folder, after it. Refine Architecture
+    creates its run folder in init.md §0 since #1179, so BIND_SITES checks it with the other stages that do."""
+    step = _flat(_section(_skill_md("skf-analyze-source"), "5. **Create the run folder.**", "6. Run"))
+    assert step.index("mkdir -p") < step.index("Once the folder exists") < step.index(RECORD)
+    assert "`{customization_resolver_unavailable}` is set, record the reason in the run sink" in step
 
 
 RECORD_RE = re.compile(r'`(uv run \{emitEnvelopeHelper\} record --run-dir "\{run_dir\}" '
@@ -226,6 +225,8 @@ BIND_SITES = {
                          "Bind `{run_dir}` ← the path it prints"),
     "skf-quick-skill": (REFERENCES["skf-quick-skill"] / "batch-mode.md", '- **`"status": "next"`**',
                         '- **`"status": "record"`**', "Bind `{run_dir}` ← its `run_dir`"),
+    "skf-refine-architecture": (REFERENCES["skf-refine-architecture"] / "init.md", "### 0. ", "### 1. ",
+                                'mkdir "{run_dir}"'),
     "skf-rename-skill": (REFERENCES["skf-rename-skill"] / "select.md", "### 1. Start the Run", "### 2. ",
                          'for dir in "{run_dir}"'),
     "skf-verify-stack": (REFERENCES["skf-verify-stack"] / "init.md", "**Pre-flight: run folder and write probe.**",
@@ -268,14 +269,14 @@ def test_the_record_command_keeps_a_hostile_reason_as_text(tmp_path, command, na
 
 
 def test_every_file_route_documents_its_record_command():
-    """Each sink route records the reason from a file: in the activation of analyze-source, quick and
-    refine-architecture, which create their run folder there, and else in the stage that does."""
+    """Each sink route records the reason from a file: in the activation of analyze-source and quick, which create
+    their run folder there, and else in the stage that does (refine-architecture's init.md §0 since #1179)."""
     # Brief's preflight.md also records two forge-tier warnings from `{run_dir}/warning.txt` (#1134, #1135).
     assert sorted(param.id for param in _record_commands()) == [
         "create-stack/init.md#1", "skf-analyze-source#1", "skf-brief-skill/preflight.md#1",
         "skf-brief-skill/preflight.md#2", "skf-brief-skill/preflight.md#3", "skf-create-skill/load-brief.md#1",
         "skf-create-skill/load-brief.md#2", "skf-quick-skill#1", "skf-quick-skill/batch-mode.md#1",
-        "skf-refine-architecture#1", "skf-rename-skill/select.md#1", "skf-verify-stack/init.md#1"]
+        "skf-refine-architecture/init.md#1", "skf-rename-skill/select.md#1", "skf-verify-stack/init.md#1"]
 
 
 @pytest.mark.parametrize("skill", sorted(BIND_SITES))
@@ -464,7 +465,9 @@ def test_headless_mode_reads_the_sidecar_preferences(skill):
 
 # The On Activation step that starts each workflow's first stage, and what it names: the stage file, or Campaign's
 # dispatch. Drop Skill runs the entries before its pre-flight on purpose (test-skf-drop-skill-contract.py pins
-# that), and Ferris has no first stage (test-skf-resolver-block.py pins his run point).
+# that), Refine Architecture runs them in init.md §0 once the pre-flight there has passed (#1179,
+# test-skf-refine-architecture-contract.py pins that), and Ferris has no first stage (test-skf-resolver-block.py
+# pins his run point).
 FIRST_STAGE = {
     "skf-analyze-source": (6, "references/init.md"),
     "skf-audit-skill": (5, "references/init.md"),
@@ -474,7 +477,6 @@ FIRST_STAGE = {
     "skf-create-stack-skill": (4, "references/init.md"),
     "skf-export-skill": (6, "references/load-skill.md"),
     "skf-quick-skill": (5, "references/batch-mode.md"),
-    "skf-refine-architecture": (6, "references/init.md"),
     "skf-rename-skill": (4, "references/select.md"),
     "skf-setup": (7, "references/detect-and-tier.md"),
     "skf-test-skill": (4, "references/init.md"),
@@ -501,10 +503,13 @@ def _append_clauses(text: str) -> list[tuple[int, str]]:
     return found
 
 
-def test_first_stage_names_every_workflow_but_drop_skill_and_ferris():
+OWN_RUN_POINT = {"skf-drop-skill", "skf-forger", "skf-refine-architecture"}
+
+
+def test_first_stage_names_every_workflow_but_those_with_their_own_run_point():
     skills = {path.parent.name for path in SRC.glob("skf-*/SKILL.md")}
-    assert set(FIRST_STAGE) | {"skf-drop-skill", "skf-forger"} == skills
-    assert not set(FIRST_STAGE) & {"skf-drop-skill", "skf-forger"}
+    assert set(FIRST_STAGE) | OWN_RUN_POINT == skills
+    assert not set(FIRST_STAGE) & OWN_RUN_POINT
 
 
 @pytest.mark.parametrize("skill", sorted(FIRST_STAGE))
@@ -514,8 +519,7 @@ def test_the_append_steps_run_where_the_first_stage_starts(skill):
     `before On Activation step N`, `before item N`, `before §N`, `at step N`). A clause that runs them after
     step N's file, such as "once step 6 has loaded init.md" or "at step 6, once load-skill.md has finished", fails.
     A clause outside that step also names each step that can halt in between as passed (`after step M`,
-    `once step M ... passed`), as Audit's "once step 4 below has passed" and Refine's "once §5's pre-flight has
-    passed" do."""
+    `once step M ... passed`), as Audit's "once step 4 below has passed" does."""
     n, stage = FIRST_STAGE[skill]
     steps = _numbered_steps(skill)
     assert stage in steps[n], (skill, n, stage)
