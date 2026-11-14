@@ -1249,7 +1249,7 @@ def _found(matches) -> list:
 def _named_after_its_library():
     """(old, new, snippet, metadata, provenance) of each TestSkillNamedAfterItsLibrary case."""
     old, new = TestSkillNamedAfterItsLibrary.OLD, TestSkillNamedAfterItsLibrary.NEW
-    create = "skf-create-skill/references/compile.md"
+    create = "skf-create-skill/assets/skill-sections.md"
     cases = {"create-skill": (old, new, _snippet(create, old), *_create_skill_json(old))}
     cases["named-like-its-repository"] = (old, new, _snippet(create, old),
                                           *_create_skill_json(old, repo=f"acme/{old}"))
@@ -1311,7 +1311,7 @@ class TestPredict:
     @pytest.mark.parametrize("where", ["metadata-json", "skill-frontmatter"])
     def test_a_description_that_names_the_library_predicts_a_hard_match_on_the_old_file(self, tmp_path, where):
         old, new = self.OLD, self.NEW
-        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", old)
         metadata, provenance = _create_skill_json(old)
         skill_md = None
         if where == "metadata-json":
@@ -1354,7 +1354,7 @@ class TestPredict:
         old, new = self.OLD, self.NEW
         metadata, provenance = _create_skill_json(old)
         metadata["update_source"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
-        rc, out, before = _predict(tmp_path, old, new, _snippet("skf-create-skill/references/compile.md", old),
+        rc, out, before = _predict(tmp_path, old, new, _snippet("skf-create-skill/assets/skill-sections.md", old),
                                    metadata, provenance)
         assert rc == 0 and out["renamed_versions"] == ["1.4.0"]
         assert _files(tmp_path) == before
@@ -1417,7 +1417,7 @@ class TestPredict:
         """A recorded path into skills/<old>/ or forge-data/<old>/ names the new folder once the batch ran, so
         neither §5 nor the prediction counts it."""
         old, new = self.OLD, self.NEW
-        snippet = _snippet("skf-create-skill/references/compile.md", old)
+        snippet = _snippet("skf-create-skill/assets/skill-sections.md", old)
         metadata, provenance = _create_skill_json(old)
         metadata["update_source"] = f"forge-data/{old}/1.4.0/test-report-{old}.md"
         metadata["skill_path"] = f"skills/{old}/1.4.0/{old}/SKILL.md"
