@@ -25,11 +25,10 @@ Write the detected tools, the tier and the ccc index state to `{sidecar_path}/fo
 
 - Never inline a YAML template for forge-tier.yaml: the script owns the canonical format
 - Never create or edit `{sidecar_path}/preferences.yaml`: the installer writes it, and activation only reads it
-- File write failures are errors: halt the workflow; under `{quiet_mode}` the blocked envelope is the only output, otherwise report the failure clearly
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `forgeTierRwProbeOrder` exists, halt with phase `step 2:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-forge-tier-rw.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows `references/halt-contract.md`: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 

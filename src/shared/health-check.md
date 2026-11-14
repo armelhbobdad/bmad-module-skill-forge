@@ -19,7 +19,7 @@ liveSubmitSeverities: ['bug']  # friction/gap go local-queue-default with explic
 
 Reflect on the workflow that just completed. If real friction, bugs, or gaps were encountered in the SKF workflow instructions, capture them as structured findings for the user to review and optionally submit as GitHub issues.
 
-**Zero overhead for clean runs.** If nothing went wrong, say so (or, on an envelope-only run, display only the setup envelope — see §0) and exit immediately.
+**Zero overhead for clean runs.** If nothing went wrong, say so and exit immediately.
 
 ## MANDATORY EXECUTION RULES:
 
@@ -36,15 +36,13 @@ Zero findings is the expected outcome of a good run. Report only a bug, friction
 
 ### 0. Announce Arrival
 
-**Envelope-only runs.** Treat `{quiet_mode}` as true only when the workflow that loaded this step is skf-setup and it set `{quiet_mode}` to true. In every other case (unset, another workflow ran, or the user asked for this health check directly) treat it as false. skf-setup sets it under `--quiet` or in headless mode because its result envelope must be the only line setup displays. When it is true, this whole step displays nothing of its own and writes no text between tool calls: skip this announcement and its headless log, and queue any findings locally through **[Q]** without presenting them (§3, §4). Wherever it stops (the clean-run stop in §2, or the end of §5c), it displays skf-setup's `{setup_envelope_line}` verbatim after every tool call, with no code fence and nothing of this step's own before or after it (nothing at all if that line is empty). In a standalone setup run that line is the final message, because `claude -p` prints only the final message. When `{pipeline_mode}` is true, skf-setup is one step of a forger pipeline: control then returns to the forger, which keeps chaining.
-
-**Result envelope line.** Any other workflow may bind `{result_envelope_line}` before it loads this step, in headless mode only (Brief Skill also in an `[auto]` run), to the result envelope line its run printed through the shared emitter (its `SKF_<NAME>_RESULT_JSON: ...` line; skf-test-skill's report step binds its `SKF_TEST_RESULT_JSON` line). When it is bound and not empty, wherever this step stops (the clean-run stop in §2, or the end of §5c) it displays that line verbatim as its very last line, after everything else it displays, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, which prints only the final message, that line is then the final message a pipeline reads. A workflow that binds nothing gets nothing extra.
+**Result envelope line.** A workflow may bind `{result_envelope_line}` before it loads this step, in headless mode only (Brief Skill also in an `[auto]` run), to the result envelope line its run printed through the shared emitter (its `SKF_<NAME>_RESULT_JSON: ...` line; skf-test-skill's report step binds its `SKF_TEST_RESULT_JSON` line). When it is bound and not empty, wherever this step stops (the clean-run stop in §2, or the end of §5c) it displays that line verbatim as its very last line, after everything else it displays, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, which prints only the final message, that line is then the final message a pipeline reads. A workflow that binds nothing gets nothing extra.
 
 **Display in `{communication_language}`:**
 
 "**Running a quick self-improvement check on this workflow.** If nothing rough came up, I'll close out immediately."
 
-**GATE [default: skip]** — If `{quiet_mode}` is true: skip the display and log nothing. Otherwise, if `{headless_mode}`: skip the display entirely, log: "headless: skipped health-check arrival announcement".
+**GATE [default: skip]**: if `{headless_mode}`, skip the display entirely, log: "headless: skipped health-check arrival announcement".
 
 **If interactive:** display the line above, then proceed to step 1 (Read Workflow Context) without waiting. The line is informational, not a commitment gate — the user's commitment to continuing was already captured upstream (either via an explicit menu in the calling step or by auto-chain). This announcement just tells them what is about to happen.
 
@@ -66,7 +64,7 @@ Silently review the workflow execution. Ask yourself:
 
 **If the answer to ALL of these is "no":**
 
-If `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0). Otherwise display:
+Display:
 
 "**Health Check: Clean run.** No workflow issues to report.
 
@@ -77,8 +75,6 @@ When `{result_envelope_line}` is bound (§0), display it verbatim after that, as
 **STOP HERE. Do not proceed further. The workflow is done.**
 
 ### 3. Present Findings (Only If Issues Exist)
-
-**If `{quiet_mode}` is true:** do not present the findings. Go to §4, which chooses **[Q]** without displaying anything, so every finding, whatever its severity, is written to the local queue per §5c and nothing is submitted to GitHub.
 
 For each genuine finding, present it in this format:
 
@@ -115,7 +111,7 @@ For each genuine finding, present it in this format:
 
 ### 4. User Review Gate
 
-**GATE [default: Q]** — If `{quiet_mode}` is true, choose **[Q]** without displaying anything. Otherwise, if `{headless_mode}` is true, choose **[Q]** and log: "headless: queued {N} finding(s) locally". In both cases skip the question below and go to Menu Handling: live submission always needs an interactive **[Y]**.
+**GATE [default: Q]**: if `{headless_mode}` is true, choose **[Q]** and log: "headless: queued {N} finding(s) locally", then skip the question below and go to Menu Handling: live submission always needs an interactive **[Y]**.
 
 **If interactive:** after presenting all findings, ask:
 
@@ -423,7 +419,7 @@ date: {ISO date}
 
 When SKF's health-check helper is missing (§5a sub-step 1), write `N/A` as the `fingerprint` here and in the body's `## Fingerprint` and `Section fingerprint:` lines.
 
-After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason), "Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these locally."
+After writing all files, display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason), "Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these locally."
 
 "**{N} finding(s) saved locally:**
 {list each file path}

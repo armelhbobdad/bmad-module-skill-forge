@@ -20,12 +20,20 @@ link, no file under `_bmad-output/.skf-run/`, where a halted run keeps its
 source clones, is named, and each file is named once. Campaign's kickoff
 script runs the same functions.
 
+With core's resolver missing (#1184), as in a project with SKF alone, the
+helper prints what core would when no override file is there to merge: the
+bundled customize.toml, whole or narrowed to each `--key` it holds, which
+`--facts` resolves as it resolves core's JSON. A team or a personal override
+file, which only core can merge, keeps the `not found` exit 1, and a bundled
+file it cannot read, parse or put in JSON exits 1 with one `error:` line.
+
 The helper runs under `sys.executable` and runs core the same way, so no
 test needs uv, and every test runs on POSIX and Windows.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -352,6 +360,7 @@ def test_core_before_6_11_with_a_nearer_root_refuses_and_names_the_upgrade(tmp_p
 
 
 def test_a_missing_core_resolver_is_not_found(tmp_path):
+    """No core and the team override `_project` writes: only core can merge it (#1184)."""
     root = _project(tmp_path, None)
     skill = _installed_skill(root)
     proc = _run(skill, root, "workflow")
@@ -360,6 +369,147 @@ def test_a_missing_core_resolver_is_not_found(tmp_path):
     lines = _stderr(proc).splitlines()
     assert lines[0] == "not found"
     assert str(root / "_bmad" / "scripts" / "resolve_customization.py") in lines[1]
+
+
+
+# --------------------------------------------------------------------------
+# No core (SKF alone): the bundled values, unless an override is skipped (#1184)
+# --------------------------------------------------------------------------
+
+# DEFAULTS as core prints it with no override: its table, the `file:` entry as written.
+BUNDLED_FACT = "file:{project-root}/**/project-context.md"
+BUNDLED_TABLE = {"name": "default", "persistent_facts": [BUNDLED_FACT]}
+
+
+def _alone(tmp_path: Path, *layers: str) -> tuple[Path, Path]:
+    """A project with no core's resolver, these override files for skf-demo (".toml", ".user.toml"), and the skill."""
+    root = tmp_path / "project"
+    (root / "_bmad" / "custom").mkdir(parents=True)
+    for layer in layers:
+        (root / "_bmad" / "custom" / f"{SKILL}{layer}").write_bytes(TEAM.encode("utf-8"))
+    return root, _installed_skill(root)
+
+
+@pytest.mark.parametrize("keys,expected", [
+    (("workflow",), {"workflow": BUNDLED_TABLE}),
+    ((), {"workflow": BUNDLED_TABLE}),
+    (("workflow.name", "workflow.persistent_facts"),
+     {"workflow.name": "default", "workflow.persistent_facts": [BUNDLED_FACT]}),
+    (("nope",), {}),
+    (("workflow", "workflow.nope", "workflow.name.deeper"), {"workflow": BUNDLED_TABLE}),
+], ids=["table", "no-key", "dotted-keys", "missing-key", "missing-beside-found"])
+def test_no_core_and_no_override_print_the_bundled_values(tmp_path, keys, expected):
+    """Core would merge nothing, so the helper prints what core prints for customize.toml alone: the whole table
+    with no `--key`, else one entry for each key the table holds. No warning reason: exit 0, stderr empty."""
+    root, skill = _alone(tmp_path)
+    proc = _run(skill, root, *keys)
+    assert (proc.returncode, proc.stderr) == (0, b""), proc.stderr
+    assert json.loads(proc.stdout.decode("utf-8")) == expected
+    assert _calls(root) == []
+
+
+def test_no_core_and_no_override_keep_core_s_utf_8(tmp_path):
+    """A value outside ASCII goes out as UTF-8, as core writes it (ensure_ascii off)."""
+    root, skill = _alone(tmp_path)
+    (skill / "customize.toml").write_bytes(TEAM.encode("utf-8"))
+    proc = _run(skill, root, "workflow.persistent_facts")
+    assert proc.returncode == 0, proc.stderr
+    expected = {"workflow.persistent_facts": ["Déployer sur AWS uniquement ✓"]}
+    assert json.loads(proc.stdout.decode("utf-8")) == expected
+    assert "✓".encode("utf-8") in proc.stdout
+
+
+@pytest.mark.parametrize("keys", [("workflow",), ("workflow.persistent_facts",), ()], ids=["table", "key", "whole"])
+def test_no_core_and_no_override_resolve_the_facts(tmp_path, keys):
+    """`--facts` resolves the bundled list as it resolves core's JSON: one file per match, none of a kept clone's."""
+    root, skill = _alone(tmp_path)
+    docs = _context(root / "docs")
+    _context(root / "_bmad-output" / ".skf-run" / "x" / "source-1")
+    proc = _run(skill, root, *keys, facts=True)
+    assert (proc.returncode, proc.stderr) == (0, b""), proc.stderr
+    data = json.loads(proc.stdout.decode("utf-8"))
+    facts = data["workflow.persistent_facts"] if keys == ("workflow.persistent_facts",) else \
+        data["workflow"]["persistent_facts"]
+    assert facts == [_file(docs)]
+
+
+@pytest.mark.parametrize("layers", [(".toml",), (".user.toml",), (".toml", ".user.toml")],
+                         ids=["team", "user", "both"])
+@pytest.mark.parametrize("facts", [False, True], ids=["plain", "facts"])
+def test_no_core_with_an_override_file_is_not_found(tmp_path, layers, facts):
+    """A team or a personal override alone is enough: only core can merge it, so the run warns `not found`."""
+    root, skill = _alone(tmp_path, *layers)
+    proc = _run(skill, root, "workflow", facts=facts)
+    assert (proc.returncode, proc.stdout) == (1, b"")
+    lines = _stderr(proc).splitlines()
+    assert lines[0] == "not found"
+    assert str(root / "_bmad" / "scripts" / "resolve_customization.py") in lines[1]
+
+
+def test_the_override_is_looked_up_by_the_skill_s_real_name(tmp_path):
+    """Core names the overrides after the skill folder with its links followed, so the helper does too."""
+    root, skill = _alone(tmp_path)
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(skill, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"no directory link here: {exc}")
+    (root / "_bmad" / "custom" / "alias.toml").write_bytes(TEAM.encode("utf-8"))
+    assert _run(alias, root, "workflow").returncode == 0
+    (root / "_bmad" / "custom" / f"{SKILL}.user.toml").write_bytes(TEAM.encode("utf-8"))
+    proc = _run(alias, root, "workflow")
+    assert (proc.returncode, _stderr(proc).splitlines()[0]) == (1, "not found")
+
+
+# What customize.toml holds (None: no file), the `--key` to ask for, and the start of the reason after its path.
+BROKEN_BUNDLES = {
+    "missing": (None, "workflow", ""),
+    "not-toml": (b"[workflow\nname = 1\n", "workflow", "not TOML: "),
+    "not-utf-8": (b'[workflow]\nname = "\xff"\n', "workflow", "not TOML: "),
+    "a-date": (b'[workflow]\nname = "default"\nsince = 1979-05-27\n', "workflow",
+               "holds a value JSON cannot carry: "),
+}
+
+
+@pytest.mark.parametrize("facts", [False, True], ids=["plain", "facts"])
+@pytest.mark.parametrize("case", sorted(BROKEN_BUNDLES))
+def test_no_core_and_a_bundled_file_it_cannot_use_is_one_error_line(tmp_path, case, facts):
+    """Like core with a layer it cannot load, nothing on stdout, one `error:` line and exit 1; the line here reads
+    `error: <file>: <why>`, not core's wording."""
+    content, key, why = BROKEN_BUNDLES[case]
+    root = tmp_path / "project"
+    (root / "_bmad" / "custom").mkdir(parents=True)
+    skill = root / ".claude" / "skills" / SKILL
+    skill.mkdir(parents=True)
+    if content is not None:
+        (skill / "customize.toml").write_bytes(content)
+    proc = _run(skill, root, key, facts=facts)
+    assert (proc.returncode, proc.stdout) == (1, b"")
+    [line] = _stderr(proc).splitlines()
+    assert line.startswith(f"error: {Path(os.path.abspath(skill)) / 'customize.toml'}: {why}"), line
+    assert len(line) > len(f"error: {Path(os.path.abspath(skill)) / 'customize.toml'}: {why}")
+
+
+def test_no_core_and_a_date_only_another_key_holds_resolves(tmp_path):
+    """Only the values that go out must fit in JSON, as with core: a key beside the date still resolves."""
+    root, skill = _alone(tmp_path)
+    (skill / "customize.toml").write_bytes(BROKEN_BUNDLES["a-date"][0])
+    proc = _run(skill, root, "workflow.name")
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout.decode("utf-8")) == {"workflow.name": "default"}
+
+
+def test_no_core_and_no_tomllib_is_core_s_exit_3(tmp_path, monkeypatch, capsysbinary):
+    """tomllib is imported in the fallback only, so a Python without it fails as core does there: exit 3."""
+    tree = ast.parse(HELPER.read_text(encoding="utf-8"))
+    top = {alias.name for node in tree.body if isinstance(node, ast.Import) for alias in node.names}
+    assert "tomllib" not in top
+    root, skill = _alone(tmp_path)
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+    code = helper.main(["--skill", str(skill), "--project-root", str(root), "--key", "workflow", "--facts"])
+    out, err = capsysbinary.readouterr()
+    assert (code, out) == (3, b"")
+    assert err.decode("utf-8").splitlines() == ["error: Python 3.11+ is required (stdlib `tomllib` not found)."]
 
 
 # --------------------------------------------------------------------------

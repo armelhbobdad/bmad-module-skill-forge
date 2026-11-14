@@ -889,7 +889,8 @@ def test_setup_and_quick_skill_resolve_the_helpers_their_stages_declare(tmp_path
 
 FORGER_SKILL = REPO / "src" / "skf-forger" / "SKILL.md"
 FORGER_MANIFEST = REPO / "src" / "skf-forger" / "bmad-skill-manifest.yaml"
-SETUP_SKILL = REPO / "src" / "skf-setup" / "SKILL.md"
+# Setup Forge lists each On Activation halt's path and reason in its halt contract (#1184).
+SETUP_HALTS = REPO / "src" / "skf-setup" / "references" / "halt-contract.md"
 LIFECYCLE = REPO / "src" / "knowledge" / "skill-lifecycle.md"
 INSTALLERS = ("npx bmad-module-skill-forge install", "npx bmad-method install")
 
@@ -1081,7 +1082,7 @@ class TestForgerActivation:
         """skf-setup never writes config.yaml, only the installer does, so the
         three surfaces that meet a missing install all name it."""
         setup_reason = re.search(
-            r"phase `on-activation:config-missing`[^\n]*?reason `([^`]+)`", _read(SETUP_SKILL),
+            r"`on-activation:config-missing`[^\n]*?reason `([^`]+)`", _read(SETUP_HALTS),
         )
         assert setup_reason, "skf-setup config-missing halt not found"
         preflight = _step("Preflight.")

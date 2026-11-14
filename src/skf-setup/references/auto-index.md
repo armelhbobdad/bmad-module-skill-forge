@@ -16,7 +16,7 @@ emitEnvelopeProbeOrder:
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
-<!-- Config: communicate in {communication_language}. The orphan-removal prompt and the `--orphan-action` auto-decision message (interactive runs only) render in the user's language. -->
+<!-- Config: communicate in {communication_language}. The orphan-removal prompt and the auto-decision message of `--orphan-action` or `headless_mode: true` (shown unless `{quiet_mode}` is true) render in the user's language. -->
 
 # Step 3: QMD + CCC Registry Hygiene
 
@@ -31,7 +31,7 @@ Reconcile the `qmd_collections` registry with the live QMD collections, and prun
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If a section needs a helper whose probe order has no existing path, halt (an install fault, not a hygiene error) with phase `step 3:helper-missing`, `path` set to that array's first entry, and reason `Setup cannot proceed: <script file name> was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows `references/halt-contract.md`: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 - Do not fail the workflow if hygiene encounters errors; a missing helper is not a hygiene error
 
 ## MANDATORY SEQUENCE
@@ -60,11 +60,11 @@ Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← 
 **Non-interactive resolution.** Resolve the gate without prompting in the first case that applies:
 
 - `{orphan_action}` is non-null (activation lets through only `keep` or `remove`) → act on that value, with `source: "orphan-action-flag"`
-- `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)
+- `{headless_mode}` or `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)
 
-Record nothing yourself: step 4 passes the flags that decided it, and the emitter records the decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count and, after a removal, the collections removed and not removed, so the envelope's `warnings` audit a decision nobody confirmed. On keep, unless `{quiet_mode}` is true, display `"Auto-decision (--orphan-action=keep): kept {count} orphaned forge collection(s)"`, where `{count}` is the number of names in `{orphaned_collections}`, then go to section 4. On remove, run the removal below, still with no prompt.
+Record nothing yourself: step 4 passes the flags that decided it, and the emitter records the decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count and, after a removal, the collections removed and not removed, so the envelope's `warnings` audit a decision nobody confirmed. On keep, unless `{quiet_mode}` is true, display `"Auto-decision (<cause>): kept {count} orphaned forge collection(s)"`, where `<cause>` is `--orphan-action=keep` for the flag and `headless_mode: true` for the default, and `{count}` is the number of names in `{orphaned_collections}`, then go to section 4. On remove, run the removal below, still with no prompt.
 
-**GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null and `{quiet_mode}` is false. Display to the user:
+**GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null and `{headless_mode}` and `{quiet_mode}` are false. Display to the user:
 
 "**QMD Hygiene: Found {count} orphaned collection(s) in this project that its forge registry does not list:**
 

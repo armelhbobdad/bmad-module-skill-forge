@@ -39,8 +39,9 @@ persistent_facts = []
 
 # An instruction the agent carries out (not a shell command run with
 # --result-path, as in most other SKF workflows) once the forge is fully
-# configured: after the status report (step 4), before chaining to the
-# shared health check, and never on a required-tier miss. Override wins. Use
+# configured: after the status report (step 4), before the shared health
+# check in a run that has one (a --headless, -H, --quiet or pipeline run
+# ends without it), and never on a required-tier miss. Override wins. Use
 # for a post-setup action an org wants, such as notifying an onboarding
 # channel. Empty string = no terminal hook.
 

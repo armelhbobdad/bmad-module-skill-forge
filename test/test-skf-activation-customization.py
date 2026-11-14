@@ -74,8 +74,8 @@ COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
            "--project-root {project-root} --key workflow --facts")
 # What the resolved list holds, in every activation's step (a skill whose bundled list is empty, Setup, Drop Skill,
 # Campaign and Ferris since #1107, carries it alone, in parentheses).
-# The helper exits 1 before its facts pass when BMAD core's resolver is missing (a project with SKF alone), so the
-# pointer holds only if it ran, and the bundled default, which the activation then reads as written, names the
+# The helper exits 1 before its facts pass when BMAD core's resolver is missing and an override file exists (#1184),
+# so the pointer holds only if it ran, and the bundled default, which the activation then reads as written, names the
 # folder it never loads from.
 FACTS_POINTER = ("if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, "
                  "and expanded each glob, so a `file:` entry names one file")

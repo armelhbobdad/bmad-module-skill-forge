@@ -2113,6 +2113,10 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "Campaign logs it in its decision log", "an interactive Export Skill run only prints it",
                   "In a project with SKF alone, that script is missing",
                   "`customization_resolver_unavailable: not found`",
+                  # #1184: with SKF alone, the warning means an override file was skipped.
+                  "A run with no override file for its workflow then uses the bundled defaults with no warning, "
+                  "since SKF's helper stands in for the script, and a run with `_bmad/custom/<skill-name>.toml` or "
+                  "`_bmad/custom/<skill-name>.user.toml` warns `customization_resolver_unavailable: not found`",
                   # #965: a missing SKF helper names itself, so it never reads as a missing core resolver.
                   "`customization_resolver_unavailable: SKF helper skf-resolve-customization.py not found`",
                   "reinstall SKF",
@@ -2142,7 +2146,9 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
     [loads] = [line for line in architecture.splitlines() if line.startswith("3. **Workflow loads**")]
     for text in (row, loads):
         for token in ("through `uv`", "`customization_resolver_unavailable`", "bundled settings",
-                      "an interactive Export Skill run only prints it"):
+                      "an interactive Export Skill run only prints it",
+                      "With SKF installed alone the script is missing, and the warning appears only when an "
+                      "override file would be skipped"):
             assert token in text, token
     assert "as Ferris does for his own settings when he starts" in loads
 
@@ -2163,9 +2169,11 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "SKF's customization helper applies each such entry and expands each glob before a workflow "
                   "reads the list", "a `**` never enters a hidden folder or a folder reached through a link",
                   "never loads a file under `_bmad-output/.skf-run/`",
-                  # The helper exits before its facts pass when BMAD core's resolver is missing.
-                  "When the customization script cannot run, as in a project with SKF alone, the workflow reads the "
-                  "bundled list as written and loads each file its glob matches itself, again none under "
+                  # #1184: with SKF alone and no override file the helper resolves the bundled list; it exits
+                  # before its facts pass in any other case where BMAD core's resolver cannot run.
+                  "In a project with SKF alone and no override file for the workflow, the helper resolves the "
+                  "bundled list itself. In any other case where the customization script cannot run, the workflow "
+                  "reads the bundled list as written and loads each file its glob matches itself, again none under "
                   "`_bmad-output/.skf-run/`.",
                   "Campaign's kickoff loader runs the same code"):
         assert token in facts, token

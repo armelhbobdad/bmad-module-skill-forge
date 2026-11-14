@@ -38,7 +38,10 @@ its paths resolve. An override copied from a customize.toml comment (#1108),
 `#` markers dropped, changes what the step's own command resolves: the
 `!` example drops the project-context default, Rename Skill's two-line
 force setting reaches `workflow`, and an empty path override wins over its
-bundled default, which SKILL.md then falls back to.
+bundled default, which SKILL.md then falls back to. In a project with SKF
+alone (#1184), the step's own command prints the bundled table with nothing
+on stderr when no override file is there, so the activation has no reason to
+warn, and stops with `not found` when a team or a personal one is.
 """
 
 from __future__ import annotations
@@ -87,9 +90,9 @@ STEPS = {
 ACTIVATIONS = sorted(STEPS)
 KEY = {skill: "agent" if skill == "skf-forger" else "workflow" for skill in ACTIVATIONS}
 
-# #965: the helper's own `not found` means BMAD core's resolver is missing (SKF alone), so a missing helper names
-# itself with no path: a bare `_bmad/` path fails the path-standards scan, and `{project-root}` would expand to a
-# home path in a published envelope.
+# #965: the helper's own `not found` means BMAD core's resolver is missing (SKF alone) and an override file would be
+# skipped (#1184), so a missing helper names itself with no path: a bare `_bmad/` path fails the path-standards scan,
+# and `{project-root}` would expand to a home path in a published envelope.
 MISSING_HELPER = "SKF helper skf-resolve-customization.py not found"
 REASON = (f"(`<reason>`: its first stderr line, `{MISSING_HELPER}` when the script is missing, `no JSON` when "
           "it printed none).")
@@ -343,6 +346,41 @@ def test_the_fence_hands_the_activation_one_file_per_project_context(tmp_path, s
     assert bundled in ([], [AC.DEFAULT_FACT]), (skill, bundled)
     docs = "file:" + (root / "docs" / "project-context.md").as_posix()
     assert json.loads(done.stdout)[KEY[skill]]["persistent_facts"] == ([docs] if bundled else []), skill
+
+
+@pytest.mark.parametrize("skill", ACTIVATIONS)
+def test_the_fence_with_skf_alone_warns_only_when_an_override_is_skipped(tmp_path, skill):
+    """#1184: with no BMAD core resolver in the project, the step's own command and no override file print the
+    bundled table, its persistent_facts resolved, and nothing on stderr: exit 0, so no warning. A team or a
+    personal override file, which only core can merge, exits 1 with `not found` as the first stderr line, the
+    reason the warning quotes."""
+    root = tmp_path / "project"
+    (root / "docs").mkdir(parents=True)
+    (root / "docs" / "project-context.md").write_bytes(b"rule\n")
+    words = [w.replace("{resolveCustomizationHelper}", str(HELPER)).replace("{project-root}", str(root))
+             .replace("{skill-root}", str(SRC / skill)) for w in shlex.split(_fence(skill))]
+    assert words[:2] == ["uv", "run"]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SKF_TEST_")}
+
+    def run() -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, *words[2:]], capture_output=True, cwd=root, timeout=120, env=env)
+
+    assert not (root / "_bmad" / "scripts" / "resolve_customization.py").exists()
+    done = run()
+    assert done.returncode == 0 and done.stderr == b"", done.stderr
+    bundled = tomllib.loads(_read(SRC / skill / "customize.toml"))[KEY[skill]]
+    docs = "file:" + (root / "docs" / "project-context.md").as_posix()
+    facts = [docs] if bundled["persistent_facts"] else []
+    assert json.loads(done.stdout) == {KEY[skill]: {**bundled, "persistent_facts": facts}}, skill
+    custom = root / "_bmad" / "custom"
+    custom.mkdir(parents=True)
+    for layer in (".toml", ".user.toml"):
+        for old in custom.iterdir():
+            old.unlink()
+        (custom / f"{skill}{layer}").write_bytes(f"[{KEY[skill]}]\n".encode("utf-8"))
+        done = run()
+        assert (done.returncode, done.stdout) == (1, b""), (skill, layer)
+        assert done.stderr.decode("utf-8").splitlines()[0] == "not found", (skill, layer)
 
 
 @pytest.mark.parametrize("skill", ("skf-campaign", "skf-drop-skill"))
