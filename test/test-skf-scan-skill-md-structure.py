@@ -44,7 +44,8 @@ Covers:
     check reads instead of grepping SKILL.md (any heading level, outside
     fenced code), `missing` only when a folder exists without the section
   - integration-scan (#1187): a code-mode and a compose-mode stack, the
-    cross-cutting list items and their need of no wiring evidence, the hub
+    cross-cutting list items and their need of no wiring evidence, a
+    placeholder bullet such as `None detected` that is no entry, the hub
     list left out, citations in fenced
     code and URL ports not counted, no section, the CLI, and the headings
     read from skf-validate-output.py's stack template names
@@ -2276,6 +2277,52 @@ class TestIntegrationScan:
             "### Library Pair Integrations"))
         assert [(e["name"], e["kind"]) for e in _scan_integration(text)["entries"]] == [
             ("Request tracing", "cross-cutting"), ("a + b", "pair")]
+
+    def test_a_placeholder_bullet_is_no_entry(self) -> None:
+        """Create Stack Skill can keep the Cross-Cutting Patterns heading for an empty `cross_cutting`, so a
+        `None detected` bullet under it is no integration point and `patterns_documented` counts the pairs
+        alone. A `####` heading is an entry whatever its text."""
+        text = CODE_STACK.replace("[No pattern spans three libraries.]", "- None detected")
+        payload = _scan_integration(text)
+        assert payload["patterns_documented"] == 2
+        assert _entry_facts(payload) == _entry_facts(_scan_integration(CODE_STACK))
+        heading = CODE_STACK.replace("[No pattern spans three libraries.]", "#### None detected")
+        assert [(e["name"], e["kind"]) for e in _scan_integration(heading)["entries"]] == [
+            ("None detected", "cross-cutting"), ("express + passport", "pair"), ("express + zod", "pair")]
+
+    @pytest.mark.parametrize("form", [
+        "none", "None detected", "*None detected.*", "(none)", "NONE FOUND", "_None identified_", "`n/a`",
+        "N/A.", "na", "Not  applicable", "**(None.)**", "No cross-cutting patterns",
+        "no cross-cutting patterns identified.",
+    ])
+    def test_every_placeholder_form_is_skipped(self, form: str) -> None:
+        """Surrounding emphasis, backticks, parentheses and a trailing period are dropped, case and runs of
+        spaces ignored, under any list marker."""
+        text = CODE_STACK.replace("[No pattern spans three libraries.]", f"- {form}\n* {form}\n1. {form}")
+        payload = _scan_integration(text)
+        assert payload["patterns_documented"] == 2
+        assert [(e["name"], e["kind"]) for e in payload["entries"]] == [
+            ("express + passport", "pair"), ("express + zod", "pair")]
+
+    def test_a_pattern_that_only_mentions_none_is_an_entry(self) -> None:
+        """Only an item whose whole text is a placeholder is skipped: a name that starts with `None` or holds
+        `none`, or a placeholder line with more in its block, stays an entry."""
+        text = CODE_STACK.replace("[No pattern spans three libraries.]", (
+            "- Nonce validation chain: express, passport and helmet\n"
+            "- None detected\n"
+            "- Request validation: none of the routes skip zod\n"
+            "- None detected in the tests, but pino logs every route\n"
+            "- n/a\n"
+            "  - shared config loader at src/config.ts:3"))
+        payload = _scan_integration(text)
+        assert payload["patterns_documented"] == 6
+        assert [(e["name"], e["line"], e["kind"]) for e in payload["entries"]][:4] == [
+            ("Nonce validation chain: express, passport and helmet", 12, "cross-cutting"),
+            ("Request validation: none of the routes skip zod", 14, "cross-cutting"),
+            ("None detected in the tests, but pino logs every route", 15, "cross-cutting"),
+            ("n/a", 16, "cross-cutting"),
+        ]
+        assert payload["entries"][3]["citations"] == [{"line": 17, "text": "src/config.ts:3"}]
 
     def test_headings_match_by_full_text_case_insensitively(self) -> None:
         text = CODE_STACK.replace("## Integration Patterns", "## integration patterns").replace(

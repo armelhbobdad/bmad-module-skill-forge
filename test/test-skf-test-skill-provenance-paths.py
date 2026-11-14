@@ -1709,6 +1709,8 @@ def test_criterion_one_defines_the_evidence_of_each_mode():
     # create-stack-skill writes a cross-cutting entry from `cross_cutting`, which holds no evidence (#1187).
     assert "A library-pair entry meets the first criterion when it carries the evidence" in wiring
     assert "A Cross-Cutting Patterns entry meets the first criterion as written" in wiring
+    # A placeholder bullet under a heading kept for an empty `cross_cutting` is no integration point (#1187).
+    assert "A placeholder bullet such as `None detected` is no entry, so `patterns_documented` does not count it." in wiring
     assert "`incomplete_patterns` issue" in wiring
     assert "`no [from skill: …] line for {skill name}`" in wiring
 
