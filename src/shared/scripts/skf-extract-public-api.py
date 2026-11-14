@@ -130,22 +130,24 @@ or the files, read from disk (stdin is then never read):
       [--follow] [--resolve-version] [--repo <owner/repo> [--ref <ref>]]
       [--envelope-on-error]
 
+or, for the source's version alone, the version file picked under
+--source-root:
+
+  --mode quick --language <language> --source-root <dir> --resolve-version
+      --package-name <name> [--entry-file <path>]... [--envelope-on-error]
+
 or no file at all:
 
   --mode quick --language <language> --empty-envelope <reason>
 
 --empty-envelope prints the envelope of a package no file was read for:
 the language lowercased, every list empty, each count 0, no package name,
-version or description, and <reason> as its one warning. --envelope-on-error prints
-that envelope, the error message as its one warning, where a call with
-file inputs fails (exit 1 or 2), so a caller that redirects stdout to a
-file never leaves it empty.
-
-or, for the source's version alone, the version file picked under
---source-root:
-
-  --mode quick --language <language> --source-root <dir> --resolve-version
-      --package-name <name> [--entry-file <path>]...
+version or description, and <reason> as its one warning.
+--envelope-on-error prints that envelope, the error message as its one
+warning, where a call with file inputs or --package-name fails (exit 1 or
+2), so a caller that redirects stdout to a file never leaves it empty;
+with --package-name it also holds `version_source`, `manifest_file` and
+`rule`, each null, as a run that finds no version file does.
 
 --all-sources (java, kotlin or swift, whose public declarations are public
 in whatever file they sit, with --source-root) reads as entries, after any
@@ -334,9 +336,10 @@ Exit codes (quick):
        not read, and a version --resolve-version could not find, change no
        exit code.
 
-  --empty-envelope exits 0; --envelope-on-error keeps exit 1 and the file
-  inputs' exit 2 and prints the empty envelope on stdout (a usage error
-  still prints nothing).
+  --empty-envelope exits 0; --envelope-on-error keeps exit 1 and the exit 2
+  of a file input it cannot read (with --package-name, of a --source-root
+  that is not a folder) and prints the empty envelope on stdout (a usage
+  error still prints nothing).
 
 Entries mode
 ------------
@@ -5625,9 +5628,10 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="with --repo: the branch, tag or commit to fetch and read the version at "
                             "(default: the default branch)")
     quick.add_argument("--envelope-on-error", action="store_true",
-                       help="when the file inputs fail (exit 1, or 2 for a file that cannot be read), print the "
-                            "--empty-envelope envelope with the error as its one warning, so a redirect to a file "
-                            "never leaves it empty; the exit code is kept")
+                       help="when the file inputs or --package-name fail (exit 1, or 2 for a file or --source-root "
+                            "that cannot be read), print the --empty-envelope envelope with the error as its one "
+                            "warning (with --package-name, also version_source, manifest_file and rule, null), so "
+                            "a redirect to a file never leaves it empty; the exit code is kept")
     quick.add_argument("--empty-envelope", metavar="REASON",
                        help="read no file: print the envelope of a package with nothing read, every list empty "
                             "and REASON its one warning, and exit 0; takes one --language and no other flag")
@@ -5710,13 +5714,18 @@ class QuickInputError(Exception):
     """A --manifest-file or --entry-file quick mode cannot read (exit 2)."""
 
 
-def _empty_envelope(language: str, reason: str) -> dict:
+def _empty_envelope(language: str, reason: str, named: bool = False) -> dict:
     """The quick envelope of a package no file was read for: every key a
     result that read no file carries, every list empty and `reason` its one
-    warning (--empty-envelope, and --envelope-on-error's failed call)."""
-    return {"language": language.lower(), "package_name": None, "version": None, "description": None,
-            "exports": [], "export_count": 0, "dependencies": [], "dependency_count": 0, "modules": [],
-            "module_folders": [], "warnings": [reason], "unlisted": [], "reexport_files": []}
+    warning (--empty-envelope, and --envelope-on-error's failed call). With
+    `named` (a --package-name call), also `version_source`, `manifest_file`
+    and `rule`, null, as a --package-name run that finds no version file."""
+    envelope = {"language": language.lower(), "package_name": None, "version": None, "description": None,
+                "exports": [], "export_count": 0, "dependencies": [], "dependency_count": 0, "modules": [],
+                "module_folders": [], "warnings": [reason], "unlisted": [], "reexport_files": []}
+    if named:
+        envelope.update(version_source=None, manifest_file=None, rule=None)
+    return envelope
 
 
 def _read_quick_file(root: Path | None, value: str, flag: str) -> dict:
@@ -6333,7 +6342,7 @@ def main(argv: list[str]) -> int:
     if args.envelope_on_error:
         following.append("--envelope-on-error")
     if following and (args.mode != "quick" or not (files or named)):
-        parser.error(f"{', '.join(following)}: quick mode only, with --manifest-file or --entry-file")
+        parser.error(f"{', '.join(following)}: quick mode only, with --manifest-file, --entry-file or --package-name")
     own = [f"--{flag}" for flag in DENOMINATOR_OWN_FLAGS if getattr(args, flag) is not None]
     if own and args.mode != "denominator":
         parser.error(f"{', '.join(own)}: denominator mode only (--mode denominator)")
@@ -6414,10 +6423,10 @@ def main(argv: list[str]) -> int:
         except QuickInputError as exc:
             sys.stderr.write(f"error: {exc}\n")
             if args.envelope_on_error:
-                print(json.dumps(_empty_envelope(args.language[0], str(exc)), indent=2))
+                print(json.dumps(_empty_envelope(args.language[0], str(exc), named), indent=2))
             return 2
         if "_error" in result and args.envelope_on_error:
-            result = _empty_envelope(args.language[0], result["_error"])
+            result = _empty_envelope(args.language[0], result["_error"], named)
             print(json.dumps(result, indent=2))
             return 1
         print(json.dumps(result, indent=2))

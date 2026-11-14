@@ -1214,6 +1214,20 @@ class TestQuickEnvelope:
         [warning] = out["warnings"]
         assert "unknown language: 'fortran'" in warning and out == _empty("fortran", warning)
 
+    @pytest.mark.parametrize(("language", "folder", "code"), [("python", "gone", 2), ("fortran", ".", 1)],
+                             ids=["no-folder", "unknown-language"])
+    def test_a_package_name_call_that_fails_keeps_its_keys(self, tmp_path, capsys, language, folder, code):
+        """A --package-name output always holds manifest_file and rule (#1193), and version_source, all null
+        when it finds no version file: its envelope holds them too, so a caller finds them on a failed run."""
+        named = ["--resolve-version", "--package-name", "foo"]
+        got, out = _quick(capsys, "--language", language, "--source-root", str(tmp_path / folder), *named,
+                          "--envelope-on-error")
+        assert got == code
+        [warning] = out["warnings"]
+        assert out == {**_empty(language, warning), "version_source": None, "manifest_file": None, "rule": None}
+        found, none = _quick(capsys, "--language", "python", "--source-root", str(tmp_path), *named)
+        assert found == 0 and set(out) == set(none)
+
     def test_without_the_flag_the_failures_are_unchanged(self, tmp_path, capsys):
         root = _stage(tmp_path, {"main.f90": "program x\nend program x\n"})
         code = mod.main(["--mode", "quick", "--language", "rust", "--source-root", str(root),
@@ -1239,7 +1253,7 @@ class TestQuickEnvelope:
             pytest.param(["--mode", "full", "--source-root", ".", "--envelope-on-error"],
                          "--envelope-on-error: quick mode only", id="on-error-full"),
             pytest.param(["--language", "python", "--envelope-on-error"],
-                         "with --manifest-file or --entry-file", id="on-error-no-file"),
+                         "with --manifest-file, --entry-file or --package-name", id="on-error-no-file"),
         ],
     )
     def test_a_flag_out_of_its_place_is_a_usage_error(self, argv, message, capsys):
