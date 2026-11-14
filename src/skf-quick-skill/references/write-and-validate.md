@@ -32,20 +32,20 @@ validationSummaryProbeOrder:
 
 ## STEP GOAL:
 
-To write the compiled SKILL.md, context-snippet.md, and metadata.json to the versioned skill package, then validate them on disk against the agentskills.io specification at community tier. Validation is advisory: issues are reported but do not block the workflow.
+To install the SKILL.md, context-snippet.md and metadata.json step 4 staged in `{run_dir}` into the versioned skill package, then validate them on disk against the agentskills.io specification at community tier. Validation is advisory: issues are reported but do not block the workflow.
 
 ## Rules
 
-- Write exactly what was compiled — do not modify content during writing or after validation
+- Install exactly the files step 4 staged: do not modify content during writing or after validation
 - Community-tier validation (lighter than official requirements)
-- A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
+- A HARD HALT stages the payload its site gives as `{run_dir}/halt.json` and runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, unless its site names its own command, and a headless gate stages the decision its site gives as `{run_dir}/decision.json` and runs `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 - Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires only when neither the file nor the probe order names a path that exists, as when the helper was removed after activation.
 
 ## Steps
 
 ### 1. Check Ownership, Then Create Output Directory
 
-Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`, which step 4 §4 rendered: the version the target pinned, else the manifest's, else `1.0.0`. The version folder and the file's `version` are then one value.
+Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`, which step 4 §3 rendered: the version the target pinned, else the manifest's, else `1.0.0`. The version folder and the file's `version` are then one value.
 
 **Ownership check.** Run it before creating any directory and before the overwrite prompt below. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
@@ -55,14 +55,14 @@ uv run {skillInventoryHelper} {skills_output_folder} --skill {repo_name} --write
 
 `--forge-data-folder` only tells the helper whether both settings name one folder.
 
-Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail`, and `{existing_generator}` ← `write_check.version_generated_by` and `{existing_tier}` ← `write_check.version_confidence_tier` (the build already at `{version}`, each null when none names it). Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail`, and `{existing_generator}` ← `write_check.version_generated_by` and `{existing_tier}` ← `write_check.version_confidence_tier` (the build already at `{version}`, each null when none names it), and `{prior_active_version}` ← `write_check.marked_active_version` (the version `{skill_group}/active` points at when SKF generated it, else null: step 6 §1 asks before it moves `active` off another workflow's build). Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
 
 - `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{repo_name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {repo_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
 - `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{repo_name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{repo_name}` yourself, and Quick Skill names a skill after its target, so to create it under another name, brief it with `@Ferris BS` and compile it with `@Ferris CS`. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted quick-skill run left behind; delete it yourself in that case."
 - The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
 - When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
 
-Each refusal is a HARD HALT with **exit code 9 (state-conflict)**: stage `{"phase": "write-and-validate", "halt_reason": "<the halt reason>", "reason": "<the message's first sentence>", "skill_package": null, "details": {"folder": "<the folder the message names>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, with no `--result-dir` (`references/halt-contract.md`). This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default.
+Each refusal is a HARD HALT with **exit code 9 (state-conflict)**: stage `{"phase": "write-and-validate", "halt_reason": "<the halt reason>", "reason": "<the message's first sentence>", "skill_package": null, "details": {"folder": "<the folder the message names>"}}` as `{run_dir}/halt.json` and emit it with no `--result-dir` (`references/halt-contract.md`). This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default.
 
 Then create the skill output directories:
 
@@ -84,25 +84,34 @@ If `{skill_package}/metadata.json` exists, confirm with user before overwriting:
   Proceed to section 2.
 - **If user selects N:** HARD HALT with **exit code 5 (overwrite-cancelled)**: "Overwrite cancelled. Existing skill preserved. Quick Skill names a skill after its target, so to create it under another name, brief it with `@Ferris BS` and compile it with `@Ferris CS`; or remove the existing directory yourself and re-run." Stage `{"phase": "write-and-validate", "halt_reason": "overwrite-cancelled", "reason": "Overwrite cancelled. Existing skill preserved.", "skill_package": "{skill_package}", "details": {"existing_generator": "{existing_generator}"}}` as `{run_dir}/halt.json` (`existing_generator` null when none names it) and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`: `{skill_package}` holds `metadata.json`, so the emitter also writes the `-latest.json` envelope there; a caller still reads the run's own `SKF_QUICK_SKILL_RESULT_JSON` line, never that copy in its place.
 
-**GATE [default: Y]** when `{existing_generator}` is `quick-skill` or null: if `{headless_mode}` is true, auto-proceed with Y, log "headless: overwriting existing `{skill_package}`", and record the decision: stage `{"gate": "write-and-validate.overwrite", "default_action": "Y", "taken_action": "Y", "reason": "headless: overwrote the existing package", "evidence": {"skill_package": "{skill_package}"}}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
+**GATE [default: Y]** when `{existing_generator}` is `quick-skill` or null: if `{headless_mode}` is true, auto-proceed with Y, log "headless: overwriting existing `{skill_package}`", and record the decision: stage `{"gate": "write-and-validate.overwrite", "default_action": "Y", "taken_action": "Y", "reason": "headless: overwrote the existing package", "evidence": {"skill_package": "{skill_package}"}}` as `{run_dir}/decision.json`.
 
-**GATE [default: N]** for any other `{existing_generator}`, so no headless run or batch replaces another workflow's build with a quick skill: if `{headless_mode}` is true, record the decision: stage `{"gate": "write-and-validate.overwrite", "default_action": "N", "taken_action": "N", "reason": "headless: kept the {existing_generator} build", "evidence": {"skill_package": "{skill_package}", "existing_generator": "{existing_generator}"}}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`, then halt as **If user selects N** does, with the message "**Kept the `{existing_generator}` build at `{skill_package}`.** A headless run never replaces another workflow's build with a quick skill. To replace it, run Quick Skill interactively and answer Y; to keep it, give the quick skill another version (`@Ferris QS <package>@<version>`)." and the `reason` "Kept the {existing_generator} build: a headless run never replaces another workflow's build".
+**GATE [default: N]** for any other `{existing_generator}`, so no headless run or batch replaces another workflow's build with a quick skill: if `{headless_mode}` is true, record the decision: stage `{"gate": "write-and-validate.overwrite", "default_action": "N", "taken_action": "N", "reason": "headless: kept the {existing_generator} build", "evidence": {"skill_package": "{skill_package}", "existing_generator": "{existing_generator}"}}` as `{run_dir}/decision.json`, then halt as **If user selects N** does, with the message "**Kept the `{existing_generator}` build at `{skill_package}`.** A headless run never replaces another workflow's build with a quick skill. To replace it, run Quick Skill interactively and answer Y; to keep it, give the quick skill another version (`@Ferris QS <package>@<version>`): when `active` names another workflow's build, that run moves it only if you answer F, and a headless run keeps it." and the `reason` "Kept the {existing_generator} build: a headless run never replaces another workflow's build".
 
 A `{skill_package}` without `metadata.json` holds only what an interrupted run leaves (the ownership check refuses anything else), so it is written without asking.
 
 ### 2. Write Deliverables
 
-Write the three compiled artifacts to the skill package in this order, `metadata.json` first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts:
+Install the three files step 4 staged into the skill package in this order, `metadata.json` first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts:
 
-1. `{skill_package}/metadata.json`: installed from the file step 4 §4 rendered, never typed again. Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and run:
+1. `{skill_package}/metadata.json`: installed from the file step 4 §3 rendered, never typed again. Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and run:
 
    ```bash
    uv run {atomicWriteHelper} write --target "{skill_package}/metadata.json" < "{run_dir}/metadata.json"
    ```
 
    It writes the file in place atomically, so an interrupted run never leaves half a `metadata.json`. If no candidate exists, write nothing and HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Nothing was written to `{skill_package}`.** SKF's atomic writer (`skf-atomic-write.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "Nothing was written: the atomic writer is missing.", "skill_package": "{skill_package}", "details": {"cause": "atomic-writer-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`, without `--result-dir "{skill_package}"` when no earlier run's `metadata.json` is there (`references/halt-contract.md`).
-2. `{skill_package}/SKILL.md`: the compiled skill document.
-3. `{skill_package}/context-snippet.md`: the compressed context snippet. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
+2. `{skill_package}/SKILL.md`: installed from `{run_dir}/SKILL.md`, which step 4 §2 staged, as `metadata.json` is:
+
+   ```bash
+   uv run {atomicWriteHelper} write --target "{skill_package}/SKILL.md" < "{run_dir}/SKILL.md"
+   ```
+
+3. `{skill_package}/context-snippet.md`: installed from `{run_dir}/context-snippet.md`, which step 4 §4 staged, as `metadata.json` is. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
+
+   ```bash
+   uv run {atomicWriteHelper} write --target "{skill_package}/context-snippet.md" < "{run_dir}/context-snippet.md"
+   ```
 
 Confirm after each write: "Written: metadata.json" / "Written: SKILL.md" / "Written: context-snippet.md". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 

@@ -1,0 +1,6 @@
+type: changed
+scope: skf-quick-skill
+summary: |
+  A Quick Skill `--batch` file with a line whose words after the target are not a valid `language=<lang>` or `scope=<path>` modifier (a misspelled key such as `lang=javascript`, an empty value, a modifier given twice) is now refused before any target runs, with exit code `2` (`input-invalid`) and a message that names each such line, the first five with their fault, and gives the fix, instead of failing only when the batch reaches that line. A word that starts with `#` after a line's target now opens a comment that runs to the end of the line, so `lodash scope=src/ # the core` is valid. `skf-quick-batch.py parse` marks each such line with an `error`.
+issues: [1175]
+prs: [1223]

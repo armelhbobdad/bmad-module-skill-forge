@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-quick-skill
+summary: |
+  Quick Skill now reports the version and the export count the installed `metadata.json` holds, in its completion summary and in the result envelope's `summary.version` and `summary.exports_documented`, and its context snippet names that version. When `skf-render-quick-metadata.py` goes missing after the run started, or fails twice, compiling stops with exit `3` (`resolution-failure`, `details.cause` `quick-metadata-renderer-missing` or `quick-metadata-renderer-error`) instead of writing `metadata.json` by hand. The compiled `SKILL.md` and `context-snippet.md` are kept in the run folder and installed from there, as `metadata.json` is.
+migration: |
+  If Quick Skill now stops with exit `3` and `details.cause` `quick-metadata-renderer-missing`, re-install SKF so that `skf-render-quick-metadata.py` is back in `_bmad/skf/shared/scripts/`, then run it again. With `quick-metadata-renderer-error`, the error line shown on screen names the file or field the renderer could not read: run Quick Skill again, and if it stops the same way, report that line.
+issues: [1174]
+prs: [1223]

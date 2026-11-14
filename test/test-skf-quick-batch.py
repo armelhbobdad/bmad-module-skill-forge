@@ -3,8 +3,9 @@
 
 The batch file grammar is tested against the Input format example of
 skf-quick-skill's references/batch-mode.md, and the summary file and the
-event lines against its schema block and event formats, so the helper and
-the page the agent reads cannot drift apart. Each subcommand runs in-process on a
+event lines against the schema block and event formats of the Quick Skill
+batch section of docs/workflows.md, which a caller reads (#1173), so the
+helper and the pages cannot drift apart. Each subcommand runs in-process on a
 temporary run folder; the outcome of a halted target is checked against
 the exit code the shared emitter gives the same staged halt.json, and a
 whole batch runs once through the script as a program.
@@ -36,6 +37,7 @@ SCRIPT = SCRIPTS / "skf-quick-batch.py"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 SCHEMA = SCRIPTS / "schemas" / "skf-quick-skill-result-envelope.v1.json"
 BATCH_MODE = REPO / "src" / "skf-quick-skill" / "references" / "batch-mode.md"
+DOCS = REPO / "docs" / "workflows.md"
 CREATE_REFS = REPO / "src" / "skf-create-skill" / "references"
 CREATE_SCHEMA = SCRIPTS / "schemas" / "skf-create-skill-result-envelope.v1.json"
 
@@ -116,16 +118,30 @@ def test_the_documented_modifiers_are_the_helpers():
     ("next@canary scope=packages/next", ("next@canary", None, "packages/next")),
     ("lodash LANGUAGE=javascript Scope=src/", ("lodash", "javascript", "src/")),
     ("lodash scope=src/a=b", ("lodash", None, "src/a=b")),
-    ("lodash language=", ("lodash language=", None, None)),
-    ("lodash language=js language=ts", ("lodash language=js language=ts", None, None)),
-    ("lodash langauge=js", ("lodash langauge=js", None, None)),
-    ("I want a skill for onboarding", ("I want a skill for onboarding", None, None)),
-    ("lodash # a comment", ("lodash # a comment", None, None)),
-], ids=["spaces", "pypi-pin", "dist-tag-scope", "key-case", "value-with-equals", "empty-value",
-        "repeated-modifier", "misspelled-modifier", "prose", "trailing-comment"])
+    ("lodash # a comment", ("lodash", None, None)),
+    ("lodash scope=src/ # note", ("lodash", None, "src/")),
+    ("lodash #note language=python", ("lodash", None, None)),
+], ids=["spaces", "pypi-pin", "dist-tag-scope", "key-case", "value-with-equals", "trailing-comment",
+        "comment-after-a-modifier", "comment-hides-the-rest"])
 def test_a_line_is_a_target_and_its_modifiers(line, expected):
     [entry] = mod.parse_text(line)
     assert (entry["target"], entry["language_hint"], entry["scope_hint"]) == expected
+    assert "error" not in entry
+
+
+@pytest.mark.parametrize("line, word, wrong", [
+    ("lodash language=", "language=", "has no value"),
+    ("lodash language=js language=ts", "language=ts", "sets `language=` a second time"),
+    ("lodash langauge=js", "langauge=js", "is no `language=` or `scope=` modifier"),
+    ("zod lang=javascript", "lang=javascript", "is no `language=` or `scope=` modifier"),
+    ("I want a skill for onboarding", "want", "is no `language=` or `scope=` modifier"),
+], ids=["empty-value", "repeated-modifier", "misspelled-modifier", "unknown-key", "prose"])
+def test_a_word_that_is_no_modifier_marks_its_line(line, word, wrong):
+    """#1175: the line is marked, not taken whole as a target that fails only when the batch reaches it."""
+    [entry] = mod.parse_text("# a comment\n\n" + line + "\n")
+    target = line.split()[0]
+    assert entry == {"batch": 1, "target": target, "language_hint": None, "scope_hint": None,
+                     "error": f"line 3: `{word}` after the target `{target}` {wrong}"}
 
 
 @pytest.mark.parametrize("line", ["", "   ", "# comment", "   # indented comment", "\t#tab"],
@@ -211,6 +227,53 @@ def test_a_refused_start_names_the_halt_the_batch_stops_with(tmp_path, capsys):
     assert unwritable["halt_reason"] == "write-failure" and "cannot be written" in unwritable["message"]
     codes = _exit_codes()
     assert (codes[unreadable["halt_reason"]], codes[unwritable["halt_reason"]]) == (2, 4)
+
+
+def test_start_refuses_a_batch_with_a_bad_line_before_writing_anything(tmp_path, capsys):
+    """#1175: batch-mode.md §1 halts with exit 2 before any target runs; parse marks the lines and refuses nothing."""
+    file = tmp_path / "targets.txt"
+    file.write_text("lodash\nzod lang=javascript\n# a comment\nlodash language=\nx language=a language=b\n"
+                    "cognee scope=src/ # a note\n", encoding="utf-8")
+    run_dir = tmp_path / ".skf-run" / "skf-quick-skill-ab12cd34"
+    code, out, err = _run(capsys, "start", str(file), "--run-dir", str(run_dir))
+    assert (code, out) == (1, None)
+    refusal = json.loads(err)
+    assert refusal["halt_reason"] == "input-invalid" and _exit_codes()["input-invalid"] == 2
+    message = refusal["message"]
+    for needle in ("the batch file has 3 lines with a word that is no modifier",
+                   "line 2: `lang=javascript` after the target `zod`", "line 4: `language=` after the target `lodash`",
+                   "line 5: `language=b` after the target `x`",
+                   "write only `language=<lang>` and `scope=<path>`, each once and with a value, or a `#` comment",
+                   "fix each line named and start the batch again"):
+        assert needle in message, needle
+    assert "line 1:" not in message and "line 6:" not in message and "more" not in message
+    assert str(file) not in message, "batch-mode.md stages the file's path in details.batch_file"
+    assert not run_dir.exists(), "no run folder and no batch.jsonl: no target runs"
+    code, out, _ = _run(capsys, "parse", str(file))
+    assert code == 0
+    assert [(t["target"], t.get("error", "")[:7]) for t in out["targets"]] == [
+        ("lodash", ""), ("zod", "line 2:"), ("lodash", "line 4:"), ("x", "line 5:"), ("cognee", "")]
+
+
+def test_a_refused_start_names_every_bad_line(tmp_path, capsys):
+    """#1175: the first five bad lines with their fault, every other one by number, so one round of fixes
+    clears the file."""
+    file = tmp_path / "targets.txt"
+    file.write_text("".join(f"target{n} lang=x\n" for n in range(1, 7)), encoding="utf-8")
+    code, _, err = _run(capsys, "start", str(file), "--run-dir", str(tmp_path / "run"))
+    message = json.loads(err)["message"]
+    assert code == 1 and message.startswith("the batch file has 6 lines with a word that is no modifier (")
+    assert [int(n) for n in re.findall(r"line (\d+): ", message)] == [1, 2, 3, 4, 5]
+    assert "`lang=x` after the target `target5` is no `language=` or `scope=` modifier; and line 6)." in message
+    file.write_text("lodash\n" + "".join(f"target{n} lang=x\n" for n in range(2, 10)), encoding="utf-8")
+    code, _, err = _run(capsys, "start", str(file), "--run-dir", str(tmp_path / "run"))
+    message = json.loads(err)["message"]
+    assert code == 1 and message.startswith("the batch file has 8 lines with a word that is no modifier (")
+    assert "`target6` is no `language=` or `scope=` modifier; and lines 7, 8 and 9)." in message
+    assert "more" not in message
+    file.write_text("lodash\ntarget lang=x\n", encoding="utf-8")
+    code, _, err = _run(capsys, "start", str(file), "--run-dir", str(tmp_path / "run"))
+    assert json.loads(err)["message"].startswith("the batch file has 1 line with a word that is no modifier (line 2: ")
 
 
 def test_start_keeps_the_absolute_path_so_another_working_folder_resumes(tmp_path, capsys, monkeypatch):
@@ -448,7 +511,7 @@ def test_summarize_counts_and_takes_the_highest_failed_code(batch, capsys, tmp_p
 
 
 def test_a_batch_with_no_target_ends_at_once_as_a_success(tmp_path, capsys):
-    """batch-mode.md: an empty batch file is a success, targets_total 0 and exit code 0."""
+    """docs/workflows.md: an empty batch file is a success, targets_total 0 and exit code 0."""
     file = tmp_path / "empty.txt"
     file.write_text("# nothing to do\n\n", encoding="utf-8")
     run_dir = tmp_path / "skf-quick-skill-empty"
@@ -459,20 +522,27 @@ def test_a_batch_with_no_target_ends_at_once_as_a_success(tmp_path, capsys):
     assert (event["status"], event["targets_total"], event["succeeded"], event["failed"], event["exit_code"]) == (
         "success", 0, 0, 0, 0)
     assert json.loads(Path(event["summary_path"]).read_text(encoding="utf-8"))["results"] == []
-    rule = BATCH_MODE.read_text(encoding="utf-8").split("`status` resolves as:", 1)[1].split("\n", 1)[0]
+    summary = _docs_section("**Batch summary file.**", "**Batch events.**")
+    rule = summary.split("`status` resolves as:", 1)[1].split("\n", 1)[0]
     assert "a batch file with no target included (it ends at once, `targets_total` 0 and exit code `0`)" in rule
 
 
+def _docs_section(start: str, end: str) -> str:
+    """The text of docs/workflows.md from `start` to `end`, which follows it."""
+    return DOCS.read_text(encoding="utf-8").split(start, 1)[1].split(end, 1)[0]
+
+
 def _documented_summary() -> dict:
-    """The JSON block batch-mode.md's Batch summary contract shows as the schema."""
-    section = BATCH_MODE.read_text(encoding="utf-8").split("## Batch summary contract", 1)[1]
-    [block] = re.findall(r"^```json\n(.*?)^```$", section.split("## Headless events", 1)[0], flags=re.M | re.S)
+    """The JSON block the docs' Batch summary file paragraph shows as the schema."""
+    section = _docs_section("**Batch summary file.**", "**Batch events.**")
+    [block] = re.findall(r"^```json\n(.*?)^```$", section, flags=re.M | re.S)
     return json.loads(block)
 
 
 def _documented_status(failed: int, succeeded: int) -> list[str]:
-    """The statuses batch-mode.md's rule gives these counts, read from its `"<status>"` when `<test>` clauses."""
-    rule = BATCH_MODE.read_text(encoding="utf-8").split("`status` resolves as:", 1)[1].split("\n", 1)[0]
+    """The statuses the docs' rule gives these counts, read from its `"<status>"` when `<test>` clauses."""
+    summary = _docs_section("**Batch summary file.**", "**Batch events.**")
+    rule = summary.split("`status` resolves as:", 1)[1].split("\n", 1)[0]
     counts, ops = {"failed": failed, "succeeded": succeeded}, {"==": int.__eq__, ">": int.__gt__}
     matched = []
     for status, test in re.findall(r'`"([a-z]+)"` when `([^`]+)`', rule):
@@ -496,7 +566,7 @@ def test_the_status_is_the_one_the_documented_rule_gives(tmp_path, capsys, outco
 
 
 def test_the_summary_file_has_the_documented_keys(batch, capsys, tmp_path):
-    """The schema block of batch-mode.md and the record summarize writes keep one shape."""
+    """The docs' schema block and the record summarize writes keep one shape."""
     file, run_dir = batch
     _run(capsys, "start", str(file), "--run-dir", str(run_dir))
     _finish(run_dir, capsys, ["success", "resolution-failure", "success"])
@@ -630,7 +700,7 @@ def test_a_summary_that_cannot_be_written_keeps_the_batch_file(batch, capsys, tm
     assert code == 0 and event["summary_path"] is None
     assert event["warnings"][0].startswith("summary_write_failed:")
     assert (run_dir / "batch.jsonl").is_file(), "with no summary file, the batch file is the only record"
-    # #889: with summary_path null, the event and batch.jsonl are the batch's result (batch-mode.md §4)
+    # #889: with summary_path null, the event and batch.jsonl are the batch's result (docs/workflows.md)
     kept = mod.load(run_dir)
     assert kept["summary"]["summary_path"] is None and sorted(kept["results"]) == [1, 2, 3]
     # #904: the event names that batch file, and a batch summarized again prints the same event
@@ -646,7 +716,7 @@ def test_a_summary_that_cannot_be_written_keeps_the_batch_file(batch, capsys, tm
 
 
 def _documented_events() -> list[str]:
-    section = BATCH_MODE.read_text(encoding="utf-8").split("## Headless events", 1)[1].split("## Exit code", 1)[0]
+    section = _docs_section("**Batch events.**", "**Exception: `/skf-brief-skill`")
     return [line for block in re.findall(r"^```\n(.*?)^```$", section, flags=re.M | re.S)
             for line in block.splitlines()]
 
@@ -694,7 +764,7 @@ def test_the_null_summary_event_has_the_documented_keys(batch, capsys, tmp_path)
 def test_a_set_summary_path_beside_a_warning_is_documented(batch, capsys, tmp_path, monkeypatch, refused,
                                                            warning, meaning):
     """A -latest copy or a batch.jsonl summary line that could not be written leaves summary_path set and
-    adds a warning: batch-mode.md's Headless events show that event and name both warnings."""
+    adds a warning: the docs' Batch events show that event and name both warnings."""
     documented = {tuple(_keys(line)) for line in _documented_events()}
     file, run_dir = batch
     _run(capsys, "start", str(file), "--run-dir", str(run_dir))
@@ -720,7 +790,7 @@ def test_a_set_summary_path_beside_a_warning_is_documented(batch, capsys, tmp_pa
     assert len(event["warnings"]) == 1 and event["warnings"][0].startswith(f"{warning}:")
     assert "batch_file" not in event
     assert tuple(event) in documented, event
-    section = BATCH_MODE.read_text(encoding="utf-8").split("## Headless events", 1)[1].split("## Exit code", 1)[0]
+    section = _docs_section("**Batch events.**", "**Exception: `/skf-brief-skill`")
     assert meaning in section
     assert "The file `summary_path` names stays the batch's result." in section
 

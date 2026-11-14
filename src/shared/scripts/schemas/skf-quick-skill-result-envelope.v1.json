@@ -53,7 +53,7 @@
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 5, 6, 7, 8, 9],
-      "description": "The exit code of the halt-contract.md table, derived from halt_reason: null gives 0, input-invalid 2, resolution-failure 3, write-failure 4, overwrite-cancelled 5, user-cancelled 6, finalize-blocked 7, ecosystem-redirect 8, not-skf-output and flat-layout 9."
+      "description": "The exit code of the halt-contract.md table, derived from halt_reason: null gives 0, input-invalid 2, resolution-failure 3, write-failure 4, overwrite-cancelled 5, user-cancelled 6, finalize-blocked 7, ecosystem-redirect 8 (reserved until agentskills.io has a registry API), not-skf-output and flat-layout 9."
     },
     "phase": {
       "type": ["string", "null"],
@@ -173,8 +173,8 @@
         },
         "active_pointer": {
           "type": "string",
-          "enum": ["symlink", "junction", "skipped-no-active-pointer", "skipped-helper-missing"],
-          "description": "The kind of {skill_group}/active pointer step 6 flipped, or why it flipped none."
+          "enum": ["symlink", "junction", "skipped-no-active-pointer", "skipped-helper-missing", "kept-prior-active"],
+          "description": "The kind of {skill_group}/active pointer step 6 flipped, or why it flipped none: kept-prior-active when active named another workflow's build and the run kept it there (the user's K, or a headless run's default)."
         },
         "validation_issues": {
           "type": "object",
@@ -229,9 +229,10 @@
               "quick-extract.repo-shape",
               "quick-extract.zero-exports",
               "compile.review",
-              "write-and-validate.overwrite"
+              "write-and-validate.overwrite",
+              "finalize.active-pointer"
             ],
-            "description": "The gate that resolved without a person, named after its step and the gate the step file labels."
+            "description": "The gate that resolved without a person, named after its step and the gate the step file labels. `ecosystem-check.ecosystem-match` is reserved: step 2 records it only once agentskills.io has a registry API."
           },
           "default_action": {
             "type": "string",

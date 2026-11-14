@@ -18,6 +18,7 @@ To finalize the skill by creating the active-version pointer, displaying the com
 - Do not rewrite deliverables — they were written and validated in step 5
 - Emit the result envelope and contract through the shared emitter, never by hand; when it is missing or fails twice, say the contract was not written and go on (§3)
 - A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
+- A headless gate stages the decision its site gives as `{run_dir}/decision.json` and runs `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 - Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires only when neither the file nor the probe order names a path that exists, as when the helper was removed after activation.
 
 ## Steps
@@ -27,6 +28,16 @@ To finalize the skill by creating the active-version pointer, displaying the com
 **If `{overrides.no_active_pointer}` is true**, skip the helper invocation entirely. Log: "Active pointer: skipped per `--no-active-pointer` override." Do not update `{skill_group}/active`, and set `{active_pointer}` to `skipped-no-active-pointer`. Proceed to §2 with the active-pointer line omitted from the completion summary and the outputs payload.
 
 `{skill_group}` and `{skill_package}` were computed in step 5 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` is the `version` of the `metadata.json` step 5 installed.
+
+When step 5 §1 bound `{prior_active_version}` and it is neither `{version}` nor `active` (a real folder there, which the flip below refuses), bind `{prior_generator}` ← `generated_by` and `{prior_tier}` ← `confidence_tier` of `{skill_group}/{prior_active_version}/{repo_name}/metadata.json` (each null when absent). When `{prior_generator}` is not `quick-skill`, `active` names another workflow's build, so ask before moving it:
+
+"**`{skill_group}/active` points at the `{prior_generator}` build of v{prior_active_version} ({prior_tier}).** Moving it makes this quick skill, v{version}, the version every reader of `active` gets.
+
+Select: [F] Point it at this quick skill · [K] Keep it" (say "an SKF build" in place of "the `{prior_generator}` build" when `{prior_generator}` is null, and leave out " ({prior_tier})" when `{prior_tier}` is null). The package is already written, so `cancel`, `exit` or `:q` at this question keeps the pointer as **IF K** does.
+
+- **IF F**: go on to the flip below.
+- **IF K**: log "Active pointer: kept on v{prior_active_version}.", leave `{skill_group}/active` as it is and set `{active_pointer}` to `kept-prior-active`. Proceed to §2 with the active-pointer line omitted from the completion summary and the outputs payload.
+- **GATE [default: K]**: if `{headless_mode}` is true, keep it as **IF K** does and record the decision: stage `{"gate": "finalize.active-pointer", "default_action": "K", "taken_action": "K", "reason": "headless: kept active on v{prior_active_version}", "evidence": {"prior_active_version": "{prior_active_version}", "prior_generator": "{prior_generator}"}}` as `{run_dir}/decision.json` (`prior_generator` null when the metadata names none).
 
 Point `{skill_group}/active` at `{version}` with the shared helper.
 
@@ -44,6 +55,8 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 
 ### 2. Display Completion Summary
 
+Bind `{exports_documented}` ← `stats.exports_documented` of `{skill_package}/metadata.json`, the file step 5 installed, whose `version` is `{version}` (§1): the summary and §3 report both from that file, never a count of their own.
+
 "**Quick Skill summary**
 
 **Skill:** {repo_name} v{version}
@@ -59,11 +72,13 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 - `{skill_package}/SKILL.md`
 - `{skill_package}/context-snippet.md` (omit this line when `--skip-snippet` was set)
 - `{skill_package}/metadata.json`
-- `{skill_group}/active` -> `{version}` (omit this line when `--no-active-pointer` was set)
+- `{skill_group}/active` -> `{version}` (omit this line when §1 flipped no pointer)
 
 {If step 5 §1 set `{replaced_build}`, add:} **Replaced:** the `{replaced_build}` build of v{version}. Its forge data, `{forge_data_folder}/{repo_name}/{version}/`, is left in place: remove it yourself once you no longer need it.
 
-**Exports documented:** {count}
+{If §1 set `{active_pointer}` to `kept-prior-active`, add:} **Active:** still points at v{prior_active_version}, the version test-skill and export-skill read; re-run Quick Skill and answer F to move it to v{version}.
+
+**Exports documented:** {exports_documented}
 **Validation:** {pass / N issues (advisory)}
 
 ---
@@ -89,7 +104,7 @@ cat > "{run_dir}/result-context.json" <<'SKF_JSON'
     "skill_name": "{repo_name}",
     "version": "{version}",
     "language": "{language}",
-    "exports_documented": {export count},
+    "exports_documented": {exports_documented},
     "quality_score": {quality_score},
     "confidence": "{extraction confidence}",
     "repo_shape": {repo_shape},
@@ -113,7 +128,7 @@ SKF_JSON
 uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" < "{run_dir}/result-context.json"
 ```
 
-This list is the summary, once: `skill_name`, `version`, `language`, `exports_documented` (the export count), `quality_score` and `validation_issues` (the two values of `{run_dir}/validation-summary.json`, step 5 §6, copied as they are there: a number or null, and the object `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`), `security_result` (step 5 §4: `pass`, `warn` or `skipped`), `confidence` and `repo_shape` (step 3, the shape null when it recorded none), `language_resolution` and `detected_languages` (step 1), `zero_exports_rescue` (step 3 §4.5, else null) and `active_pointer` (§1). Write each value as JSON: a string in double quotes with any `"` or `\` escaped, every path absolute with `/`, and `null` for a value the run did not record. Leave the snippet out of both `outputs` under `--skip-snippet`, and `outputs.active_pointer` out when §1 flipped no pointer.
+This list is the summary, once: `skill_name`, `version` (`{skill_package}/metadata.json`'s, §2), `language`, `exports_documented` (that file's `stats.exports_documented`, §2), `quality_score` and `validation_issues` (the two values of `{run_dir}/validation-summary.json`, step 5 §6, copied as they are there: a number or null, and the object `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`), `security_result` (step 5 §4: `pass`, `warn` or `skipped`), `confidence` and `repo_shape` (step 3, the shape null when it recorded none), `language_resolution` and `detected_languages` (step 1), `zero_exports_rescue` (step 3 §4.5, else null) and `active_pointer` (§1). Write each value as JSON: a string in double quotes with any `"` or `\` escaped, every path absolute with `/`, and `null` for a value the run did not record. Leave the snippet out of both `outputs` under `--skip-snippet`, and `outputs.active_pointer` out when §1 flipped no pointer.
 
 The emitter writes the result contract from `result_contract`, with the payload's own `status` and `summary`, so neither is typed twice (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_QUICK_SKILL_RESULT_JSON` line) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`. In a headless single-target run, bind `{result_envelope_line}` ← that line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. Otherwise (an interactive run, or a `--batch` target) display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, leave `{result_envelope_line}` empty, say that the result contract was not written and why, and go on.
 
@@ -128,7 +143,7 @@ When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `res
 In a single-target run, then delete the run folder, which a finished run no longer needs: the files step 3 fetched into it, and the files the steps staged (if `rmdir` reports it is not empty, leave it). The `case` guard deletes nothing unless the path is a quick-skill run folder:
 
 ```bash
-case "{run_dir}" in */.skf-run/skf-quick-skill-*) rm -rf "{run_dir}/src" && rm -f "{run_dir}"/*.json "{run_dir}"/*.jsonl "{run_dir}"/*.txt && rmdir "{run_dir}" ;; esac
+case "{run_dir}" in */.skf-run/skf-quick-skill-*) rm -rf "{run_dir}/src" && rm -f "{run_dir}"/*.json "{run_dir}"/*.jsonl "{run_dir}"/*.txt "{run_dir}"/*.md && rmdir "{run_dir}" ;; esac
 ```
 
 Under `--batch`, leave it: batch mode §3 records the target from it, then removes it.

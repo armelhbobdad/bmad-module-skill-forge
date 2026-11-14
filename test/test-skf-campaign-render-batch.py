@@ -495,6 +495,7 @@ class TestMapAndRecord:
         brief = {"targets": [{"name": "x", "repo_url": "https://github.com/o/x", **hints}]}
         lines, summary = mod.build_batch(state, brief)
         entry = mod.build_map(lines, summary, "f")["lines"][0]
+        assert "error" not in qb.parse_line(lines[0]), "QS refuses a whole batch that holds such a line"
         assert qb.parse_line(lines[0])["target"] == entry["target"] == "https://github.com/o/x@1.0.0"
 
     def test_record_needs_a_map(self, capsys):

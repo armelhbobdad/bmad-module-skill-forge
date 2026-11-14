@@ -1,0 +1,6 @@
+type: added
+scope: skf-quick-skill
+summary: |
+  When the skill's `active` pointer names a build another workflow made (a Create Skill build, for example), Quick Skill now asks whether to point it at the new quick skill or keep it, instead of moving it without asking. A headless or `--batch` run keeps it, records the new `finalize.active-pointer` decision in `headless_decisions`, and reports `summary.active_pointer` as the new value `kept-prior-active`, and its completion summary and `outputs` then leave out the pointer. A pointer on another quick skill is moved, and a missing one created, as before. Test Skill and Export Skill act on the version `active` names, so after a kept pointer a `forge-quick` or `QS TS EX` chain, and a campaign's export of a Tier B skill, test and export that other build, not the new quick skill: to test and export the quick skill, run `@Ferris QS <target>` on its own and answer `[F]` first.
+issues: [1175]
+prs: [1223]

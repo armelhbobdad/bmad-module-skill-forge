@@ -117,7 +117,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 **Note:** QS ignores your forge tier. Every Quick Skill is built the Quick-tier way (its `metadata.json` records `confidence_tier: "Quick"` and `source_authority: "community"`) and uses none of ast-grep, CCC or QMD, even when your forge is set to Forge+ or Deep. For a skill built at your forge tier, use `BS → CS`, `forge`, or `forge-auto`. See [Skill Model](/docs/skill-model.md).
 
-**When to Use:** When you need a skill quickly, with no brief. Accepts package names, a package's npm, PyPI or crates.io page, or GitHub URLs. Append `@version` to target a specific version (for example `@Ferris QS cognee@1.6.2`).
+**When to Use:** When you need a skill quickly, with no brief. Accepts package names, a package's npm, PyPI or crates.io page, or GitHub URLs. Append `@version` to target a specific version (for example `@Ferris QS cognee@1.6.2`). When the repository has no tag for that version, an interactive run lists the nearest tags and offers to build from one of them, to drop the version and build from the default branch (or from the branch a `/tree/` URL names), or to cancel; a headless run stops with exit `3` (`resolution-failure`). Quick Skill compiles one target per run, so an input that names several packages or URLs, such as `lodash axios zod`, is pointed at `--batch <file>`.
 
 **Package names:** QS looks a package name up on every registry of npm, PyPI and crates.io; a JavaScript, TypeScript, Python or Rust language hint asks only that language's registry. When more than one registry answers, an interactive run lists every candidate and asks which project to build, or takes another GitHub URL. A headless run keeps the first registry's pick (npm, then PyPI, then crates.io) and records an `also_found_in` warning in its result envelope. To build another candidate, pass its GitHub URL, its registry page URL or a language hint (`language=` on a batch line).
 
@@ -144,7 +144,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 `--description` and `--exports` do not combine with `--batch`, because one description or export list cannot fit every target: such a run stops before its first target with exit `2` (`input-invalid`) and writes no batch summary. To give a target its own description or export list, run it on its own. `--language-hint` and `--scope-hint` are refused with `--batch` too (exit `2`, `input-invalid`): put `language=` or `scope=` on the batch line instead.
 
-**Safety:** Writes a version only into a skill folder SKF generated, or a new one; otherwise it stops with exit `9` (`not-skf-output`, or `flat-layout` for an SKF skill in the old flat layout) before writing anything. Quick Skill names a skill after its target, so use `BS` → `CS` to create it under another name. When the version it writes already holds a build another workflow made (a Create Skill build, for example), the overwrite question names that build, and a yes replaces the whole package with the quick skill (the build's forge data folder stays, and the summary names it); a headless run stops there instead, with exit `5` (`overwrite-cancelled`) and `error.details.existing_generator` naming the generator.
+**Safety:** Writes a version only into a skill folder SKF generated, or a new one; otherwise it stops with exit `9` (`not-skf-output`, or `flat-layout` for an SKF skill in the old flat layout) before writing anything. Quick Skill names a skill after its target, so use `BS` → `CS` to create it under another name. When the version it writes already holds a build another workflow made (a Create Skill build, for example), the overwrite question names that build, and a yes replaces the whole package with the quick skill (the build's forge data folder stays, and the summary names it); a headless run stops there instead, with exit `5` (`overwrite-cancelled`) and `error.details.existing_generator` naming the generator. When the skill's `active` pointer names a build another workflow made, an interactive run asks whether to point it at the new quick skill (`[F]`) or keep it (`[K]`); a headless run keeps it, records the `finalize.active-pointer` decision and reports `active_pointer` as `kept-prior-active`. Test Skill and Export Skill act on the version `active` names, so a `forge-quick` chain then tests and exports that other build, not the quick skill: run `@Ferris QS <target>` on its own and answer `[F]` first.
 
 **Agent:** Ferris (Architect mode)
 
@@ -482,7 +482,7 @@ An alias given without its argument asks for it, and a headless run, such as one
 ### How It Works
 
 - Pipelines **automatically turn on headless mode**: every confirmation gate auto-proceeds with its default action
-- **Data flows automatically**: once the first workflow completes, its brief path or skill name becomes the input for the next workflows
+- **Data flows automatically**: once the first workflow completes, its brief path or skill name becomes the input for the next workflows. A skill name names no version: TS and EX act on the version the skill's `active` link names, and Quick Skill keeps that link on a build another workflow made, so `forge-quick` on such a skill tests and exports that build, not the quick skill ([Quick Skill](#quick-skill-qs), Safety)
 - **Circuit breakers** stop the pipeline when a step's result is not good enough: AN finds nothing worth making into a skill, CS hits a hard error or compiles a skill with no exports, AS finds CRITICAL drift, TS settles any verdict but PASS, or VS covers none of the technologies the architecture keeps. TS stops the pipeline on every FAIL (a Critical or High gap, a score below its threshold, or a FAIL that a cap forced although the score clears the threshold), on INCONCLUSIVE and on pass-with-drift. A TS score between 80% and a higher pipeline target (90% for `forge-auto`) passes, and the test report records the fallback. VS stops the pipeline only on zero coverage, so a `NOT_FEASIBLE` verdict with coverage goes on to RA, which takes each `Blocked` pair as a critical issue. A workflow that printed no result line stops the pipeline with halt reason `no-result` (SF: with the line it displayed, if any): it was cut off, or could not write its result, so there is nothing to check.
 - **`maintain` skips what it does not need.** When AS finds no drift (CLEAN), Update Skill is skipped, unless the source moved past the ref the skill was built from: then US runs with `--target-ref <upstream_ref>`, the ref the audit found. When the source did not move and the skill is already current (its active version passed its test and is exported, with no drift on record) and your forge tier has not changed since that test, Test Skill and Export Skill are skipped too: run `@Ferris TS <name>` to test it again. When AS finds CRITICAL drift, `maintain` stops so you can review the drift report; then run `@Ferris US <name>` yourself.
 - **Resume:** each pipeline keeps its state in a journal, `pipeline-journal.json`, in its own run folder under `_bmad-output/.skf-run/`, written after every workflow. If one stopped partway, the next time you start Ferris he offers to rerun the step it stopped on with the recorded plan, then the rest. A quality halt gets its repair route instead: after a TS FAIL, `US <name> --from-test-report`, then TS and EX at the recorded threshold. You can also drop the offer, which deletes that run folder. To take the offer without the menu, start him with `@Ferris resume`, or with `/skf-forger resume --headless` from a script: a headless resume stops with `user-action-required` when the offer needs you to act first, and with `nothing-to-resume` when there is no offer. When the chain ends, Ferris writes its result to `pipeline-result-latest.json` in his sidecar folder.
@@ -557,7 +557,53 @@ Setup is not the only workflow whose result line is the run's final message: a h
 
 4. **Success result contract.** A finished run prints one `SKF_QUICK_SKILL_RESULT_JSON: {…}` line on `stdout`. Its `summary` carries `quality_score` (the skill-check score of the written package, not a Test Skill score), `validation_issues`, `security_result` (the security scan's outcome: `pass` when Snyk Agent Scan analysed the package and reported no risk, `warn` when it reported risks, `skipped` when it did not run or could not finish its analysis, such as without `SNYK_TOKEN`), `repo_shape`, `language_resolution` and `active_pointer`, beside the top-level `headless_decisions` and `warnings`, such as `also_found_in` when a headless run kept the first registry's pick of a package name another registry also holds. The run also writes `quick-skill-result-latest.json` in the skill package.
 
-**Batch mode (`--batch <file>`).** Drives N targets in sequence: each target runs steps 1 to 6, and the health check runs once, after the batch summary. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Each target's output lands in its own `{skill_package}/`; an aggregated summary writes to `{skills_output_folder}/_batch/quick-skill-batch-{ts}.json` (with `quick-skill-batch-latest.json` copy). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. The batch's result is the file that event's `summary_path` names: the `-latest` copy holds the last batch summary written, which may be another batch's. The batch exits with the highest exit code among its failed targets (`0` when none failed); `--fail-fast` stops it at the first failed target and exits with that target's code. A batch refused before its first target writes no summary and exits `2`, `4` when its run folder cannot be written, or `3` when it stops as it starts, on a missing `uv` or `python3`, a config it cannot load or a missing helper, `skf-quick-batch.py` included. A batch whose helper cannot hand out or record a target, or cannot summarize the batch, stops with exit `4` and a `batch-mode` halt line and skips the health check; a `batch_summary` event it already printed stays its result. Full input grammar, summary schema, and exit-code rules in [`src/skf-quick-skill/references/batch-mode.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/references/batch-mode.md).
+**Batch mode (`--batch <file>`).** Drives N targets in sequence: each target runs steps 1 to 6, and the health check runs once, after the batch summary. Input format: one target per line, `#` comments (a whole line, or the rest of a line after its target) and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Each target's output lands in its own `{skill_package}/`; an aggregated summary writes to `quick-skill-batch-{ts}.json` and its `quick-skill-batch-latest.json` copy (**Batch summary file** below). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. The batch's result is the file that event's `summary_path` names: the `-latest` copy holds the last batch summary written, which may be another batch's. Without `--fail-fast` the batch runs every target, whatever an earlier target's outcome, and exits with the highest exit code among its failed targets (`0` when none failed); `--fail-fast` stops it at the first failed target and exits with that target's code. A batch refused before its first target, such as one whose file has a word that is no modifier after a line's target, writes no summary and exits `2`, `4` when its run folder cannot be written, or `3` when it stops as it starts, on a missing `uv` or `python3`, a config it cannot load or a missing helper, `skf-quick-batch.py` included. A batch whose helper cannot hand out or record a target, or cannot summarize the batch, stops with exit `4` and a `batch-mode` halt line and skips the health check; a `batch_summary` event it already printed stays its result. Full input grammar in [`src/skf-quick-skill/references/batch-mode.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/references/batch-mode.md).
+
+**Batch summary file.** When the batch ends, the batch helper (`skf-quick-batch.py summarize`) writes the batch summary to `quick-skill-batch-{YYYYMMDD-HHmmss}.json` in `batch_output_path` (default `{skills_output_folder}/_batch/`; a Quick Skill setting, see [Customizing a Workflow](#customizing-a-workflow)), with `-2`, `-3` and so on when another batch ended in the same second, and copies it to `quick-skill-batch-latest.json` there (a copy, not a symlink):
+
+```json
+{
+  "skill": "skf-quick-skill",
+  "mode": "batch",
+  "status": "success | partial | failed",
+  "timestamp": "<ISO 8601 UTC>",
+  "input_file": "<absolute path of the file passed to --batch>",
+  "targets_total": 0,
+  "succeeded": 0,
+  "failed": 0,
+  "fail_fast_triggered": false,
+  "exit_code": 0,
+  "results": [
+    {
+      "batch": 1,
+      "target": "<line from batch file>",
+      "status": "success | error",
+      "exit_code": 0,
+      "skill_package": "<absolute path or null>",
+      "error_code": null,
+      "quality_score": null
+    }
+  ]
+}
+```
+
+`status` resolves as: `"success"` when `failed == 0`, a batch file with no target included (it ends at once, `targets_total` 0 and exit code `0`); `"partial"` when `failed > 0 && succeeded > 0`; `"failed"` when `failed > 0 && succeeded == 0`. `fail_fast_triggered` is `true` only when `--fail-fast` aborted the loop early; `targets_total` then reflects the count actually attempted, not the file's line count. Each `results[]` entry is one target in file order: its `batch` number, its `exit_code` and `error_code` (the `halt_reason` of its halt envelope, null on success), and its `quality_score`, the skill-check score of its success envelope (null when it failed or skill-check did not run). Automators that branch on the single-target exit-code map read each target's own code in `results[]`.
+
+**Batch events.** Beside the per-step events above, the batch helper prints a target's `start` event when it hands the target out (`next`), its `done` or `fail` event when it records the outcome (`record`) and one final `batch_summary` event (`summarize`), on stderr (`<n>` is the target's 1-based place in the parsed list, and `{batch_dir}` the batch's run folder, `_bmad-output/.skf-run/skf-quick-skill-*`):
+
+```
+{"batch":<n>,"target":"<target>","status":"start"}
+{"batch":<n>,"target":"<target>","status":"done","exit":0}
+{"batch":<n>,"target":"<target>","status":"fail","exit":<code>,"error_code":"<class>"}
+```
+
+```
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>"}
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":null,"warnings":["summary_write_failed: <dir>: <reason>"],"batch_file":"<path>"}
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>","warnings":["<summary_write_failed or batch_file_write_failed>: <dir>: <reason>"]}
+```
+
+When the per-batch summary file cannot be written, `summary_path` is null and `batch_file` names `{batch_dir}/batch.jsonl`, which then holds the batch's result. When `summary_path` is set and the event still carries `warnings`, a later write failed: `summary_write_failed` means only the `-latest` copy failed, and `batch_file_write_failed` that only the summary line could not be added to `{batch_dir}/batch.jsonl`. The file `summary_path` names stays the batch's result.
 
 **Exception: `/skf-brief-skill` headless emits a final result envelope and supports presets.** Headless `/skf-brief-skill` is a first-class building block for scripted brief generation (for example, seeding briefs for N SaaS SDKs that share scope and authority defaults). Three operational contracts go beyond per-gate auto-proceed:
 

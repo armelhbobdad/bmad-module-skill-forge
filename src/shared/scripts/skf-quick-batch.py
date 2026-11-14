@@ -33,13 +33,17 @@ line is the target, kept whole: `cognee@0.5.0`, `requests==2.31.0` or
 parser (skf-resolve-package.py parse-target) as written, and it splits off
 the version. Each later word is a modifier: `language=<lang>` sets the
 target's language_hint and `scope=<path>` its scope_hint (the key in any
-letter case, the value not empty, each at most once). A line with any other
-word after its target is taken whole as the target, so step 1 cannot parse
-it and that target fails on its own while the rest of the batch runs.
+letter case, the value not empty, each at most once). A later word that
+starts with `#` opens a comment that runs to the end of the line. Any other
+later word (a misspelled key, an empty value, a modifier given twice, prose)
+makes the line bad: start refuses a file that holds one, so a typo never
+waits for the unattended batch to reach its line.
 
 parse
   Prints {"targets": [{"batch", "target", "language_hint", "scope_hint"}]}:
   the file's targets numbered from 1, a hint null when the line sets none.
+  A bad line's entry also holds "error": `line <n>: ` (n counts every line
+  of the file from 1) and the word that is no modifier; its hints are null.
 
 start
   Parses the file and writes the batch file, <run-dir>/batch.jsonl: a start
@@ -51,6 +55,9 @@ start
   already recorded), so a start run twice, from any working folder, never
   loses an outcome. A batch of another file is refused. A file with no
   target starts a batch that summarize ends at once, status success.
+  A file with a bad line is refused (input-invalid) before anything is
+  written: the message names each bad line, the first five with their
+  fault and the rest by number, and the fix.
 
 start --briefs (skf-create-skill)
   The targets are skill-brief.yaml files: each path given is a brief, or a
@@ -157,7 +164,8 @@ input-invalid otherwise):
      briefs, a batch file that cannot be written, a --batch number the
      batch does not hold, a target whose run folder staged neither halt.json
      nor result-context.json, an unreadable staged payload, or a summarize
-     while targets are still pending
+     while targets are still pending; for start, also a batch file with a
+     bad line
   2  usage error (argparse)
 """
 
@@ -203,37 +211,75 @@ class BatchError(Exception):
 # ─── the batch file grammar ─────────────────────────────────────────────────
 
 
-def _modifier(word: str) -> tuple[str, str] | None:
-    """(hint key, value) of a `language=` or `scope=` word, else None."""
+# How many bad lines a refused start names with their fault; it names the rest by number.
+BAD_LINES_NAMED = 5
+
+
+def _modifier(word: str, hints: dict) -> tuple[str, str] | str:
+    """(hint key, value) of a `language=` or `scope=` word not given yet, else what is wrong with it."""
     key, sep, value = word.partition("=")
     field = MODIFIERS.get(key.lower()) if sep else None
-    return (field, value) if field and value else None
+    if field is None:
+        return "is no `language=` or `scope=` modifier"
+    if not value:
+        return "has no value"
+    if hints[field] is not None:
+        return f"sets `{key.lower()}=` a second time"
+    return field, value
 
 
 def parse_line(line: str) -> dict | None:
-    """The target a batch-file line names, or None for a blank or `#` line."""
+    """The target a batch-file line names, or None for a blank or `#` line.
+
+    A line with a later word that is no modifier (nor a `#` comment) is bad:
+    its entry holds "error", naming that word, and null hints. A valid
+    line's entry has no "error" key.
+    """
     text = line.strip()
     if not text or text.startswith("#"):
         return None
     words = text.split()
     hints = {"language_hint": None, "scope_hint": None}
     for word in words[1:]:
-        found = _modifier(word)
-        if found is None or hints[found[0]] is not None:
-            # Not a modifier, or one given twice: the line is a target of its own.
-            return {"target": text, "language_hint": None, "scope_hint": None}
+        if word.startswith("#"):
+            break  # a comment runs to the end of the line
+        found = _modifier(word, hints)
+        if isinstance(found, str):
+            return {"target": words[0], "language_hint": None, "scope_hint": None,
+                    "error": f"`{word}` after the target `{words[0]}` {found}"}
         hints[found[0]] = found[1]
     return {"target": words[0], **hints}
 
 
 def parse_text(text: str) -> list[dict]:
-    """The numbered targets of a batch file's text."""
+    """The numbered targets of a batch file's text, a bad line's error led by its line number."""
     targets = []
-    for line in text.splitlines():
+    for number, line in enumerate(text.splitlines(), start=1):
         entry = parse_line(line)
         if entry is not None:
+            if "error" in entry:
+                entry["error"] = f"line {number}: {entry['error']}"
             targets.append({"batch": len(targets) + 1, **entry})
     return targets
+
+
+def bad_lines_message(targets: list[dict]) -> str | None:
+    """The refusal of a file with a bad line, else None: it names each bad line, the first
+    BAD_LINES_NAMED with their fault and the rest by number, so one round of fixes clears them all,
+    and gives the fix."""
+    errors = [t["error"] for t in targets if "error" in t]
+    if not errors:
+        return None
+    named = errors[:BAD_LINES_NAMED]
+    rest = [error.split(":", 1)[0].removeprefix("line ") for error in errors[BAD_LINES_NAMED:]]
+    if rest:
+        numbers = rest[0] if len(rest) == 1 else f"{', '.join(rest[:-1])} and {rest[-1]}"
+        named.append(f"and {'line' if len(rest) == 1 else 'lines'} {numbers}")
+    listed = "; ".join(named)
+    return (f"the batch file has {len(errors)} {'line' if len(errors) == 1 else 'lines'} with a word that is no "
+            f"modifier ({listed}). After a line's target, write only `language=<lang>` and `scope=<path>`, each "
+            "once and with a value, or a `#` comment to the end of the line: fix each line named and start the "
+            "batch again")
 
 
 def read_batch_file(path: str) -> list[dict]:
@@ -428,6 +474,9 @@ def cmd_start(file: str, run_dir: Path, fail_fast: bool) -> dict:
                     "fail_fast": bool(started.get("fail_fast")), "targets_total": len(state["targets"]),
                     "recorded": len(state["results"]), "resumed": True}
         targets = read_batch_file(path)
+        refusal = bad_lines_message(targets)
+        if refusal is not None:
+            raise BatchError(refusal)  # before the folder or batch.jsonl is written: no target runs
     except BatchError as e:
         raise BatchError(str(e), "input-invalid") from None
     try:

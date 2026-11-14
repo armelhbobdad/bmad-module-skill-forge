@@ -365,6 +365,17 @@ class TestFileMode:
         assert m["dependencies"] == ["requests", "pydantic", "attrs"]
         assert m["version"] == "2.0.0", "the parent manifest's version"
 
+    def test_an_export_two_modules_list_counts_once(self, tmp_path, capsys):
+        """#1174: Quick Skill reports the count metadata.json holds, so a name two modules
+        export is one export in every count the renderer writes."""
+        module = {"package_name": "foo-core", "exports": [{"name": "Cls", "type": "class"}, {"name": "Core"}]}
+        assert _render_files(tmp_path, extractions=(EXTRACT, module)) == 0
+        m = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert m["exports"] == ["fn", "Cls", "Core"]
+        counts = (m["stats"]["exports_documented"], m["stats"]["exports_public_api"], m["stats"]["exports_total"],
+                  m["confidence_distribution"]["t1_low"])
+        assert counts == (3, 3, 3, 3)
+
     def test_the_staged_fields_win(self, tmp_path, capsys):
         staged = {**STAGED, "version": "0.5.0", "exports": ["only", "these"], "source_package": "@x/foo"}
         assert _render_files(tmp_path, staged=staged) == 0

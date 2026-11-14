@@ -66,7 +66,9 @@ printed no result line. So:
   paragraph) says a batch's result is its `batch_summary` event and the
   file its `summary_path` names, a batch that printed no such event has no
   batch result, whatever the process exit code, and its `-latest` copy is
-  never read in its place (#889).
+  never read in its place (#889). Quick Skill's batch-mode.md holds no
+  "Reading a batch" paragraph (#1173): its callers read the Headless row
+  and the user docs.
 """
 
 from __future__ import annotations
@@ -582,7 +584,7 @@ HEADLESS_CONTRACTS = {
     "skf-drop-skill": "references/invocation-contract.md",
     "skf-export-skill": "references/invocation-contract.md",
     "skf-forger": "references/pipeline-mode.md",
-    "skf-quick-skill": "SKILL.md",
+    "skf-quick-skill": "references/invocation-contract.md",
     "skf-refine-architecture": "SKILL.md",
     "skf-rename-skill": "references/invocation-contract.md",
     "skf-setup": "references/invocation-contract.md",
@@ -786,20 +788,27 @@ def test_batch_contracts_say_a_batch_with_no_summary_has_no_result(skill):
     assert NO_RESULT in row, f"{skill}: the run's own rule stays in the Headless row"
     for token in (*rule, f"never {row_copy} in its place"):
         assert token in row, f"{skill} Headless row: {token}"
-    [reading] = [p for _, p in _paragraphs(_read(SRC / skill / "references" / "batch-mode.md"))
-                 if p.startswith("**Reading a batch.**")]
+    paragraphs = [p for _, p in _paragraphs(_read(SRC / skill / "references" / "batch-mode.md"))
+                  if p.startswith("**Reading a batch.**")]
     # the event comes before the health check, so it is never a `claude -p` run's final message
     stream = ("The event comes before the health check, so a caller reads it from the session's output stream "
               "(`claude -p --output-format stream-json`) or transcript, not from the final message")
-    for token in (*rule, f"never {latest} in its place", stream, *next_step):
-        assert token in reading, f"{skill} batch-mode.md: {token}"
-    # a null path: the per-batch file was not written, so the event and the batch file; a set path with the
-    # warning: only the copy failed, and the named file still stands
-    assert ("When the event's `summary_path` is null, the per-batch file was not written (its `summary_write_failed` "
-            "warning says why): the event and `{batch_dir}/batch.jsonl`") in reading, skill
-    assert ("A `summary_write_failed` warning beside a set `summary_path` means only the `-latest` copy failed: the "
-            "file it names is still the batch's result") in reading, skill
-    assert reading.count(f"never {latest}") == 2, f"{skill}: the null summary_path clause names the copy too"
+    if skill == "skf-quick-skill":
+        # #1173: Quick Skill's batch-mode.md keeps only what the batch does; its caller reads the Headless row
+        # and the docs paragraph below
+        assert paragraphs == [], f"{skill}: the reading rules are the caller's, not batch-mode.md's"
+        reading = ""
+    else:
+        [reading] = paragraphs
+        for token in (*rule, f"never {latest} in its place", stream, *next_step):
+            assert token in reading, f"{skill} batch-mode.md: {token}"
+        # a null path: the per-batch file was not written, so the event and the batch file; a set path with the
+        # warning: only the copy failed, and the named file still stands
+        assert ("When the event's `summary_path` is null, the per-batch file was not written (its "
+                "`summary_write_failed` warning says why): the event and `{batch_dir}/batch.jsonl`") in reading, skill
+        assert ("A `summary_write_failed` warning beside a set `summary_path` means only the `-latest` copy failed: "
+                "the file it names is still the batch's result") in reading, skill
+        assert reading.count(f"never {latest}") == 2, f"{skill}: the null summary_path clause names the copy too"
     assert "an earlier one" not in row + reading, f"{skill}: the copy may be a later or concurrent batch's too"
     [docs] = [p for _, p in _paragraphs(_read(REPO / "docs" / "workflows.md"))
               if p.startswith("**Reading the result lines.**")]

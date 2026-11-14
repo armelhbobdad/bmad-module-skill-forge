@@ -109,4 +109,6 @@ Indexed format targeting ~80-120 tokens per skill:
 }
 ```
 
+Documentation only: no step reads this section. Step 4 writes `metadata.json` with `skf-render-quick-metadata.py`, which sets these fields, and stops when that renderer is missing or fails twice.
+
 For a skills module (`repo_shape: skills-module`), `exports` lists the skill names, then the menu codes, and the export counts in `stats` and `confidence_distribution.t1_low` count both.

@@ -2,23 +2,25 @@
 
 # HARD HALT Contract
 
-The exit-code map, the envelope every HARD HALT emits, the headless progress events and the `--batch` rule. Each HARD HALT in the stage files names its phase, `halt_reason`, exit code and emit command, and each stage's Rules carry its `halt` event and the `--batch` return, so a halt keeps its wire format even when SKILL.md or this file was compacted away.
+The exit-code map, the envelope every HARD HALT emits, the headless progress events and the `--batch` rule.
 
 ## Exit Codes
 
 Every HARD HALT in this workflow exits with a stable, documented code so headless automators can branch on the failure class without grepping message text:
 
-| Code | Meaning                | Raised by                                                   |
-| ---- | ---------------------- | ----------------------------------------------------------- |
-| 0    | success                | step 7 (terminal)                                          |
-| 2    | input-invalid          | batch mode, before any target runs (`--description`, `--exports`, `--language-hint` or `--scope-hint` passed with `--batch`; §1: a batch file it cannot read, or `skf-quick-batch.py` missing after activation, since a run that starts without it stops at SKILL.md On Activation step 1 with exit `3`, `helpers-missing`); step 1 §1 (a headless run with no target) |
-| 3    | resolution-failure     | SKILL.md On Activation step 1 (`python3` or `uv` missing, a config `skf-preflight.py` cannot load, or a helper of any stage missing, `details.cause` `helpers-missing`); a shipped helper missing, named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, `skf-skills-module.py` §1, `skf-extract-public-api.py` §2; step 5: `skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is unavailable, `skf-validate-output.py` §5, `skf-summarize-validation.py` §6); step 1 (package resolver missing or failing §1b, a target that is no GitHub repository or package §2, registry chain §3, version tag missing or not checkable §3a, file listing unreadable, language detector missing or failing, language abort or no language found §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
-| 4    | write-failure          | SKILL.md On Activation step 1 (the run folder cannot be created); batch mode §1 (the batch run folder cannot be written) and §2 to §4 (a failing `next`, a second failing `record`, a failing `summarize`); step 5 §2 (deliverable write failed) |
-| 5    | overwrite-cancelled    | step 5 §1 (user selected [N], or a headless run reached a version another SKF workflow built; `details.existing_generator` names its generator) |
-| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance) and §3 ([X] at the ambiguous-name gate); step 2 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |
-| 7    | finalize-blocked       | step 6 §1 (the flip helper refused or failed: something that is not a link is at `{skill_group}/active`, or another process holds its lock) |
-| 8    | ecosystem-redirect     | step 2 ([I] Install at ecosystem-match gate: user opted to install the existing official skill instead of compiling a custom community skill) |
-| 9    | state-conflict         | step 5 §1 (ownership check: the skill folder or the version folder it writes is not SKF output, or SKF cannot check it → error.code `not-skf-output`; an SKF skill still in the flat layout → `flat-layout`) |
+| Code | Meaning             |
+| ---- | ------------------- |
+| 0    | success             |
+| 2    | input-invalid       |
+| 3    | resolution-failure  |
+| 4    | write-failure       |
+| 5    | overwrite-cancelled |
+| 6    | user-cancelled      |
+| 7    | finalize-blocked    |
+| 8    | ecosystem-redirect  |
+| 9    | state-conflict      |
+
+Exit 8 (`ecosystem-redirect`) is reserved, as is the `ecosystem-check.ecosystem-match` gate: step 2 raises neither until agentskills.io has a registry API.
 
 ## Result Contract on HARD HALT
 
@@ -59,7 +61,7 @@ When `{headless_mode}` is true, each step prints one-line JSON progress events o
 - just before it chains to its `nextStepFile`: `{"step":N,"name":"<slug>","status":"done"}`
 - at a HARD HALT, in place of `done`: `{"step":N,"name":"<slug>","status":"halt","exit":<code>}`
 
-`N` and `<slug>`: 1 `resolve-target`, 2 `ecosystem-check`, 3 `quick-extract`, 4 `compile`, 5 `write-and-validate`, 6 `finalize`, 7 `health-check`. A `--batch` run adds the per-target events of `references/batch-mode.md`.
+`N` and `<slug>`: 1 `resolve-target`, 2 `ecosystem-check`, 3 `quick-extract`, 4 `compile`, 5 `write-and-validate`, 6 `finalize`, 7 `health-check`. A `--batch` run adds the per-target events `skf-quick-batch.py` prints (`references/batch-mode.md` §2 to §4).
 
 ## In `--batch`
 

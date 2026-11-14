@@ -151,8 +151,11 @@ def test_quick_skill_documents_the_skills_module_shape():
                   "Key Exports", "`exports` of its `metadata.json`", "Usage Patterns", "scope hint",
                   "`scope=<path>` on a batch line", "stays a library"):
         assert token in shape, token
-    for signal in ("`module.yaml`", "`module-help.csv`", "`scope_hint`"):
-        assert signal in sniff, signal
+    # #1173: the sniff reads the skills-module helper's answer, so the signals are the helper's rules.
+    assert "Read its answer; do not re-derive it from the listing." in sniff
+    rules = " ".join(_read(SRC / "shared" / "scripts" / "skf-skills-module.py").split())
+    for signal in ("directly holds module.yaml or module-help.csv", "With --scope-hint, that folder is the only"):
+        assert signal in rules, signal
 
 
 def test_quick_skill_batch_refuses_the_single_target_overrides():
@@ -804,7 +807,7 @@ def test_verifying_lists_create_skill_private_source_tree():
 
 
 def test_quick_skill_headless_block_names_the_success_envelope():
-    """Four contracts; the success line's summary fields are the schema's, and the batch rule is batch-mode.md's."""
+    """Four contracts; the success line's summary fields are the schema's, and the batch rule lives here (#1173)."""
     block = _slice(_read(WORKFLOWS), "**Exception: `/skf-quick-skill` headless", "**Exception: `/skf-brief-skill`")
     items = re.findall(r"^(\d)\. \*\*", block, re.M)
     assert items == ["1", "2", "3", "4"]
@@ -826,11 +829,12 @@ def test_quick_skill_headless_block_names_the_success_envelope():
         assert f"`{field}`" in fourth, field
     assert "`also_found_in`" in fourth and "not a Test Skill score" in fourth
     assert "`quick-skill-result-latest.json`" in fourth
-    rule = _tail(_read(BATCH_MODE), "## Exit code")
-    assert "otherwise the highest exit code among the failed targets" in rule
+    # #1173: the batch exit rule batch-mode.md's Exit code section held is this paragraph's.
+    assert "## Exit code" not in _read(BATCH_MODE)
     batch = _paragraph(block, "**Batch mode (`--batch <file>`).**")
     for token in ("each target runs steps 1 to 6", "the health check runs once, after the batch summary",
-                  "the highest exit code among its failed targets (`0` when none failed)",
+                  "Without `--fail-fast` the batch runs every target, whatever an earlier target's outcome, and "
+                  "exits with the highest exit code among its failed targets (`0` when none failed)",
                   "`--fail-fast` stops it at the first failed target",
                   "writes no summary and exits `2`, `4` when its run folder cannot be written, or `3` when it "
                   "stops as it starts",
@@ -1113,7 +1117,7 @@ def test_troubleshooting_brief_entry_follows_the_brief_lookup():
 def test_docs_describe_the_skipped_ecosystem_check():
     """#599: Quick Skill skips its official-skill check until a registry API exists, and Create Skill has none."""
     check = _read(QUICK / "references" / "ecosystem-check.md")
-    assert "agentskills.io has no registry API" in check and "Once a registry API lists an official skill" in check
+    assert "agentskills.io has no registry API" in check and "Once a registry API lists an official skill" not in check
     create = SRC / "skf-create-skill"
     assert not (create / "references" / "ecosystem-check.md").exists()
     check_words = ("ecosystem check", "ecosystem-check", "ecosystem match", "ecosystem-match")

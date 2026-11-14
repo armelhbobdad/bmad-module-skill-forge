@@ -29,8 +29,10 @@ Every exit reaches its terminal sequence (#585):
    campaign calls its hook before the envelope, as its customize.toml says.
 6. Every exit an exit-code table lists is one an envelope carries: a halt
    code is raised by a HALT (or a gate option that stops the run) in a step
-   file SKILL.md reaches, and the other codes are finished runs, which the
-   success envelope carries; for update, every halt status is raised so.
+   file SKILL.md reaches, unless the workflow reserves it for a gate no input
+   reaches yet (RESERVED_EXIT_CODES), and the other codes are finished runs,
+   which the success envelope carries; for update, every halt status is
+   raised so.
 7. No step file ends the workflow early ("End workflow", "No further steps",
    "Mark workflow complete", "Do not proceed further", "the workflow is
    done"): only the shared health check ends a run. And no Rules block
@@ -506,12 +508,17 @@ def _token(value: str) -> re.Pattern:
     return re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])")
 
 
+# Exit codes a schema keeps for a gate no input reaches yet: Quick Skill's step 2 raises exit 8
+# (`ecosystem-redirect`) only once agentskills.io has a registry API (#1173).
+RESERVED_EXIT_CODES = {"skf-quick-skill": {8}}
+
+
 @pytest.mark.parametrize("skill", [s for s in WORKFLOW_SKILLS if SCHEMAS[s][1].get("exit_codes")])
 def test_every_halt_exit_code_is_raised_by_a_reachable_step(skill: str) -> None:
     codes = SCHEMAS[skill][1]["exit_codes"]
     lines = _halt_lines(skill)
     unraised = []
-    for code in sorted(set(codes.values())):
+    for code in sorted(set(codes.values()) - RESERVED_EXIT_CODES.get(skill, set())):
         reasons = [r for r, c in codes.items() if c == code]
         if not any(_token(r).search(line) for line in lines for r in reasons) and not any(
                 re.search(rf"\bexit(?: code)?\s*\**\s*{code}\b", line) for line in lines):
