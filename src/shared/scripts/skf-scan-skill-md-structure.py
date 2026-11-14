@@ -174,6 +174,8 @@ Subcommands:
         }
       With no Integration Patterns section, `section` is null,
       `stack_mode` `code`, `patterns_documented` 0 and `entries` empty.
+      `patterns_documented` counts `entries`, so a placeholder item such
+      as `None detected` adds to neither.
 
 Scripts & Assets section:
   `folders` lists the `scripts` and `assets` folders beside SKILL.md,
@@ -317,7 +319,14 @@ Integration entries:
   Cross-Cutting Patterns subsection with no `####` heading takes each list
   item (`-`, `*`, `+` or `N.`, indented 0 to 3 spaces) as an entry, named
   by its first line after the marker; an item indented further than the
-  list's first-level items is nested, part of its parent entry. An entry's
+  list's first-level items is nested, part of its parent entry. Such an
+  item is no entry when its first line is only a placeholder and nothing
+  else is in its block: once surrounding `*`, `_`, backticks, parentheses
+  and one trailing period are dropped, case and runs of spaces ignored,
+  `none`, `none detected`, `none found`, `none identified`, `n/a`, `na`,
+  `not applicable` or `no cross-cutting patterns` (the last optionally
+  followed by `detected`, `found` or `identified`); it still ends the
+  entry before it. A `####` heading is an entry whatever its text. An entry's
   block runs to the next entry, the next heading of level 4 or higher, or
   a line that reads `Hub Library Connections` once `#`, `*`, `-`, `+`, `:`
   and whitespace are dropped (case-insensitive, a trailing parenthetical
@@ -1275,6 +1284,18 @@ _STACK_HEADING_NAMES = (
 # indented 0 to 3 spaces and no further than the list's first-level items,
 # so a nested item is part of its parent entry.
 _ENTRY_ITEM_RE = re.compile(r"^( {0,3})(?:[-*+]|\d+\.)[ \t]+(\S.*?)[ \t]*$")
+# A cross-cutting list item that only says there is none, such as the
+# `None detected` a stack with an empty `cross_cutting` can carry: its text,
+# surrounding `*`, `_`, backticks, parentheses and one trailing period
+# dropped, case and runs of spaces ignored, is one of these. It is no entry
+# when nothing else is in its block; an item with any other text is one.
+_PLACEHOLDER_RE = re.compile(
+    r"[\s*_`()]*(?:none(?:\s+(?:detected|found|identified))?|n/?a"
+    r"|not\s+applicable"
+    r"|no\s+cross-cutting\s+patterns(?:\s+(?:detected|found|identified))?)"
+    r"[\s*_`()]*\.?[\s*_`()]*",
+    re.IGNORECASE,
+)
 # A `**Confidence:**` or `**Key files:**` line, a list marker allowed.
 _LABEL_LINE = r"^\s*(?:(?:[-*+]|\d+\.)[ \t]+)?\*\*{}:\*\*[ \t]*(.*?)[ \t]*$"
 _CONFIDENCE_RE = re.compile(_LABEL_LINE.format("Confidence"), re.IGNORECASE)
@@ -1459,6 +1480,7 @@ def integration_scan(text: str, headings: dict[str, str]) -> dict:
         sub_end = min(sub_end, hub)
         starts = [(i, text) for i, lvl, text in inner
                   if idx < i < sub_end and lvl == 4]
+        placeholders: set[int] = set()
         if not starts and kind == "cross-cutting":
             items = [
                 (i, m) for i in range(idx + 1, sub_end)
@@ -1466,6 +1488,9 @@ def integration_scan(text: str, headings: dict[str, str]) -> dict:
             ]
             top = min((len(m.group(1)) for _, m in items), default=0)
             starts = [(i, m.group(2)) for i, m in items if len(m.group(1)) == top]
+            placeholders = {
+                i for i, name in starts if _PLACEHOLDER_RE.fullmatch(name)
+            }
         bounds = [i for i, lvl, _ in inner if idx < i < sub_end and lvl <= 4]
         for n, (begin, name) in enumerate(starts):
             stop = min(
@@ -1473,6 +1498,11 @@ def integration_scan(text: str, headings: dict[str, str]) -> dict:
                 + [s for s, _ in starts[n + 1:n + 2]]
                 + [b for b in bounds if b > begin][:1]
             )
+            # a placeholder item still ends the entry before it
+            if begin in placeholders and not any(
+                lines[i].strip() for i in range(begin + 1, stop)
+            ):
+                continue
             entries.append(
                 _integration_entry(lines, code, kind, name, begin, stop)
             )
