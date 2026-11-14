@@ -6574,7 +6574,8 @@ class TestRelabel:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         src = tmp_path / "src"
-        _write_text(src, "pkg/api.py", "def search():\n    pass\n")
+        (src / "pkg").mkdir(parents=True)
+        (src / "pkg" / "api.py").write_bytes(b"def search():\n    pass\n")  # bytes: the same file on Windows
         entries = [_entry("search", "ast-grep", kind="ERROR", line=1), _entry("gone", "ast-grep", kind="ERROR",
                                                                              source_file="pkg/gone.py", line=1)]
         items = [{"entry_index": 0, "export_name": "search", "source_file": "pkg/api.py"},
