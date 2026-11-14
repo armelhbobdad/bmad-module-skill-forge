@@ -11,6 +11,8 @@ The one test-report lookup export-skill and update-skill share:
   - --newer-than (the later of the run id and testDate against the skill's
     generation_date) and --provenance-map (a report a gap-driven repair
     recorded as applied)
+  - cap_reason: the report's **Cap:** line, else the result file's
+    summary.capReason
 """
 
 from __future__ import annotations
@@ -35,7 +37,8 @@ SKILL = "demo"
 VERSION = "1.2.0"
 
 
-def write_report(folder: Path, run_id: str, *, result: str = "fail", score: str = "'72'", skill: str = SKILL) -> Path:
+def write_report(folder: Path, run_id: str, *, result: str = "fail", score: str = "'72'", skill: str = SKILL,
+                 body: str = "") -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"test-report-{skill}-{run_id}.md"
     path.write_text(
@@ -47,10 +50,14 @@ def write_report(folder: Path, run_id: str, *, result: str = "fail", score: str 
         f"score: {score}\n"
         "testDate: '2026-09-30T10:10:10Z'\n"
         "stepsCompleted: ['init', 'report']\n"
-        "---\n\n# Test Report\n",
+        "---\n\n# Test Report\n" + body,
         encoding="utf-8",
     )
     return path
+
+
+CAP = "tooling degraded (toolingStatus: frontmatter-validator-timeout): capped below threshold until the tooling is restored"
+SCORE_SECTION = f"\n## Completeness Score\n\n### Result\n\n**Score:** 92%\n**Result:** **FAIL**\n**Cap:** {CAP}\n"
 
 
 def write_latest(folder: Path, outputs: list, summary: dict | None = None) -> Path:
@@ -212,6 +219,19 @@ class TestLatestJson:
         assert out["status"] == "not-found"
         assert any("names no report" in w for w in out["warnings"])
 
+    def test_a_report_without_a_cap_line_takes_the_summary_cap(self, forge: Path):
+        folder = forge / SKILL / VERSION
+        report = write_report(folder / "x", "20260930T101010Z-22-bbbb")
+        write_latest(folder, [{"type": "report", "path": str(report)}], {"result": "FAIL", "capReason": CAP})
+        assert find(forge)["cap_reason"] == CAP
+
+    def test_a_missing_report_takes_the_summary_cap(self, forge: Path):
+        folder = forge / SKILL / VERSION
+        write_latest(folder, [{"type": "report", "path": "gone/test-report-demo-20260930T101010Z-22-bbbb.md"}],
+                     {"result": "FAIL", "score": 92, "capReason": CAP})
+        out = find(forge)
+        assert out["report_exists"] is False and out["cap_reason"] == CAP
+
     def test_unreadable_result_file(self, forge: Path):
         folder = forge / SKILL / VERSION
         folder.mkdir(parents=True)
@@ -230,6 +250,29 @@ def run_cli(forge: Path, *extra: str) -> tuple[int, dict]:
         encoding="utf-8",
     )
     return proc.returncode, json.loads(proc.stdout)
+
+
+class TestCapReason:
+    """A FAIL a cap forced: update-skill offers no repair first, since no skill edit lifts a cap."""
+
+    def test_the_completeness_score_cap_line(self, forge: Path):
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb", score="'92'", body=SCORE_SECTION)
+        assert find(forge)["cap_reason"] == CAP
+
+    def test_no_cap_line_is_null(self, forge: Path):
+        body = "\n## Completeness Score\n\n**Result:** **FAIL**\n"
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb", body=body)
+        assert find(forge)["cap_reason"] is None
+
+    def test_a_cap_line_outside_the_section_is_not_read(self, forge: Path):
+        body = "\n## Gap Report\n\n**Cap:** quoted in a gap\n\n## Completeness Score\n\n**Result:** **FAIL**\n"
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb", body=body)
+        assert find(forge)["cap_reason"] is None
+
+    def test_the_cli_prints_it(self, forge: Path):
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb", score="'92'", body=SCORE_SECTION)
+        code, out = run_cli(forge)
+        assert code == 0 and out["cap_reason"] == CAP
 
 
 class TestNewerThan:
@@ -345,6 +388,7 @@ def test_not_found(forge: Path):
         "source": None,
         "testResult": None,
         "score": None,
+        "cap_reason": None,
         "run_id": None,
         "test_date": None,
         "result_path": None,

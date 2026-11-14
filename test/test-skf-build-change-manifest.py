@@ -2076,7 +2076,7 @@ class TestPublicSurface:
         assert summary["not_public"] == [] and summary["warnings"] == []
 
     def test_a_repair_carries_no_mark(self, tmp_path: Path) -> None:
-        """gap-driven.md §4a runs `records` over the files it scans: gap-records drops the mark, so merge documents
+        """gap-spot-check.md §4a runs `records` over the files it scans: gap-records drops the mark, so merge documents
         and apply maps the re-extracted export, as before."""
         remediation = _remediation(("pkg/b.py", [("fetch", 4, "ast-grep")]))
         remediation["files"][0]["exports"][0]["public"] = False
@@ -4310,7 +4310,7 @@ class TestGapRecordsCli:
     def test_a_file_a_still_incomplete_run_left_unread_resolves_once_read_by_eye(self, tmp_path: Path,
                                                                                 severity) -> None:
         """#710: a second runner run that stops at the time limit leaves the routed file unread. Without by-eye
-        records a High gap halts `unresolved` and a Medium `missing-export` ends `unknown`; once gap-driven §4a
+        records a High gap halts `unresolved` and a Medium `missing-export` ends `unknown`; once gap-spot-check §4a
         reads the file by eye, in Category B step 2's record shape, the gap is `re-extracted` T1-low."""
         paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
                                                   severity=severity, resolved=["pkg/api.py"])])

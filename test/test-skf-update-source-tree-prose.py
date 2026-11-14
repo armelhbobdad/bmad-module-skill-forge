@@ -57,7 +57,7 @@ And they pin the helpers update-skill hands its deterministic work to:
   for a reference app, both through the helper and in the by-hand fallback;
 - every path a documented helper call passes sits in double quotes;
 - re-extract's Forge tier runs the recipe runner (skf-extract-public-api.py
-  --mode full) over the changed files, and gap-driven.md §4a over its file set
+  --mode full) over the changed files, and gap-spot-check.md §4a over its file set
   without the brief's scope; the per-file workers take their exports from its
   output;
 - under the drift override, write.md §3b keeps the public API counts
@@ -75,7 +75,7 @@ And how a run reads a test report and detects drift through scripts:
 - gap-driven.md §1 reads the gaps through skf-parse-gaps.py, a hard-gate
   blocked report through its ledger, and routes each by its ledger category,
   every category exactly once, warning for each gap it does not route;
-  gap-driven.md §4a scans the paths the helper resolved, and a Medium missing
+  gap-spot-check.md §4a scans the paths the helper resolved, and a Medium missing
   export gets targeted re-extraction without halting the run;
 - Category A comes from skf-classify-changed-files.py (no brief and no
   provenance map included), Category B from one recipe runner run, which
@@ -1352,7 +1352,7 @@ def _found(path: str, line: int, export_type: str = "function") -> dict:
 
 
 def _gap_calls() -> tuple[str, str]:
-    """gap-driven.md §4's plan call and its record call, as documented."""
+    """gap-spot-check.md §4's plan call and its record call, as documented."""
     four = _slice(_read(GAP_CHECK), "### 4. Spot-Check Each Gap's Export", "### 4a.")
     return (_fence(four, "uv run {buildChangeManifestHelper} gap-records --plan"),
             _fence(_slice(four, "2. **Write the gap-driven records**", "   - **`unresolved`:**"),
@@ -1382,7 +1382,7 @@ def _run_gap_records(call: str, values: dict, capsys, keep: tuple = ()) -> tuple
 
 
 def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
-    """gap-driven.md §4's spot-checks run inside gap-records, with the definition-line rules write §6's verify
+    """gap-spot-check.md §4's spot-checks run inside gap-records, with the definition-line rules verify-publish.md §6's verify
     applies (#584; step 5b gate run 2 determinism-4: no spot-check output is mapped to an outcome by hand)."""
     text = _read(GAP_CHECK)
     # the helper loads the verifier from its own folder: the stage file resolves no verifier of its own
@@ -1806,7 +1806,7 @@ EXTRACT_PUBLIC_API_PATHS = [
 def test_forge_tier_follows_the_ast_extraction_protocol():
     """The #556 pre-release fix for the AST extraction protocol, update part, through the recipe runner (W2
     handoff): detect-changes Category B runs skf-extract-public-api.py --mode full once over the files to extract,
-    re-extract reads its output and never runs it again, gap-driven.md §4a runs it over its own file set, and the
+    re-extract reads its output and never runs it again, gap-spot-check.md §4a runs it over its own file set, and the
     workers read by eye only the forms the recipes leave out."""
     text = _read(RE_EXTRACT)
     # re-extract runs the runner nowhere now: §4a, its one run, moved to gap-driven.md with its probe order (#600)
@@ -1942,7 +1942,7 @@ def test_a_still_incomplete_run_is_read_by_eye_in_the_targeted_re_extraction():
 def test_a_still_incomplete_run_is_read_by_eye_in_category_b():
     """#722: when Category B's second runner run is still `incomplete`, step 2 reads by eye each listed file with
     no export in `exports[]` or listed in an `errors[]` item's `unread` (a failed ast-grep call can keep only some
-    of a file's exports), and tells the user which files were read by eye, as gap-driven.md §4a's rule does; exit 2
+    of a file's exports), and tells the user which files were read by eye, as gap-spot-check.md §4a's rule does; exit 2
     still HALTs with no by-eye read."""
     category_b = _slice(_read(DETECT), "**Category B: export-level changes.**", "**Category C")
     exit_1 = _slice(category_b, "**Exit 1** (`incomplete`, its JSON written)", "**Exit 2** (")
@@ -2012,7 +2012,7 @@ def test_reextract_records_are_built_by_script(tmp_path, capsys):
 
 
 def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
-    """gap-driven.md §4a builds its `files` records with `records`, as re-extract.md §4 does, so a repair writes a
+    """gap-spot-check.md §4a builds its `files` records with `records`, as re-extract.md §4 does, so a repair writes a
     re-extracted function's params in the form create-skill writes them (step 5b re-check)."""
     text = _read(GAP_CHECK)
     assert yaml.safe_load(_frontmatter(text))["buildChangeManifestProbeOrder"] == _probe("skf-build-change-manifest.py")
@@ -2107,7 +2107,7 @@ def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
 def test_a_located_export_takes_the_signature_the_runner_gives_at_its_line(tmp_path, capsys):
     """#804, #809: a signature-mismatch gap on an export the map holds, and a cited new export the map lacks, take
     their params and return type from the record §4a's runner gives at the line the spot-check located, never from
-    the old entry or from merge's prose. Run gap-driven.md §4's plan, §4a's runner and `records` calls, §4's record
+    the old entry or from merge's prose. Run gap-spot-check.md §4's plan, §4a's runner and `records` calls, §4's record
     call and step 5's apply on what they wrote."""
     text = _read(GAP_CHECK)
     assert "when `reextract.entries` or `reextract.signatures` is not empty, run §4a for them" in \
@@ -2329,7 +2329,7 @@ def test_write_counts_call_runs(tmp_path):
 
 @pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
 def test_the_documented_runner_calls_run(tmp_path):
-    """detect-changes Category B's runner call and gap-driven.md §4a's run as written (W2 handoff).
+    """detect-changes Category B's runner call and gap-spot-check.md §4a's run as written (W2 handoff).
 
     Category B passes no brief: a tracked file the brief's scope now excludes (rule R1's rescope) keeps its
     exports, which a run with the brief would drop and the diff would then read as deleted.
@@ -3192,7 +3192,7 @@ BRIEF_FLAG = '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"]'
 
 
 def test_a_gap_outside_the_brief_scope_is_never_repaired_there(tmp_path, capsys):
-    """#824: both gap-records calls in gap-driven.md §4 pass the skill brief, whose scope bounds the repair: a gap
+    """#824: both gap-records calls in gap-spot-check.md §4 pass the skill brief, whose scope bounds the repair: a gap
     whose files the scope leaves out is `unknown` (`outside-scope`) whatever its severity, never checked, scanned or
     repaired there, with no halt; merge adds nothing for it and write.md names its warning."""
     plan, record = _gap_calls()
@@ -3354,7 +3354,7 @@ def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, 
 
 
 def test_gap_driven_dry_run_stops_before_merge():
-    """gap-driven.md §5 routes a --dry-run to the report, so a gap-driven --dry-run never loads merge (#558 item 6)."""
+    """gap-spot-check.md §5 routes a --dry-run to the report, so a gap-driven --dry-run never loads merge (#558 item 6)."""
     text = _read(GAP_CHECK)
     five = _slice(text, "### 5. Display the Repair Summary and Route", "\n- **Otherwise**")
     for token in ("load `{reportFile}` (report.md, NOT `{nextStepFile}`)", "so a gap-driven `--dry-run` writes nothing",
@@ -3789,7 +3789,7 @@ def test_merge_moves_citations_by_script(tmp_path, capsys):
 
 
 def test_gap_driven_answers_reachability_from_one_runner_run():
-    """gap-driven.md §4 runs the whole-scope runner once and hands it to both gap-records calls, whose diff answers
+    """gap-spot-check.md §4 runs the whole-scope runner once and hands it to both gap-records calls, whose diff answers
     the reachability gate; the gate asks only where the diff cannot decide, and walks no barrel; write §3b reuses
     the run unless a rescope amended its scope (#1191 determinism-6)."""
     text = _read(GAP_CHECK)
@@ -4340,7 +4340,7 @@ def test_a_hard_gate_blocked_report_is_read_through_its_ledger(tmp_path):
 
 
 def test_zero_a_scans_the_resolved_paths_never_a_hand_expansion(tmp_path):
-    """gap-driven.md §4a takes parse-gaps' resolved files; every root check is the helper's, a rule R3 gap's cited
+    """gap-spot-check.md §4a takes parse-gaps' resolved files; every root check is the helper's, a rule R3 gap's cited
     source file included (#583)."""
     zero_a = _slice(_read(GAP_CHECK), "### 4a. Targeted Re-Extraction Branch", "### 5.")
     files = _slice(zero_a, "2. **The file set**", "\n")
@@ -4496,7 +4496,8 @@ def test_a_normal_run_offers_an_unconsumed_failing_report(tmp_path, result, gene
                   "`report_exists` is true", "`testResult` is `fail` or `pass-with-drift`", "`newer` is not `false`",
                   "offers the report rather than hiding it", "`applied` is not `true`",
                   "[G] Repair the gaps it lists", "[S] Check the source for changes",
-                  "Its default follows the verdict: [G] for `fail`; [S] for `pass-with-drift`",
+                  "Its default follows the verdict: [G] for a `fail` whose `cap_reason` is null; [S] for "
+                  "`pass-with-drift`",
                   "so a repair would read that same tree and halt `halted-for-workspace-drift`",
                   "set `test_report_path` ← `{unconsumed_test_report}`, `{test_report_run_id}` ← `run_id` and "
                   "`update_mode: gap-driven`",
@@ -4528,6 +4529,41 @@ def test_the_no_change_report_points_at_the_unconsumed_report():
                   "moved-check-skipped",
                   "unknown-language"):
         assert token in warnings, token
+
+
+def test_a_capped_failing_report_is_not_sent_to_a_repair_first(tmp_path):
+    """#1185's cap rule: no skill edit lifts a cap, so a FAIL a cap forced defaults to [S] in §4b, and the no-change,
+    no-routed-gap and next-step texts say to restore the tooling the cap names before test-skill is run again."""
+    init = _read(LOAD_BASELINE)
+    four_b = _slice(init, "### 4b. Offer an Unconsumed Test Report", "### 5. Load [MANUAL] Section Inventory")
+    cap = "tooling degraded (toolingStatus: frontmatter-validator-timeout): capped below threshold"
+    forge = tmp_path / "forge data"
+    report = _report_fixture(forge / "lib" / "1.0.0", REPORT_RUN, "fail", "2026-09-30T10:10:10Z")
+    report.write_bytes(report.read_bytes() + (f"\n## Completeness Score\n\n### Result\n\n**Result:** **FAIL**\n"
+                                               f"**Cap:** {cap}\n").encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"forge_data_folder": str(forge), "skill_name": "lib", "active_version": "1.0.0",
+              "generation_date": "2026-09-29T12:00:00Z", "provenance_map_path": str(provenance)}
+    call = _fence(four_b, "uv run {findTestReportHelper} find")
+    code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", values))
+    assert code == 0 and out["testResult"] == "fail" and out["cap_reason"] == cap, out
+    for token in ("`{test_report_cap}` ← `cap_reason` when it is not null",
+                  "[S] too for a `fail` whose `cap_reason` is not null: a cap forced that FAIL, and no skill edit "
+                  "lifts a cap",
+                  "\"A cap forced this FAIL ({cap_reason}), and no repair lifts it: restore the tooling it names and "
+                  "re-run test-skill.\""):
+        assert token in four_b, token
+    lookup = _slice(_read(INIT), "**If `--from-test-report` was provided", "**If `--allow-workspace-drift` was provided:**")
+    assert "and `{test_report_cap}` ← `cap_reason` when it is not null" in lookup
+    one = _slice(_read(REPORT), "### 1. Handle No-Change Shortcut", "### 1a.")
+    for token in ("When `{test_report_cap}` is set (load-baseline.md §4b), say instead:",
+                  "No skill edit lifts a cap, so restore the tooling it names and re-run test-skill; when that test "
+                  "fails too, run `@Ferris US {skill_name} --from-test-report`",
+                  "followed, when `{test_report_cap}` is set, by \"A cap also forced this report's FAIL"):
+        assert token in one, token
+    five = _slice(_read(REPORT), "### 5. Workflow Chaining Recommendations", "### 5b.")
+    assert "When `{test_report_cap}` is set, add to either list:" in five
 
 
 def test_category_b_diffs_through_the_structural_diff_helper(tmp_path, capsys):
@@ -5057,7 +5093,7 @@ def test_every_route_out_of_step_3_honours_dry_run():
         assert token in docs_only, token
     six = _slice(text, "### 6. Route to Next Step", "\n- **Otherwise**")
     assert "Every route out of this step comes here, the docs-only one (§1) included" in six
-    # a gap-driven run leaves from gap-driven.md §5, whose dry-run branch loads the report (#600 architecture-4)
+    # a gap-driven run leaves from gap-spot-check.md §5, whose dry-run branch loads the report (#600 architecture-4)
     assert "(report.md, NOT `{nextStepFile}`)" in _slice(_read(GAP_CHECK), "### 5.", "\n- **Otherwise**")
     # the read-only modes write no brief: the brief §1b and §1c amend is the run folder's copy, and rule R1 writes
     # nothing before step 4 (W1 handoff: read-only modes write the skill brief)
@@ -6581,7 +6617,8 @@ def test_the_run_context_lives_in_the_run_folder():
     assert list(doc) == [
         "skill_name", "baseline_version", "forge_tier", "update_mode", "headless_mode", "degraded_mode",
         "detect_only_mode", "dry_run_mode", "allow_workspace_drift", "allow_degraded", "test_report_path",
-        "test_report_run_id", "target_ref_override", "source_root_override", "lock_owner", "skill_package",
+        "test_report_run_id", "test_report_cap", "target_ref_override", "source_root_override", "lock_owner",
+        "skill_package",
         "forge_version",
         "provenance_map_path", "manual_inventory", "source_root", "source_repo", "source_ref", "source_commit",
         "source_tree_status", "source_tree", "workspace_clone", "target_ref", "target_commit", "source_moved",
@@ -7590,8 +7627,8 @@ def test_the_result_contract_points_at_the_schema():
 # insides, another section or a later step
 # --------------------------------------------------------------------------
 
-# The texts #1195 cut to one clause: detect-changes.md's three Purpose lines (each by the section's start and
-# the marker after its Purpose) and gap-driven.md §4a's lead.
+# The texts #1195 cut to one clause: the Purpose lines of reconcile-scope.md §1b and §1c and detect-changes.md §2.2
+# (each by the section's start and the marker after its Purpose) and gap-spot-check.md §4a's lead.
 LEAN_PURPOSES = {
     ("### 1b.", "**Skip this section entirely if:**"):
         "**Purpose:** a project can add authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` "

@@ -56,10 +56,10 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 
 When `{unconsumed_test_report}` is bound (load-baseline.md §4b found a test report newer than the skill that this normal run did not apply), replace that recommendation by its `{unconsumed_test_result}`:
 
-- `fail`: "**Recommendation:** The source has not changed, but test report `{its file name}` (fail) has not been applied to this skill. Run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists, then re-run test-skill."
+- `fail`: "**Recommendation:** The source has not changed, but test report `{its file name}` (fail) has not been applied to this skill. Run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists, then re-run test-skill." When `{test_report_cap}` is set (load-baseline.md §4b), say instead: "**Recommendation:** The source has not changed, and test report `{its file name}` failed on a cap: {test_report_cap}. No skill edit lifts a cap, so restore the tooling it names and re-run test-skill; when that test fails too, run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists."
 - `pass-with-drift`: "**Recommendation:** The source has not changed, but test report `{its file name}` passed only under `--allow-workspace-drift`: test-skill read a workspace HEAD other than the commit this skill is pinned to. Once the workspace holds the pinned commit, re-run test-skill without `--allow-workspace-drift` before exporting."
 
-In gap-driven mode (gap-driven.md §1 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap it did not route (`{id}: {title} ({category}): {reason}`, with the `reason` gap-driven.md §1's `not_routed[]` gives it), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes."
+In gap-driven mode (gap-driven.md §1 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap it did not route (`{id}: {title} ({category}): {reason}`, with the `reason` gap-driven.md §1's `not_routed[]` gives it), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes.", followed, when `{test_report_cap}` is set, by "A cap also forced this report's FAIL ({test_report_cap}), and no skill edit lifts it: restore the tooling it names before you re-run test-skill."
 
 When `{source_moved}` is true, add before the recommendation: "Upstream moved to `{target_commit}`, but no file this skill tracks changed, so nothing was written and the skill stays pinned at `{source_commit}`." When `{target_ref_override}` is set and `{target_ref}` differs from `{source_ref}`, also add "**The re-pin to `{target_ref}` was not recorded** — an update records a new ref only when it writes, and `{target_ref}` changes no file this skill tracks." and add `target-ref-not-recorded: {target_ref} changes no file {skill_name} tracks; the skill still records {source_ref}` to `warnings[]`.
 
@@ -254,6 +254,8 @@ When `{run_dir}/warnings.jsonl` holds a `workspace-clone-not-updated:` line, add
 **If validation warnings/failures exist:**
 "- **audit-skill** — Run to identify remaining issues
 - Review validation findings above before exporting"
+
+When `{test_report_cap}` is set, add to either list: "- test-skill fails again until the tooling the last test report's cap names is restored ({test_report_cap}): no skill edit lifts a cap."
 
 **If triggered by audit-skill chain:**
 "- **audit-skill** — Re-run to verify CRITICAL/HIGH drift resolved

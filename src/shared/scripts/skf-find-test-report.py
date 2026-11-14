@@ -44,6 +44,7 @@ Output (stdout):
     "source": "versioned-glob" | "flat-glob" | "latest-json" | null,
     "testResult": "pass" | "fail" | "inconclusive" | "pass-with-drift" | null,
     "score": <number> | null,
+    "cap_reason": "<text>" | null,
     "run_id": "<run id>" | null,
     "test_date": "<testDate>" | null,
     "result_path": "<skf-test-skill-result-latest.json>" | null,
@@ -57,6 +58,13 @@ file's `summary` (`result`, `score`), `report_exists` is false (true for
 every report the helper read, null when none was found) and a warning says
 so. `testResult` is lower case with hyphens (`PASS_WITH_DRIFT` reads as
 `pass-with-drift`).
+
+`cap_reason` is the text of the `**Cap:**` line in the report's
+`## Completeness Score` section, which test-skill writes only when a cap
+fired: no skill edit lifts a cap, so update-skill does not offer a repair
+first for that FAIL. For latest-json, when the report has no such line or
+is gone, it is the result file's `summary.capReason`. It is null when no
+cap fired.
 
 With --newer-than (update-skill passes the skill's metadata.json
 `generation_date`), the output also holds `"newer": true | false | null`:
@@ -98,6 +106,7 @@ _RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z(?:-[A-Za-z0-9]+)*$")
 _RUN_ID_STAMP_RE = re.compile(r"^(\d{8}T\d{6}Z)")
 # The easternmost zone (UTC+14): a day there starts 14 hours before UTC's.
 _EARLIEST_ZONE_OFFSET = timedelta(hours=14)
+_CAP_LINE_RE = re.compile(r"^\*\*Cap:\*\*[ \t]*(\S.*?)[ \t]*$")
 
 
 # --------------------------------------------------------------------------
@@ -133,6 +142,28 @@ def read_frontmatter(text: str) -> dict[str, str]:
             value = value[1:-1]
         out[m.group(1)] = value
     return {}
+
+
+def read_cap_reason(text: str) -> str | None:
+    """The `**Cap:**` line's text in the `## Completeness Score` section, or None.
+
+    >>> read_cap_reason("## Completeness Score\\n\\n**Result:** **FAIL**\\n**Cap:** tooling degraded\\n")
+    'tooling degraded'
+    >>> read_cap_reason("## Gap Report\\n\\n**Cap:** quoted\\n\\n## Completeness Score\\n\\n**Result:** **PASS**\\n") is None
+    True
+    """
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            in_section = line.strip() == "## Completeness Score"
+        elif in_section and (match := _CAP_LINE_RE.match(line)):
+            return match.group(1)
+    return None
+
+
+def normalize_cap(value: object) -> str | None:
+    """A result file's `summary.capReason`: a non-empty string, else None."""
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def normalize_result(value: object) -> str | None:
@@ -260,12 +291,13 @@ def glob_escape(text: str) -> str:
     return re.sub(r"([*?\[])", r"[\1]", text)
 
 
-def read_report(path: Path) -> dict:
+def read_report(path: Path) -> tuple[dict, str | None]:
+    """The report's frontmatter and its `**Cap:**` line (read_cap_reason)."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return {}
-    return read_frontmatter(text)
+        return {}, None
+    return read_frontmatter(text), read_cap_reason(text)
 
 
 def _run_id(frontmatter: dict, path: Path, skill_name: str) -> str | None:
@@ -279,7 +311,7 @@ def _run_id(frontmatter: dict, path: Path, skill_name: str) -> str | None:
     return None
 
 
-def _found(result: dict, *, path: Path, source: str, frontmatter: dict, skill_name: str) -> dict:
+def _found(result: dict, *, path: Path, source: str, frontmatter: dict, cap: str | None, skill_name: str) -> dict:
     result.update(
         {
             "status": "found",
@@ -288,6 +320,7 @@ def _found(result: dict, *, path: Path, source: str, frontmatter: dict, skill_na
             "source": source,
             "testResult": normalize_result(frontmatter.get("testResult")),
             "score": normalize_score(frontmatter.get("score")),
+            "cap_reason": cap,
             "run_id": _run_id(frontmatter, path, skill_name),
             "test_date": frontmatter.get("testDate") or None,
         }
@@ -297,11 +330,11 @@ def _found(result: dict, *, path: Path, source: str, frontmatter: dict, skill_na
 
 def _glob_lookup(result: dict, folder: Path, skill_name: str, source: str) -> bool:
     for _, path in report_candidates(folder, skill_name):
-        frontmatter = read_report(path)
+        frontmatter, cap = read_report(path)
         if not normalize_result(frontmatter.get("testResult")):
             result["skipped"].append({"path": str(path), "reason": "unfinished"})
             continue
-        _found(result, path=path, source=source, frontmatter=frontmatter, skill_name=skill_name)
+        _found(result, path=path, source=source, frontmatter=frontmatter, cap=cap, skill_name=skill_name)
         return True
     return False
 
@@ -352,12 +385,14 @@ def _latest_json_lookup(result: dict, folder: Path, skill_name: str) -> bool:
     report = resolve_output_path(recorded, result_file)
     summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
     if report is not None:
-        frontmatter = read_report(report)
-        _found(result, path=report, source="latest-json", frontmatter=frontmatter, skill_name=skill_name)
+        frontmatter, cap = read_report(report)
+        _found(result, path=report, source="latest-json", frontmatter=frontmatter, cap=cap, skill_name=skill_name)
         if result["testResult"] is None:
             result["testResult"] = normalize_result(summary.get("result"))
         if result["score"] is None:
             result["score"] = normalize_score(summary.get("score"))
+        if result["cap_reason"] is None:
+            result["cap_reason"] = normalize_cap(summary.get("capReason"))
         return True
     result["warnings"].append(
         f"the report {recorded} named in {result_file} is missing; the verdict comes from its summary"
@@ -370,6 +405,7 @@ def _latest_json_lookup(result: dict, folder: Path, skill_name: str) -> bool:
             "source": "latest-json",
             "testResult": normalize_result(summary.get("result")),
             "score": normalize_score(summary.get("score")),
+            "cap_reason": normalize_cap(summary.get("capReason")),
             "run_id": data.get("runId") if isinstance(data.get("runId"), str) else None,
             "test_date": data.get("timestamp") if isinstance(data.get("timestamp"), str) else None,
         }
@@ -388,6 +424,7 @@ def find_test_report(forge_data_folder: Path, skill_name: str, version: str | No
         "source": None,
         "testResult": None,
         "score": None,
+        "cap_reason": None,
         "run_id": None,
         "test_date": None,
         "result_path": None,

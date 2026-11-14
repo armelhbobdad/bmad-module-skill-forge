@@ -721,6 +721,8 @@ def test_docs_describe_the_unconsumed_test_report_offer():
                       "(`[S]`)", "a headless run checks the source and adds an `unconsumed-test-report` warning"):
             assert token in text, token
     assert "routes each gap by its category, so a missing export" in modes
+    # #1185's cap rule: a FAIL a cap forced is not offered a repair first
+    assert "For a FAIL a cap forced, it names the cap and offers `[S]` first, since no skill edit lifts a cap" in modes
     assert "does not read the test report" not in _read(FORGE_AUTO)
 
 
