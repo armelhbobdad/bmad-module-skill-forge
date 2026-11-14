@@ -118,7 +118,7 @@ This detects your tools and their versions, sets your capability tier (Quick, Fo
 @Ferris forge-auto https://github.com/honojs/hono
 ```
 
-One command turns a repo URL (or a doc URL) into a verified skill. It scopes the skill, writes its brief, compiles, tests and exports it, with no configuration. The test aims for a 90% score: a skill scoring 80% or more still passes, with an evidence report explaining the gap, and one below 80% stops the run. If you only read one thing, [start with forge-auto](/docs/forge-auto.md).
+One command turns a repo URL (or a doc URL) into a verified skill. It scopes the skill, writes its brief, compiles, tests and exports it, with no configuration. The test aims for a 90% score: a skill scoring 80% or more still passes, and the test report records the gap; one below 80% stops the run. If you only read one thing, [start with forge-auto](/docs/forge-auto.md).
 
 **Fastest path (Quick Skill):**
 ```

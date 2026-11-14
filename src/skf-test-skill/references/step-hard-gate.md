@@ -11,7 +11,7 @@ ledgerFile: '{forge_version}/test-findings-{run_id}.json'
 hardGateScript: 'scripts/hard-gate.py'
 ---
 
-<!-- Config: communicate in {communication_language}. -->
+<!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
 
 # Step 4c: Hard Gate
 

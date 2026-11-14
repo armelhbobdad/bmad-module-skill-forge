@@ -12,16 +12,17 @@ follows from records the run already wrote, so this script builds it rather
 than the model retyping them from memory:
 
   - the report frontmatter: skillName, runId, testMode, hardGate,
-    testResult, workspaceDrift, score, threshold, thresholdFallback,
-    originalThreshold and evidenceReportPath (the steps write the verdict
-    inputs there, so a compacted context cannot change them), and
+    testResult, workspaceDrift, score, threshold, thresholdFallback and
+    originalThreshold (the steps write the verdict inputs there, so a
+    compacted context cannot change them), and
     analysisConfidence, which must be one of compute-score.py's
     ANALYSIS_CONFIDENCE for a scored run and a blocked one alike (score.md
     §7 writes it, or step-hard-gate.md §3 on a blocked run);
   - the gap ledger: the gap counts by severity (gap-ledger.py's summary);
   - the scoring script's output, which score.md saves: the verdict, score
-    and threshold it settled, activeCategories and inconclusiveReasons. A
-    run the hard gate blocked was never scored and has none.
+    and threshold it settled, activeCategories, inconclusiveReasons and the
+    capReason of a cap that fired. A run the hard gate blocked was never
+    scored and has none.
 
 A scored run's verdict fields are checked against the scoring output
 (`scored_fields`): testResult must be the verdict the output settled,
@@ -35,13 +36,14 @@ originalThreshold its override group's. A field copied from anything else
 of a run the fallback accepted) exits 1 and writes no payload, so
 report.md halts before it publishes the report or writes a result file.
 
-The derived fields live here, in one place:
+The derived fields live here, in one place (nextWorkflow is the frontmatter
+key `settle` writes):
 
-  testResult       verdict          summary.result   exit_code  next_workflow
-  pass             PASS             PASS             0          export-skill
-  pass-with-drift  pass-with-drift  PASS_WITH_DRIFT  4          update-skill
-  fail             FAIL             FAIL             2          update-skill
-  inconclusive     INCONCLUSIVE     INCONCLUSIVE     3          null
+  testResult       verdict          summary.result   exit_code  next_workflow  nextWorkflow
+  pass             PASS             PASS             0          export-skill   export-skill
+  pass-with-drift  pass-with-drift  PASS_WITH_DRIFT  4          update-skill   update-skill
+  fail             FAIL             FAIL             2          update-skill   update-skill
+  inconclusive     INCONCLUSIVE     INCONCLUSIVE     3          null           manual-review
 
 A run the hard gate blocked (frontmatter hardGate: 'blocked') takes the
 hard gate's own payload (hard-gate.py `blocked_envelope`): status error,
@@ -58,9 +60,9 @@ Payload (written to --output, UTF-8 JSON):
      "outputs": [{"type": "report", "path": <report>}],
      "summary": {"score", "threshold", "result", "testMode",
                  "activeCategories", "inconclusiveReasons" (INCONCLUSIVE),
-                 "threshold_fallback", "original_threshold",
-                 "evidence_report_path" (fallback only), "gapCounts",
-                 "hardGate"},
+                 "capReason" (a cap fired: a non-empty string),
+                 "threshold_fallback", "original_threshold" (fallback
+                 only), "gapCounts", "hardGate"},
      "runId": <runId>, "healthCheckDispatched": <bool>}}
 
 CLI:
@@ -90,6 +92,51 @@ Exit codes:
      be written ({"status": "error", "error"} on stdout)
   2  a usage error: no --score for a run the hard gate did not block (the
      same JSON on stdout), or a flag argparse refuses (its usage on stderr)
+
+Subcommand settle (score.md §6), so the model types no verdict field:
+  uv run build-result-context.py settle --report <report.md>
+      --score <scoring output> --external <external.json>
+
+writes the verdict fields `scored_fields` settles into the report
+frontmatter, each key replaced where it stands or added before the closing
+`---`, every other byte (line endings and a byte order mark included)
+kept: testResult, score and threshold (`'{n}%'`, a whole number without
+its `.0`), nextWorkflow (the table above) and, only after a threshold
+fallback, thresholdFallback: true and originalThreshold; without one it
+removes those two. It writes neither stepsCompleted nor
+analysisConfidence. Then it prints the Completeness Score section on
+stdout:
+  ### Score Breakdown  one row per compute-score.py CATEGORIES entry: the
+                       score the weight applied to (state2Deduction's
+                       exportCoverage when present, else input.scores; N/A
+                       for a skippedCategories entry), the weight and the
+                       weighted score, then the Total row
+  ### Result           Score, Threshold, Result (summary.result), Cap (a
+                       cap fired), Inconclusive Reasons (INCONCLUSIVE),
+                       then Threshold Source (frontmatter), Weight
+                       Distribution (`{mode} (full)`, or `(redistributed)`
+                       when a category was skipped), Tier Adjustment,
+                       External Validators (--external `toolsUsed`),
+                       Analysis Confidence and Tooling Status
+                       (frontmatter), and Scoring Notes (scoringNotes, and
+                       the drift note on a pass-with-drift) when there is
+                       one
+  ### Threshold Fallback  only after a threshold fallback: Attempted
+                       Threshold (originalThreshold), Achieved Score
+                       (totalScore), Accepted At (the floor), Threshold
+                       Source (frontmatter), Prior Test Report (the
+                       test-report-*.md file beside --report whose name
+                       holds the latest run-id stamp, a name without one,
+                       such as SKF 2.x's, ranking below every stamped
+                       one; or none found) and Findings (a pointer to the
+                       Gap Report)
+Exit 0 when it wrote and printed; 1 (one `error:` line on stderr, the
+report untouched) when an input is missing, unreadable or not its script's
+result (--score an INVALID_INPUT envelope or without input, weights and
+weightedScores; --external without a toolsUsed list), the report has no
+frontmatter or the hard gate blocked it, its folder cannot be listed after
+a threshold fallback, or the write fails; 2 a usage error (a flag argparse
+refuses, its usage on stderr).
 """
 
 from __future__ import annotations
@@ -97,6 +144,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -109,6 +157,26 @@ VERDICTS = {
     "fail": ("FAIL", "FAIL", 2, "update-skill"),
     "inconclusive": ("INCONCLUSIVE", "INCONCLUSIVE", 3, None),
 }
+# testResult -> the report frontmatter's nextWorkflow, which settle writes
+NEXT_WORKFLOW = {"pass": "export-skill", "pass-with-drift": "update-skill", "fail": "update-skill",
+                 "inconclusive": "manual-review"}
+# The keys settle writes only after a threshold fallback, and removes otherwise.
+FALLBACK_KEYS = ("thresholdFallback", "originalThreshold")
+# A published test report's run-id stamp: `-{YYYYMMDDTHHMMSSZ}`, then only `-`-joined letters and digits before
+# `.md` (the run id's shape, skf-find-test-report.py `_RUN_ID_RE`).
+_REPORT_STAMP_RE = re.compile(r"-(\d{8}T\d{6}Z)(?:-[A-Za-z0-9]+)*\.md$")
+# compute-score.py CATEGORIES -> the Score Breakdown row label
+CATEGORY_LABELS = {"exportCoverage": "Export Coverage", "signatureAccuracy": "Signature Accuracy",
+                   "typeCoverage": "Type Coverage", "coherence": "Coherence",
+                   "externalValidation": "External Validation"}
+# combine-external-scores.py toolsUsed -> the External Validators line
+EXTERNAL_VALIDATORS = {
+    frozenset({"skill-check", "tessl"}): "skill-check and Tessl Review",
+    frozenset({"skill-check"}): "skill-check only",
+    frozenset({"tessl"}): "Tessl Review only",
+    frozenset(): "none: weight redistributed",
+}
+DRIFT_NOTE = "workspace drift overridden: the PASS is conditional; re-run against the pinned commit before export"
 _KEY_RE = re.compile(r"^([A-Za-z_][\w-]*):\s*(.*?)\s*$")
 
 
@@ -132,10 +200,12 @@ def _sibling(name: str, module: str):
 
 
 def read_frontmatter(text: str) -> dict[str, str]:
-    """Top-level scalar keys of the leading `---` block, quotes removed.
+    """Top-level scalar keys of the leading `---` block, quotes removed (a single-quoted one's `''` read as `'`).
 
     >>> read_frontmatter("---\\ntestResult: 'pass'\\nscore: 91.5%\\nsteps: ['a']\\n---\\n# R")
     {'testResult': 'pass', 'score': '91.5%', 'steps': "['a']"}
+    >>> read_frontmatter("---\\nskillDir: '/home/o''neil/skills/demo'\\n---\\n")
+    {'skillDir': "/home/o'neil/skills/demo"}
     >>> read_frontmatter("# no frontmatter")
     {}
     """
@@ -151,7 +221,7 @@ def read_frontmatter(text: str) -> dict[str, str]:
             continue
         value = m.group(2)
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
+            value = value[1:-1].replace("''", "'") if value[0] == "'" else value[1:-1]
         out[m.group(1)] = value
     return {}
 
@@ -262,7 +332,7 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
     blocked = front.get("hardGate") == "blocked"
     if blocked:
         envelope = dict(_sibling("hard-gate.py", "skf_hard_gate").blocked_envelope(skill, report_path))
-        result, active, inconclusive = "FAIL", [], None
+        result, active, inconclusive, cap = "FAIL", [], None, None
     else:
         test_result = front.get("testResult", "")
         if test_result not in VERDICTS:
@@ -299,6 +369,8 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
                                + "; ".join(wrong))
         active = scored.get("activeCategories", [])
         inconclusive = scored.get("inconclusiveReasons") if verdict == "INCONCLUSIVE" else None
+        # The cap that fired, which no skill edit lifts: a caller restores the tooling it names, then tests again.
+        cap = scored.get("capReason") if isinstance(scored.get("capReason"), str) else None
 
     fallback = front.get("thresholdFallback", "").lower() == "true" and not blocked
     if fallback:
@@ -314,10 +386,11 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
     }
     if inconclusive is not None:
         summary["inconclusiveReasons"] = inconclusive
+    if cap and cap.strip():
+        summary["capReason"] = cap
     if fallback:
         summary["threshold_fallback"] = True
         summary["original_threshold"] = envelope["original_threshold"]
-        summary["evidence_report_path"] = front.get("evidenceReportPath") or None
     summary["gapCounts"] = counts
     summary["hardGate"] = front.get("hardGate") or None
 
@@ -331,6 +404,235 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
     if kept:
         payload["warnings"] = kept
     return payload
+
+
+# --------------------------------------------------------------------------
+# settle: the verdict fields and the Completeness Score section (score.md §6)
+# --------------------------------------------------------------------------
+
+
+def pct(value) -> str:
+    """A score as the report writes it, reconcile-coverage.py `_pct`'s form.
+
+    >>> pct(87.37), pct(80), pct(85.0), pct(None)
+    ('87.37%', '80%', '85%', 'N/A')
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "N/A"
+    return f"{int(value)}%" if float(value).is_integer() else f"{value}%"
+
+
+def write_frontmatter(text: str, values: dict[str, str], remove: tuple[str, ...] = ()) -> str:
+    """`text` with each key of `values` set (replaced where it stands, else added before the closing `---`) and each
+    key of `remove` dropped; every other byte, line endings and a byte order mark included, is kept.
+
+    >>> write_frontmatter("---\\r\\nscore: ''\\r\\nold: 1\\r\\n---\\r\\n# R\\r\\n", {"score": "'91.5%'", "add": "true"},
+    ...                   remove=("old",))
+    "---\\r\\nscore: '91.5%'\\r\\nadd: true\\r\\n---\\r\\n# R\\r\\n"
+    """
+    bom = "\ufeff" if text.startswith("\ufeff") else ""
+    lines = text[len(bom):].splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        raise ContextError("has no frontmatter")
+    close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if close is None:
+        raise ContextError("has no frontmatter (no closing ---)")
+    eol = lines[0][len(lines[0].rstrip("\r\n")):] or "\n"
+    head, body = lines[1:close], lines[close:]
+    kept, placed = [], set()
+    for line in head:
+        m = _KEY_RE.match(line.rstrip("\r\n"))
+        key = m.group(1) if m else None
+        if key in remove:
+            continue
+        if key in values:
+            ending = line[len(line.rstrip("\r\n")):] or eol
+            kept.append(f"{key}: {values[key]}{ending}")
+            placed.add(key)
+            continue
+        kept.append(line)
+    kept += [f"{key}: {value}{eol}" for key, value in values.items() if key not in placed]
+    return bom + lines[0] + "".join(kept) + "".join(body)
+
+
+def _scoring_output(path: str) -> dict:
+    scored = _read_json(path, "--score")
+    if not isinstance(scored, dict) or scored.get("code") == "INVALID_INPUT" or "error" in scored:
+        raise ContextError(f"--score {path} is compute-score.py's refusal, not a score: correct the input and run "
+                           "it again (score.md §3c)")
+    shapes = {"input": dict, "weights": dict, "weightedScores": dict}
+    wrong = [key for key, kind in shapes.items() if not isinstance(scored.get(key), kind)]
+    if wrong:
+        raise ContextError(f"--score {path} is not compute-score.py's output: no {', '.join(wrong)}")
+    if not isinstance(scored.get("totalScore"), (int, float)) or isinstance(scored.get("totalScore"), bool):
+        raise ContextError(f"--score {path} is not compute-score.py's output: no numeric totalScore")
+    return scored
+
+
+def _tools_used(path: str) -> str:
+    external = _read_json(path, "--external")
+    tools = external.get("toolsUsed") if isinstance(external, dict) else None
+    if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
+        raise ContextError(f"--external {path} is not combine-external-scores.py's result: no toolsUsed list")
+    label = EXTERNAL_VALIDATORS.get(frozenset(tools))
+    if label is None:
+        raise ContextError(f"--external {path} names a tool combine-external-scores.py never uses: {tools}")
+    return label
+
+
+def _report_rank(name: str) -> tuple[bool, str, str]:
+    """The order `prior_test_report` ranks a published test report's file name by, latest last.
+
+    A published name ends in its run id, whose `YYYYMMDDTHHMMSSZ` stamp is the run's UTC start, so the stamp
+    ranks it, whatever skill name comes before it: a report kept under the skill's name before a rename ranks
+    by its run too. A name without one, such as SKF 2.x's `test-report-{name}.md`, ranks older than every name
+    with one, and equal stamps rank by name.
+
+    >>> sorted(["test-report-demo.md", "test-report-zeta-20260103T000000Z-cc.md",
+    ...         "test-report-demo-20260102T000000Z-bb.md"], key=_report_rank)[-1]
+    'test-report-zeta-20260103T000000Z-cc.md'
+    >>> _report_rank("test-report-demo-20260101T000000Z-x_y.md")
+    (False, '', 'test-report-demo-20260101T000000Z-x_y.md')
+    """
+    stamp = _REPORT_STAMP_RE.search(name)
+    return (True, stamp.group(1), name) if stamp else (False, "", name)
+
+
+def prior_test_report(report: Path) -> str | None:
+    """The file name of the test report beside `report` whose name holds the latest run-id stamp
+    (`_report_rank`), or None when the folder holds none.
+
+    Only published reports count: this run's own report still has its hidden `.skf-` name, which the glob never
+    matches, and a `report` already published is skipped too, as is anything that is not a file.
+    """
+    try:
+        names = [p.name for p in report.parent.glob("test-report-*.md") if p.name != report.name and p.is_file()]
+    except OSError as exc:
+        raise ContextError(f"--report {report}: its folder cannot be listed: {exc}") from exc
+    return max(names, key=_report_rank) if names else None
+
+
+def settle(report: str, score: str, external: str) -> tuple[str, str]:
+    """(the report text with its verdict fields written, the Completeness Score section). Raises ContextError
+    (exit 1); writes nothing."""
+    try:
+        raw = Path(report).read_bytes()
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ContextError(f"--report {report} cannot be read: {exc}") from exc
+    front = read_frontmatter(text)
+    if not front:
+        raise ContextError(f"--report {report} has no frontmatter")
+    if front.get("hardGate") == "blocked":
+        raise ContextError(f"--report {report} records a run the hard gate blocked: it has no score to settle "
+                           "(step-hard-gate.md writes its Completeness Score section)")
+    scored = _scoring_output(score)
+    validators = _tools_used(external)
+    fields = scored_fields(scored, front.get("workspaceDrift"))
+    if fields is None:
+        raise ContextError(f"--score {score} holds no verdict (no effectiveResult or result)")
+    fell_back = fields["thresholdFallback"]
+    test_result = fields["testResult"]
+    values = {"testResult": f"'{test_result}'", "score": f"'{pct(fields['score'])}'",
+              "threshold": f"'{pct(fields['threshold'])}'", "nextWorkflow": f"'{NEXT_WORKFLOW[test_result]}'"}
+    if fell_back:
+        values |= {"thresholdFallback": "true", "originalThreshold": f"'{pct(fields['originalThreshold'])}'"}
+    try:
+        written = write_frontmatter(text, values, remove=() if fell_back else FALLBACK_KEYS)
+    except ContextError as exc:
+        raise ContextError(f"--report {report} {exc}") from exc
+    prior = prior_test_report(Path(report)) if fell_back else None
+    return written, completeness_section(scored, fields, front, validators, prior)
+
+
+def completeness_section(scored: dict, fields: dict, front: dict[str, str], validators: str,
+                         prior_report: str | None = None) -> str:
+    """The Completeness Score section score.md §6 writes, from the scoring output, the settled fields, the report
+    frontmatter and the External Validators label; after a threshold fallback, `prior_report` is the file name of
+    the latest earlier test report beside this one (`prior_test_report`), or None when none was found."""
+    inputs = scored["input"]
+    given = inputs.get("scores") if isinstance(inputs.get("scores"), dict) else {}
+    deduction = scored.get("state2Deduction") if isinstance(scored.get("state2Deduction"), dict) else {}
+    skipped = scored.get("skippedCategories") if isinstance(scored.get("skippedCategories"), list) else []
+    categories = _sibling("compute-score.py", "skf_compute_score_categories").CATEGORIES
+    lines = ["## Completeness Score", "", "### Score Breakdown", "",
+             "| Category | Score | Weight | Weighted |", "|----------|-------|--------|----------|"]
+    for cat in categories:
+        if cat in skipped:
+            value = None
+        elif cat == "exportCoverage" and "exportCoverage" in deduction:
+            value = deduction["exportCoverage"]
+        else:
+            value = given.get(cat)
+        lines.append(f"| {CATEGORY_LABELS.get(cat, cat)} | {pct(value)} | {pct(scored['weights'].get(cat))} "
+                     f"| {pct(scored['weightedScores'].get(cat))} |")
+    total = pct(scored["totalScore"])
+    lines += [f"| **Total** | | **100%** | **{total}** |", "", "### Result", "",
+              f"**Score:** {total}", f"**Threshold:** {pct(fields['threshold'])}",
+              f"**Result:** **{VERDICTS[fields['testResult']][1]}**"]
+    cap = scored.get("capReason")
+    if isinstance(cap, str) and cap.strip():
+        lines.append(f"**Cap:** {cap}")
+    if fields["testResult"] == "inconclusive":
+        reasons = scored.get("inconclusiveReasons") if isinstance(scored.get("inconclusiveReasons"), list) else []
+        lines.append("**Inconclusive Reasons:**")
+        lines += [f"- {reason}" for reason in reasons]
+    lines += ["", f"**Threshold Source:** {front.get('thresholdSource', '')}"]
+    mode = inputs.get("mode")
+    lines += [f"**Weight Distribution:** {mode} ({'redistributed' if skipped else 'full'})",
+              "**Tier Adjustment:** " + ("Quick tier: signature and type coverage not scored"
+                                         if inputs.get("tier") == "Quick" else "none"),
+              f"**External Validators:** {validators}",
+              f"**Analysis Confidence:** {front.get('analysisConfidence', '')}",
+              f"**Tooling Status:** {front.get('toolingStatus', '')}"]
+    notes = [n for n in scored.get("scoringNotes") or [] if isinstance(n, str) and n.strip()]
+    if fields["testResult"] == "pass-with-drift":
+        notes.append(DRIFT_NOTE)
+    if notes:
+        lines.append(f"**Scoring Notes:** {'; '.join(notes)}")
+    if fields["thresholdFallback"]:
+        target = pct(fields["originalThreshold"])
+        prior = (f"`{prior_report}`: an earlier test report of this version" if prior_report
+                 else "none found beside this report")
+        lines += ["", "### Threshold Fallback", "",
+                  f"**Attempted Threshold:** {target}",
+                  f"**Achieved Score:** {total}",
+                  f"**Accepted At:** {pct(fields['threshold'])} floor",
+                  f"**Threshold Source:** {front.get('thresholdSource', '')}",
+                  f"**Prior Test Report:** {prior}",
+                  f"**Findings:** the Gap Report lists this run's gaps; address them to reach the {target} target"]
+    return "\n".join(lines) + "\n"
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write `data` over `path` through a temp file beside it, so a failed write leaves the report as it was."""
+    tmp = path.with_name(f".{path.name}.settle-{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _settle_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="build-result-context settle",
+        description=("Write the verdict fields the scoring output settles into the report frontmatter and print "
+                     "the Completeness Score section (score.md §6)."),
+    )
+    parser.add_argument("--report", required=True, help="the test report whose frontmatter takes the verdict")
+    parser.add_argument("--score", required=True, help="compute-score.py's output (score.json)")
+    parser.add_argument("--external", required=True, help="combine-external-scores.py's result (external.json)")
+    args = parser.parse_args(argv)
+    try:
+        written, section = settle(args.report, args.score, args.external)
+        # The report keeps its own line endings, so it is written back as bytes.
+        _write_atomic(Path(args.report), written.encode("utf-8"))
+    except (ContextError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    sys.stdout.write(section)
+    return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -354,6 +656,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["settle"]:
+        return _settle_main(argv[1:])
     args = _build_parser().parse_args(argv)
     try:
         payload = build(args.report, args.ledger, args.score, not args.no_health_check, args.warning,

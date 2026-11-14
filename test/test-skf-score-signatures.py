@@ -179,9 +179,11 @@ def test_the_plan_compares_each_documented_signature_on_the_surface(tmp_path):
     assert proc.returncode == 0, proc.stderr
     plan = json.loads(out_path.read_text(encoding="utf-8"))
     assert plan == json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
-    # #1018: the step reads the plan from the file, so stdout gives only its counts and the path
-    assert json.loads(proc.stdout) == {"compared": 2, "files": 2, "checks": 2, "documented": 4,
+    # #1018: the step reads the plan from the file, so stdout gives only its counts and the path; #1188: and
+    # the number of batches, one judge each
+    assert json.loads(proc.stdout) == {"compared": 2, "files": 2, "checks": 2, "batches": 1, "documented": 4,
                                        "output": str(out_path)}
+    assert plan["batches"] == [{"files": ["src/helper.ts", "src/index.ts"], "checks": 2}]
     assert plan["compared"] == 2  # stale and useThing are not on the surface; a method never is
     assert plan["files"] == [
         {"file": "src/helper.ts", "checks": [{"name": "helper", "line": 1,
@@ -198,7 +200,7 @@ def test_the_plan_compares_each_documented_signature_on_the_surface(tmp_path):
 def test_the_plan_without_a_surface_is_the_signature_map(tmp_path):
     inventory, _ = _files(tmp_path)
     plan = json.loads(_run("plan", "--inventory", inventory).stdout)
-    assert plan["files"] == [] and plan["compared"] == 0 and plan["notCompared"] == []
+    assert plan["files"] == [] and plan["batches"] == [] and plan["compared"] == 0 and plan["notCompared"] == []
     assert plan["documentedSignatures"]["useThing"] == {"usage_signature": "useThing(): Thing"}
 
 
@@ -211,11 +213,267 @@ def test_the_plan_with_output_prints_only_a_summary(tmp_path):
     proc = _run("plan", "--inventory", inventory, "--output", str(out_path))
     assert proc.returncode == 0, proc.stderr
     summary = json.loads(proc.stdout)
-    assert summary == {"compared": 0, "files": 0, "checks": 0, "documented": 4, "output": str(out_path)}
+    assert summary == {"compared": 0, "files": 0, "checks": 0, "batches": 0, "documented": 4,
+                       "output": str(out_path)}
     assert "documentedSignatures" not in proc.stdout and "useThing" not in proc.stdout
     plan = json.loads(out_path.read_text(encoding="utf-8"))
     assert plan == json.loads(_run("plan", "--inventory", inventory).stdout)
     assert len(plan["documentedSignatures"]) == summary["documented"]
+
+
+def _groups(*sizes: tuple[str, int]) -> list[dict]:
+    """A plan's files[] entries: each file with that many checks."""
+    return [{"file": file, "checks": [{"name": f"{file}-{n}"} for n in range(count)]} for file, count in sizes]
+
+
+def test_the_plan_batches_its_files_under_a_check_budget():
+    """#1188: one judge takes a batch, where coverage-check §2 delegated one per file: the files[] entries in
+    order, at most 10 files and 25 checks a batch; the entry "" (no file to read) and an entry of more than 25
+    checks each sit alone and close the batch before them."""
+    assert (mod.BATCH_CHECKS, mod.BATCH_FILES) == (25, 10)
+    files = _groups(("", 1), ("a", 3), ("b", 30), *((f"c{n}", 1) for n in range(1, 13)))
+    assert mod.batches(files) == [
+        {"files": [""], "checks": 1}, {"files": ["a"], "checks": 3}, {"files": ["b"], "checks": 30},
+        {"files": [f"c{n}" for n in range(1, 11)], "checks": 10}, {"files": ["c11", "c12"], "checks": 2}]
+    # A batch takes checks up to 25 and no more; 25 checks alone is no oversized entry.
+    assert mod.batches(_groups(("a", 20), ("b", 5), ("c", 1), ("d", 25), ("e", 26))) == [
+        {"files": ["a", "b"], "checks": 25}, {"files": ["c"], "checks": 1}, {"files": ["d"], "checks": 25},
+        {"files": ["e"], "checks": 26}]
+    assert mod.batches([]) == []
+
+
+def _many_files(tmp_path: Path, count: int) -> tuple[str, str]:
+    """An inventory and a surface of `count` one-check files, `src/f01.ts` and on."""
+    names = [f"f{n:02d}" for n in range(1, count + 1)]
+    inventory = {"exports": [{"name": n, "kind": "function", "params": "x: number", "return_type": "number",
+                              "description": "Runs."} for n in names], "cross_check_mismatches": []}
+    surface = {"exports": [{"name": n, "kind": "function", "file": f"src/{n}.ts", "line": 1,
+                            "signatureLine": f"export function {n}(x: number): number {{", "origin": "extraction"}
+                           for n in names], "sets": {"all": names}}
+    return _write(tmp_path / "inventory.json", inventory), _write(tmp_path / "surface.json", surface)
+
+
+def test_a_plan_of_forty_files_sends_four_judges_whose_arrays_score_as_one(tmp_path):
+    """#1188: forty one-check files make four batches, the summary names their number, and `score` reads the four
+    `signatures-<n>.txt` arrays, one object per file, as it read forty single results. Without a surface the plan
+    has no batch."""
+    inventory, surface = _many_files(tmp_path, 40)
+    out_path = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(out_path))
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(out_path.read_text(encoding="utf-8"))
+    assert [batch["files"] for batch in plan["batches"]] == [
+        [group["file"] for group in plan["files"][i:i + 10]] for i in range(0, 40, 10)]
+    assert json.loads(proc.stdout) == {"compared": 40, "files": 40, "checks": 40, "batches": 4, "documented": 40,
+                                       "output": str(out_path)}
+    results = []
+    for n, batch in enumerate(plan["batches"], 1):
+        objects = [{"file": file, "signature_mismatches": []} for file in batch["files"]]
+        if n == 2:
+            objects[3]["signature_mismatches"] = [{
+                "name": "f14", "line": 1, "source_sig": "(x: number) => number", "documented_sig": "(x: string) => number",
+                "issue": "parameter type"}]
+        results += ["--results", _write(tmp_path / f"signatures-{n}.txt", "```json\n" + json.dumps(objects) + "\n```\n")]
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(out_path), *results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"]) == (39, 40)
+    assert [(m["name"], m["file"], m["severity"]) for m in out["mismatches"]] == [("f14", "src/f14.ts", "Critical")]
+    assert json.loads(_run("plan", "--inventory", inventory).stdout)["batches"] == []
+
+
+def test_a_batch_result_that_breaks_the_schema_names_its_object(tmp_path):
+    """A two-object `--results` file scores as two results; a breach in its second object is named `[1]`, so the
+    judge of that batch is re-dispatched with it."""
+    inventory, surface = _files(tmp_path)
+    pair = [{"file": "src/helper.ts", "signature_mismatches": [MISMATCH]},
+            {"file": "src/index.ts", "signature_mismatches": []}]
+    proc = _run("score", "--inventory", inventory, "--surface", surface,
+                "--results", _write(tmp_path / "signatures-1.txt", pair))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["comparedNames"]) == (1, 2, ["fetchData", "helper"])
+    pair[1]["signature_mismatches"] = "none"
+    proc = _run("score", "--inventory", inventory, "--surface", surface,
+                "--results", _write(tmp_path / "signatures-2.txt", pair))
+    assert proc.returncode == 2
+    violations = json.loads(proc.stdout)["violations"]
+    assert violations and all(v.startswith("signatures-2.txt[1]") for v in violations), violations
+
+
+def test_a_batch_whose_response_leaves_out_a_file_is_refused(tmp_path):
+    """#1188 review: a judge takes a batch of files, so its array can leave one out, and that file's checks would
+    count as matching (12 of 12, Signature Accuracy 100, with batch 1 holding 5 of its 10 objects or none). With
+    --plan, `score` exits 2 as for a schema breach, writes no file, and names each left-out file with its batch,
+    `batches[1]` as coverage-check §2 numbers `signatures-1.txt`, so that batch's judge is re-dispatched. The
+    fallback scan's plan, made without --surface, has no files[] entry, so it checks none: `surface --batches`
+    checks that scan's batches instead."""
+    inventory, surface = _many_files(tmp_path, 12)
+    plan_path = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan_path)).returncode == 0
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    first, second = (batch["files"] for batch in plan["batches"])
+    assert (len(first), len(second)) == (10, 2)
+    output, gaps = tmp_path / "signatures.json", tmp_path / "signature-gaps.json"
+    results = ["--results", str(tmp_path / "signatures-1.txt"), "--results", str(tmp_path / "signatures-2.txt")]
+    _write(tmp_path / "signatures-2.txt", [{"file": file, "signature_mismatches": []} for file in second])
+    for kept in (5, 0):  # 5 of batch 1's 10 objects, then an empty array
+        _write(tmp_path / "signatures-1.txt", [{"file": file, "signature_mismatches": []} for file in first[:kept]])
+        _write(output, {"stale": True})
+        proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan_path), *results,
+                    "--output", str(output), "--gaps-output", str(gaps))
+        assert proc.returncode == 2, proc.stdout + proc.stderr
+        assert json.loads(proc.stdout) == {"valid": False, "violations": [
+            f"batches[1] ({results[1]}): no result object names `{file}`, a file the batch gave its judge"
+            for file in first[kept:]]}
+        assert not output.exists() and not gaps.exists()
+        # Without --plan nothing says which files were given, so nothing is checked.
+        assert _run("score", "--inventory", inventory, "--surface", surface, *results).returncode == 0
+    # The judge re-dispatched returns every file of its batch: scored, and a path written `./src/...` names its file.
+    _write(tmp_path / "signatures-1.txt", [{"file": "./" + file, "signature_mismatches": []} for file in first])
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan_path), *results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"]) == (12, 12)
+    fallback = tmp_path / "fallback-plan.json"
+    assert _run("plan", "--inventory", inventory, "--output", str(fallback)).returncode == 0
+    assert json.loads(fallback.read_text(encoding="utf-8"))["batches"] == []
+    _write(tmp_path / "signatures-1.txt", [])
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(fallback), *results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def _twelve(tmp_path: Path) -> tuple[list[str], Path, list[str], list[str]]:
+    """Twelve one-check files planned in two batches: (the inventory and surface arguments, the plan, batch 1's
+    files, batch 2's files)."""
+    inventory, surface = _many_files(tmp_path, 12)
+    plan = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan)).returncode == 0
+    first, second = (batch["files"] for batch in json.loads(plan.read_text(encoding="utf-8"))["batches"])
+    return ["--inventory", inventory, "--surface", surface, "--plan", str(plan)], plan, first, second
+
+
+def _objects(files: list[str]) -> list[dict]:
+    """A judge's response naming each of `files`, with no mismatch."""
+    return [{"file": file, "signature_mismatches": []} for file in files]
+
+
+def test_each_batch_s_response_answers_for_its_own_files_alone(tmp_path):
+    """#1188 review loop 2: the nth --results file is batch n's response, so another batch's response never names a
+    file for it. Batch 1's array naming batch 2's files beside a batch 2 `[]` is refused for batch 2, naming
+    `batches[2]`, the path given at its position and each file, with no file written; the same objects saved
+    batch by batch score."""
+    args, _, first, second = _twelve(tmp_path)
+    one, two = _write(tmp_path / "signatures-1.txt", _objects(first + second)), _write(
+        tmp_path / "signatures-2.txt", [])
+    output = tmp_path / "signatures.json"
+    _write(output, {"stale": True})
+    proc = _run("score", *args, "--results", one, "--results", two, "--output", str(output))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout) == {"valid": False, "violations": [
+        f"batches[2] ({two}): no result object names `{file}`, a file the batch gave its judge" for file in second]}
+    assert not output.exists()
+    _write(tmp_path / "signatures-1.txt", _objects(first))
+    _write(tmp_path / "signatures-2.txt", _objects(second))
+    proc = _run("score", *args, "--results", one, "--results", two)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert (json.loads(proc.stdout)["matchingSignatures"], json.loads(proc.stdout)["totalDocumented"]) == (12, 12)
+
+
+def test_the_entry_with_no_file_is_answered_by_its_own_batch(tmp_path):
+    """#1188 review loop 2, the #918 shape: `createTest`'s record has no file, so its check sits in the entry "",
+    alone in batch 1, bound to portable-stories.ts, which `composeStory`'s entry, batch 2, also names. A batch 1 `[]`
+    beside a batch 2 response naming that file is refused for batch 1, where its unjudged check scored as matching,
+    naming `batches[1]`, `signatures-1.txt` and the bound file."""
+    compose = {"name": "composeStory", "kind": "function", "params": "story: Story", "return_type": "Story",
+               "at": "SKILL.md:5"}
+    _write(tmp_path / "skill" / "SKILL.md",
+           f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
+           f"`composeStory(story)` composes one [AST:{PORTABLE}:L100].\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [CREATE_TEST, compose], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {
+        **FILELESS, "exports": [*FILELESS["exports"], {
+            "name": "composeStory", "kind": "function", "file": PORTABLE, "line": 100,
+            "signatureLine": "export function composeStory(", "origin": "extraction"}],
+        "sets": {"all": ["composeStory", "createTest"]}})
+    plan = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"),
+                "--output", str(plan))
+    assert proc.returncode == 0, proc.stderr
+    planned = json.loads(plan.read_text(encoding="utf-8"))
+    assert planned["batches"] == [{"files": [""], "checks": 1}, {"files": [PORTABLE], "checks": 1}]
+    assert planned["files"][0]["checks"][0]["bound"][0]["file"] == PORTABLE
+    one = _write(tmp_path / "signatures-1.txt", [])
+    two = _write(tmp_path / "signatures-2.txt", _objects([PORTABLE]))
+    output, gaps = tmp_path / "signatures.json", tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", one,
+                "--results", two, "--output", str(output), "--gaps-output", str(gaps))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f'batches[1] ({one}): no result object names `{PORTABLE}` (the files[] entry "", by its first check\'s '
+        "first `bound` file), a file the batch gave its judge"]
+    assert not output.exists() and not gaps.exists()
+    _write(tmp_path / "signatures-1.txt", _objects([PORTABLE]))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", one,
+                "--results", two)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["comparedNames"] == ["composeStory", "createTest"]
+
+
+def test_a_schema_breach_and_a_left_out_file_are_refused_in_one_run(tmp_path):
+    """#1188 review loop 2: a response that breaks the schema gets its schema violations alone, and every other batch
+    is still checked, so one exit 2 lists both and coverage-check §2 re-dispatches both judges once, where the
+    left-out file waited for the rerun, which counts as the second failure."""
+    args, _, first, second = _twelve(tmp_path)
+    one = _write(tmp_path / "signatures-1.txt", [{"file": file} for file in first])
+    two = _write(tmp_path / "signatures-2.txt", _objects(second[:1]))
+    output = tmp_path / "signatures.json"
+    proc = _run("score", *args, "--results", one, "--results", two, "--output", str(output))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    violations = json.loads(proc.stdout)["violations"]
+    assert [v for v in violations if v.startswith("signatures-1.txt[")] == [
+        f"signatures-1.txt[{i}]: `signature_mismatches` must be present and a list (may be empty)" for i in range(10)]
+    assert violations[10:] == [
+        f"batches[2] ({two}): no result object names `{second[1]}`, a file the batch gave its judge"]
+    assert not output.exists()
+
+
+def test_a_batch_with_no_response_and_a_response_with_no_batch_are_refused(tmp_path):
+    """#1188 review loop 2: one --results per batch, in batch order. A plan of two batches given one --results
+    leaves out each of batch 2's files; a third --results has no batch and is named once."""
+    args, _, first, second = _twelve(tmp_path)
+    one = _write(tmp_path / "signatures-1.txt", _objects(first))
+    output = tmp_path / "signatures.json"
+    proc = _run("score", *args, "--results", one, "--output", str(output))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f"batches[2] (no --results file at position 2): no result object names `{file}`, a file the batch gave its "
+        "judge" for file in second]
+    assert not output.exists()
+    two = _write(tmp_path / "signatures-2.txt", _objects(second))
+    three = _write(tmp_path / "signatures-3.txt", _objects(second))
+    proc = _run("score", *args, "--results", one, "--results", two, "--results", three)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f"{three}: --results file 3 has no batch (the plan lists 2): pass one --results per batch, in batch order"]
+    assert _run("score", *args, "--results", one, "--results", two).returncode == 0
+
+
+@pytest.mark.parametrize("batches", [None, "files", [{"files": "src/a.ts"}], [{"files": ["src/a.ts", 3]}]],
+                         ids=["absent", "no-list", "files-no-list", "a-path-no-string"])
+def test_a_plan_with_no_batch_list_is_an_input_error(tmp_path, batches):
+    """#1188 review loop 2: `score` reads each batch from the plan's `batches[]`, so a plan without that list of
+    file lists exits 1, as a plan without `files` does."""
+    args, plan, first, second = _twelve(tmp_path)
+    data = json.loads(plan.read_text(encoding="utf-8"))
+    data.pop("batches")
+    if batches is not None:
+        data["batches"] = batches
+    _write(plan, data)
+    one = _write(tmp_path / "signatures-1.txt", _objects(first + second))
+    proc = _run("score", *args, "--results", one)
+    assert proc.returncode == 1 and proc.stdout == "", proc.stdout
+    assert "`batches`" in proc.stderr and len(proc.stderr.splitlines()) == 1
 
 
 # --------------------------------------------------------------------------
@@ -2878,6 +3136,14 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
     assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, "Critical")]
     assert any("evidence_line 322 is before the declaration" in w for w in out["warnings"]), out["warnings"]
+    # #1188 review: the entry "" is named by an object that names its first check's first `bound` file, the `file` its
+    # judge gives, so a response naming another file leaves it out and is refused.
+    elsewhere = _write(tmp_path / "copy.txt", json.dumps({"file": PORTABLE_COPY, "signature_mismatches": []}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", elsewhere)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f'batches[1] ({elsewhere}): no result object names `{PORTABLE}` (the files[] entry "", by its first '
+        "check's first `bound` file), a file the batch gave its judge"]
 
 
 def test_a_form_bound_to_an_other_declaration_is_graded_at_its_file():
@@ -2939,7 +3205,8 @@ def test_a_name_no_record_locates_and_no_form_binds_gets_no_check(tmp_path, reco
     skill_dir = ["--skill-dir", str(tmp_path / "skill")] if skill else []
     proc = _run("plan", "--inventory", inventory, "--surface", surface, *skill_dir, "--output", str(path))
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == {"compared": 1, "files": 1, "checks": 1, "documented": 2, "output": str(path)}
+    assert json.loads(proc.stdout) == {"compared": 1, "files": 1, "checks": 1, "batches": 1, "documented": 2,
+                                       "output": str(path)}
     plan = json.loads(path.read_text(encoding="utf-8"))
     assert [(group["file"], [c["name"] for c in group["checks"]]) for group in plan["files"]] == [
         ("src/helper.ts", ["helper"])]
@@ -3153,8 +3420,9 @@ def test_a_documented_extra_s_critical_mismatch_counts_against_signature_accurac
         plan = tmp_path / "signature-plan.json"
         assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan)).returncode == 0
         args = ["--plan", str(plan)]
-    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TEXT_PY, "signature_mismatches": [
-        {**DETECT_MISMATCH, "file": TEXT_PY}]}))
+    # #1188: the judge returns an object for each file its batch was given, run's file included.
+    results = _write(tmp_path / "signatures-1.txt", json.dumps([{"file": TEXT_PY, "signature_mismatches": [
+        {**DETECT_MISMATCH, "file": TEXT_PY}]}, {"file": CORE_PY, "signature_mismatches": []}]))
     gaps = tmp_path / "gaps.json"
     proc = _run("score", "--inventory", inventory, "--surface", surface, *args, "--results", results,
                 "--gaps-output", str(gaps))
@@ -3198,8 +3466,9 @@ def test_a_method_of_a_documented_extra_is_checked_at_its_declaration(tmp_path, 
                                  (TEXT_PY, "RecursiveSplitter.split", 8, "class RecursiveSplitter:")]
     assert plan["files"][1]["checks"][0]["member"] == "split"
     assert (plan["compared"], plan["notCompared"]) == (2, [])
-    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TEXT_PY,
-                                                                "signature_mismatches": [SPLIT_MISMATCH]}))
+    results = _write(tmp_path / "signatures-1.txt", json.dumps([{"file": TEXT_PY,
+                                                                 "signature_mismatches": [SPLIT_MISMATCH]},
+                                                                {"file": CORE_PY, "signature_mismatches": []}]))
     gaps = tmp_path / "gaps.json"
     proc = _run("score", "--inventory", inventory, "--surface", surface, *(["--plan", str(path)] if with_plan else []),
                 "--results", results, "--gaps-output", str(gaps))
@@ -3458,12 +3727,14 @@ def test_a_documented_extra_is_compared_end_to_end(tmp_path):
                                     (TEXT_PY, "RecursiveSplitter", 8, "class RecursiveSplitter:"),
                                     (TEXT_PY, "detect_code_language", 4, DETECT_SIG)]
     assert (planned["compared"], planned["notCompared"]) == (3, [])
-    results = [_write(tmp_path / f"signatures-{n}.txt", json.dumps(result)) for n, result in enumerate([
+    # #1188: the plan's one batch, whose judge returns one array.
+    assert planned["batches"] == [{"files": [CORE_PY, TEXT_PY], "checks": 3}]
+    results = _write(tmp_path / "signatures-1.txt", json.dumps([
         {"file": CORE_PY, "signature_mismatches": []},
-        {"file": TEXT_PY, "signature_mismatches": [DETECT_MISMATCH]}], 1)]
+        {"file": TEXT_PY, "signature_mismatches": [DETECT_MISMATCH]}]))
     gaps = tmp_path / "signature-gaps.json"
     proc = _run("score", "--inventory", inventory, "--surface", str(surface), "--plan", str(plan),
-                *(arg for path in results for arg in ("--results", path)), "--gaps-output", str(gaps))
+                "--results", results, "--gaps-output", str(gaps))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = json.loads(proc.stdout)
     assert out["comparedNames"] == ["RecursiveSplitter", "detect_code_language", "run"]
@@ -3524,7 +3795,8 @@ def test_a_deep_tier_plan_checks_a_name_documented_only_by_members(tmp_path, sur
     it (a documented extra) or only an export record outside `all` names it (a nested Python top's name)."""
     proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", surface=surface)
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == {"compared": 1, "files": 2, "checks": 2, "documented": 1, "output": str(path)}
+    assert json.loads(proc.stdout) == {"compared": 1, "files": 2, "checks": 2, "batches": 1, "documented": 1,
+                                       "output": str(path)}
     plan = json.loads(path.read_text(encoding="utf-8"))
     assert plan["files"] == [
         {"file": SEARCH_PY, "checks": [{"name": "run", "line": 10, "signatureLine": "def run(query: str) -> list:",
@@ -3593,8 +3865,9 @@ def test_a_method_s_owner_gets_its_doc_check_beside_the_method_s_check(tmp_path)
          "documented": {"params": "key: str"}}]
     assert plan["compared"] == 2
     item = {**DOC_ERROR, "name": "SearchType.get", "at": "SKILL.md:7"}
-    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TYPES_PY, "signature_mismatches": [],
-                                                                "doc_errors": [item]}))
+    results = _write(tmp_path / "signatures-1.txt", json.dumps([{"file": TYPES_PY, "signature_mismatches": [],
+                                                                 "doc_errors": [item]},
+                                                                {"file": SEARCH_PY, "signature_mismatches": []}]))
     for plan_args in (["--plan", str(path)], []):
         out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, *plan_args,
                               "--results", results).stdout)
@@ -3747,14 +4020,14 @@ def test_only_a_fenced_import_of_the_name_by_its_own_name_is_listed(tmp_path, fe
 
 def _without_doc_lists(plan: dict) -> dict:
     """`plan` less each check's `imports` and `members`, and less each check with no `documented` and each group that
-    holds no other."""
+    holds no other, its batches taken again over the groups left (#1188)."""
     files = []
     for group in plan["files"]:
         checks = [{k: v for k, v in c.items() if k not in ("imports", "members")} for c in group["checks"]
                   if "documented" in c]
         if checks:
             files.append({**group, "checks": checks})
-    return {**plan, "files": files}
+    return {**plan, "files": files, "batches": mod.batches(files)}
 
 
 def test_without_doc_errors_the_plan_is_the_one_before(tmp_path):
@@ -3772,6 +4045,7 @@ def test_without_doc_errors_the_plan_is_the_one_before(tmp_path):
     documented = {"params": "query: str", "return_type": "list"}
     assert forge == {"compared": 1, "files": [{"file": SEARCH_PY, "checks": [
         {"name": "run", "line": 10, "signatureLine": "def run(query: str) -> list:", "documented": documented}]}],
+        "batches": [{"files": [SEARCH_PY], "checks": 1}],
         "notCompared": [], "documentedSignatures": {"run": documented}, "documentedAlternatives": {}}
     assert json.loads(proc.stdout)["checks"] == 1
 
@@ -3820,13 +4094,14 @@ def test_a_fallback_plan_with_doc_errors_is_the_signature_map(tmp_path):
 
 
 def _doc_score(tmp_path: Path, *results: dict, plan: bool = True, flags: tuple[str, ...] = ("--doc-errors",)) -> dict:
-    """score over the plan of DOC_SKILL made with `flags` (a Deep-tier plan by default), with `results` (each a judge
-    result) and, unless `plan` is false, --plan."""
+    """score over the plan of DOC_SKILL made with `flags` (a Deep-tier plan by default), with `results` (the result
+    objects of its one batch's judge, saved as one array, #1188) and, unless `plan` is false, --plan."""
     proc, path, inventory, surface = _doc_plan(tmp_path, *flags)
     assert proc.returncode == 0, proc.stderr
-    files = [_write(tmp_path / f"signatures-{n}.txt", json.dumps(result)) for n, result in enumerate(results, 1)]
+    assert len(json.loads(path.read_text(encoding="utf-8"))["batches"]) == 1
+    file = _write(tmp_path / "signatures-1.txt", json.dumps(list(results)))
     proc = _run("score", "--inventory", inventory, "--surface", surface, *(["--plan", str(path)] if plan else []),
-                *(arg for file in files for arg in ("--results", file)))
+                "--results", file)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return json.loads(proc.stdout)
 
@@ -3887,7 +4162,8 @@ def test_a_malformed_doc_error_is_dropped_with_a_warning(tmp_path, value, proble
     `source` or `issue` blank, gives an `at` that is no place or one no `imports` or `members` item of that name's
     check gives (run's check carries no `members`) is dropped with one warning naming the result's file, never a
     schema breach: score exits 0 and records none of it."""
-    out = _doc_score(tmp_path, {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": value})
+    out = _doc_score(tmp_path, {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": value},
+                     {"file": SEARCH_PY, "signature_mismatches": []})
     assert out["gapRecords"] == []
     [warning] = out["warnings"]
     assert warning.startswith(f"the result for `{TYPES_PY}`: ") and problem in warning, warning
@@ -3899,7 +4175,8 @@ def test_a_plan_without_doc_errors_drops_every_doc_error(tmp_path, name, file):
     `doc_errors` item a judge returns stray, for a documented name with a check or for one with none, is dropped
     with a warning and recorded nowhere: --plan is not the same as no plan."""
     item = {**DOC_ERROR, "name": name}
-    out = _doc_score(tmp_path, {"file": file, "signature_mismatches": [], "doc_errors": [item]}, flags=())
+    out = _doc_score(tmp_path, {"file": file, "signature_mismatches": [], "doc_errors": [item]},
+                     {"file": SEARCH_PY, "signature_mismatches": []}, flags=())
     assert out["gapRecords"] == []
     assert [w for w in out["warnings"] if "doc_errors" in w] == [
         f"the result for `{file}`: doc_errors[0] puts `{name}` at `SKILL.md:4`, which no `imports` or `members` item "
@@ -4963,7 +5240,8 @@ def test_a_method_with_no_owner_is_never_compared(tmp_path):
 
 def _method_run(tmp_path: Path, inventory: list[dict], exports: list[dict], results: list[dict],
                 plan: str | None = "surface", tree: dict[str, str] | None = None) -> dict:
-    """plan (with the surface, without it for "fallback", none for None), then score over `results`, by the CLI."""
+    """plan (with the surface, without it for "fallback", none for None), then score over `results`, by the CLI: the
+    result objects of the plan's one batch (none for the fallback scan's plan), saved as one array (#1188)."""
     inv = _write(tmp_path / "inventory.json", {"exports": inventory, "cross_check_mismatches": []})
     surface = _write(tmp_path / "surface.json", {
         "exports": exports, "sets": {"all": sorted({e["name"] for e in exports})}})
@@ -4976,11 +5254,12 @@ def _method_run(tmp_path: Path, inventory: list[dict], exports: list[dict], resu
         proc = _run("plan", "--inventory", inv, *(["--surface", surface] if plan == "surface" else []), *skill,
                     "--output", str(output))
         assert proc.returncode == 0, proc.stderr
+        assert len(json.loads(output.read_text(encoding="utf-8"))["batches"]) == (plan == "surface")
         args = ["--plan", str(output)]
-    files = [_write(tmp_path / f"signatures-{n}.txt", r) for n, r in enumerate(results, 1)]
+    file = _write(tmp_path / "signatures-1.txt", list(results))
     gaps = tmp_path / "signature-gaps.json"
-    proc = _run("score", "--inventory", inv, "--surface", surface, *args,
-                *[a for f in files for a in ("--results", f)], "--gaps-output", str(gaps))
+    proc = _run("score", "--inventory", inv, "--surface", surface, *args, "--results", file,
+                "--gaps-output", str(gaps))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return {**json.loads(proc.stdout), "gaps": json.loads(gaps.read_text(encoding="utf-8"))}
 

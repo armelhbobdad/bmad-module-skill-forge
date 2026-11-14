@@ -69,14 +69,15 @@ test_report_template_path = "templates/test-report-template.md"
 # the weights and the verdict rules, and the hard gate reads the Gap Severity
 # table, so a house-style copy could change what blocks export.
 
-# Pass threshold (percent). Precedence: CLI `--threshold=<N>` > per-pipeline
-# defaults (the init.md §1b lookup table, which outranks this scalar in
-# forge-auto, forge, forge-quick and campaign runs) > this scalar > bundled
-# fallback 80. Override here to change the org-wide default without forking
-# the skill. A value above 80 is a target: a run scoring 80 or more still
-# passes through the threshold fallback (with an evidence report), while a
-# run a cap forced to FAIL stays FAIL at any threshold.
-default_threshold = 80
+# Pass threshold (percent) for every run given no `--threshold=<N>`. Empty
+# (the default) leaves it to the pipeline's default (the per-pipeline table
+# in init.md §1b), else 80. Precedence: CLI `--threshold=<N>` > this
+# scalar > per-pipeline defaults > bundled 80. forge-auto and campaign pass
+# `--threshold` themselves, so they keep their own. A value above 80 never
+# turns a PASS into a FAIL: a run scoring 80 or more passes through the
+# threshold fallback, and a run a cap forced to FAIL stays FAIL at any
+# threshold.
+default_threshold = ""
 
 # Optional post-finalization hook: a shell command, not an instruction. When
 # non-empty, the report step runs it from {project-root} as:

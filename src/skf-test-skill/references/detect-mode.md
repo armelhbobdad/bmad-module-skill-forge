@@ -3,7 +3,7 @@ nextStepFile: 'coverage-check.md'
 outputFile: '{report_file}'
 ---
 
-<!-- Config: communicate in {communication_language}. -->
+<!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
 
 # Step 2: Detect Mode
 
@@ -25,11 +25,13 @@ Read the skill metadata (loaded in step 01) and branch on its `skill_type` field
 
 - `skill_type: 'single'` → **Naive Mode** (API-surface coverage; coherence is structural only, no coherence category in scoring)
 - `skill_type: 'stack'` → **Contextual Mode** (full coherence validation — cross-references resolve, types match, integration patterns complete; coherence category scored)
-- unset or unclear → default to **Naive Mode** (conservative — fewer checks, less chance of false negatives from missing context) and note the default in the report
+- unset or unclear → default to **Naive Mode** (conservative: fewer checks, less chance of false negatives from missing context), note the default in the report, and record it as a warning: write `test-mode-defaulted-naive: metadata.json skill_type is {its value, or unset}` to `{run_dir}/warning.txt` with a file write, then, from `{project-root}`, run:
 
-What each mode actually checks is owned by `coherence-check.md`, and how category weights are distributed by step 5's scoring script (`scripts/compute-score.py`): do not restate either here.
+  ```bash
+  uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"
+  ```
 
-**Quick-tier adjustment (applies to both modes):** set nothing here. Step 5 passes the tier to the scoring script, which skips Signature Accuracy and Type Coverage at Quick tier (no AST available) and redistributes their weights.
+At Quick tier, in both modes, the scoring script skips Signature Accuracy and Type Coverage (no AST available) and redistributes their weights.
 
 ### 2. Update Output Document
 

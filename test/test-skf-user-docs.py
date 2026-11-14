@@ -1198,8 +1198,11 @@ def test_verifying_scoring_lines_follow_test_skill():
         assert {"signatureAccuracy", "typeCoverage"} <= set(out["skippedCategories"]), state
     caps = _paragraph(doc, "Test Skill does not run without its tools")
     for token in ("a missing `uv` or `python3` halts the run", "(`runtime-missing`)",
-                  "whenever the report's `toolingStatus` is not `ok`", "A capped run stays FAIL at any threshold"):
+                  "whenever the report's `toolingStatus` is not `ok`", "A capped run stays FAIL at any threshold",
+                  # #1185: the cap is on record, and the run says which tooling to restore
+                  "the result file's `summary.capReason`", "recommends restoring the tooling it names"):
         assert token in caps, token
+    assert '"capReason"' in _read(TEST_SKILL / "scripts" / "build-result-context.py")
     assert "| `runtime-missing` |" in _read(TEST_SKILL / "references" / "invocation-contract.md")
     for stale in ("the run is marked `degraded`", "still accepts a capped run"):
         assert stale not in doc, stale
@@ -1475,8 +1478,10 @@ def test_forge_auto_says_the_manual_repair_chain_tests_at_the_default_bar():
     """#586: a chain with no alias re-tests at Test Skill's default bar, so keeping 90% takes the offer or a flag."""
     thresholds = _slice(_read(TEST_SKILL / "references" / "init.md"), "### 1b.", "### 2.")
     assert re.search(r"\|\s*`forge-auto`\s*\|\s*90\s*\|", thresholds)
-    assert "If `{pipeline_alias}` is absent" in thresholds and "falls through to `{defaultThreshold}`" in thresholds
-    assert re.search(r"^default_threshold = 80$", _read(TEST_SKILL / "customize.toml"), re.M)
+    # #1189: with no flag and no team override, a chain with no alias falls to the bundled 80.
+    assert ("the table's value for `{pipeline_alias}` when the table lists it (`\"pipeline default ({pipeline_alias} "
+            "→ {N}%)\"`) and `80` (`\"bundled default (80%)\"`)") in thresholds
+    assert re.search(r'^default_threshold = ""$', _read(TEST_SKILL / "customize.toml"), re.M)
     routes = _slice(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "### Repair Routes",
                     "## Anti-Patterns")
     assert "TS, at the recorded threshold" in routes

@@ -25,9 +25,9 @@ and none of the `difference` tags. These tests keep:
   which load it; the fallback per-file scan of coverage-check-tiers.md gives
   its subagents the absolute path too, and neither repeats the overload rule
   or the tag definitions;
-- coherence-check.md binding the file the same way and giving its contextual
-  reference judge, whose `signature_match` is an `inaccurate-reference` gap,
-  its absolute path;
+- coherence-contextual.md, the contextual branch coherence-check.md loads
+  (#1187), binding the file the same way and giving its reference judge,
+  whose `signature_match` is an `inaccurate-reference` gap, its absolute path;
 - the split-body cross-check comparing a parameter's optionality only when
   both forms state it, the file (not coverage-check.md §1) saying what a form
   may leave out, each export's form read alone (#843), and forms attributed
@@ -115,7 +115,8 @@ REFS = TEST_SKILL / "references"
 RULES = REFS / "signature-comparison-rules.md"
 COVERAGE = REFS / "coverage-check.md"
 COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
-COHERENCE = REFS / "coherence-check.md"
+# The contextual branch coherence-check.md §1 loads, which holds the §4 reference judge (#1187).
+COHERENCE = REFS / "coherence-contextual.md"
 SCORING = REFS / "scoring-rules.md"
 SCORE_SIGNATURES = TEST_SKILL / "scripts" / "score-signatures.py"
 COMPONENT_EXTRACTION = REPO_ROOT / "src" / "skf-create-skill" / "references" / "component-extraction.md"
@@ -181,7 +182,7 @@ def test_the_rules_file_is_a_reference_with_its_six_sections():
     for judge in ("coverage-check.md §1's split-body cross-check", "its §2 judge (or the main thread in its place)",
                   "its §5b split-body Source (the Split-Body Sources section of coverage-check-branches.md)",
                   "coverage-check-tiers.md's fallback per-file scan",
-                  "coherence-check.md §4's reference judge (its `signature_match`)"):
+                  "coherence-contextual.md §4's reference judge (its `signature_match`)"):
         assert judge in opening, judge
 
 
@@ -226,8 +227,10 @@ def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_
     assert "params" in entry and "usage_signature" not in entry, "a typed form, whose partial label changes a grade"
     assert item["other_gap"] == ("a partial form: a left-out optional parameter would be an Info observation, not a "
                                  "Critical signature-mismatch")
-    judge = re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1)
-    assert json.loads(judge)["undecided"] == []
+    # #1188: a judge takes a batch and returns one array, an object per file
+    judge = re.search(r'```json\n(\[\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1)
+    [result] = json.loads(judge)
+    assert result["undecided"] == []
     assert '"unresolved_stars": [...], "undecided": [...]}`' in _read(COVERAGE_TIERS)
 
 
@@ -263,7 +266,8 @@ def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_sou
             "`issue` blank, or gives an `at` that no `imports` or `members` item of that name's check gives, never "
             "refusing the result for it, and records each other one as an Info `Not checked by script: {name}` "
             "observation at its `at`.") in paragraph
-    judge = json.loads(re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1))
+    [judge] = json.loads(re.search(r'```json\n(\[\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE),
+                                   re.S).group(1))
     assert sorted(judge) == ["file", "signature_mismatches", "undecided"]
     deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
     assert "by `{signatureRulesFile}` and adds each that differs to the JSON above as `doc_errors`" in deep
@@ -338,8 +342,8 @@ def test_a_documented_extra_s_internal_declarations_are_its_declarations_for_the
     bound = _paragraph(_read(COVERAGE), "A check's `bound` lists each form")
     assert "whose own citations name one declaration of the name: one of its surface records" in bound
     held = _flow(_read(REFS / "source-access-protocol.md"))
-    assert ("`plan`, `score` and coverage-check-branches.md's Split-Body Sources read them as the records of such a "
-            "name") in held
+    assert ("`plan`, `score` and coverage-check-branches.md's Split-Body Sources read the two declaration lists as a "
+            "name's declarations.") in held
     assert "reads them: `plan` and `score` read them" not in held
 
 
@@ -687,9 +691,11 @@ def test_each_documented_form_of_a_name_is_compared_by_its_own_rules():
     section2 = _flow(_slice(_read(COVERAGE), "### 2. Analyze Source Code", "### 2b."))
     assert ("A check with `alternatives` (the other forms the skill documents for the name) is compared with each of "
             "them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.") in section2
+    # #1188: the gap's title is score-signatures.py's, which coverage-check.md §2b no longer restates
     section2b = _flow(_slice(_read(COVERAGE), "### 2b. Resolve the Denominator", "### 2c."))
-    assert ("(for a name documented in several forms, each gap's title ends `(form {n} of {m})` and its Issue names "
-            "that form)") in section2b
+    assert "(form {n} of {m})" not in section2b
+    assert ("a gap of a name with several forms names its form, counted from 1, in its title (`Signature mismatch: "
+            "{name} (form n of m)`) and its Issue") in _flow(_read(SCORE_SIGNATURES))
     scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
     assert ("`plan` without `--surface` writes the map as `documentedSignatures`, and each name's other documented "
             "forms as `documentedAlternatives`:") in scan
@@ -1302,7 +1308,7 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
     assert ("A Rust tail expression, a Kotlin or Scala expression body and a Ruby implicit return have no such line and "
             "cannot be tagged: there, as when you cannot name the line, the declaration decides.") in annotations
     # the judges with no `difference` field read the same case as agreeing
-    assert ("A judge whose result has no `difference` field (coherence-check.md §4's `signature_match`, "
+    assert ("A judge whose result has no `difference` field (coherence-contextual.md §4's `signature_match`, "
             "coverage-check.md §5b's split-body Source) reads such a documented return type, at a line it can name, as "
             "agreeing with the source: a match for `signature_match`, and for §5b a form that agrees with the "
             "source.") in annotations
@@ -1573,8 +1579,9 @@ def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone(
     [low] = [line for line in rows if line.startswith("| Low      | `signature-mismatch`")]
     [info] = [line for line in rows if line.startswith("| Info     | `observation`")]
     assert "tags `parameter-name` (defined in signature-comparison-rules.md, Difference tags)" in low
-    assert "tags `omitted-optional` (defined in signature-comparison-rules.md, Difference tags)" in info
-    assert "tags `annotation-contradicted` (defined in signature-comparison-rules.md, Difference tags)" in info
+    # #1188: one parenthesis defines both tags the Info row's signature observations read
+    assert ("(tags `omitted-optional` and `annotation-contradicted`, defined in signature-comparison-rules.md, "
+            "Difference tags)") in info
     assert "only parameter names differ" not in low
     assert "leaves out only members the source marks optional" not in info
 
@@ -1591,20 +1598,25 @@ def test_a_contradicted_return_annotation_is_a_visible_note_that_never_blocks():
     section2b = _flow(_slice(text, "### 2b. Resolve the Denominator", "### 2c."))
     assert ("and `--source-root` whenever the source is local (State 1, Forge tier or above), under a drift override "
             "too, since the judges read that tree:") in section2b
-    assert ("an Info `observation` titled `Annotation contradicted: {name}` (no change to the skill: report the "
-            "annotation upstream) for an `annotation-contradicted` one whose facts check (a documented return type, "
-            # #1025: as scoring-rules.md's Info row and the rules' Difference tags read it
-            "the same parameters on both sides or a form with no parameter list, and an `evidence_line` between the "
-            "declaration and the next one, whose line returns in the `--source-root` file)") in section2b
+    # #1188: §2b names the script that grades; score-signatures.py's docstring states the facts it checks (#1025:
+    # a form with no parameter list too), and the Info row names that script as the grade's home
+    assert ("It grades each mismatch of a compared name by facts it checks, never a `difference` alone, into "
+            "`signature-gaps.json`, which §5b appends to the ledger.") in section2b
+    assert "Annotation contradicted" not in section2b
+    grades = _flow(_read(SCORE_SIGNATURES))
+    for fact in ("Info `observation`, titled `Annotation contradicted: {name}` `difference` \"annotation-contradicted\"",
+                 "the documented entry states a return type",
+                 "one with no `params` writes no parameter list and claims nothing about parameters, so this fact "
+                 "holds",
+                 "`evidence_line` comes after the declaration line",
+                 "that line of the file under it starts with `return`, or is the declaration line itself with its "
+                 "expression body after its parameters",
+                 "remediation changes nothing in the skill: the annotation is reported upstream"):
+        assert fact in grades, fact
     [info] = [line for line in _read(SCORING).splitlines() if line.startswith("| Info     | `observation`")]
-    # #1025: or its form writes no parameter list
-    assert ("whose documented signature states a return type and writes the source's parameters (or its form writes "
-            "no parameter list), and whose "
-            "`evidence_line`, the body line that returns the documented type, comes after the declaration and before "
-            "the next one and, with the local source, starts with `return` (or is a one-line declaration's own "
-            "expression body)") in info
-    assert ("`Annotation contradicted: {name}`, at the declaration, counted as matching in Signature Accuracy, with no "
-            "change to the skill (the annotation is reported upstream)") in info
+    assert ("a contradicted return annotation (tags `omitted-optional` and `annotation-contradicted`, defined in "
+            "signature-comparison-rules.md, Difference tags) or a Deep-tier `Not checked by script: {name}` "
+            "documentation error, which `scripts/score-signatures.py` grades") in info
     [critical] = [line for line in _read(SCORING).splitlines() if line.startswith("| Critical | `signature-mismatch`")]
     assert "in any way but those the Low `signature-mismatch` row and the Info `observation` row grade" in critical
 
@@ -1621,13 +1633,13 @@ def test_every_coverage_check_judge_names_the_rules_file():
             "document the export, or agrees with both), by the rules of `{signatureRulesFile}`, whose absolute path "
             "(under `{skill-root}`) it is given: parameters, the return type, and descriptions that contradict"
             ) in cross_check
-    judge = _paragraph(text, "For each `files[]` entry, delegate one subagent")
-    assert f"delegate one subagent with its checks and {ABSOLUTE_PATH}." in judge
+    judge = _paragraph(text, "For each `batches[]` entry, delegate one subagent")
+    assert f"delegate one subagent with the `files[]` entries it names, their checks and {ABSOLUTE_PATH}." in judge
     assert "compares it with the check's `documented` signature by the rules of that file" in judge
     assert "(params: name, type, order, optionality; and the return type)" not in text
-    main_thread = _paragraph(text, "Save each response to `{run_dir}/signatures-<n>.txt`")
+    main_thread = _paragraph(text, "Save each batch's response to `{run_dir}/signatures-<n>.txt`")
     assert ("Without subagents, load `{signatureRulesFile}`, compare in the main thread by its rules and save the "
-            "same JSON.") in main_thread
+            "same JSON, one array per batch in its own `signatures-<n>.txt`.") in main_thread
     # §5b's split-body Source loads it from the branch section §5b loads (#841)
     assert "follow its **Split-Body Sources** section" in _paragraph(text, "**A split-body mismatch's Source**")
     split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
@@ -1741,7 +1753,7 @@ def test_the_fallback_scan_compares_by_the_rules_file():
     tiers = _read(COVERAGE_TIERS)
     assert "coverage-check.md's frontmatter bindings" in _flow(tiers), "so `{signatureRulesFile}` resolves here"
     scan = _flow(_slice(tiers, "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
-    assert f"gets that map with the file and {ABSOLUTE_PATH}." in scan
+    assert f"gets that map with its files and {ABSOLUTE_PATH}." in scan
     assert "by the rules of that file (overload sets and `difference` tags included)" in scan
     assert "(params, return type)" not in scan
     assert OVERLOAD_RULE not in tiers and "Tell it the overload rule" not in tiers
@@ -1764,8 +1776,9 @@ def test_create_skill_names_the_props_interface_as_a_component_contract():
 
 def test_the_coherence_judge_reads_the_rules_file():
     """A stack skill's `signature_match` is a High `inaccurate-reference` gap that blocks the gate, so the coherence
-    check's contextual reference judge compares signatures by the rules file too: coherence-check.md binds it as
-    coverage-check.md does, gives the judge its absolute path, and the main thread loads it in the judge's place."""
+    check's contextual reference judge compares signatures by the rules file too: coherence-contextual.md, the branch
+    coherence-check.md loads in contextual mode, binds it as coverage-check.md does, gives the judge its absolute path,
+    and the main thread loads it in the judge's place."""
     assert _frontmatter(COHERENCE)["signatureRulesFile"] == _frontmatter(COVERAGE)["signatureRulesFile"]
     section4 = _slice(_read(COHERENCE), "### 4. Contextual Mode: Validate Each Reference", "### 5.")
     flowed = _flow(section4)

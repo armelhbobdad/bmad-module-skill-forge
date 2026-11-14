@@ -1299,6 +1299,18 @@ def test_the_map_arm_of_the_signature_runs_the_numerator_check_and_records_its_g
                                   "of its 2 declared exports.")
 
 
+@pytest.mark.parametrize("stats, expected", [({"pattern_surfaces_documented": 8, "exports_documented": 8}, 8),
+                                              ({"pattern_surfaces_documented": 0}, 0),
+                                              ({"exports_documented": 8}, None),
+                                              ({"pattern_surfaces_documented": "8"}, None)],
+                         ids=["set", "zero", "absent", "not-a-count"])
+def test_metadata_keeps_a_reference_apps_pattern_surface_count(stats, expected):
+    """#1186: reconcile-coverage.py render names a reference app's denominator `pattern-surface (N)` from this
+    count, which no other run file holds."""
+    out = mod.metadata_inputs({"scope_type": "reference-app", "stats": stats}, None)
+    assert out["patternSurfacesDocumented"] == expected and out["scopeType"] == "reference-app"
+
+
 def test_metadata_declared_names_fall_back_to_the_provenance_map():
     out = mod.metadata_inputs({"stats": {}}, PROVENANCE)
     assert "fetchData" in out["declaredNames"] and "Extra::run" not in out["declaredNames"]
@@ -2928,6 +2940,14 @@ def test_without_a_brief_the_recorded_scope_still_decides(tmp_path):
     assert out["inputs"]["brief"] is None
 
 
+def test_the_surface_names_the_extraction_it_read(tmp_path):
+    """#1186: reconcile-coverage.py render words a stratified-scope `Denominator:` line by `inputs.extraction`: the
+    files define a set's names when the runner's extraction placed them, else the names sit at those files."""
+    extraction = _write(tmp_path / "extract-full.json", EXTRACTION)
+    assert _surface(tmp_path, "--extraction", extraction)["inputs"]["extraction"] == extraction
+    assert _surface(tmp_path, "--name", "add")["inputs"]["extraction"] is None
+
+
 def test_without_an_extraction_the_stale_scope_guard_does_not_apply(tmp_path):
     brief = _write(tmp_path / "skill-brief.yaml", COGNEE_BRIEF)
     out = _surface(tmp_path, "--name", "add", "--brief", brief)
@@ -3038,6 +3058,238 @@ def test_per_file_results_are_schema_checked(tmp_path):
     assert out["valid"] is False
     assert any(v.startswith("per-file-2.txt") and "signature_mismatches" in v for v in out["violations"])
     assert not stale.exists(), "a refused surface leaves no file for the next command to read"
+
+
+def test_a_list_valued_per_file_result_gives_each_object_its_file(tmp_path):
+    """#1188: a fallback-scan judge takes a batch of files and returns one JSON array, an object per file, so
+    `surface --per-file` reads each object at its own file; a breach names the object by its index."""
+    batch = [{"file": "src/a.ts", "exports_found": ["a"], "signature_mismatches": []},
+             {"file": "src/b.ts", "exports_found": ["b", "B"], "types_found": ["B"], "signature_mismatches": []}]
+    out = _surface(tmp_path, "--per-file", _write(tmp_path / "per-file-1.txt", "```json\n" + json.dumps(batch)
+                                                  + "\n```\n"), "--fallback-scan")
+    assert sorted((e["name"], e["file"], e["kind"]) for e in out["exports"]) == [
+        ("B", "src/b.ts", "type"), ("a", "src/a.ts", None), ("b", "src/b.ts", None)]
+    batch[1]["exports_found"] = "b"
+    target = tmp_path / "broken" / "surface.json"
+    proc = _run("surface", "--per-file", _write(tmp_path / "broken" / "per-file-1.txt", batch), "--fallback-scan",
+                "--output", str(target))
+    assert proc.returncode == 2, proc.stderr
+    violations = json.loads(proc.stdout)["violations"]
+    assert violations and all(v.startswith("per-file-1.txt[1]") for v in violations), violations
+    assert not target.exists()
+
+
+# --------------------------------------------------------------------------
+# access (#1188): the source access state and the degradation notice
+# --------------------------------------------------------------------------
+
+ACCESS_FIELDS = ["localSource", "provenanceEntryCount", "provenanceConfidence", "metadataExportCount", "state",
+                 "degradation"]
+
+
+def _access(tmp_path: Path, entries: list[dict] | None, exports: list, local: bool = False) -> dict:
+    """`access` over a metadata.json of `exports` and, unless `entries` is None, a map of those entries, with a
+    --source-root that exists when `local`; the result as the --output file holds it."""
+    args = ["access", "--metadata", _write(tmp_path / "metadata.json", {"exports": exports})]
+    if entries is not None:
+        args += ["--provenance", _write(tmp_path / "provenance-map.json", {"entries": entries})]
+    if local:
+        (tmp_path / "src").mkdir(exist_ok=True)
+        args += ["--source-root", str(tmp_path / "src")]
+    target = tmp_path / "run" / "access.json"
+    proc = _run(*args, "--output", str(target))
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(target.read_text(encoding="utf-8"))
+    assert list(out) == ACCESS_FIELDS
+    # The summary is every field, and the file's path.
+    assert json.loads(proc.stdout) == {**out, "output": str(target)}
+    return out
+
+
+def _map_entries(*pairs: tuple[str | None, int]) -> list[dict]:
+    """A map's entries: `count` of each `confidence` label, an entry with no `confidence` for None."""
+    entries: list[dict] = []
+    for label, count in pairs:
+        entries += [{"export_name": f"e{len(entries) + n}", **({"confidence": label} if label else {})}
+                    for n in range(count)]
+    return entries
+
+
+@pytest.mark.parametrize("entries, exports, local, expected", [
+    (_map_entries(("T1", 4)), ["a"], True, (True, 4, {"T1": 4}, 1, 1, None)),
+    (_map_entries(("T1", 4)), [], False, (False, 4, {"T1": 4}, 0, 2, "all-t1")),
+    (_map_entries(("T1", 12), ("t1-low", 3)), ["a", "b"], False, (False, 15, {"T1": 12, "T1-low": 3}, 2, 2, "mixed")),
+    (_map_entries(("T1-low", 2), (None, 1)), [], False, (False, 3, {"T1-low": 2, "unlabeled": 1}, 0, 2, "low")),
+    ([], ["a", {"name": "b"}, {"export_name": "c"}], False, (False, 0, {}, 3, 3, "low")),
+    (None, [], False, (False, 0, {}, 0, None, "low")),
+], ids=["local-source", "all-t1", "mixed", "no-t1", "empty-map", "nothing"])
+def test_access_settles_the_state_and_the_degradation(tmp_path, entries, exports, local, expected):
+    """#1188: the State coverage-check §0b takes and the degradation notice score.md §6 writes come from the
+    files by a fixed rule (every entry T1, none or some), where the model counted entries and labels by hand under
+    an "all/most" rule; State 4 or 5 (`state` null) stays the workflow's, which knows the remote tools."""
+    out = _access(tmp_path, entries, exports, local)
+    assert tuple(out[key] for key in ACCESS_FIELDS) == expected
+
+
+def test_access_writes_the_labels_in_a_fixed_order(tmp_path):
+    """The four scale labels in their spelling and order whatever their case and spacing, then every other
+    label sorted, a label spelled `none` among them, then `unlabeled` for an entry with no label, a blank one or one
+    that is no string (review loop 2: "3 none" read as no entries); an item that is no object is no entry, and a
+    metadata export that gives no name is not counted."""
+    entries = [{"confidence": label} for label in
+               ("medium", " t3 ", "T1", "none", "high", "", 7, "T2", "T1-LOW", "T1")] + [{"export_name": "x"}]
+    provenance = {"entries": entries + ["not an entry"]}
+    out = mod.access({"exports": ["a", "", {"kind": "function"}, 3]}, provenance, None)
+    assert list(out["provenanceConfidence"].items()) == [
+        ("T1", 2), ("T1-low", 1), ("T2", 1), ("T3", 1), ("high", 1), ("medium", 1), ("none", 1), ("unlabeled", 3)]
+    assert (out["provenanceEntryCount"], out["metadataExportCount"], out["state"], out["degradation"]) == (
+        11, 1, 2, "mixed")
+    # A --source-root that names no folder is no local source.
+    assert mod.access({}, None, str(tmp_path / "gone"))["localSource"] is False
+    assert mod.access({}, None, "  ")["localSource"] is False
+
+
+MISSING = object()
+
+
+@pytest.mark.parametrize("metadata, provenance", [
+    (MISSING, None), ("{not json", None), ("[]", None), ("{}", "{not json"), ("{}", MISSING)],
+    ids=["metadata-missing", "metadata-not-json", "metadata-not-an-object", "provenance-not-json",
+         "provenance-missing"])
+def test_access_refuses_an_unreadable_input(tmp_path, metadata, provenance):
+    """Exit 1 with one `error:` line and no file, which coverage-check §0b halts on (`coverage-check:access`).
+    A file passed as MISSING is named and never written; a None --provenance is left out."""
+    paths = {"--metadata": (tmp_path / "metadata.json", metadata),
+             "--provenance": (tmp_path / "provenance-map.json", provenance)}
+    args = ["access"]
+    for flag, (path, text) in paths.items():
+        if text is not None:
+            args += [flag, str(path) if text is MISSING else _write(path, text)]
+    target = tmp_path / "run" / "access.json"
+    proc = _run(*args, "--output", str(target))
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert len(proc.stderr.splitlines()) == 1 and proc.stderr.startswith("error: ")
+    assert not target.exists()
+
+
+def test_access_without_metadata_json_leaves_the_state_to_the_workflow(tmp_path):
+    """#1188 review: init.md §2 lets a skill with no metadata.json go on (`metadata-missing`), so §0b leaves
+    --metadata out and `access` counts no metadata export: with no map and no local source the state is null and
+    the run goes on to State 4 or 5, where a required --metadata halted it at `coverage-check:access`. A
+    --source-root that names a file, not a folder, is no local source."""
+    target = tmp_path / "run" / "access.json"
+    proc = _run("access", "--output", str(target))
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(target.read_text(encoding="utf-8"))
+    assert tuple(out[key] for key in ACCESS_FIELDS) == (False, 0, {}, 0, None, "low")
+    source_file = _write(tmp_path / "src.py", "x = 1\n")
+    provenance = _write(tmp_path / "provenance-map.json", {"entries": _map_entries(("T1", 2))})
+    proc = _run("access", "--source-root", source_file, "--provenance", provenance)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["localSource"], out["metadataExportCount"], out["state"], out["degradation"]) == (
+        False, 0, 2, "all-t1")
+
+
+def test_a_fallback_batch_whose_response_leaves_out_a_file_is_refused(tmp_path):
+    """#1188 review: the fallback scan saves its batches to fallback-batches.json before it dispatches, and `surface
+    --batches` refuses a response that leaves out a file its batch was given, as it refuses a schema breach: exit 2,
+    no file, and a violation naming the batch, the --per-file given at its position and the file, so that batch's
+    judge runs again. A judge that dropped a file would otherwise shrink the surface unseen. A path written
+    `./src/b.ts` names its file."""
+    batches = _write(tmp_path / "fallback-batches.json", [["src/a.ts", "src/b.ts"]])
+    found = {"file": "src/a.ts", "exports_found": ["a"], "signature_mismatches": []}
+    per_file = _write(tmp_path / "per-file-1.txt", [found])
+    target = tmp_path / "run" / "surface.json"
+    _write(target, {"stale": True})
+    proc = _run("surface", "--per-file", per_file, "--batches", batches, "--fallback-scan", "--output", str(target))
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout) == {"valid": False, "violations": [
+        f"batch 1 ({per_file}): no result object names `src/b.ts`, a file the batch gave its judge"]}
+    assert not target.exists(), "a refused surface leaves no file for the next command to read"
+    _write(tmp_path / "per-file-1.txt", [found, {"file": "./src/b.ts", "exports_found": ["b"],
+                                                 "signature_mismatches": []}])
+    out = _surface(tmp_path, "--per-file", per_file, "--batches", batches, "--fallback-scan")
+    assert sorted((e["name"], e["file"]) for e in out["exports"]) == [("a", "src/a.ts"), ("b", "./src/b.ts")]
+
+
+def _fallback(tmp_path: Path, batches: list[list[str]], *responses) -> tuple[subprocess.CompletedProcess, Path,
+                                                                            list[str]]:
+    """`surface --batches` over `batches` and one --per-file per response, `per-file-1.txt` and on (a response
+    given as a list of file paths names each with one export of its own; any other payload is written as it is):
+    (the process, the --output file, which held stale content before, the --per-file paths)."""
+    paths = []
+    for n, response in enumerate(responses, 1):
+        if isinstance(response, list) and all(isinstance(file, str) for file in response):
+            response = [{"file": file, "exports_found": [Path(file).stem], "signature_mismatches": []}
+                        for file in response]
+        paths.append(_write(tmp_path / f"per-file-{n}.txt", response))
+    target = tmp_path / "run" / "surface.json"
+    _write(target, {"stale": True})
+    proc = _run("surface", *(arg for path in paths for arg in ("--per-file", path)), "--batches",
+                _write(tmp_path / "fallback-batches.json", batches), "--fallback-scan", "--output", str(target))
+    return proc, target, paths
+
+
+def test_each_fallback_batch_s_response_answers_for_its_own_files_alone(tmp_path):
+    """#1188 review loop 2: the nth --per-file is batch n's response, so another batch's response never names a
+    file for it: batch 1's array naming both files beside a batch 2 `[]` is refused for batch 2, naming the batch,
+    `per-file-2.txt` and `src/b.ts`, with no file written; the same objects saved batch by batch build the surface."""
+    proc, target, paths = _fallback(tmp_path, [["src/a.ts"], ["src/b.ts"]], ["src/a.ts", "src/b.ts"], [])
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout) == {"valid": False, "violations": [
+        f"batch 2 ({paths[1]}): no result object names `src/b.ts`, a file the batch gave its judge"]}
+    assert not target.exists()
+    proc, target, _ = _fallback(tmp_path, [["src/a.ts"], ["src/b.ts"]], ["src/a.ts"], ["src/b.ts"])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(target.read_text(encoding="utf-8"))["sets"]["all"] == ["a", "b"]
+
+
+def test_a_fallback_breach_and_a_left_out_file_are_refused_in_one_run(tmp_path):
+    """#1188 review loop 2: a response that breaks the schema gets its breaches alone and every other batch is
+    still checked, so one exit 2 lists both and both judges run again once."""
+    broken = [{"file": "src/a.ts", "exports_found": "a", "signature_mismatches": []}]
+    proc, target, paths = _fallback(tmp_path, [["src/a.ts"], ["src/b.ts", "src/c.ts"]], broken, ["src/b.ts"])
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout) == {"valid": False, "violations": [
+        "per-file-1.txt: `exports_found` must be a list of strings when present",
+        f"batch 2 ({paths[1]}): no result object names `src/c.ts`, a file the batch gave its judge"]}
+    assert not target.exists()
+
+
+def test_a_fallback_batch_with_no_response_and_a_response_with_no_batch_are_refused(tmp_path):
+    """#1188 review loop 2: one --per-file per batch, in batch order. Two batches given one --per-file leave out
+    each of batch 2's files; a third --per-file has no batch and is named once."""
+    batches = [["src/a.ts"], ["src/b.ts", "src/c.ts"]]
+    proc, target, _ = _fallback(tmp_path, batches, ["src/a.ts"])
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f"batch 2 (no --per-file at position 2): no result object names `{file}`, a file the batch gave its judge"
+        for file in ("src/b.ts", "src/c.ts")]
+    assert not target.exists()
+    proc, target, paths = _fallback(tmp_path, batches, ["src/a.ts"], ["src/b.ts", "src/c.ts"], ["src/c.ts"])
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f"{paths[2]}: --per-file 3 has no batch (--batches lists 2): pass one --per-file per batch, in batch order"]
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("payload", [MISSING, "{not json", {"batches": [["src/a.ts"]]}, ["src/a.ts"],
+                                     [["src/a.ts", 3]], [["src/a.ts", " "]]],
+                         ids=["missing", "not-json", "an-object", "no-arrays", "no-path", "blank-path"])
+def test_a_batch_list_that_is_no_array_of_path_arrays_is_an_input_error(tmp_path, payload):
+    """#1188 review: a --batches file that is missing or no JSON array of path arrays exits 1, as an unreadable
+    input does: one `error:` line and no file."""
+    path = tmp_path / "fallback-batches.json"
+    if payload is not MISSING:
+        _write(path, payload)
+    per_file = _write(tmp_path / "per-file-1.txt", [{"file": "src/a.ts", "exports_found": ["a"],
+                                                     "signature_mismatches": []}])
+    target = tmp_path / "run" / "surface.json"
+    proc = _run("surface", "--per-file", per_file, "--batches", str(path), "--fallback-scan", "--output", str(target))
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert len(proc.stderr.splitlines()) == 1 and proc.stderr.startswith("error: ") and "--batches" in proc.stderr
+    assert not target.exists()
 
 
 def test_an_external_star_reaches_the_surface(tmp_path):

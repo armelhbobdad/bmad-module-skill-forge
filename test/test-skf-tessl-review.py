@@ -971,7 +971,12 @@ class TestWorkflowWiring:
         score = _read(TS / "references" / "score.md")
         assert '--external "{run_dir}/external.json"' in score
         assert "{external_validation_score" not in score and "{external_score" not in score
-        assert "{skill-check and Tessl Review | skill-check only | Tessl Review only | none" in score
+        # #1186: score.md §6's settle names the validators from the `toolsUsed` external.json holds.
+        assert "uv run {resultContextScript} settle" in score and '--external "{run_dir}/external.json"' in score
+        settle = _read(TS / "scripts" / "build-result-context.py")
+        for label in ('"skill-check and Tessl Review"', '"skill-check only"', '"Tessl Review only"',
+                      '"none: weight redistributed"'):
+            assert label in settle, label
 
     def test_skill_check_always_runs_fresh_before_tessl_review_and_the_combine(self):
         """#599: the evidence-report reuse cache (section 1b) is gone, so no

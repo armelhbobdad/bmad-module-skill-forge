@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer stops a finished run over a copying slip in its verdict. The score step used to type `testResult`, `score`, `threshold`, `nextWorkflow` and the threshold fallback fields into the report by hand from the scoring output, and the result step then refused any field that did not match, so a score of 87.37 written as `87.4%` halted the run before it published its report. `build-result-context.py settle` now writes those fields into the report frontmatter from the scoring output, keeping every other line and the file's line endings, and prints the Completeness Score section (the Score Breakdown table and the Result lines) for the step to write unchanged. A refused or unreadable input, or a report the hard gate blocked, stops it with one `error:` line and the report left as it was, and the run halts `helper-failed` at the new phase `score:settle`.
+issues: [1186]
+prs: [1217]

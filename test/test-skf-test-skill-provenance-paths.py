@@ -59,20 +59,29 @@ scoring-rules.md, customize.toml and SKILL.md keep no copy of the scoring
 rules and no override of them; and coverage-check.md stays under the
 single-purpose reference budget (#600), its Quick-tier and fallback scans
 carved into coverage-check-tiers.md, loaded only by the branch that needs it,
-and the text only a few other branches take (States 2 to 4, the scalar and
-stack branches and the Denominator Candidates block) carved into
-coverage-check-branches.md, each section loaded only from the sentence of
-its branch.
+and the text only a few other branches take (States 2 to 4 and the scalar
+and stack branches) carved into coverage-check-branches.md, each section
+loaded only from the sentence of its branch; reconcile-coverage.py render
+writes the denominator record (#1186).
 
 They also keep coherence-check section 5 on the integration entries
 create-stack-skill emits (#544): only the cross-cutting and library-pair
-entries are integration points, the first criterion accepts the wiring
-evidence of the stack's mode (file:line citations and key files in code
-mode, a `[from skill: ...]` line citing each constituent's exports in
-compose mode, whatever the constituent's type) and needs no fenced code
-block, section 5 is the one home of that rule (scoring-rules.md points at
+entries are integration points, the first criterion accepts a pair's
+wiring evidence of the stack's mode (file:line citations and key files in
+code mode, a `[from skill: ...]` line citing each constituent's exports in
+compose mode, whatever the constituent's type), asks none of a
+cross-cutting entry, whose bundle record holds none, and needs no fenced
+code block, section 5 is the one home of that rule (scoring-rules.md points at
 it), and the producer formats the criterion names are pinned, so a change
-there fails here.
+there fails here. Section 5 runs the scanner's integration-scan, which
+applies that rule, and the integration file built from its output feeds
+aggregate-coherence.py, which refuses one whose incomplete patterns
+disagree with its counts (#1187).
+
+coherence-check.md keeps section 1 as the router and the shared sections 6
+and 7, and loads the naive branch (sections 2 and 2b) from
+coherence-naive.md or the contextual one (sections 3 to 5c) from
+coherence-contextual.md, each with its own bindings (#1187).
 
 They keep the run's config and tier on helpers too (#1118): SKILL.md On
 Activation step 1 checks `uv`, then loads config.yaml and preferences.yaml
@@ -118,6 +127,9 @@ COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
 # The text only some other coverage-check branches take, carved out the same way.
 COVERAGE_BRANCHES = REFS / "coverage-check-branches.md"
 COHERENCE = REFS / "coherence-check.md"
+# The mode branches coherence-check.md §1 loads (#1187).
+COHERENCE_NAIVE = REFS / "coherence-naive.md"
+COHERENCE_CONTEXTUAL = REFS / "coherence-contextual.md"
 SCORING = REFS / "scoring-rules.md"
 # The rules every signature judge compares by (#827, #835): the overload rule and the `difference` tags live there.
 SIGNATURE_RULES = REFS / "signature-comparison-rules.md"
@@ -239,7 +251,8 @@ def _fence(text: str, needle: str) -> str:
 
 
 def _coherence_5() -> str:
-    return _slice(_read(COHERENCE), "### 5. Contextual Mode: Check Integration Pattern Completeness", "### 5b.")
+    return _slice(_read(COHERENCE_CONTEXTUAL), "### 5. Contextual Mode: Check Integration Pattern Completeness",
+                  "### 5b.")
 
 
 def _init_2() -> str:
@@ -443,7 +456,8 @@ def test_case_4_is_an_evidence_report_without_the_pinned_count():
     gate = _flow(_slice(text, "## Gate Check", "## Scope of Section 4b"))
     assert ("If either condition fails, skip the check with no note and proceed to the next section: a missing "
             "evidence report is not Case 4.") in gate
-    assert "Case 4" not in _read(COHERENCE), "coherence-check records a gap for Cases 1 to 3 only"
+    for path in (COHERENCE, COHERENCE_NAIVE, COHERENCE_CONTEXTUAL):
+        assert "Case 4" not in _read(path), f"{path.name}: coherence-check records a gap for Cases 1 to 3 only"
 
 
 def test_the_case_4_note_has_a_line_in_each_coherence_format():
@@ -459,6 +473,22 @@ def test_the_case_4_note_has_a_line_in_each_coherence_format():
     assert ("Record this note on the Coherence Analysis section's **Migration Section:** line (`{outputFormatsFile}` "
             "gives it in both formats)") in case4
     assert _frontmatter(COHERENCE)["outputFormatsFile"] == "assets/output-section-formats.md"
+
+
+def test_the_coherence_formats_take_their_counts_and_rows_from_a_render():
+    """#1186: both Coherence Analysis formats write a render's output where they held typed counts, rows and
+    percentages; the model adds only the rows it judged."""
+    formats = _read(REFS.parent / "assets" / "output-section-formats.md")
+    for typed in ("{count}", "{per-reference rows}", "{percentage}", "{per-issue rows}", "{per-pattern rows}",
+                  "{valid}/{total}"):
+        assert typed not in formats, typed
+    for mode in ("**Mode:** Naive", "**Mode:** Contextual"):
+        assert "\n{the render output}\n" in _fence(formats, mode), mode
+    section6 = _slice(_read(COHERENCE), "### 6. Write the Coherence Analysis Section", "### 7.")
+    assert "uv run {gapLedgerScript} render --from structure" in section6
+    assert "uv run {coherenceAggregationScript} render --coherence" in section6
+    assert "{percentage}" not in _read(COHERENCE) + _read(COHERENCE_CONTEXTUAL)
+    assert "§6's render writes these values into the Coherence Score list." in _flow(_read(COHERENCE_CONTEXTUAL))
 
 
 def _awk_program() -> str:
@@ -642,7 +672,7 @@ def test_a_release_never_removes_another_runs_lock(tmp_path):
 
 
 def test_report_renews_the_lock_before_it_writes_the_result_files(tmp_path):
-    contract = _slice(_read(REPORT), "### 4c. Result Contract", "### 5. Finalize Output Document")
+    contract = _slice(_read(REPORT), "### 4c. Result Contract", "### 6. Present Final Report")
     assert RENEW in _fence(contract, RENEW)
     assert contract.index(RENEW) < contract.index("**Publish the report.**") \
         < contract.index("emit --workflow skf-test-skill")
@@ -722,10 +752,10 @@ def test_each_stage_and_each_by_eye_read_renews_the_lock():
     for needle in (by_eye, stage, "Exit 3 (another run took the lock over) HALTs `another-run-active`",
                    "exit 1 or 2, or no JSON, HALTs `helper-failed`", "phase `<step>:run-lock`"):
         assert needle in rule, needle
-    # Both points join the list of renewals, before the discovery subagents' renewal and the command.
-    assert rule.index(by_eye) < rule.index("before report.md §4b.2 spawns its discovery subagents") \
-        < rule.index(RENEW)
-    assert rule.index(stage) < rule.index("before report.md §4b.2 spawns its discovery subagents")
+    # #1189 architecture-7: both points join the list of renewals the plain command serves, and the
+    # discovery subagents' trigger follows that command, with the `--stale-after 180` one.
+    assert rule.index(by_eye) < rule.index(RENEW) < rule.index("before report.md §4b.2 spawns its discovery subagents")
+    assert rule.index(stage) < rule.index(RENEW)
     # The stage clause reaches every stage that runs under the lock: init.md takes it in §6a,
     # report.md §7 releases it before health-check.md loads.
     table = _slice(skill, "## Stages", "## Invocation Contract")
@@ -1519,7 +1549,7 @@ def test_a_run_with_no_local_source_names_its_skip():
     flags = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
     assert "`metadata-only` or `remote-only`, States 3 and 4" in flags
     docs_only = _flow(_slice(_read(COVERAGE_BRANCHES), "## Docs-Only Run", "**Docs-only skill detected.**"))
-    assert "§4's `Denominator: docs-only completeness` annotation" in docs_only
+    assert "§5 (its render writes `Denominator: docs-only completeness`)" in docs_only
 
 
 def test_the_prose_quick_command_runs(tmp_path):
@@ -1572,7 +1602,7 @@ def test_the_flags_left_to_the_model_are_stated_once():
     flags = _flow(_slice(_read(COVERAGE), "**Clause flags.**", "### 1. Extract Documented Exports"))
     assert "the flags the Source API Surface Definition leaves to you" in flags
     assert "scope.notes" not in flags and "curated subset" not in flags
-    protocol = _flow(_slice(_read(SOURCE_ACCESS), "The clauses below decide", "The recipe runner already"))
+    protocol = _flow(_slice(_read(SOURCE_ACCESS), "The clauses below decide", "Never re-count a barrel by hand."))
     for token in ("- **Pattern-reference intent** (`--pattern-reference-intent`):",
                   "- **A curated monorepo subset** (`--curated-subset`), where the extraction has no "
                   "`counts.curated_subset` (Quick tier, the fallback per-file scan, States 2 to 4):",
@@ -1590,13 +1620,14 @@ def test_the_flags_left_to_the_model_are_stated_once():
     for command in (_command(COVERAGE_BRANCHES, "surface --provenance"), state3, state4):
         assert "[--monorepo]" in command and "[--curated-subset]" in command, command
     assert "[--barrel <state>]" in state4
-    # the audit trail block stays with the two clauses whose candidates it compares
-    section4 = _flow(_read(COVERAGE))
-    assert ("When `denominator.clause` is `stratified-scope` or `multi-entry`, load `{coverageBranchesFile}` and "
-            "append the block of its **Denominator Candidates** section after the `Denominator:` line") in section4
-    block = _read(COVERAGE_BRANCHES).split("\n## Denominator Candidates\n", 1)[1]
-    assert "**Denominator Candidates** (stratified-scope audit trail):" in _fence(block, "(stratified-scope audit")
-    assert "When `denominator.ladderStep` is set" not in section4
+    # #1186: the audit trail block is the render's, for the two clauses whose candidates it compares
+    section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
+    assert ("§5's render writes the denominator record (the `Denominator:` line, the fold summary and the "
+            "Denominator Candidates block) from `surface.json`, `coverage.json` and `coverage-inputs.json`."
+            ) in section4
+    assert "{coverageBranchesFile}" not in section4 and "When `denominator.ladderStep` is set" not in section4
+    assert "Denominator Candidates" not in _read(COVERAGE_BRANCHES)
+    assert _reconcile_module().AUDITED_CLAUSES == ("stratified-scope", "multi-entry")
 
 
 # #780: the workspace layouts and briefs Test Skill's detection and the recipe runner's monorepo arm read
@@ -1664,7 +1695,7 @@ def test_only_pattern_entries_are_integration_points():
 
 def test_criterion_one_defines_the_evidence_of_each_mode():
     section = _flow(_coherence_5())
-    wiring = _slice(section, "**Wiring evidence (first criterion).**", "Build integration completeness findings")
+    wiring = _slice(section, "**Wiring evidence (first criterion).**", "**Run the integration scan.**")
     # The mode comes from the markers create-stack-skill puts on every compose-mode integration.
     for marker in ("`[composed]`", "`[composed, +T2 annotations]`", "`[inferred from shared domain]`"):
         assert marker in wiring
@@ -1675,12 +1706,15 @@ def test_criterion_one_defines_the_evidence_of_each_mode():
     assert COMPOSE_EVIDENCE in compose
     assert "A fenced code block is not required in either mode" in wiring
     assert "a code block does not stand in for missing evidence" in wiring
+    # create-stack-skill writes a cross-cutting entry from `cross_cutting`, which holds no evidence (#1187).
+    assert "A library-pair entry meets the first criterion when it carries the evidence" in wiring
+    assert "A Cross-Cutting Patterns entry meets the first criterion as written" in wiring
     assert "`incomplete_patterns` issue" in wiring
     assert "`no [from skill: …] line for {skill name}`" in wiring
 
 
 def test_cited_producer_files_exist():
-    wiring = _slice(_flow(_coherence_5()), "**Wiring evidence (first criterion).**", "Build integration completeness")
+    wiring = _slice(_flow(_coherence_5()), "**Wiring evidence (first criterion).**", "**Run the integration scan.**")
     cited = re.findall(r"`(skf-[a-z-]+/references/[a-z-]+\.md)`", wiring)
     assert cited == ["skf-create-stack-skill/references/compose-mode-rules.md"]
     assert all((SRC / path).is_file() for path in cited)
@@ -1723,17 +1757,159 @@ def test_coherence_section_5_is_the_one_home_of_the_rule():
     assert "Each Cross-Cutting Patterns entry and each Library Pair Integrations entry" in section
     assert COMPOSE_EVIDENCE in section and "A fenced code block is not required in either mode" in section
     # §5c names the script as the formula's home; with no pattern, coherence is reference validity.
-    aggregate = _flow(_slice(_read(COHERENCE), "### 5c. Calculate Coherence Scores", "### 6."))
+    aggregate = _flow(_slice(_read(COHERENCE_CONTEXTUAL), "### 5c. Calculate Coherence Scores",
+                             "When this file is done"))
     assert "is the one home of the formula and its weights" in aggregate
     scoring = _flow(_read(SCORING))
     for gone in ("## Coherence Score Aggregation", "Hub Library Connections", "0.6", "## Category Weights",
                  "## Result Determination", "Pass threshold:** 80%"):
         assert gone not in scoring, gone
     pointers = _slice(scoring, "## Where the Scoring Rules Live", "## Gap Severity")
-    for owner in ("`scripts/compute-score.py`", "`scripts/aggregate-coherence.py`", "coherence-check.md §5",
+    for owner in ("`scripts/compute-score.py`", "`scripts/aggregate-coherence.py`", "coherence-contextual.md §5",
                   "`scripts/reconcile-coverage.py`", "`docsOnly` branch", "`scripts/score-signatures.py`",
                   "`{defaultThreshold}`"):
         assert owner in pointers, owner
+
+
+# --------------------------------------------------------------------------
+# #1187: coherence-check loads one mode file, and section 5 takes its count from a scan
+# --------------------------------------------------------------------------
+
+
+# (file, title, its frontmatter keys, its sections, the gap categories its opening names)
+COHERENCE_MODE_FILES = [
+    (COHERENCE_NAIVE, "# Coherence Check: Naive Mode",
+     {"scoringRulesFile", "locateExportSegmentsScript", "migrationSectionRules"}, ["2.", "2b."],
+     "as `structural`, `scripts-assets` and `migration-section` gaps."),
+    (COHERENCE_CONTEXTUAL, "# Coherence Check: Contextual Mode",
+     {"signatureRulesFile", "coherenceAggregationScript", "migrationSectionRules"}, ["3.", "4.", "5.", "5b.", "5c."],
+     "as `broken-reference`, `inaccurate-reference`, `reference-escape`, `scripts-assets`, `integration-pattern` "
+     "and `migration-section` gaps."),
+]
+
+
+def test_coherence_check_routes_to_one_mode_file():
+    """architecture-3: §1 loads the branch of the run's mode, and coherence-check.md keeps only §1, §6 and §7."""
+    router = _read(COHERENCE)
+    front = _frontmatter(COHERENCE)
+    assert (front["coherenceNaiveFile"], front["coherenceContextualFile"]) == (
+        "references/coherence-naive.md", "references/coherence-contextual.md")
+    for gone in ("scoringRulesFile", "signatureRulesFile", "locateExportSegmentsScript", "migrationSectionRules"):
+        assert gone not in front, gone
+    assert re.findall(r"^### (\S+)", router, re.M) == ["1.", "6.", "7."]
+    one = _flow(_slice(router, "### 1. Check Test Mode", "### 6."))
+    assert ("**IF naive mode → load `{coherenceNaiveFile}` and follow it (§2 and §2b), then continue at §6.** "
+            "**IF contextual mode → load `{coherenceContextualFile}` and follow it (§3 to §5c), then continue at "
+            "§6.**") in one
+    six = _flow(_slice(router, "### 6. Write the Coherence Analysis Section", "### 7."))
+    assert six.startswith("### 6. Write the Coherence Analysis Section A §2 to §5c below is a section of the mode "
+                          "file §1 loaded.")
+    # leanness-6: the naive Hard rule's "rerank" and the findings JSON nothing read are gone
+    for path in (COHERENCE, COHERENCE_NAIVE, COHERENCE_CONTEXTUAL):
+        for gone in ("structural_issues", "issues_found", "Hard rule", "rerank", "no hand-waving"):
+            assert gone not in _read(path), (path.name, gone)
+    assert ("Each §2.1 to §2.7 finding is a row of the naive Structural Findings table that §6 records; with none, "
+            "the **Structural Issues** count is 0.") in _flow(_read(COHERENCE_NAIVE))
+    assert "**Structural Issues:** {the number of rows}" in _read(REFS.parent / "assets" / "output-section-formats.md")
+
+
+@pytest.mark.parametrize("path, title, keys, sections, categories", COHERENCE_MODE_FILES,
+                         ids=["naive", "contextual"])
+def test_each_coherence_mode_file_stands_alone(path, title, keys, sections, categories):
+    """Each mode file binds what it uses and nothing else, takes no stage chain, names its run folder, its
+    helper, the halt rule and the ledger stage and categories §6 records it under, and hands back to §6."""
+    text = _read(path)
+    front = _frontmatter(path)
+    assert set(front) == keys and "nextStepFile" not in front
+    body = text.split("\n---\n", 1)[1]
+    for key in keys:
+        assert f"{{{key}}}" in body, key
+    assert re.findall(r"^#{1,2} .*", body, re.M) == [title, "## Sections"]
+    assert re.findall(r"^### (\S+)", body, re.M) == sections
+    assert "<!-- Config" not in text and "**After" not in text
+    opening = _flow(_slice(text, title, "## Sections"))
+    for needle in ("Load this file only from coherence-check.md §1, in", "`{run_dir}`",
+                   "the `{scanSkillMdStructureHelper}` coherence-check.md §1 resolved (a command of it that exits "
+                   "non-zero halts as that section says)", "coherence-check.md's **Halt envelope** apply here",
+                   "A bare §1 or §6 is coherence-check.md's, any other bare § this file's.",
+                   "records what this file finds in the gap ledger under stage `coherence-check`", categories):
+        assert needle in opening, needle
+    assert text.endswith("\n\nWhen this file is done, continue at coherence-check.md §6.\n")
+    migration = _flow(_slice(text, "Migration/Deprecation Verification", "When this file is done"))
+    assert ("Apply rules from `{migrationSectionRules}`, the single source of truth for the gate, scope and case "
+            "rules.") in migration
+
+
+# A code-mode stack whose second pair has no file:line citation, with the hub list after the pairs, and a
+# compose-mode one whose pair has a `[from skill:]` line for one of its two skills only.
+CODE_STACK_MD = ("---\nname: demo-stack\ndescription: Demo\n---\n# Demo Stack Skill\n\n## Integration Patterns\n\n"
+                 "### Library Pair Integrations\n#### express + passport\n**Pattern:** wired at `src/app.ts:12`.\n"
+                 "**Key files:** src/app.ts\n**Confidence:** T1 (grep-co-import)\n\n#### express + zod\n"
+                 "**Pattern:** zod validates bodies.\n**Key files:** src/validate.ts\n**Confidence:** T1-low\n\n"
+                 "**Hub library connections:**\n- **express**: passport at src/app.ts:5, zod\n\n## Conventions\n")
+COMPOSE_STACK_MD = ("# Demo Stack Skill\n\n## Integration Patterns\n\n### Library Pair Integrations\n#### a + b\n"
+                    "**Evidence:**\n[from skill: a] f()\n**Confidence:** T1 (x) [composed]\n")
+
+
+@pytest.mark.parametrize("text, mode, failing", [
+    (CODE_STACK_MD, "code", [("express + zod", 15, "no file:line citation")]),
+    (COMPOSE_STACK_MD, "compose", [("a + b", 6, "no [from skill: \u2026] line for b")]),
+], ids=["code", "compose"])
+def test_section_5_takes_its_count_from_the_integration_scan(tmp_path, text, mode, failing):
+    """determinism-4 and determinism-3: §5's scan, run as written, gives the count, the mode and each entry's
+    first criterion; the integration.json §5 builds from it aggregates, its incomplete pattern reaches
+    coherence.json and §6's `--from coherence` call records it, and one whose incomplete patterns disagree with its
+    counts is refused with no coherence.json left."""
+    command = _command(COHERENCE_CONTEXTUAL, "integration-scan")
+    assert command == ('uv run {scanSkillMdStructureHelper} integration-scan "{resolved_skill_package}/SKILL.md" > '
+                       '"{run_dir}/integration-scan.json"')
+    section = _flow(_coherence_5())
+    assert section.index("**Wiring evidence (first criterion).**") < section.index("**Run the integration scan.**")
+    for needle in ("so the count, the mode and each entry's evidence are never taken by hand",
+                   "You judge each entry against the other three criteria",
+                   "a line that cites nothing fails the first criterion",
+                   "`patterns_documented` as the scan gives it",
+                   "its `issue` the entry's `missing` joined by `; `",
+                   "§5c copies the list into `{run_dir}/coherence.json`, and §6 records each from there",
+                   "If the scan's `patterns_documented` is 0", "`incomplete_patterns: []`"):
+        assert needle in section, needle
+    assert ("It also copies `integration.json`'s `incomplete_patterns` into `incompletePatterns[]`, which §6 records "
+            "the same way.") in _flow(_read(COHERENCE_CONTEXTUAL))
+    skill = _write_tree(tmp_path / "skill", {"SKILL.md": text})
+    run = tmp_path / "run"
+    run.mkdir()
+    ledger = tmp_path / "test-findings-run.json"
+    values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix(),
+              "{ledgerFile}": ledger.as_posix()}
+    scan = _exec(command, values, tmp_path)
+    assert json.loads((run / "integration-scan.json").read_text(encoding="utf-8")) == scan
+    assert (scan["stack_mode"], scan["patterns_documented"]) == (mode, 2 if mode == "code" else 1)
+    incomplete = [{"pattern": e["name"], "line": e["line"], "issue": "; ".join(e["missing"])}
+                  for e in scan["entries"] if e["first_criterion"] is False]
+    assert [(e["pattern"], e["line"], e["issue"]) for e in incomplete] == failing
+    integration = {"patterns_documented": scan["patterns_documented"],
+                   "patterns_complete": scan["patterns_documented"] - len(incomplete),
+                   "incomplete_patterns": incomplete}
+    (run / "integration.json").write_bytes(json.dumps(integration).encode("utf-8"))
+    _exec(_choose(_command(COHERENCE_CONTEXTUAL, "reference-check")), values, tmp_path)
+    aggregate = _choose(_command(COHERENCE_CONTEXTUAL, "uv run {coherenceAggregationScript}"))
+    coherence = _exec(aggregate, values, tmp_path)
+    assert coherence["incompletePatterns"] == incomplete
+    assert coherence["input"]["patterns_complete"] == integration["patterns_complete"]
+    _exec(_command(COHERENCE, "--from coherence"), values, tmp_path)
+    records = json.loads(ledger.read_bytes())["records"]
+    assert [(r["severity"], r["category"], r["title"], r["source"], r["issue"]) for r in records] == [
+        ("Medium", "integration-pattern", f"coherence: incomplete integration pattern: {name}", f"SKILL.md:{line}",
+         issue) for name, line, issue in failing]
+    # a pattern counted complete that the file still lists as incomplete
+    (run / "integration.json").write_bytes(json.dumps({**integration, "incomplete_patterns": []}).encode("utf-8"))
+    words = shlex.split(aggregate.removeprefix("uv run {coherenceAggregationScript} ").replace(
+        "{run_dir}", run.as_posix()))
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{coherenceAggregationScript}"]), *words],
+                          capture_output=True, text=True, check=False)
+    assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT", proc.stdout
+    assert not (run / "coherence.json").exists()
+
 
 
 
@@ -2779,42 +2955,59 @@ def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     assert (run / "inventory.json").is_file()
 
 
-# The five Denominator annotations with counts, each read from surface.json `candidates` (#822).
+# The five Denominator annotations with counts, each read from surface.json `candidates` (#822), by
+# reconcile-coverage.py render since #1186: annotation prefix -> the `candidates` fields it names.
 CANDIDATE_ANNOTATIONS = {
     "Empty barrel, denominator:": ["scopeIncludeUnion"],
-    "Stratified scope, denominator:": ["tierAIncludeFiles", "scopeIncludeFiles", "tierAIncludeUnion",
-                                       "scopeIncludeUnion"],
-    "Pattern-reference, denominator:": ["tierAIncludeUnion"],
+    "Stratified scope, denominator:": [],  # {F} and {U}: tierAInclude* or scopeInclude*, by the surface's set
+    "Pattern-reference, denominator:": [],  # tierAIncludeUnion, or the fold's canonical.canonical
     "Specific-modules subset, denominator:": ["scopeIncludeUnion", "scopeIncludeFiles"],
     "Multi-entry (exports-map), denominator:": ["subpathEntries", "subpathUnion", "rootBarrel"],
 }
 
 
+def _reconcile_module():
+    return runpy_module(SCRIPTS_DIR / "reconcile-coverage.py")
+
+
 def test_each_denominator_annotation_reads_a_candidates_field():
     """#822: every Denominator annotation with a count takes it from `surface.json` (`candidates`, or the
     canonicalized count a pattern reference's fold writes), which load-coverage-inputs.py writes; none asks for a
-    count no script holds."""
+    count no script holds. #1186: the render writes them, so the protocol annotates nothing by hand."""
     protocol = _read(SOURCE_ACCESS)
-    clauses = _slice(protocol, "Each clause, by its `denominator.clause`", "Internal module symbols are")
+    assert "Annotate" not in protocol and "annotate the report" not in protocol and "{candidates." not in protocol
+    clauses = _flow(_slice(protocol, "Never re-count a barrel by hand.", "Internal module symbols are"))
+    assert ("coverage-check.md §5's render writes each clause's `Denominator:` line from these counts (`surface.json` "
+            "`candidates`). Each clause, by its `denominator.clause`, with what stays yours:") in clauses
+    assert ("The root-barrel count (`candidates.rootBarrel`) is the secondary candidate in the Denominator Candidates "
+            "block coverage-check.md §5's render writes.") in clauses
+    reconcile = _reconcile_module()
     surface = _slice(_read(SCRIPTS_DIR / "load-coverage-inputs.py"), 'out["candidates"] = {', "}")
-    for clause, fields in CANDIDATE_ANNOTATIONS.items():
-        annotation = clauses[clauses.index(clause):].split("`", 1)[0]
-        assert re.findall(r"candidates\.(\w+)", annotation) == fields, annotation
+    templates = {text.split(" denominator:", 1)[0] + " denominator:": text
+                 for text in reconcile.DENOMINATOR_ANNOTATIONS.values() if " denominator:" in text}
+    assert set(templates) == set(CANDIDATE_ANNOTATIONS)
+    for prefix, fields in CANDIDATE_ANNOTATIONS.items():
+        named = re.findall(r"\{(\w+)\}", templates[prefix])
+        assert [n for n in named if n[0].islower() and n not in ("files_wording", "pattern_set", "pattern_count")
+                ] == fields, prefix
         for gone in ("files matched", "{M} modules", "subpaths resolved", "{N}", "{M}", "{R}"):
-            assert gone not in annotation, (clause, gone)
-        for field in fields:
-            assert f'"{field}":' in surface, field  # a field the script writes
+            assert gone not in templates[prefix], (prefix, gone)
+    for field in ("scopeIncludeUnion", "scopeIncludeFiles", "tierAIncludeFiles", "tierAIncludeUnion", "subpathEntries",
+                  "subpathUnion", "rootBarrel", "statsEffectiveDenominator"):
+        assert f'"{field}":' in surface, field  # a field the script writes
     # a pattern reference's provenance-map count is the fold's canonical count
-    pattern = clauses[clauses.index("Pattern-reference, denominator:"):].split("\n", 1)[0]
-    assert "canonical.canonical" in pattern and '"canonical": len(canonical)' in _read(
-        SCRIPTS_DIR / "load-coverage-inputs.py")
-    # on the `all` set no scope set gives the stratified counts
-    stratified = _flow(clauses[clauses.index("Stratified scope, denominator:"):].split("\n", 1)[0])
-    assert "when `denominator.surfaceSet` is `all` no scope set gives a count, so both read `absent`" in stratified
-    intro = _flow(_slice(protocol, "when the tier A globs count no name", "Each clause, by its"))
-    assert ("each `{candidates.<field>}` count from `surface.json`, and a null one reads `absent`; a `*Files` "
-            "count is the files that define the set's names (at Quick tier, word it as the files its names sit "
-            "at)") in intro
+    assert '"canonical": len(canonical)' in _read(SCRIPTS_DIR / "load-coverage-inputs.py")
+    fold = {"exports": [], "inputs": {"extraction": None}, "canonical": {"canonical": 11}, "candidates": {},
+            "denominator": {"clause": "pattern-reference", "branch": "barrel", "surfaceSet": "all", "absentSet": None}}
+    assert reconcile.denominator_record({"branch": "enumerated"}, fold)[0] == (
+        "**Denominator:** Pattern-reference, denominator: canonicalized provenance-map count (11 pattern surfaces)")
+    # on the `all` set no scope set gives the stratified counts, and at Quick tier the names sit at their files
+    stratified = {**fold, "candidates": {"scopeIncludeFiles": 3, "scopeIncludeUnion": 9},
+                  "denominator": {"clause": "stratified-scope", "branch": "barrel", "surfaceSet": "all",
+                                  "absentSet": "scope.include"}}
+    assert reconcile.denominator_record({"branch": "enumerated"}, stratified)[0] == (
+        "**Denominator:** Stratified scope, denominator: scope.include union (absent files its names sit at, absent "
+        "exports union) (scope.include set absent: all set used)")
 
 
 def test_the_source_access_is_written_when_it_is_resolved():
@@ -2825,7 +3018,7 @@ def test_the_source_access_is_written_when_it_is_resolved():
     assert ("and write it at once to the frontmatter of `{report_file}` (init.md §6c created it) as "
             "`analysisConfidence: '{analysis_confidence}'`, again each time a later rule changes it") in protocol
     assert "binds `{report_file}`" in _read(REFS / "init.md")
-    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 5."))
+    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 6."))
     assert "checks that `analysisConfidence` names a source access" in contract
     assert ("except when the `error` names `analysisConfidence`: then write `analysisConfidence: "
             "'{analysis_confidence}'`, the value source-access-protocol.md resolved") in contract
@@ -2858,27 +3051,23 @@ def test_the_deep_tier_asks_only_for_what_runs():
             "judge:") in _flow(_read(COVERAGE))
     # §5b writes no such record by hand, the tier branch file sends a Deep run back to the paragraph, which adds
     # nothing to the fallback scan, and the severity table names the script that records them
-    records = _flow(_slice(_read(COVERAGE), "Then write the records no script wrote", "```"))
+    records = _flow(_slice(_read(COVERAGE), "Save each §1b entry's settlement", "```"))
     assert "Not checked by script" not in records
-    assert ("Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of "
-            "`{outputFormatsFile}`, each naming its export in `export` and in its title") in records
+    # #1187: the split-body adapter builds the one record §5b used to write, from the inventory and a settlements file
+    assert "The script builds each record's title, Source and `export` from the inventory entry." in records
     assert "its extra checks" not in _read(COVERAGE_TIERS)
     assert ("at Deep tier, its **Deep Tier** paragraph, whose `--doc-errors` adds nothing to this scan's plan, which "
             "has no checks, so leave it out;") in _read(COVERAGE_TIERS)
     observation = next(row for row in _read(SCORING).splitlines() if row.startswith("| Info     | `observation`"))
-    assert ("`Not checked by script: {name}`, at the documenting line, recorded by score-signatures.py from a "
-            "signature judge's `doc_errors`") in observation
+    # #1188: the row names each observation's rule by the script that applies it
+    assert ("or a Deep-tier `Not checked by script: {name}` documentation error, which `scripts/score-signatures.py` "
+            "grades (coverage-check §2 to §2c)") in observation
     assert "by hand" not in observation
     # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
     # so that the record score-signatures.py writes of the name stays its own gap; #1070: or whose map entry
     # cites the star's line
-    assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2). Also "
-            "a stale name with no `defined_at`, not scoped out by "
-            "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
-            "`export *` (`surface.json` `unresolvedStars`), or whose provenance map entry cites such an `export *` "
-            "line itself: `Not checked by script: {name} (another package's export *)`, at the documenting line, "
-            "written by gap-ledger.py and asking no change unless that package lacks the name (coverage-check "
-            "§2c)") in observation
+    assert ("a stale name cited at another package's `export *`, by the rule `scripts/gap-ledger.py`'s `coverage` "
+            "adapter applies") in observation
     # the drift guard is init.md §5b's helper call, which runs at every tier
     init = _read(REFS / "init.md")
     assert "It runs the workspace drift guard" in _flow(init)
@@ -2924,7 +3113,8 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert ("A check with `alternatives` (the other forms the skill documents for the name) is compared with each of "
             "them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.") in forge
     # an overload set is judged whole, by the rule the judge reads in the rules file whose path it is given (#827)
-    assert "delegate one subagent with its checks and the absolute path of `{signatureRulesFile}`" in forge
+    assert ("delegate one subagent with the `files[]` entries it names, their checks and the absolute path of "
+            "`{signatureRulesFile}`") in forge
     assert "is read through its implementation" not in forge, "the overload rule has one copy, in the rules file"
     assert "is read through its implementation" in _read(SIGNATURE_RULES)
     for gone in ("exports_documented", "missing_docs"):
@@ -2970,49 +3160,28 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     forge = _flow(_slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier"))
     assert "The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says" in forge
     held = _flow(_slice(_read(SOURCE_ACCESS), "### What the Surface Holds", "## Source Access Resolution"))
-    # an outer package that exports nothing (a stray source-root __init__.py) nests nothing; the nested names
-    # leave the standard barrel and the umbrella ratio, never the scope sets or the signature comparisons
-    assert ("nested in the folder of another package that exports a name is no barrel: its names "
-            "(`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still "
-            "compares their signatures") in held
-    assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in held
-    assert "are back in it (`guards.staleScope.restored`)" in held
-    # #913: a restored name takes the kind the provenance map gives it, and Type Coverage names one with none;
-    # #1020: so does any name the recipes give no kind at its file, an extraction gap or one found only elsewhere
-    assert ("(`guards.staleScope.restored`). Each restored name, and each name no recipe gives a kind at its file "
-            "(such as one in `extractionGaps`), takes the kind the provenance map gives its name at its file when the map is given (a dataclass, "
-            "NamedTuple or TypedDict is a class, a Protocol an interface, a type alias a type, a TypeVar no type), and "
-            "Type Coverage leaves out one still without a kind and says so in its warnings.") in held
-    # #1009: a restored name stays only while a glob is stale, so the gap asks for an include glob over its file
-    assert ("The restored exports stay only while a `scope.include` glob matches no file: once each glob matches one, "
-            "a restored export whose file no glob covers is outside scope again (`excluded.outsideScope`), so the "
-            "`brief-scope-stale` gap asks for a `scope.include` glob over each restored file whose exports the skill "
-            "documents.") in held
-    # #695: a stale tier A glob fires the guard too and counts no name
-    assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
-            "and counts no name") in held
-    # #1087: a documented extra's declarations reach plan and score as its records, never a set, Export Coverage or
-    # Type Coverage; review of #1087 (probe f): only those classify-stale finds, so a name declared only at a test
-    # helper stays stale documentation and is never compared there
-    assert ("`internalDeclarations` lists, for each name the extraction finds no entry point exports (its `internal` "
-            "names) and that no surface record names, each declaration of it the extraction records in a file the "
-            "brief does not exclude, in the fields `otherDeclarations` uses, less each one coverage-check.md §2c's "
-            "`classify-stale` never finds, since such a name stays stale documentation: one in a test file, in a "
-            "file of a language other than Python and TS/JS or, unless a provenance entry of the name cites that "
-            "file, in a test, fixture, vendored, hidden or `e2e` folder, or an examples, scripts or docs folder right "
-            "below the source root or a package root (a `prune_data` cognee declares only in `cognee/tests/utils.py` "
-            "has none); it is `null` exactly when `otherDeclarations` is. They add no name to a set either, and "
-            "neither Export Coverage nor Type Coverage reads them: `plan`, `score` and coverage-check-branches.md's "
-            "Split-Body Sources read them as the records of such a name, so a documented extra's signature is "
-            "planned, judged and counted in Signature Accuracy at its declaration, and the two forms of a split-body "
-            "mismatch of it are set against that declaration."
-            ) in held
-    # review of #1077: of several declarations, plan picks one from the lines naming the name, as among surface
-    # records, and binds each form to its own cited one
-    assert ("For one declared in several files, `plan` picks among them as among a name's surface records, from the "
-            "lines naming it, and binds each form to the one its own citations cite (coverage-check.md §2's "
-            "`bound`).") in held
-    internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
+    # #1188: the paragraph says what surface.json holds and which step reads it; how the script builds each list
+    # (#677 nested tops, #913 and #1020 kinds, #1009 restored names, #695 a stale tier A glob, #1087 internal
+    # declarations, #1077 several declaring files) is load-coverage-inputs.py's, gap-ledger.py's and
+    # score-signatures.py's, whose own tests pin it
+    assert ("### What the Surface Holds `surface.json` holds the names the entry points export, less those defined in "
+            "a file the brief scopes out (`excluded.outsideScope`); the recipes' internal matches are never part of "
+            "it. Beside them it lists the nested entries the `all` and `root` sets leave out "
+            "(`excluded.nestedEntries`), the root exports a stale `scope.include` glob restores to it "
+            "(`guards.staleScope.restored`), and `otherDeclarations` and `internalDeclarations` (the declarations no "
+            "entry point exports, of a name the surface holds and of one it does not), which add no name to a set "
+            "or a count and are `null` when no runner extraction looked for them. §5's render lists the excluded "
+            "and restored names, and `plan`, `score` and coverage-check-branches.md's Split-Body Sources read the "
+            "two declaration lists as a name's declarations. ") == held
+    loader = _flow(_read(PROSE_SCRIPTS["{coverageInputsScript}"]))
+    for rule in ("so its kind is the one --provenance gives the name at that file (PROVENANCE_KINDS)",
+                 "the stale-scope guard (an extraction with scope.include or tier_a_include only) fires when the "
+                 "runner lists an include or tier_a_include glob that matches no file",
+                 "Internal declarations (surface `internalDeclarations`)"):
+        assert rule in loader, rule
+    assert ("says a restored name stays only while an include glob matches no file") in _flow(
+        _read(PROSE_SCRIPTS["{gapLedgerScript}"]))
+    internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "### Provenance-map canonicalization"))
     assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
             "below), which add no name to its sets or to the coverage denominator.") in internal
     assert "never reach it" not in internal
@@ -3021,7 +3190,10 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
             "`extractionGaps`") in forge
     section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
-    assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
+    # #1188: §5b's guards call records the gap, which gap-ledger.py's guards adapter classifies
+    assert "The guards that fire raise coverage gaps too, which §5b records from `surface.json`." in section4
+    assert "`guards.staleScope.fires` is one Medium `brief-scope-stale` gap at that brief" in _flow(
+        _read(PROSE_SCRIPTS["{gapLedgerScript}"]))
     protocol = _flow(_read(SOURCE_ACCESS))
     assert ("is not a second package root when the folder of another package root that exports a name holds it, "
             "unless `scope.include` or `scope.tier_a_include` lists that `__init__.py`: its names stay out of the "
@@ -3031,10 +3203,8 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "`demoted-include` matches the file") in protocol
     # with no tier A glob matching a file there is no tier_a_include set, nor (#712) when the globs match only
     # files that define no name, nor (#725) only files scope.include leaves out: the script's ladder goes on
-    # (test-skf-load-coverage-inputs.py pins it)
-    assert ("A `scope.tier_a_include` glob counts a name only in a file a `scope.include` glob also matches, and one "
-            "that matches no file (`guards.staleScope.unmatchedTierAInclude`, a brief older than the source) counts "
-            "none: when the tier A globs count no name, `surface.json` has no `tier_a_include` set.") in protocol
+    # (test-skf-load-coverage-inputs.py pins it; #1188 cut the protocol's account of it, the model reads the set)
+    assert "A `scope.tier_a_include` glob counts a name only" not in protocol
     assert ("The denominator is the `tier_a_include` set when `surface.json` has it, else the canonicalized "
             "provenance map") in protocol
     # the deflation guard's rule (#712: a tier A glob that counts a name turns it off, a stored 0 below any
@@ -3124,14 +3294,19 @@ def test_tooling_health_is_tooling_status_only():
 def test_no_scoring_rule_is_overridable_or_restated():
     toml = _read(CUSTOMIZE)
     assert "output_formats_path" not in toml and "scoring_rules_path" not in toml
-    comment = _flow(re.sub(r"(?m)^#\s?", "", toml[toml.index("# Pass threshold"):toml.index("default_threshold = 80")]))
-    assert "forge-auto, forge, forge-quick and campaign runs" in comment
+    comment = _flow(re.sub(r"(?m)^#\s?", "", toml[toml.index("# Pass threshold"):toml.index('default_threshold = ""')]))
+    # #1189 customization-2: the override outranks a pipeline's default, so only forge-auto and campaign,
+    # which pass --threshold, keep their own, and a raised value never turns a PASS into a FAIL.
+    assert "forge-auto and campaign pass `--threshold` themselves, so they keep their own" in comment
+    assert "A value above 80 never turns a PASS into a FAIL" in comment
     assert "a run a cap forced to FAIL stays FAIL at any threshold" in comment
     for path in sorted(TEST_SKILL.rglob("*.md")):
         text = _read(path)
         assert "{scoringRulesPath}" not in text and "{outputFormatsPath}" not in text, path.name
     detect = _flow(_read(DETECT))
-    assert "Tier-Dependent Scoring" not in detect and "set nothing here" in detect
+    assert "Tier-Dependent Scoring" not in detect and "set nothing here" not in detect
+    assert ("At Quick tier, in both modes, the scoring script skips Signature Accuracy and Type Coverage (no AST "
+            "available) and redistributes their weights.") in detect
     assert "Quick-tier weight adjustment" not in _read(COVERAGE)
 
 
@@ -3178,7 +3353,7 @@ EXTRACTION = {
 # The (script, subcommand) pairs, and the scripts that take no subcommand, that given --output print only a summary
 # of the file they write.
 SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", cmd) for cmd in ("plan", "score")} | {
-    ("{coverageInputsScript}", cmd) for cmd in ("census", "floor", "metadata", "surface")})
+    ("{coverageInputsScript}", cmd) for cmd in ("access", "census", "floor", "metadata", "surface")})
 SUMMARIZED_SCRIPTS = frozenset({"{reconcileScript}", "{numeratorVerifyScript}", "{coherenceAggregationScript}",
                                 "{externalScoreScript}"})
 
@@ -3262,19 +3437,19 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert '--skill-dir "{resolved_skill_package}"' in command, "#781: the skill's citations pick a declaration"
     plan = _exec(command, values, tmp_path)
     assert [f["file"] for f in plan["files"]] == ["src/helper.ts", "src/index.ts"]
-    (run / "signatures-1.txt").write_bytes(json.dumps({"file": "src/helper.ts", "signature_mismatches": [
+    # #1188: both files make one batch, whose judge returns one array, saved to signatures-1.txt
+    assert plan["batches"] == [{"files": ["src/helper.ts", "src/index.ts"], "checks": 2}]
+    (run / "signatures-1.txt").write_bytes(json.dumps([{"file": "src/helper.ts", "signature_mismatches": [
         {"name": "helper", "line": 1, "source_sig": "(x: number, y?: number) => number",
-         "documented_sig": "(x: number) => number", "issue": "missing optional parameter 'y'"}]}).encode("utf-8"))
-    # #835 follow-up: a return annotation the body contradicts, checked in the {source_path} file
-    (run / "signatures-2.txt").write_bytes(json.dumps({"file": "src/index.ts", "signature_mismatches": [
-        {"name": "fetchData", "line": 1, "source_sig": "(url: string) => Promise<string>",
-         "documented_sig": "(url: string) => string", "issue": "annotated Promise<string>; the body returns the string",
-         "difference": "annotation-contradicted", "evidence_line": 1}]}).encode("utf-8"))
+         "documented_sig": "(x: number) => number", "issue": "missing optional parameter 'y'"}]},
+        # #835 follow-up: a return annotation the body contradicts, checked in the {source_path} file
+        {"file": "src/index.ts", "signature_mismatches": [
+            {"name": "fetchData", "line": 1, "source_sig": "(url: string) => Promise<string>",
+             "documented_sig": "(url: string) => string",
+             "issue": "annotated Promise<string>; the body returns the string",
+             "difference": "annotation-contradicted", "evidence_line": 1}]}]).encode("utf-8"))
     command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score"), keep=("--source-root",))
-    signatures = _exec(command.replace(
-        '--results "{run_dir}/signatures-<n>.txt"',
-        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace(
-        "<set>", "all"), values, tmp_path)
+    signatures = _exec(command.replace("<set>", "all"), {**values, "<n>": "1"}, tmp_path)
     assert (signatures["signatureAccuracy"], signatures["typeCoverage"]) == (50.0, 100.0)
     # the source file read, fetchData's contradiction is an Info observation that still matches
     assert [(g["title"], g["severity"]) for g in signatures["gapRecords"]] == [
@@ -3359,17 +3534,17 @@ def test_a_deep_tier_judge_s_doc_error_reaches_the_ledger(tmp_path):
     assert doc_check == {"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):",
                          "imports": [{"at": "SKILL.md:8", "statement": "from pkg.search import SearchType, run"}],
                          "members": [{"at": "SKILL.md:11", "fields": ["GRAPH_COMPLETION"]}]}
-    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
-        '--results "{run_dir}/signatures-<n>.txt"',
-        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace("<set>", "all")
-    (run / "signatures-1.txt").write_bytes(json.dumps(
-        {"file": "pkg/search.py", "signature_mismatches": [], "undecided": []}).encode("utf-8"))
+    # #1188: both files make one batch, whose judge returns one array, saved to signatures-1.txt
+    assert [batch["files"] for batch in plan["batches"]] == [["pkg/search.py", "pkg/types.py"]]
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace("<set>", "all")
+    values["<n>"] = "1"
+    searched = {"file": "pkg/search.py", "signature_mismatches": [], "undecided": []}
     judged = {"file": "pkg/types.py", "signature_mismatches": [], "undecided": []}
-    (run / "signatures-2.txt").write_bytes(json.dumps(judged).encode("utf-8"))
+    (run / "signatures-1.txt").write_bytes(json.dumps([searched, judged]).encode("utf-8"))
     without = _exec(command, values, tmp_path)
     error = {"name": "SearchType", "at": "SKILL.md:8", "source": "pkg/search.py:1",
              "issue": "pkg/search.py does not bind `SearchType`; pkg/types.py declares it"}
-    (run / "signatures-2.txt").write_bytes(json.dumps({**judged, "doc_errors": [error]}).encode("utf-8"))
+    (run / "signatures-1.txt").write_bytes(json.dumps([searched, {**judged, "doc_errors": [error]}]).encode("utf-8"))
     signatures = _exec(command, values, tmp_path)
     assert (signatures["signatureAccuracy"], signatures["totalDocumented"]) == (
         without["signatureAccuracy"], without["totalDocumented"]) == (100.0, 1)
@@ -3455,7 +3630,7 @@ def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
     ]
     flow = _flow(_read(COVERAGE))
     assert "- **Stale names** (`stale` when `staleApplicable` is true):" in flow
-    assert "- **Missing names** (`missing`, barrel or scalar):" in flow
+    assert "- **Missing names** (`missing`, barrel or scalar)." in flow
 
 
 def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path):
@@ -3540,6 +3715,15 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     plan = _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
     assert (plan["files"], plan["documentedSignatures"]) == (
         [], {"fetchData": {"params": "url: string", "return_type": "string"}})
+    # #1188 review: the batches saved before the dispatch, which `surface --batches` holds each response to: one
+    # that leaves out a file its batch was given exits 2, naming the response and the file.
+    (run / "fallback-batches.json").write_bytes(json.dumps([["src/index.ts", "src/extra.ts"]]).encode("utf-8"))
+    proc = _run(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
+    assert proc.returncode == 2, proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [
+        f"batch 1 ({run.as_posix()}/per-file-1.txt): no result object names `src/extra.ts`, a file the batch gave "
+        "its judge"]
+    (run / "fallback-batches.json").write_bytes(json.dumps([["src/index.ts"]]).encode("utf-8"))
     surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
     assert surface["sets"]["all"] == ["Options", "fetchData"]
     assert "the fallback scan's `per-file-<n>.txt`" in _flow(_slice(_read(COVERAGE), "**Score the signatures**",
@@ -3589,8 +3773,8 @@ def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
     module of the source: the module that defines each one has its own result, and the loader reads every result
     as the defining file's. A name passed on from another package stays, since no other result counts it."""
     scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
-    assert "It extracts the symbols the file exports, with their full signatures" in scan
-    assert ("leaves out a name the file only passes on from another module of the source being tested "
+    assert "It extracts the symbols each file exports, with their full signatures" in scan
+    assert ("leaves out a name a file only passes on from another module of the source being tested "
             "(`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that "
             "module's own result counts, keeps a name it passes on from another package (`export { z } from "
             "'zod'`), which no other result counts") in scan
@@ -3637,9 +3821,9 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
             "that is no relative path; `export * as ns` still gives `ns`), which the recipe runner leaves "
             "unresolved, listing each such statement as `<line>: <statement>` in `unresolved_stars`, compares each "
             "with the map's entry") in scan
-    assert '"signature_mismatches": [...], "unresolved_stars": [...], "undecided": [...]}`' in scan
-    assert ("List each response's `unresolved_stars` in the Coverage Analysis section as unresolved. Save each "
-            "response to `{run_dir}/per-file-<n>.txt`") in scan
+    assert '"signature_mismatches": [...], "unresolved_stars": [...], "undecided": [...]}` per file it was given' in scan
+    assert ("List each object's `unresolved_stars` in the Coverage Analysis section as unresolved. Save batch "
+            "`<n>`'s response to `{run_dir}/per-file-<n>.txt` (`<n>` from 1)") in scan
     # A star from the source is still left to the module's own result.
     assert ("(`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that "
             "module's own result counts") in scan
@@ -3692,6 +3876,7 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
     _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
     assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
     _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
+    (run / "fallback-batches.json").write_bytes(json.dumps([["src/index.ts"]]).encode("utf-8"))
     surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
     assert surface["sets"]["all"] == ["spyOn", "z"] and "violations" not in surface
     assert surface["unresolvedStars"] == [{"file": "src/index.ts", "line": 1, "statement": star[3:]}]
@@ -3721,8 +3906,8 @@ def test_the_fallback_scan_reads_an_overload_set_whole():
     that path either, and it tags a mismatch's `difference` as §2's judge does. The overload rule has one copy, in
     that file: neither coverage-check.md nor the tiers file repeats it."""
     scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
-    assert ("delegate a subagent that gets that map with the file and the absolute path of `{signatureRulesFile}` "
-            "(under `{skill-root}`)") in scan
+    assert ("delegate one subagent that gets that map with its files and the absolute path of "
+            "`{signatureRulesFile}` (under `{skill-root}`)") in scan
     assert ("compares each with the map's entry by the rules of that file (overload sets and `difference` tags "
             "included)") in scan
     rules = _flow(_slice(_read(SIGNATURE_RULES), "## Overload sets", "## Difference tags"))
@@ -3731,6 +3916,156 @@ def test_the_fallback_scan_reads_an_overload_set_whole():
             "mismatch") in rules
     for path in (COVERAGE, COVERAGE_TIERS):
         assert "is read through its implementation" not in _read(path), path.name
+
+
+def test_the_source_access_and_its_notice_come_from_access_json(tmp_path):
+    """#1188: §0b runs `access` as written before it loads the protocol, and the protocol's States 1 to 4 and its
+    degradation notice, and score.md §6's notice, read the file it writes: a map of 12 T1 and 3 T1-low entries with
+    no local source is State 2, `mixed`, "(12 T1, 3 T1-low)", where the model counted entries under an "all/most"
+    rule with no threshold. Review loop 1: a skill with no metadata.json, which init.md §2 lets go on, leaves
+    --metadata out and reaches State 4 or 5 (`state` null), and the notice keys on `degradation` only at
+    provenance-map, every other access taking the `low` one (a State 1 run a later rule made docs-only has a null
+    `degradation`)."""
+    section = _flow(_slice(_read(COVERAGE), "### 0b. Load Source Access Protocol", "**Workspace layout.**"))
+    assert ("Read the source access from the files, leaving out `--metadata` when init.md §2 found no metadata.json "
+            "(its `metadata-missing` warning), `--provenance` when it bound no `{forge_provenance_map}` and "
+            "`--source-root` when `{source_path}` is null:") in section
+    assert ('Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase '
+            '`coverage-check:access`). Then load `{sourceAccessProtocol}` and follow its') in section
+    command = _command(COVERAGE, "uv run {coverageInputsScript} access")
+    skill = _write_tree(tmp_path / "skill", {"metadata.json": json.dumps({"exports": ["alpha", "beta"]})})
+    entries = [{"export_name": f"n{i}", "confidence": "T1" if i < 12 else "T1-low"} for i in range(15)]
+    provenance = _write_tree(tmp_path / "forge", {"provenance-map.json": json.dumps({"entries": entries})})
+    run = tmp_path / "run"
+    run.mkdir()
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{forge_provenance_map}": (provenance / "provenance-map.json").as_posix(),
+              "{source_path}": (tmp_path / "src").as_posix()}
+    access = _exec(_choose(command, keep=("--metadata", "--provenance")), values, tmp_path)
+    assert (access["state"], access["degradation"], access["provenanceEntryCount"]) == (2, "mixed", 15)
+    breakdown = "(" + ", ".join(f"{count} {label}" for label, count in access["provenanceConfidence"].items()) + ")"
+    assert breakdown == "(12 T1, 3 T1-low)"
+    notice = _flow(_slice(_read(REFS / "score.md"), "### Access Degradation Notice", "### 7."))
+    assert ("{at provenance-map, from `{run_dir}/access.json`: \"(T1 AST-verified at compilation time)\" when "
+            f"`degradation` is `all-t1`, else each `provenanceConfidence` label after its count, as \"{breakdown}\"}}"
+            ) in notice
+    # Review loop 3: the Impact line's no-limitation text keys on the same field, never a count by eye.
+    assert ("or \"Provenance data is at highest confidence; no limitation.\" at provenance-map when "
+            "`{run_dir}/access.json` `degradation` is `all-t1`}") in notice
+    assert "all-T1 provenance-map" not in notice
+    assert ("**Recommendation:** {at provenance-map, the one the degradation notice rules in {sourceAccessProtocol} "
+            "give `{run_dir}/access.json` `degradation` (no local clone for `all-t1`); at any other access, their "
+            "`low` one}") in notice
+    protocol = _flow(_slice(_read(SOURCE_ACCESS), "## Source Access Resolution", "**Degradation notice rules:**"))
+    for state, reads in (("1", "`{run_dir}/access.json` (coverage-check.md §0b) gives `state` 1"),
+                         ("2", "`access.json` gives `state` 2"), ("3", "`access.json` gives `state` 3"),
+                         ("4", "`access.json` gives `state` null")):
+        assert reads in protocol, state
+    rules = _read(SOURCE_ACCESS).split("**Degradation notice rules:**", 1)[1]
+    assert rules.startswith(
+        " at `provenance-map`, `{run_dir}/access.json` `degradation` picks the notice, from the provenance map "
+        "entries' `confidence` labels (`provenanceConfidence`). Every other access below `full` takes the `low` "
+        "notice whatever `degradation` says, a State 1 run a later rule made `docs-only` (its `degradation` null) "
+        "included:\n")
+    assert re.findall(r"^- \*\*`([a-z0-9-]+)`\*\*", rules, re.M) == ["all-t1", "mixed", "low"]
+    assert f"as {breakdown[1:-1]}). Re-run with local clone" in _flow(rules)
+    # Review loop 2: a State 5 run, and a State 1 run made docs-only, ran §0b and have an `access.json`; only §0's
+    # docs-only run skipped it.
+    assert ("- **`low`** (no entry T1, and every access but `full` and `provenance-map`, a docs-only run's too, with "
+            "or without an `access.json`):") in rules
+    assert "writes no `access.json`" not in rules
+    # A local source is State 1 whatever the map says, so the notice is not written.
+    (tmp_path / "src").mkdir()
+    access = _exec(_choose(command, keep=("--metadata", "--provenance", "--source-root")), values, tmp_path)
+    assert (access["state"], access["degradation"], access["localSource"]) == (1, None, True)
+    # No metadata.json, no map and no local source: the command left bare exits 0 and leaves State 4 or 5 to the
+    # workflow.
+    access = _exec(_choose(command), {**values, "{source_path}": (tmp_path / "gone").as_posix()}, tmp_path)
+    assert (access["state"], access["degradation"], access["metadataExportCount"]) == (None, "low", 0)
+
+
+def test_signatures_and_the_fallback_scan_are_judged_in_batches():
+    """#1188: §2 delegates one judge per `batches[]` entry of the plan, and the fallback scan, which has no plan to
+    batch from, at most 10 files a judge, as score-signatures.py batches a plan; each returns one JSON array."""
+    section2 = _flow(_slice(_read(COVERAGE), "### 2. Analyze Source Code", "### 2b."))
+    for sentence in ("For each `batches[]` entry, delegate one subagent with the `files[]` entries it names, their "
+                     "checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`).",
+                     "and returns only a JSON array, one object per `files[]` entry it was given, with no prose and "
+                     "no markdown fences:",
+                     "Save each batch's response to `{run_dir}/signatures-<n>.txt` with the Write tool, `<n>` "
+                     "counting the batches from 1.",
+                     # Review loop 2: one response file per batch, the main thread's too, so each answers for its
+                     # own batch alone.
+                     "save the same JSON, one array per batch in its own `signatures-<n>.txt`."):
+        assert sentence in section2, sentence
+    assert ("Give it one `--results` per batch, in batch order (the fallback scan's `per-file-<n>.txt`, else the "
+            "`signatures-<n>.txt`)") in _flow(_slice(_read(COVERAGE), "**Score the signatures**", "### 2c."))
+    assert "For each `files[]` entry, delegate" not in section2
+    scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
+    for sentence in ("so subagents read the files in scope in batches.",
+                     "Take the source files that define public API exports in path order, at most 10 a batch, and "
+                     "save the batches to `{run_dir}/fallback-batches.json` with the Write tool before you "
+                     "dispatch, a JSON array whose `<n>`th item lists batch `<n>`'s files. For each batch delegate "
+                     "one subagent that gets that map with its files",
+                     "and returns only a JSON array of one `{\"file\", \"exports_found\": [...]",
+                     "\"undecided\": [...]}` per file it was given",
+                     "Save batch `<n>`'s response to `{run_dir}/per-file-<n>.txt` (`<n>` from 1) with the Write tool, "
+                     "one file per batch with or without subagents, and build the surface from them, one "
+                     "`--per-file` per batch in batch order, `--batches` (a response that leaves out a file its "
+                     "batch was given exits 2, §2's **Exits**) and `--fallback-scan`"):
+        assert sentence in scan, sentence
+    assert '--per-file "{run_dir}/per-file-<n>.txt" --batches "{run_dir}/fallback-batches.json" --fallback-scan' in (
+        _command(COVERAGE_TIERS, "surface --per-file"))
+    # Review loop 1: a response that leaves out a file its batch was given is refused, and that batch's judge runs
+    # again. Review loop 2: one exit 2 lists every judge to re-dispatch, each once.
+    assert ("`surface` with a `--per-file`, and `score`, also exit 2 when a subagent response breaks the schema or "
+            "leaves out a file its batch was given: re-dispatch each judge a violation names (for a left-out file, "
+            "its batch's) once with its `violations[]` appended (or correct a result the main thread wrote, or the "
+            "response files passed: one per batch, in batch order), save each new response over the old one") in (
+        section2)
+    assert "one at a time" not in scan
+    assert runpy_module(PROSE_SCRIPTS["{scoreSignaturesScript}"]).BATCH_FILES == 10
+
+
+def test_the_coverage_references_keep_no_script_internals_or_unscored_guidance():
+    """#1188: the State 2 limitations and the remote "supplement" sentences guided signature checks no State 2 to 4
+    run scores; the barrel passage, the surplus advice and the scanner notes explained what the scripts do; and the
+    two Gap Severity rows restated gap-ledger.py's rule. Each row now names the script that applies its rule."""
+    protocol = _read(SOURCE_ACCESS)
+    for gone in ("**State 2 limitations:**", "supplement by reading", "All/most",
+                 "The recipe runner already re-derives",
+                 "Each restored name, and each name no recipe gives a kind"):
+        assert gone not in protocol, gone
+    assert protocol.count("Never re-count a barrel by hand.") == 1
+    # the paragraph ends at the hand-off: gap-ledger.py's coverage adapter classifies the stale name
+    assert "A documented extra reaches coverage-check.md §2c as a stale name.\n" in protocol
+    assert "deflated-denominator signature" not in _read(COVERAGE_BRANCHES)
+    assert "The script matches the full heading text" not in _read(COHERENCE_NAIVE)
+    contextual = _flow(_read(COHERENCE_CONTEXTUAL))
+    assert "os.path.realpath" not in contextual and "edge cases the formula requires" not in contextual
+    assert ("a stack's metadata.json records no `source_root` to anchor them. The scanner resolves symlinks before its "
+            "root check. Do not check these targets again by hand or through subagents") in contextual
+    rows = {line.split("|")[2].strip(): line for line in _read(SCORING).splitlines()
+            if line.startswith(("| Medium   | `stale-documentation`", "| Info     | `observation`"))}
+    assert rows["`stale-documentation`"].endswith(
+        "| A documented export the enumerated source surface lacks that is not a fabricated signature or an Info "
+        "`observation`, by the rule `scripts/gap-ledger.py`'s `coverage` adapter applies (coverage-check §2c) |")
+    info = rows["`observation`"]
+    assert "by the rule `scripts/gap-ledger.py`'s `coverage` adapter applies" in info
+    assert "which `scripts/score-signatures.py` grades (coverage-check §2 to §2c) |" in info
+    for gone in ("aliased", "classify-stale", "column 0"):
+        assert gone not in info and gone not in rows["`stale-documentation`"], gone
+    # Review loop 1: the table holds each gap's severity and category, and the Critical `fabricated-signature` row
+    # cites `classify-stale`'s rename rule where it cited a clause the cut Info row lost. Review loop 2: the lead
+    # claims no row names the script that applies its rule, since `metadata-drift` and the rows kept with it do not.
+    scoring = _read(SCORING)
+    assert ("This table is the single source of truth for each gap's severity and category. Every stage records "
+            "each gap it finds") in scoring
+    assert "a row whose rule a script applies" not in scoring
+    [fabricated] = [line for line in scoring.splitlines() if line.startswith("| Critical | `fabricated-signature`")]
+    assert ("nor does any other rename `classify-stale` finds `aliased` (coverage-check §2c), directly or through a "
+            "chain of renames; a rename it does not find stays fabricated.") in fabricated
+    assert "clause of the Info `observation` row" not in scoring
 
 
 def test_the_prose_state_4_surface_runs(tmp_path):
@@ -3849,30 +4184,11 @@ CARVED_TO_BRANCHES = {
         "stack branch, and the scalar branch when it counts no set), `documented` can exceed `denominator`, as "
         "it can when a counted set holds more names than the stored count: `coverage.json` then reports "
         "`numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps "
-        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A "
-        "large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names "
-        "the set it measured the stored count against, before accepting the 100."
+        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts."
+        # #1188: the `guards.deflation` advice and the missing count's classification are gap-ledger.py's
     ), (
-        "- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium "
-        "`missing-export` gap for the count. A scalar result that counts its set records its `missing` names as "
-        "§2c's Missing names bullet says instead, plus one gap for the rest when `missingCount` exceeds them. "
-        "When §2b's numerator check found the count inflated and the scalar branch counted no set, its "
-        "`absent[]` names replace this gap, one each: update-skill documents a named export, not a count."
-    )],
-    "Denominator Candidates": [(
-        "```markdown\n"
-        "**Denominator Candidates** (stratified-scope audit trail):\n"
-        "- `stats.effective_denominator`: {statsEffectiveDenominator | absent}  {← chosen on the scalar "
-        "branch}\n"
-        "- `scope.tier_a_include` union: {tierAIncludeUnion | absent}    {← chosen if the barrel "
-        "branch's set}\n"
-        "- `scope.include` union: {scopeIncludeUnion | absent}           {← chosen if the barrel "
-        "branch's set}\n"
-        "- exports-map subpath union: {subpathUnion | absent}        {← chosen if the barrel branch's "
-        "set}\n"
-        "- root barrel: {rootBarrel | absent}                               {secondary candidate: "
-        "root-barrel-vs-subpath-union audit}\n"
-        "```"
+        "coverage-check.md §5b records the missing count (scalar or stack branch, `missingCount` above 0) from "
+        "the run files."
     )],
     "Metadata Count Cross-Check": [(
         "`{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a "
@@ -3885,16 +4201,13 @@ CARVED_TO_BRANCHES = {
         "\n"
         "A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its "
         "call and records no count finding, and note the error in the Coverage Analysis section. §5b records "
-        "each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an "
-        "Info `multi-denominator` gap. They describe data quality and change no denominator. Record the "
-        "denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + "
-        "integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface "
-        "({pattern_surfaces_documented})`)."
+        # #1188: gap-ledger.py's metadata-coherence adapter gives each finding its severity and category
+        "each `findings[]` entry from that file. They describe data quality and change no denominator."
     )],
     "Docs-Only Run": [(
         "**A docs-only run** measures documentation completeness as its Export Coverage, with "
         "`analysis_confidence` `docs-only`. It runs only §1, §1a and §1b, the docs-only guard of §2b, §2c's "
-        "`docsOnly` branch, §4's `Denominator: docs-only completeness` annotation, §5, §5b and §6. Step 5 "
+        "`docsOnly` branch, §5 (its render writes `Denominator: docs-only completeness`), §5b and §6. Step 5 "
         "passes `docsOnly: true` to the scoring script, which skips Signature Accuracy and Type Coverage at "
         "any tier.\n"
         "\n"
@@ -3969,7 +4282,7 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     with it: the Quick-tier scan and the fallback per-file scan in coverage-check-tiers.md, which only the §2
     branch that takes one loads; §1a's inventory failures (the refused response's `rm` included, #814), States
     2 to 4 (State 2, 3 and 4's `surface` commands included), the scalar and stack branches (§2c's scalar and
-    stack commands included, #791 and #792), the Denominator Candidates block, §4b's metadata count cross-check,
+    stack commands included, #791 and #792), §4b's metadata count cross-check,
     the docs-only run and §5b's split-body Source (#841) in coverage-check-branches.md, byte for byte as the step
     held them, each section loaded only from the sentence of its branch, which names it. Every other call stays in
     the step, §5b's call that records the split-body gaps included."""
@@ -4000,7 +4313,6 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
         "Inventory Failures": ["#### 1a. Parent-Side Schema Validation"],
         "States 2 to 4": ["### 2. Analyze Source Code", "### 2b."],
         "Scalar and Stack Branches": ["### 2c."],
-        "Denominator Candidates": ["### 4. The Denominator Record"],
         "Metadata Count Cross-Check": ["### 4b. Metadata Export-Count Coherence Cross-Check"],
         "Docs-Only Run": ["### 0. Check for Docs-Only Mode"],
         "Split-Body Sources": ["### 5b. Record the Coverage Gaps"],
@@ -4074,7 +4386,7 @@ def test_every_stage_writes_the_report_it_was_handed(name):
 
 
 def test_the_report_takes_its_public_name_only_once_its_checks_pass():
-    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 5. Finalize Output Document"))
+    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 6. Present Final Report"))
     for check in ("**Enforce step completeness.**", "**Check the report sections.**", "**Find the health check**",
                   "**Renew the run lock**"):
         assert contract.index(check) < contract.index("**Publish the report.**"), check
@@ -4097,30 +4409,30 @@ def test_the_later_steps_read_the_verdict_inputs_from_the_report():
 
 
 def test_the_naive_usage_and_scripts_checks_read_the_scanner():
-    section = _slice(_read(COHERENCE), "### 2. Naive Mode", "### 2b.")
-    command = _command(COHERENCE, "usage-scope")
+    section = _slice(_read(COHERENCE_NAIVE), "### 2. Naive Mode", "### 2b.")
+    command = _command(COHERENCE_NAIVE, "usage-scope")
     assert command == ('uv run {scanSkillMdStructureHelper} usage-scope "{resolved_skill_package}/SKILL.md" '
                        '--exports "{run_dir}/inventory.json" --kinds function,method [--body single] '
                        '> "{run_dir}/usage-scope.json"')
     for gone in ('grep -c "{export.name}"', "grep -n '^## Scripts'", "grep -n"):
         assert gone not in section, gone
-    seven = _flow(_slice(section, "**2.7 Scripts & Assets section.**", "**Hard rule:**"))
+    seven = _flow(_slice(_read(COHERENCE_NAIVE), "**2.7 Scripts & Assets section.**", "### 2b."))
     assert "Read `scripts_assets` from the second JSON blob" in seven and "`missing` is true" in seven
 
 
 def test_the_contextual_reference_checks_read_the_scanner():
-    section = _flow(_slice(_read(COHERENCE), "### 3. Contextual Mode", "### 5. Contextual Mode"))
-    command = _command(COHERENCE, "reference-check")
+    section = _flow(_slice(_read(COHERENCE_CONTEXTUAL), "### 3. Contextual Mode", "### 5. Contextual Mode"))
+    command = _command(COHERENCE_CONTEXTUAL, "reference-check")
     assert command == ('uv run {scanSkillMdStructureHelper} reference-check "{resolved_skill_package}/SKILL.md" '
                        '[--source-root "{source_path}"] [--skills-root "{skills_output_folder}"] '
                        '> "{run_dir}/references.json"')
     assert "Do not check these targets again by hand or through subagents" in section
     assert "For EACH reference found, delegate" not in section and "os.path.realpath`) and require" not in section
-    aggregate = _command(COHERENCE, "uv run {coherenceAggregationScript}")
+    aggregate = _command(COHERENCE_CONTEXTUAL, "uv run {coherenceAggregationScript}")
     assert aggregate == ('uv run {coherenceAggregationScript} --references "{run_dir}/references.json" '
                          '[--judged "{run_dir}/judged-references.json"] --integration "{run_dir}/integration.json" '
                          '--output "{run_dir}/coherence.json"')
-    assert "echo '{\"valid_references\"" not in _read(COHERENCE), "no count is tallied by hand"
+    assert "echo '{\"valid_references\"" not in _read(COHERENCE_CONTEXTUAL), "no count is tallied by hand"
 
 
 def test_the_coherence_commands_run_against_the_scanner(tmp_path):
@@ -4139,22 +4451,25 @@ def test_the_coherence_commands_run_against_the_scanner(tmp_path):
     ]}).encode("utf-8"))
     values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix()}
 
-    usage = _exec(_choose(_command(COHERENCE, "usage-scope")), values, tmp_path)
+    usage = _exec(_choose(_command(COHERENCE_NAIVE, "usage-scope")), values, tmp_path)
     assert [(e["name"], e["count"]) for e in usage["exports"]] == [("$state", 1), ("a.b", 0)]
     assert [e["name"] for e in usage["zero_usage"]] == ["a.b"]
     assert json.loads((run / "usage-scope.json").read_text(encoding="utf-8")) == usage
 
-    refs = _exec(_choose(_command(COHERENCE, "reference-check")), values, tmp_path)
+    refs = _exec(_choose(_command(COHERENCE_CONTEXTUAL, "reference-check")), values, tmp_path)
     assert [(r["target"], r["status"]) for r in refs["references"]] == [
         ("references/api.md", "ok"), ("references/gone.md", "missing"), ("../../outside.md", "escapes")]
     assert refs["scripts_assets"]["missing"] is True, "scripts/ exists and no Scripts heading does"
-    (run / "integration.json").write_bytes(b'{"patterns_documented": 2, "patterns_complete": 1}')
-    coherence = _exec(_choose(_command(COHERENCE, "uv run {coherenceAggregationScript}")), values, tmp_path)
+    (run / "integration.json").write_bytes(json.dumps({"patterns_documented": 2, "patterns_complete": 1,
+        "incomplete_patterns": [{"pattern": "a + b", "issue": "no file:line citation", "line": 9}]}).encode("utf-8"))
+    coherence = _exec(_choose(_command(COHERENCE_CONTEXTUAL, "uv run {coherenceAggregationScript}")), values,
+                      tmp_path)
     assert (coherence["input"]["valid_references"], coherence["input"]["total_references"]) == (1, 3)
     assert [r["status"] for r in coherence["invalidReferences"]] == ["missing", "escapes"]
+    assert coherence["incompletePatterns"] == [{"pattern": "a + b", "issue": "no file:line citation", "line": 9}]
     assert (run / "coherence.json").is_file()
     # #1063: stdout gives the number of invalid references, so §6 records each one from the file
-    doc = _flow(_read(COHERENCE))
+    doc = _flow(_read(COHERENCE_CONTEXTUAL))
     assert ("`{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, "
             "which §6 records from that file; stdout gives only their number.") in doc
     assert "Its `invalidReferences[]` lists" not in doc
@@ -4164,7 +4479,7 @@ def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):
     """§3 names what the scanner checks: markdown links and `references/`, `scripts/` and `assets/`
     mentions. A path written outside a link (`../shared/types.ts` in inline code, an import
     specifier) is neither extracted nor handed to a subagent, and §3 says so."""
-    section = _flow(_slice(_read(COHERENCE), "### 3. Contextual Mode", "### 4. Contextual Mode"))
+    section = _flow(_slice(_read(COHERENCE_CONTEXTUAL), "### 3. Contextual Mode", "### 4. Contextual Mode"))
     for form in ("`[types](src/types.ts)`", "`[guide](references/guide.md)`", "`references/{file}.md`",
                  "`scripts/{file}`", "`assets/{file}`"):
         assert form in section, form
@@ -4186,7 +4501,8 @@ def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):
     run.mkdir()
     values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix(),
               "{source_path}": source.as_posix()}
-    refs = _exec(_choose(_command(COHERENCE, "reference-check"), keep=("--source-root",)), values, tmp_path)
+    refs = _exec(_choose(_command(COHERENCE_CONTEXTUAL, "reference-check"), keep=("--source-root",)), values,
+                 tmp_path)
     assert [(r["target"], r["form"], r["type"], r["status"], r["root"]) for r in refs["references"]] == [
         ("../shared/types.ts", "link", "file-path", "ok", "source"),
         ("references/guide.md", "link", "file-path", "ok", "skill"),
@@ -4233,3 +4549,398 @@ def test_the_shared_health_check_states_its_findings_rule_once():
     assert folded.count("zero findings") == 1 and "zero issues" not in folded
     assert folded.count("your own confusion") == 1
     assert "system failure" not in folded and "fabricat" not in folded
+
+
+# --------------------------------------------------------------------------
+# #1185: the scoring flags and every degradation of a run are on record
+# --------------------------------------------------------------------------
+
+
+TEMPLATE = TEST_SKILL / "templates" / "test-report-template.md"
+EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
+ENVELOPE_SCHEMA = SCRIPTS / "schemas" / "skf-test-result-envelope.v1.json"
+# A warning text that breaks any command it is typed into: quotes, a backtick, `$( )`, `$VAR` and a backslash.
+HOSTILE = "it's \"quoted\" `touch pwned-tick` $(touch pwned-sub) $HOME \\ end"
+WARNING_RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"'
+SKILL_CHECK_RECORD = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                      '"skill-check-unavailable: $(cat "{run_dir}/skill-check-not-run.txt")"')
+WARNING_CODES = ("run-lock-replaced", "flat-skill-migrated", "metadata-missing", "workspace-drift-not-checked",
+                 "test-mode-defaulted-naive", "skill-check-unavailable", "tessl-review")
+SKILL_CHECK_PROBE = 'timeout 15s npx --no-install skill-check -h > /dev/null 2>&1; echo "skill-check probe exited $?"'
+SKILL_CHECK_RUN = ('timeout 120s npx skill-check check "{skillDir}" --format json --no-security-scan > '
+                   '"{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"')
+NO_POSIX_BASH = sys.platform == "win32" or shutil.which("bash") is None
+
+
+def test_the_scoring_flags_are_read_from_the_report():
+    """#1185 architecture-2, enhancement-3: docsOnly and analysisConfidence reach the report frontmatter where they
+    are resolved, and score.md §3a reads tier, docsOnly, analysisConfidence and state2 back from it."""
+    for block in (_fence(_read(INIT), "workflowType: 'test-skill'"), _read(TEMPLATE).split("\n---\n", 1)[0]):
+        assert "analysisConfidence: ''\ndocsOnly: ''\n" in block
+    census = _flow(_slice(_read(COVERAGE), "### 0. Check for Docs-Only Mode", "### 0b."))
+    assert ("Bind `{docs_only_mode}` ← `docsOnly` and write it to the `{outputFile}` frontmatter as `docsOnly: true` "
+            "or `false`, bare.") in census
+    state5 = _flow(_slice(_read(SOURCE_ACCESS), "If none of the above succeed", "**Confidence tier mapping:**"))
+    assert ("Set `analysis_confidence: docs-only`, and write `docsOnly: true` to the frontmatter of `{report_file}` "
+            "beside the `analysisConfidence` write below") in state5
+    docs_only = _flow(_slice(_read(COVERAGE_BRANCHES), "## Docs-Only Run", "## Split-Body Sources"))
+    assert "Write `analysisConfidence: 'docs-only'` to the frontmatter of `{report_file}` at once" in docs_only
+    assert ("The steps read the verdict inputs (`threshold`, `toolingStatus`, `workspaceDrift`, `docsOnly`, "
+            "`analysisConfidence`, `testResult`) from its frontmatter, never from memory") in _read(SKILL_MD)
+    init = _flow(_read(INIT))
+    assert "`analysisConfidence` stays empty until score.md §7" not in init
+    assert ("Coverage-check writes `analysisConfidence` once source-access-protocol.md resolves the source access "
+            "(its Docs-Only Run writes `docs-only`), and score.md §7, or step-hard-gate.md §3 on a run the hard gate "
+            "blocks, writes it again") in init
+    assert "`docsOnly` stays empty until coverage-check §0 writes it, and score.md §3a reads both back." in init
+    scoring_input = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
+    for read in ("`tier` from its `forgeTier`", "`docsOnly` and `analysisConfidence` from its keys of those names",
+                 '"tier": "{forgeTier from the {outputFile} frontmatter',
+                 '"docsOnly": "{true if the {outputFile} frontmatter\'s docsOnly is true, else false}"',
+                 '"state2": "{true if the {outputFile} frontmatter\'s analysisConfidence is provenance-map, else false}"',
+                 '"analysisConfidence": "{analysisConfidence from the {outputFile} frontmatter'):
+        assert read in scoring_input, read
+    for gone in ("docs_only_mode", "analysis_confidence", "workflow context"):
+        assert gone not in scoring_input, gone
+    for path in sorted(TEST_SKILL.rglob("*.md")):
+        assert "{forge_tier}" not in _read(path), path.name
+    assert "**Tier:** {detected_tier}\n" in _read(COVERAGE)
+    run = _flow(_slice(_read(SCORE), "#### 3b. Run the Scoring Script", "#### 3c."))
+    assert "`--surface` whenever `{run_dir}/surface.json` exists (every run but a docs-only one)" in run
+    refused = _flow(_slice(_read(SCORE), "#### 3c.", "### 3d."))
+    assert ("A refusal that names `docsOnly` and `--coverage`, or `state2` and `--surface`, means the §3a JSON "
+            "contradicts what coverage-check found: build it again from the `{outputFile}` frontmatter") in refused
+
+
+def test_a_docs_only_flag_the_run_lost_is_refused_and_cap_2_still_fires(tmp_path):
+    """#1185 acceptance: a contextual docs-only run whose context lost docsOnly. score.md §3a reads `docsOnly: true`
+    from the report coverage-check §0 wrote, and a hand-typed false is refused against the coverage.json the Docs-Only
+    Run's command wrote, so Cap 2 still fires."""
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory.json").write_bytes(json.dumps({"exports": [
+        {"name": "connect", "kind": "function", "params": "url: string", "return_type": "Client",
+         "description": "Opens a client."}]}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix()}
+    coverage = _exec(_command(COVERAGE_BRANCHES, "--denominator-source docsOnly"), values, tmp_path)
+    assert (coverage["denominatorSource"], coverage["exportCoverage"]) == ("docsOnly", 100.0)
+    (run / "coherence.json").write_bytes(json.dumps({"combinedCoherence": 90.0}).encode("utf-8"))
+    (run / "external.json").write_bytes(json.dumps({"externalScore": None}).encode("utf-8"))
+    report = _read(TEMPLATE).replace("testMode: ''", "testMode: 'contextual'").replace(
+        "forgeTier: ''", "forgeTier: 'Deep'").replace("docsOnly: ''", "docsOnly: true").replace(
+        "analysisConfidence: ''", "analysisConfidence: 'docs-only'").replace("toolingStatus: ''", "toolingStatus: 'ok'")
+    front = yaml.safe_load(report.split("\n---\n", 1)[0].removeprefix("---\n"))
+    flags = {"mode": front["testMode"], "tier": front["forgeTier"], "docsOnly": front["docsOnly"],
+             "state2": front["analysisConfidence"] == "provenance-map", "stackSkill": False, "referenceApp": False,
+             "threshold": 80, "analysisConfidence": front["analysisConfidence"], "toolingStatus": front["toolingStatus"]}
+    command = _choose(_command(SCORE, "uv run {scoringScript}"), keep=("--coherence",))
+    score = _exec(command.replace("'<the §3a JSON>'", shlex.quote(json.dumps(flags))), values, tmp_path)
+    assert (score["result"], score["effectiveResult"]) == ("PASS", "FAIL")
+    assert score["capReason"].startswith("docs-only without external validators")
+    lost = command.replace("'<the §3a JSON>'", shlex.quote(json.dumps({**flags, "docsOnly": False})))
+    words = shlex.split(lost.removeprefix("uv run {scoringScript} ").replace("{run_dir}", run.as_posix()))
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{scoringScript}"]), *words[:words.index(">")]],
+                          capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT" and "docsOnly false contradicts --coverage" in out["error"]
+
+
+def test_skill_check_s_probe_and_run_are_handled_in_one_passage():
+    """#1185 leanness-11: one probe, one run and one list of outcomes, each kept reason written to a file."""
+    section = _slice(_read(EXTERNAL), "### 2. Run skill-check", "### 3. Run Tessl Review")
+    assert re.findall(r"^```bash\n(.*?)\n```$", section, re.M | re.S) == [SKILL_CHECK_PROBE, SKILL_CHECK_RUN,
+                                                                         SKILL_CHECK_RECORD]
+    for gone in ("**Note:**", "fails entirely", "**Check availability", "**Run validation", "Skip to section"):
+        assert gone not in section, gone
+    flow = _flow(section)
+    assert "with `--no-install` so the probe never starts a slow download" in flow
+    # A 120-second timeout also leaves the file empty: the first outcome keeps `timeout-120s` alone.
+    assert "Act on the two calls together, by the first outcome below that applies:" in flow
+    for outcome in ("The probe exits non-zero, `124` (its 15-second timeout) included: skill-check is not available. "
+                    "Keep the reason `not-available (probe exited {code})` and skip the run",
+                    "The `skill-check exited` line names `124`, GNU timeout's code for the 120-second wall clock: keep "
+                    "the reason `timeout-120s`",
+                    "No `skill-check exited` line came back, or `{run_dir}/skill-check.json` does not start with a "
+                    "JSON object: keep the reason `no-json: {the last line of {run_dir}/skill-check.stderr, or no "
+                    "output}`",
+                    "Otherwise the file holds skill-check's result, whatever the exit code"):
+        assert outcome in flow, outcome
+    assert ("Write the reason to `{run_dir}/skill-check-not-run.txt` with a file write, never `echo`") in flow
+    record = _flow(_slice(_read(EXTERNAL), "### 5b. Record the External Validation Gaps", "### 6."))
+    assert "When section 2 wrote `{run_dir}/skill-check-not-run.txt`, pass `--skill-check-not-run` with it" in record
+    assert ' [--skill-check-not-run "{run_dir}/skill-check-not-run.txt"]' in _command(EXTERNAL, "--from external")
+    row = [line for line in _read(SCORING).splitlines() if line.startswith("| Info     | `external-validator`")]
+    assert len(row) == 1 and "skill-check not run" in row[0] and "external-validators §5b" in row[0]
+
+
+def test_a_capped_fail_names_the_tooling_to_restore(tmp_path):
+    """#1185 enhancement-1: the cap shows on a **Cap:** line, and the score step and the final report recommend
+    restoring the tooling it names, while nextWorkflow stays update-skill. #1186: score.md §6's settle prints that
+    line, from the scoring output."""
+    score = _read(SCORE)
+    nxt = _slice(score, "### 5. Determine Next Workflow Recommendation", "### 6.")
+    assert nxt.index("**IF FAIL:**") < nxt.index("**IF FAIL with a cap**") < nxt.index("**IF INCONCLUSIVE:**")
+    capped = _flow(_slice(nxt, "**IF FAIL with a cap**", "**IF INCONCLUSIVE:**"))
+    # Cap 2's skill-check may have run without scoring the skill, which records no `skill-check not run` gap.
+    tooling = ("Cap 1 (`tooling degraded`): make the tool `toolingStatus` names work again; for "
+               "`frontmatter-validator-timeout`, the frontmatter validator must finish within 30 seconds. Cap 2 "
+               "(`docs-only without external validators`): make skill-check run and score the skill (the Gap "
+               "Report's `skill-check not run` gap says how, when it did not run), or opt in to Tessl Review.")
+    # Every capped FAIL names the tooling, a pre-cap FAIL included: the cap would fail its next run too.
+    for needle in ("(`capReason` is non-null: a cap fired, and no run passes until the tooling it names is "
+                   "restored)", "`nextWorkflow` stays `'update-skill'`, but no skill edit lifts a cap, so the step to "
+                   "recommend is to restore the tooling the cap names and test again.", tooling,
+                   "When the script's `result` is `FAIL` too, the skill also scored below its threshold: recommend "
+                   "the **IF FAIL:** branch's update-skill as well, after restoring the tooling."):
+        assert needle in capped, needle
+    assert "`result` is `PASS`" not in capped and "applies alone" not in capped
+    section6 = _slice(score, "### 6. Write the Completeness Score Section", "### 7.")
+    assert "uv run {resultContextScript} settle" in section6 and "{capReason}" not in section6
+    scored = runpy_module(PROSE_SCRIPTS["{scoringScript}"]).compute_score({
+        "mode": "naive", "tier": "Deep", "threshold": 80, "toolingStatus": "frontmatter-validator-timeout",
+        "scores": {"exportCoverage": 95, "signatureAccuracy": 95, "typeCoverage": 95, "coherence": None,
+                   "externalValidation": 95}})
+    (tmp_path / "score.json").write_bytes(json.dumps(scored).encode("utf-8"))
+    (tmp_path / "external.json").write_bytes(b'{"externalScore": 95, "toolsUsed": ["skill-check"]}')
+    report = tmp_path / "report.md"
+    report.write_bytes(_read(TEMPLATE).replace("toolingStatus: ''", "toolingStatus: 'frontmatter-validator-timeout'")
+                       .encode("utf-8"))
+    settled = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{resultContextScript}"]), "settle", "--report",
+                              str(report), "--score", str(tmp_path / "score.json"), "--external",
+                              str(tmp_path / "external.json")], capture_output=True, text=True, encoding="utf-8")
+    assert settled.returncode == 0, settled.stderr
+    assert f"**Result:** **FAIL**\n**Cap:** {scored['capReason']}\n" in settled.stdout
+    # the cap is on its own line, never folded into the Scoring Notes
+    assert "**Scoring Notes:**" not in settled.stdout
+    assert "\n**Tooling Status:** frontmatter-validator-timeout\n" in settled.stdout
+    caps = _flow(_slice(score, "### 3d. Read Post-Score Caps", "### 4."))
+    assert "§6 shows it on its **Cap:** line" in caps and "scoring_notes: {capReason}" not in caps
+    report_score = _flow(_slice(score, "### 8. Report Score", "Then proceed to the gap report."))
+    assert ("On a capped FAIL (§5's **IF FAIL with a cap** branch), show `capReason` and recommend restoring the "
+            "tooling it names and testing again, not update-skill alone") in report_score
+    assert "update-skill is needed as well only when the script's `result` is `FAIL` too" in report_score
+    present = _slice(_read(REPORT), "### 6. Present Final Report", "### 6b.")
+    assert "{If `{run_dir}/score.json` holds a non-null `capReason`:}\n**Cap:** {capReason}\n" in present
+    branch = ("{IF FAIL after scoring, from a cap (`{run_dir}/score.json` holds a non-null `capReason`), in place of "
+              "the next branch unless its `result` is `FAIL`:}")
+    assert present.index(branch) < present.index("{IF FAIL after scoring:}")
+    follow = _flow(present[present.index(branch):].split("\n\n", 1)[0])
+    for needle in ("**Restore the tooling, then test again**: {capReason}.", "No skill edit lifts a cap", tooling,
+                   "When its `result` is `FAIL` too, the skill also scored below its threshold: show the next branch "
+                   "after this one."):
+        assert needle in follow, needle
+    assert "--from-test-report" not in follow
+
+
+def test_the_warning_codes_are_named_in_the_contract_and_the_schema():
+    """#1185 enhancement-2: every code a stage records is one a caller can look up."""
+    description = json.loads(_read(ENVELOPE_SCHEMA))["properties"]["warnings"]["description"]
+    contract = _flow(_read(CONTRACT))
+    for code in WARNING_CODES:
+        assert f" {code} (" in description, code
+        assert f"`{code}` (" in contract, code
+    assert "`capReason` when a cap fired" in contract
+    rules = _flow(_read(SKILL_MD))
+    assert "a `record` that exits non-zero is shown and the run goes on" in rules
+    assert "the emitter adds each warning to the envelope and to both result files" in rules
+
+
+# (site, file, section start, section end, the text the site keeps, the record command, the file it reads, prefix)
+RECORD_SITES = [
+    ("init", INIT, "**6b. Act on the result:**", "**6c.",
+     ("keep `run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}` (`an unnamed owner` for a "
+      "null `held_by`) as a warning",
+      "record the warnings this step kept, in the order raised (§2's `flat-skill-migrated` and `metadata-missing`, "
+      "§5b's `workspace-drift-not-checked`, then `run-lock-replaced`)"),
+     WARNING_RECORD, "warning.txt", ""),
+    ("detect-mode", DETECT, "### 1. Determine Test Mode", "### 2.",
+     ("record it as a warning: write `test-mode-defaulted-naive: metadata.json skill_type is {its value, or unset}` "
+      "to `{run_dir}/warning.txt` with a file write",),
+     WARNING_RECORD, "warning.txt", ""),
+    ("skill-check", EXTERNAL, "### 2. Run skill-check", "### 3.",
+     ("Write the reason to `{run_dir}/skill-check-not-run.txt` with a file write",),
+     SKILL_CHECK_RECORD, "skill-check-not-run.txt", "skill-check-unavailable: "),
+    ("tessl-review", EXTERNAL, "### 3. Run Tessl Review (optional)", "### 4.",
+     ("Each line this section logs as a warning is recorded in the run sink as it is logged: write "
+      "`tessl-review: {the line}` to `{run_dir}/warning.txt` with a file write",),
+     WARNING_RECORD, "warning.txt", ""),
+]
+
+
+@pytest.mark.parametrize("site, path, start, end, kept, command, source, prefix", RECORD_SITES,
+                         ids=[site[0] for site in RECORD_SITES])
+def test_each_degradation_is_recorded_where_it_is_met(tmp_path, site, path, start, end, kept, command, source,
+                                                      prefix):
+    """#1185 enhancement-2: each site keeps its coded warning and runs the emitter's `record` on the file it wrote.
+    Run through bash against the real emitter, a hostile text reaches the sink and the envelope as text."""
+    section = _slice(_read(path), start, end)
+    for needle in kept:
+        assert needle in _flow(section), needle
+    assert command in section, command
+    if site == "tessl-review":
+        # §3's only fenced commands are the review's own: the record is written inline
+        assert f"`{command}`" in section
+    if site == "init":
+        init = _flow(_read(INIT))
+        for raised in ("keeping `flat-skill-migrated: {its message}` as a warning §6b records",
+                       "Keep `metadata-missing: no metadata.json in {resolved_skill_package}` as a warning §6b records",
+                       "keep `workspace-drift-not-checked: {tree}: {its first stderr line, or no output}` as a warning "
+                       "§6b records"):
+            assert raised in init, raised
+        # recorded once the run folder exists, before any later stage runs
+        assert section.index('mkdir -p "{project-root}/_bmad-output/.skf-run/') < section.index(command)
+    if NO_POSIX_BASH:
+        pytest.skip("runs the documented command through POSIX bash")
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-test-skill-20260101T000000Z-abcdef12"
+    run_dir.mkdir(parents=True)
+    (run_dir / source).write_bytes(HOSTILE.encode("utf-8"))  # the file write the site names
+    filled = command.replace("uv run {emitEnvelopeHelper}",
+                             f"{shlex.quote(sys.executable)} {shlex.quote(EMITTER.as_posix())}")
+    filled = filled.replace("{run_dir}", run_dir.as_posix())
+    assert not re.search(r"\{\w+\}", filled), filled
+    proc = subprocess.run(["bash", "-c", filled], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    sink = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in sink] == [prefix + HOSTILE]
+    assert not list(tmp_path.rglob("pwned*")), "the text ran as a command"
+    halt = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-test-skill", "--run-dir",
+                           str(run_dir), "--target", "stderr"],
+                          input=json.dumps({"phase": "test:record", "reason": "r", "halt_reason": "helper-failed",
+                                            "skill_name": "demo"}),
+                          capture_output=True, text=True, encoding="utf-8")
+    assert halt.returncode == 0, halt.stderr
+    envelope = json.loads(halt.stderr.strip().split(": ", 1)[1])
+    assert envelope["warnings"] == [prefix + HOSTILE]
+
+
+# ---------------------------------------------------------------------------
+# #1189: report prose in the document language, and stage prose cut to what the model acts on
+# ---------------------------------------------------------------------------
+
+REPORT_LANGUAGE_CONFIG = ("<!-- Config: communicate in {communication_language}. Test report prose in "
+                          "{document_output_language}. -->")
+REPORT_SECTION_WRITERS = ["detect-mode.md", "coverage-check.md", "coherence-check.md", "external-validators.md",
+                          "step-hard-gate.md", "score.md", "report.md"]
+
+
+def test_every_stage_that_writes_a_report_section_names_the_document_language():
+    """#1189 architecture-4: each stage that writes a section in place of a template heading carries the
+    document-language clause on its Config line, and no other file does."""
+    writers = sorted(path.name for path in REFS.glob("*.md") if "in place of the template's `## " in _read(path))
+    assert writers == sorted(REPORT_SECTION_WRITERS)
+    for path in sorted(REFS.glob("*.md")):
+        text = _read(path)
+        if path.name in REPORT_SECTION_WRITERS:
+            assert text.count(REPORT_LANGUAGE_CONFIG) == 1, path.name
+        else:
+            assert "{document_output_language}" not in text, path.name
+
+
+def test_the_report_step_keeps_no_load_or_sequence_sections():
+    """#1189 leanness-7: the STEP GOAL states the sequence, §4b.5 names the two files its record follows, and
+    sections 2 to 5 are gone without renumbering the sections the skill cites."""
+    text = _read(REPORT)
+    assert re.findall(r"^### (\S+)", text, re.M) == ["1.", "4b.", "4c.", "6.", "6b.", "7."]
+    goal = _flow(_slice(text, "## STEP GOAL:", "**Halt envelope.**"))
+    order = ["§4b records the discovery outcome in the gap ledger",
+             "a run the hard gate blocked comes here straight from step 4c and skips it",
+             "§4c renders the Gap Report from the ledger", "and that the health check is installed",
+             "writes the result contract and runs the on_complete hook", "§6 presents the result",
+             "§6b keeps the headless envelope for the run's last line",
+             "§7 releases the run lock and hands over to the health check"]
+    assert [goal.index(needle) for needle in order] == sorted(goal.index(needle) for needle in order)
+    collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
+    assert collect.endswith("was not scored and skips discovery testing (§4b): continue at §4c. ")
+    record = _flow(_slice(text, "**4b.5 Record the discovery gap.**", "```bash"))
+    assert ("It takes the severity and category of the Gap Severity row §4b names, in `{scoringRulesFile}`, and "
+            "follows the Ledger Record Format and the remediation quality rules of `{outputFormatsFile}`.") in record
+    assert _frontmatter(REPORT)["scoringRulesFile"] == "references/scoring-rules.md"
+    assert _frontmatter(REPORT)["outputFormatsFile"] == "assets/output-section-formats.md"
+    # A §4c slice that ends at §6 holds the whole of §4c and nothing of §6.
+    contract = _slice(text, "### 4c. Result Contract", "### 6.")
+    assert contract.rstrip().endswith("If `{onCompleteCommand}` is empty, this hook is a no-op (no log entry needed).")
+    assert "Present Final Report" not in contract and "**Result:**" not in contract
+
+
+def test_init_section_2_dispatches_on_the_reason_value():
+    """#1189 leanness-10: §2's dispatch is a bullet per reason value, cited by name, so no line reads as the
+    workflow's Step 3 to Step 6."""
+    section = _slice(_read(INIT), "### 2. Validate Skill Exists", "### 3. Validate Frontmatter Compliance")
+    dispatch = section[section.index("then act on `reason`:"):section.index("If no helper candidate resolves")]
+    keys = [bullet.split(": ", 1)[0] for bullet in re.findall(r"^- (.+)$", dispatch, re.M)]
+    assert keys == ["`manifest-and-link`, `manifest` or `link`", "`manifest-lags-link`", "`flat-layout`",
+                    "`missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`", "`newest-on-disk`",
+                    "Any other error, or no JSON"]
+    assert len(re.findall(r"^  - ", dispatch, re.M)) == 3, "the flat-layout case keeps its three sub-bullets"
+    assert not re.search(r"^\d+\. ", dispatch, re.M)
+    assert ('\n- Any other error, or no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:resolve`) with the '
+            "helper's stderr message.") in dispatch
+    flow = _flow(section)
+    for cited in ("When `migrate` exits 1, HALT as the any-other-error case says, with its `error`.",
+                  "take the `flat-layout` case's Otherwise branch", "**Not found** (the `missing` case)",
+                  "(or the `newest-on-disk` case found no version to test)", "In the `newest-on-disk` case, say instead"):
+        assert cited in flow, cited
+    for gone in ("step 3's", "(step 4)", "step 5", "step 6", "If neither:"):
+        assert gone not in section, gone
+
+
+def test_init_3a_resolves_the_frontmatter_validator_in_one_paragraph():
+    """#1189 leanness-9: §3a resolves or HALTs in §5b's form, and the frontmatter comment says so."""
+    text = _read(INIT)
+    section = _slice(text, "**3a. Resolve `{frontmatterScript}`**", "**3b.")
+    assert len(section.strip().split("\n\n")) == 1 and "```" not in section
+    for needle in ("**3a. Resolve `{frontmatterScript}`** ← first existing path in `{frontmatterScriptProbeOrder}`.",
+                   'If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `init:frontmatter`) with: '
+                   '"Error: cannot locate skf-validate-frontmatter.py at',
+                   "Install the SKF module or run from a development checkout with src/ present.\" No test report is "
+                   "written."):
+        assert needle in section, needle
+    assert "manual fallback" not in text.lower()
+    assert ("# Resolve `{frontmatterScript}` to the first existing path; §3a HALTs if\n# neither exists.\n"
+            "frontmatterScriptProbeOrder:") in text
+
+
+def test_the_maintainer_notes_are_cut():
+    """#1189 leanness-12: no line the model reads only tells a maintainer where a rule lives; the Stages table
+    keeps its Auto-proceed column."""
+    gone = {
+        SKILL_MD: ("holds prompt content carved out of SKILL.md", "so stage files don't have to repeat",
+                   "Stash all three", "no conditional at the usage site", "a house-style copy could change"),
+        DETECT: ("do not restate either here", "set nothing here", "Quick-tier adjustment"),
+        MIGRATION: ("Single source of truth", "desync", "Update this", "compile.md"),
+        SOURCE_ACCESS: ("extraction-patterns.md convention",),
+        REPORT: ("This step chains to the local health-check step", "is not the terminal step"),
+    }
+    for path, phrases in gone.items():
+        text = _read(path)
+        for phrase in phrases:
+            assert phrase not in text, (path.name, phrase)
+    skill = _read(SKILL_MD)
+    assert "| # | Step | File | Auto-proceed |" in skill
+    assert "   Apply the scalar fallbacks now:\n" in skill
+    assert "   Stash the bound scalars as workflow-context variables that stage files reference directly.\n" in skill
+    # The not-overridable note stays where a team reads it.
+    assert "# The scoring rules and the output formats are not overridable" in _read(CUSTOMIZE)
+    rules = _flow(_read(MIGRATION))
+    assert "Do not relax the gate otherwise. ## Case Rules" in rules
+    assert ("Create Skill always writes `t2_future_count: N` (0 included). A legacy skill whose `evidence-report.md` "
+            "predates the field lands in Case 4") in rules
+
+
+def test_skill_md_points_each_halt_at_its_stage_envelope():
+    """#1189 architecture-7: the Workflow Rules keep the release command, the plain and the `--stale-after 180`
+    renewals in that order and the verdict-input sentence, and leave the envelope and the report name to the
+    stages."""
+    rules = _slice(_read(SKILL_MD), "## Workflow Rules", "## Stages")
+    assert (f"- Every HALT follows its stage's **Halt envelope** paragraph; once `references/init.md` §6a has taken "
+            f"the run lock, it first releases the lock, whatever the release prints (it never removes another run's "
+            f"lock): from `{{project-root}}`, run `{RELEASE}`.\n") in rules
+    renew_180 = RENEW + " --stale-after 180"
+    verdict = ("The steps read the verdict inputs (`threshold`, `toolingStatus`, `workspaceDrift`, `docsOnly`, "
+               "`analysisConfidence`, `testResult`) from its frontmatter, never from memory")
+    assert "- The report, `{report_file}`, keeps its hidden name until report.md §4c publishes it. " + verdict in rules
+    assert rules.index(RELEASE) < rules.index(f"`{RENEW}`") < rules.index(renew_180) < rules.index(verdict)
+    for gone in ("Every HARD HALT", "A renewal right before a dispatch", "the helper keeps that window in the lock",
+                 "a halted run never leaves a partial report", "with the `--stale-after 180` command below"):
+        assert gone not in rules, gone

@@ -3676,7 +3676,7 @@ def test_test_skill_reads_a_failed_near_list_as_no_list(tmp_path):
     init = re.sub(r"\s+", " ", (REPO / "src" / "skf-test-skill" / "references" / "init.md").read_text(encoding="utf-8"))
     prompt = init[init.index("### 1. Receive the Skill Name"):init.index("### 1b.")]
     assert "when the helper exits non-zero, or `near[]` is absent or empty, show the create-skill line below instead" in prompt
-    not_found = init[init.index("**Not found** (step 4)"):init.index("**If SKILL.md missing**")]
+    not_found = init[init.index("**Not found** (the `missing` case)"):init.index("**If SKILL.md missing**")]
     assert "When the helper exits non-zero, or `near[]` is absent or empty" in not_found
     assert "show no list, only that create-skill line" in not_found
 

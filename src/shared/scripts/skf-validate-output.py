@@ -746,6 +746,7 @@ _DISTRIBUTION_KEYS = ("t1", "t1_low", "t2", "t3")
 _STACK_CATALOG = "references/stack-catalog.md"
 _INTEGRATION_PATTERNS = "Integration Patterns"
 _PAIR_INTEGRATIONS = "Library Pair Integrations"
+_CROSS_CUTTING_PATTERNS = "Cross-Cutting Patterns"
 _REFERENCE_INDEX = "Library Reference Index"
 _PER_LIBRARY = "Per-Library Summaries"
 _CATALOG_POINTER = "Library Catalog"

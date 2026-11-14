@@ -1,0 +1,6 @@
+type: added
+scope: skf-test-skill
+summary: |
+  Test Skill's result envelope and result files now list these degradations in `warnings` when a run meets one, where before they carried only the customization resolver's warning: `run-lock-replaced` (the run took over a stale lock), `flat-skill-migrated`, `metadata-missing`, `workspace-drift-not-checked` (the drift helper could not read a source tree), `test-mode-defaulted-naive`, `skill-check-unavailable` with the reason, and `tessl-review` for each warning Tessl Review raised. Each stage records its warning in the run folder as it meets it, so a long run that loses its context still reports it, and a record that fails never stops the run.
+issues: [1185]
+prs: [1217]

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Every Test Skill stage that writes a section of the test report (Detect Mode, Coverage Check, Coherence Check, External Validators, the hard gate, Score and the Gap Report) now writes its prose in the configured `document_output_language`, where only the Gap Report step named it, so the other sections could be written in `communication_language` instead.
+issues: [1189]
+prs: [1217]

@@ -94,7 +94,6 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
       provenance-map.json
       evidence-report.md
       extraction-rules.yaml
-      evidence-report-fallback.md
       extraction-snapshot.json
       .test-skill.lock
       .skf-test-report-{skill-name}-{run_id}.md
@@ -115,11 +114,13 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
 
 The brief's `.bak` copy and `.brief-draft.json` sit beside it, and a stack group also holds `create-stack-skill-result-latest.json`. Names holding `.skf-` (locks such as `.skf-update.lock`, update-skill's `.skf-update-manual-inventory.json` beside it, and staging) and a stack's `*-tmp` staging folders are SKF's too; while a rename runs, its lock is `{forge_data_folder}/.skf-rename-{skill-name}.lock`. `_campaign/` and `improvement-queue/` are SKF's own folders, never a skill's. Older skills may still hold the provenance map, evidence report, extraction rules and test reports directly in `{skill-name}/` (the flat layout — see Migration), and a `.manual-inventory.json` in a version folder, where update-skill once kept the [MANUAL] inventory it now keeps beside its lock.
 
+An `evidence-report-fallback.md` in a version folder is an older test-skill run's threshold fallback record: test-skill now records a fallback in the test report's Completeness Score section, and the inventory still counts the file as SKF's.
+
 ## Version Resolution
 
 ### Writing Workflows (CS, QS, SS, US)
 
-When writing artifacts, resolve `{version}` from the skill brief's `version` field (CS, SS), the extraction inventory (QS), or the updated metadata (US). Then:
+When writing artifacts, resolve `{version}` from the skill brief's `version` field (CS), the stack version the Version Commands below compute (SS), the extraction inventory (QS), or the updated metadata (US). Then:
 
 0. **Ownership check (CS, QS, SS).** Before creating anything, run `uv run skf-skill-inventory.py {skills_output_folder} --skill {skill-name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}` and continue only when `write_check.verdict` is `"ok"`; otherwise stop with that verdict as the halt reason (`not-skf-output` or `flat-layout`). Without the helper, write only when nothing exists at `{skill_group}`. See Ownership below.
 1. Create `{skill_group}` if it does not exist

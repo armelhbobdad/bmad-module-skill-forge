@@ -25,6 +25,14 @@ read from the run folder by path, so no score is copied out of the report:
   --surface     load-coverage-inputs.py surface --output: its `state2` counts
 Each file sets its fields and wins over the same field in the JSON; a file
 that holds an error envelope or lacks its field is refused (exit 2).
+Two flags must agree with the files, so a flag a long run lost cannot skip
+Cap 2 or the State 2 deduction (exit 2 otherwise):
+  --coverage    `docsOnly` is true exactly when its `denominatorSource` is
+                `docsOnly` (a file with no `denominatorSource` is not checked)
+  --surface     `state2` is true when its `state2` is an object: a surface
+                holds the counts only when it was built from the provenance
+                map and metadata.json without reading the source, State 2 by
+                construction (a null `state2` beside `state2: true` is fine)
 
 Input schema (one object):
   {
@@ -618,8 +626,27 @@ def _read_score_file(path, flag):
     return data
 
 
+def _check_docs_only(inp, data, path):
+    """Refuse a `docsOnly` flag the coverage file's branch contradicts.
+
+    An absent or null flag counts false; a flag that is not a boolean is left
+    to validate_input's type error, and a file that names no branch (a score
+    file built by hand) is not checked.
+    """
+    source = data.get("denominatorSource")
+    flag = inp.get("docsOnly")
+    if not isinstance(source, str) or (flag is not None and not isinstance(flag, bool)):
+        return
+    docs_only = flag is True
+    if docs_only != (source == "docsOnly"):
+        raise ScoreFileError(
+            f"docsOnly {str(docs_only).lower()} contradicts --coverage {path}: its denominatorSource is "
+            f"{source!r}, so docsOnly must be {str(source == 'docsOnly').lower()}")
+
+
 def apply_score_files(inp, args):
-    """Fill `scores` and `state2Counts` from the score files the flags name."""
+    """Fill `scores` and `state2Counts` from the score files the flags name,
+    refusing a `docsOnly` or `state2` flag the files contradict."""
     for flag, fields in SCORE_FILES:
         path = getattr(args, flag)
         if path is None:
@@ -632,10 +659,17 @@ def apply_score_files(inp, args):
             if field not in data:
                 raise ScoreFileError(f"--{flag} {path} has no `{field}`")
             scores[category] = data[field]
+        if flag == "coverage":
+            _check_docs_only(inp, data, path)
     if args.surface is not None:
         data = _read_score_file(args.surface, "surface")
         state2 = data.get("state2")
         if isinstance(state2, dict):
+            # A flag that is not a boolean is left to validate_input's type error.
+            if inp.get("state2") is None or inp.get("state2") is False:
+                raise ScoreFileError(
+                    f"state2 false contradicts --surface {args.surface}: its state2 holds the State 2 counts (the "
+                    "surface was built from the provenance map and metadata.json), so state2 must be true")
             inp["state2Counts"] = {"provenance": state2.get("provenanceCount"),
                                    "metadata": state2.get("metadataCount"),
                                    "union": state2.get("unionCount")}

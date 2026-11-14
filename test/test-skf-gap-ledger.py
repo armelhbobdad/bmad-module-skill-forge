@@ -901,6 +901,9 @@ REPO = Path(__file__).resolve().parent.parent
 REFS = REPO / "src" / "skf-test-skill" / "references"
 COVERAGE_STEP = REFS / "coverage-check.md"
 COHERENCE_STEP = REFS / "coherence-check.md"
+# The naive branch coherence-check.md §1 loads (#1187): its §2 holds the finding texts.
+COHERENCE_NAIVE = REFS / "coherence-naive.md"
+EXTERNAL_STEP = REFS / "external-validators.md"
 SCANNER = REPO / "src" / "shared" / "scripts" / "skf-scan-skill-md-structure.py"
 # A bracketed `[--flag ...]` synopsis group of a prose call, repeatable or not.
 OPTIONAL_GROUP = re.compile(r" \[(--[a-z-]+[^\]]*)\](?:\.\.\.)?")
@@ -3358,6 +3361,161 @@ class TestProvenanceAndCoherenceAdapters:
         with pytest.raises(mod.AdapterError, match="unknown status"):
             mod.from_coherence({"invalidReferences": [{"status": "odd"}]})
 
+    def test_coherence_records_each_incomplete_pattern_after_the_references(self):
+        """#1187: aggregate-coherence.py copies §5's incomplete patterns into coherence.json, and each is a Medium
+        `integration-pattern` gap at its SKILL.md line, its issue kept, so coherence-check §6 types none."""
+        records = mod.from_coherence({
+            "invalidReferences": [{"line": 4, "target": "references/gone.md", "status": "missing", "issues": []}],
+            "incompletePatterns": [
+                {"pattern": "express + zod", "issue": "no file:line citation", "line": 95},
+                {"pattern": "a + b", "issue": "no [from skill: \u2026] line for b.", "line": 12},
+            ]})
+        assert brief(records) == [
+            ("Critical", "broken-reference", "coherence: broken reference: references/gone.md", "SKILL.md:4", None),
+            ("Medium", "integration-pattern", "coherence: incomplete integration pattern: express + zod",
+             "SKILL.md:95", None),
+            ("Medium", "integration-pattern", "coherence: incomplete integration pattern: a + b", "SKILL.md:12",
+             None),
+        ]
+        assert [(r["issue"], r["remediation"]) for r in records[1:]] == [
+            ("no file:line citation",
+             "Complete the integration pattern `express + zod` at SKILL.md:95: no file:line citation."),
+            ("no [from skill: \u2026] line for b.",
+             "Complete the integration pattern `a + b` at SKILL.md:12: no [from skill: \u2026] line for b."),
+        ]
+        for record in records[1:]:
+            assert mod.normalize_record(record)[1] is None
+
+    @pytest.mark.parametrize("entry", [
+        "a + b", {"issue": "x", "line": 3}, {"pattern": "a", "issue": " ", "line": 3},
+        {"pattern": "a", "issue": "x", "line": "95"}, {"pattern": "a", "issue": "x", "line": True},
+        {"pattern": "a", "issue": "x", "line": 0},
+    ], ids=["not-an-object", "no-pattern", "blank-issue", "line-a-string", "line-a-bool", "line-zero"])
+    def test_a_malformed_incomplete_pattern_is_refused(self, ledger: Path, tmp_path: Path, entry):
+        with pytest.raises(mod.AdapterError, match=r"incompletePatterns\[0\]"):
+            mod.from_coherence({"invalidReferences": [], "incompletePatterns": [entry]})
+        result = write_json(tmp_path / "coherence.json", {"invalidReferences": [], "incompletePatterns": [entry]})
+        proc = from_file(ledger, "coherence-check", "coherence", result)
+        assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+        assert not ledger.exists()
+        with pytest.raises(mod.AdapterError, match="'incompletePatterns' must be a list"):
+            mod.from_coherence({"invalidReferences": [], "incompletePatterns": "none"})
+
+
+# A validated inventory with one mismatch of each shape: the body against a reference, and two references the body
+# does not settle (#1187).
+SPLIT_INVENTORY = {
+    "exports": [{"name": "createTask", "kind": "function"}, {"name": "runTasks", "kind": "function"}],
+    "references": ["references/api-reference.md", "references/pipelines.md"],
+    "cross_check_mismatches": [
+        {"export": "createTask", "reference_file": "references/api-reference.md", "reference_line": 12,
+         "skill_md_line": 40, "issue": "SKILL.md shows two parameters, the reference three"},
+        {"export": "runTasks", "reference_file": "references/pipelines.md", "reference_line": 7,
+         "other_file": "references/api-reference.md", "other_line": 40, "issue": "async in one, sync in the other"},
+    ],
+}
+SPLIT_SETTLEMENTS = [
+    {"export": "createTask", "reference_file": "references/api-reference.md", "source": "reference",
+     "remediation": "Edit references/api-reference.md:12 to take SKILL.md:40's form."},
+    {"export": "runTasks", "reference_file": "references/pipelines.md", "source": "other",
+     "remediation": "Edit references/api-reference.md:40 to take references/pipelines.md:7's form."},
+]
+
+
+class TestSplitBodyAdapter:
+    """#1187: `--from split-body` builds each split-body record from the inventory entry and the main thread's
+    settlement, so coverage-check §5b types no title, Source or `export`."""
+
+    def test_each_mismatch_is_a_high_record_at_the_settled_side(self):
+        records = mod.from_split_body(SPLIT_INVENTORY, SPLIT_SETTLEMENTS)
+        assert brief(records) == [
+            ("High", "split-body-mismatch", "Split-body mismatch: createTask (references/api-reference.md)",
+             "references/api-reference.md:12", "createTask"),
+            ("High", "split-body-mismatch",
+             "Split-body mismatch: runTasks (references/api-reference.md, references/pipelines.md)",
+             "references/api-reference.md:40", "runTasks"),
+        ]
+        assert [(r["issue"], r["remediation"]) for r in records] == [
+            (entry["issue"], settled["remediation"])
+            for entry, settled in zip(SPLIT_INVENTORY["cross_check_mismatches"], SPLIT_SETTLEMENTS)]
+        for record in records:
+            assert mod.normalize_record(record)[1] is None
+
+    def test_the_other_side_of_a_body_pair_is_its_skill_md_line(self):
+        settlements = [{**SPLIT_SETTLEMENTS[0], "source": "other"}, {**SPLIT_SETTLEMENTS[1], "source": "reference"}]
+        records = mod.from_split_body(SPLIT_INVENTORY, {"settlements": settlements})
+        assert [r["source"] for r in records] == ["SKILL.md:40", "references/pipelines.md:7"]
+
+    @pytest.mark.parametrize("inventory", [
+        {**SPLIT_INVENTORY, "references": []},
+        {k: v for k, v in SPLIT_INVENTORY.items() if k != "references"},
+        {**SPLIT_INVENTORY, "cross_check_mismatches": []},
+        {k: v for k, v in SPLIT_INVENTORY.items() if k != "cross_check_mismatches"},
+    ], ids=["references-empty", "no-references", "no-mismatch", "no-mismatch-key"])
+    def test_nothing_to_settle_records_the_stage_alone(self, ledger: Path, tmp_path: Path, inventory):
+        source = write_json(tmp_path / "inventory.json", inventory)
+        proc = from_file(ledger, "coverage-check", "split-body", source)
+        assert proc.returncode == 0, proc.stdout
+        assert json.loads(proc.stdout)["appended"] == []
+        assert json.loads(ledger.read_bytes())["stages"] == ["coverage-check"]
+        assert mod.from_split_body(inventory, []) == []
+        with pytest.raises(mod.AdapterError, match="holds 1 settlement"):
+            mod.from_split_body(inventory, SPLIT_SETTLEMENTS[:1])
+
+    def test_a_rerun_records_each_mismatch_once(self, ledger: Path, tmp_path: Path):
+        source = write_json(tmp_path / "inventory.json", SPLIT_INVENTORY)
+        settled = write_json(tmp_path / "split-body-settlements.json", SPLIT_SETTLEMENTS)
+        first = json.loads(from_file(ledger, "coverage-check", "split-body", source, settlements=settled).stdout)
+        again = json.loads(from_file(ledger, "coverage-check", "split-body", source, settlements=settled).stdout)
+        assert (first["appended"], again["appended"], again["duplicates"]) == (
+            ["GAP-001", "GAP-002"], [], ["GAP-001", "GAP-002"])
+        assert len(ledger_records(ledger)) == 2
+
+    @pytest.mark.parametrize("settlements, error", [
+        (None, "pass their settlements as --settlements"),
+        (SPLIT_SETTLEMENTS[:1], "holds 1 settlement(s) for the 2 split-body mismatch(es)"),
+        (SPLIT_SETTLEMENTS[::-1], "settles `runTasks` in references/pipelines.md, not the mismatch of `createTask`"),
+        ([SPLIT_SETTLEMENTS[0], {**SPLIT_SETTLEMENTS[1], "source": "body"}], '`source` must be `reference` or '
+         '`other`, not "body"'),
+        ([SPLIT_SETTLEMENTS[0], {**SPLIT_SETTLEMENTS[1], "remediation": "  "}], "needs a non-blank `remediation`"),
+        ([SPLIT_SETTLEMENTS[0], {k: v for k, v in SPLIT_SETTLEMENTS[1].items() if k != "source"}],
+         "must be an object with export, reference_file, source, remediation"),
+        ({"records": SPLIT_SETTLEMENTS}, "must be a JSON array of settlements"),
+    ], ids=["missing", "count", "order", "source", "blank-remediation", "no-source", "not-a-list"])
+    def test_a_settlement_that_does_not_fit_is_refused(self, ledger: Path, tmp_path: Path, settlements, error):
+        source = write_json(tmp_path / "inventory.json", SPLIT_INVENTORY)
+        options = {}
+        if settlements is not None:
+            options["settlements"] = write_json(tmp_path / "split-body-settlements.json", settlements)
+        proc = from_file(ledger, "coverage-check", "split-body", source, **options)
+        assert proc.returncode == 2, proc.stdout
+        out = json.loads(proc.stdout)
+        assert out["code"] == "INVALID_INPUT" and error in out["error"], out["error"]
+        assert not ledger.exists()
+
+    @pytest.mark.parametrize("drop", ["export", "reference_file", "reference_line", "issue", "skill_md_line"])
+    def test_an_inventory_entry_missing_a_field_is_refused(self, drop):
+        entry = {k: v for k, v in SPLIT_INVENTORY["cross_check_mismatches"][0].items() if k != drop}
+        inventory = {**SPLIT_INVENTORY, "cross_check_mismatches": [entry]}
+        with pytest.raises(mod.AdapterError, match=r"cross_check_mismatches\[0\]"):
+            mod.from_split_body(inventory, SPLIT_SETTLEMENTS[:1])
+
+    def test_an_input_that_is_no_inventory_is_refused(self):
+        with pytest.raises(mod.AdapterError, match="validate-inventory.py inventory"):
+            mod.from_split_body({"references": []})
+
+    def test_settlements_are_a_split_body_option_only(self, ledger: Path, tmp_path: Path):
+        settled = write_json(tmp_path / "split-body-settlements.json", SPLIT_SETTLEMENTS)
+        other = from_file(ledger, "coherence-check", "coherence", write_json(tmp_path / "c.json", {
+            "invalidReferences": []}), settlements=settled)
+        assert other.returncode == 2
+        assert json.loads(other.stdout)["error"] == "--from coherence does not read --settlements"
+        bare = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--input",
+                   str(write_json(tmp_path / "records.json", [record()])), "--settlements", str(settled))
+        assert bare.returncode == 2
+        assert json.loads(bare.stdout)["error"] == "--settlements work only with --from"
+        assert not ledger.exists()
+
 
 def scan(*args: str) -> dict:
     proc = subprocess.run([sys.executable, str(SCANNER), *args], capture_output=True, text=True,
@@ -3415,7 +3573,7 @@ class TestStructureAdapter:
     def test_the_titles_are_the_prose_finding_texts(self):
         """§2's finding texts go into the Coherence Analysis and the script's titles into the ledger: one
         wording for both."""
-        text = COHERENCE_STEP.read_text(encoding="utf-8")
+        text = COHERENCE_NAIVE.read_text(encoding="utf-8")
         texts = {t.replace("\\`", "`") for t in re.findall(r"`(naive-coherence: (?:[^`\\]|\\`)+)`", text)}
         values = {"{family}": "usage", "{entry.line}": "7", "{entry.actual_cols}": "1",
                   "{entry.expected_cols}": "2", "{kind}": "function", "{name}": "go"}
@@ -3593,6 +3751,67 @@ class TestExternalAdapter:
         assert bare.returncode == 2 and json.loads(bare.stdout)["error"] == "--not-applicable work only with --from"
         assert not ledger.exists()
 
+    def test_a_skill_check_that_did_not_run_is_one_info_gap(self, ledger: Path, tmp_path: Path):
+        """#1185: the reason external-validators §2 kept is an Info gap after the Tessl Review ones, with the steps
+        that make skill-check run again; a rerun records it once."""
+        result = write_json(tmp_path / "external.json", external(tesslContentSuggestions=["Add a worked example."]))
+        reason = tmp_path / "skill-check-not-run.txt"
+        reason.write_bytes(b"\n  \ntimeout-120s\r\nignored second line\n")
+        proc = from_file(ledger, "external-validators", "external", result, skill_check_not_run=reason)
+        assert proc.returncode == 0, proc.stdout
+        records = ledger_records(ledger)
+        assert brief(records) == [("Info", "external-validator", "Add a worked example.", "SKILL.md", None),
+                                  ("Info", "external-validator", "skill-check not run: timeout-120s", "SKILL.md", None)]
+        gap = records[-1]
+        assert (gap["group"], gap["remediation"]) == ("External", mod.SKILL_CHECK_NOT_RUN_FIX)
+        # a probe that exited 127 (no `timeout`, as on stock macOS, or no `npx`) needs that command first
+        for step in ("`npx skill-check -h` once", "exited 127 found no `timeout` or no `npx` command",
+                     "within 120 seconds and prints JSON", "re-run Test Skill"):
+            assert step in gap["remediation"], step
+        again = json.loads(from_file(ledger, "external-validators", "external", result,
+                                     skill_check_not_run=reason).stdout)
+        assert (again["appended"], len(again["duplicates"])) == ([], 2)
+        assert "a skill-check that did not run" in mod.CATEGORIES["external-validator"][1]
+        assert "make skill-check run again when it did not run" in mod.ACTIONS["external-validator"]
+
+    @pytest.mark.parametrize("content", [b"", b"  \n\t\n", None], ids=["empty", "blank", "missing"])
+    def test_a_blank_or_unreadable_reason_file_is_refused(self, ledger: Path, tmp_path: Path, content):
+        result = write_json(tmp_path / "external.json", external())
+        reason = tmp_path / "skill-check-not-run.txt"
+        if content is not None:
+            reason.write_bytes(content)
+        proc = from_file(ledger, "external-validators", "external", result, skill_check_not_run=reason)
+        assert proc.returncode == 2, proc.stdout
+        out = json.loads(proc.stdout)
+        assert out["code"] == "INVALID_INPUT" and "--skill-check-not-run" in out["error"], out["error"]
+        assert not ledger.exists()
+
+    def test_the_reason_file_is_an_external_option_only(self, ledger: Path, tmp_path: Path):
+        reason = tmp_path / "skill-check-not-run.txt"
+        reason.write_bytes(b"not-available (probe exited 1)\n")
+        other = from_file(ledger, "coherence-check", "coherence", write_json(tmp_path / "c.json", {
+            "invalidReferences": []}), skill_check_not_run=reason)
+        assert other.returncode == 2
+        assert json.loads(other.stdout)["error"] == "--from coherence does not read --skill-check-not-run"
+        records = write_json(tmp_path / "records.json", [record()])
+        bare = run("append", "--ledger", str(ledger), "--stage", "external-validators", "--input", str(records),
+                   "--skill-check-not-run", str(reason))
+        assert bare.returncode == 2
+        assert json.loads(bare.stdout)["error"] == "--skill-check-not-run work only with --from"
+        assert not ledger.exists()
+
+    def test_the_prose_call_records_why_skill_check_did_not_run(self, ledger: Path, tmp_path: Path):
+        """external-validators §5b's call, its reason file kept, over the files §2 and §4 wrote."""
+        run_dir = tmp_path / "run"
+        write_json(run_dir / "external.json", external())
+        (run_dir / "skill-check-not-run.txt").write_bytes(b"not-available (probe exited 124)\n")
+        [call] = prose_calls(EXTERNAL_STEP, "### 5b. Record the External Validation Gaps", "### 6.")
+        assert ' --skill-check-not-run "{run_dir}/skill-check-not-run.txt"' in call
+        call = call.replace(" --not-applicable <index>:<rule-id>", "")
+        proc = run_prose(call, {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix()})
+        assert proc.returncode == 0, proc.stdout
+        assert [r["title"] for r in ledger_records(ledger)] == ["skill-check not run: not-available (probe exited 124)"]
+
 
 def prose_calls(path: Path, start: str, end: str) -> list[str]:
     """The fenced `uv run {gapLedgerScript} append` calls between two markers,
@@ -3648,7 +3867,9 @@ class TestTheProseCalls:
                   "{resolved_skill_package}": skill.as_posix(), "{forge_provenance_map}": provenance.as_posix()}
         calls = prose_calls(COVERAGE_STEP, "### 5b. Record the Coverage Gaps", "### 6.")
         assert [re.search(r"--from (\S+)", c).group(1) if "--from" in c else None for c in calls] == [
-            None, "coverage", "guards", "numerator", "metadata-coherence", "provenance-line"]
+            None, "coverage", "guards", "numerator", "metadata-coherence", "provenance-line", "split-body"]
+        # §1b found no split-body mismatch (the inventory lists no reference), so its call leaves out --settlements
+        calls[-1] = calls[-1].replace(' --settlements "{run_dir}/split-body-settlements.json"', "")
         for call in calls:
             proc = run_prose(call, values)
             assert proc.returncode == 0, (call, proc.stdout)
@@ -3669,6 +3890,32 @@ class TestTheProseCalls:
         assert (extra["title"], extra["source"], extra["export"]) == ("Documented extra: Task", "src/task.ts:4", "Task")
         assert extra["issue"].startswith("`SKILL.md:5` documents `Task`")
 
+    def test_coverage_check_records_a_settled_split_body_mismatch(self, ledger: Path, tmp_path: Path):
+        """§5b's split-body call, run as written over the inventory §1a wrote and the settlements §5b saved: a pair
+        of references settled to the other side is one High record titled from the inventory, and a rerun adds
+        none (#1187)."""
+        run_dir = tmp_path / "run"
+        inventory = {**SPLIT_INVENTORY, "cross_check_mismatches": SPLIT_INVENTORY["cross_check_mismatches"][1:]}
+        write_json(run_dir / "inventory.json", inventory)
+        write_json(run_dir / "split-body-settlements.json", SPLIT_SETTLEMENTS[1:])
+        [call] = [c for c in prose_calls(COVERAGE_STEP, "### 5b. Record the Coverage Gaps", "### 6.")
+                  if "--from split-body" in c]
+        assert call == ('uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from '
+                        'split-body --input "{run_dir}/inventory.json" --settlements '
+                        '"{run_dir}/split-body-settlements.json"')
+        values = {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix()}
+        for _ in range(2):
+            proc = run_prose(call, values)
+            assert proc.returncode == 0, proc.stdout
+        assert brief(ledger_records(ledger)) == [
+            ("High", "split-body-mismatch",
+             "Split-body mismatch: runTasks (references/api-reference.md, references/pipelines.md)",
+             "references/api-reference.md:40", "runTasks")]
+        section = " ".join(COVERAGE_STEP.read_text(encoding="utf-8").split())
+        assert ("Save each §1b entry's settlement, in `cross_check_mismatches` order, to "
+                "`{run_dir}/split-body-settlements.json` with the Write tool") in section
+        assert "<<'SKF_GAPS'" not in COVERAGE_STEP.read_text(encoding="utf-8")
+
     def test_coherence_check_records_each_mode(self, ledger: Path, tmp_path: Path):
         run_dir, skill = tmp_path / "run", tmp_path / "skill"
         (skill / "scripts").mkdir(parents=True)
@@ -3678,7 +3925,8 @@ class TestTheProseCalls:
             write_json(run_dir / f"{name}.json", scan("scan", str(skill / "SKILL.md"), *args))
         write_json(run_dir / "usage-scope.json", {"zero_usage": []})
         write_json(run_dir / "coherence.json", {"invalidReferences": [
-            {"line": 5, "target": "Options", "status": "inaccurate", "issues": ["not exported"]}]})
+            {"line": 5, "target": "Options", "status": "inaccurate", "issues": ["not exported"]}],
+            "incompletePatterns": [{"pattern": "express + zod", "issue": "no file:line citation", "line": 9}]})
         write_json(run_dir / "references.json", scan("reference-check", str(skill / "SKILL.md")))
         values = {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix(), "<family>": "usage"}
         calls = prose_calls(COHERENCE_STEP, "### 6. Write the Coherence Analysis Section", "### 7.")
@@ -3691,5 +3939,116 @@ class TestTheProseCalls:
             "naive-coherence: missing required section: api_surface",
             "naive-coherence: scripts/assets directory exists but Scripts & Assets section missing",
             "coherence: inaccurate reference: Options",
+            "coherence: incomplete integration pattern: express + zod",
             "coherence: scripts/assets directory exists but Scripts & Assets section missing",
         ]
+        pattern = ledger_records(ledger)[3]
+        assert (pattern["severity"], pattern["category"], pattern["source"]) == (
+            "Medium", "integration-pattern", "SKILL.md:9")
+
+
+# --------------------------------------------------------------------------
+# render --from structure (#1186): the naive Structural Findings rows come from the scan files, as the structure
+# adapter reads them for the append, so coherence-check §6 types none of them
+# --------------------------------------------------------------------------
+
+
+def _naive_scans(tmp_path: Path) -> list[Path]:
+    """The three scan files coherence-check §2.0 and §2.4 write, over a SKILL.md with no API section, a bare
+    fence, a short table row, an open fence and a scripts/ folder."""
+    skill, run_dir = tmp_path / "skill", tmp_path / "run"
+    (skill / "scripts").mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(exist_ok=True)
+    (skill / "SKILL.md").write_bytes(
+        b"---\nname: demo\n---\n# demo\n\n## Usage Examples\n\n```\nrun()\n```\n\n"
+        b"| a | b |\n|---|---|\n| 1 |\n\n```bash\n# API\n")
+    write_json(run_dir / "required-sections.json", scan("scan", str(skill / "SKILL.md"), "--required-sections"))
+    write_json(run_dir / "structure.json", scan("scan", str(skill / "SKILL.md")))
+    write_json(run_dir / "usage-scope.json", {"scope": {}, "exports": [],
+                                              "zero_usage": [{"name": "fetch|Data", "kind": "function"}]})
+    return [run_dir / f"{name}.json" for name in ("required-sections", "structure", "usage-scope")]
+
+
+GOLDEN_STRUCTURAL_FINDINGS = """### Structural Findings
+
+| # | Type | Severity | Detail | Line |
+|---|------|----------|--------|------|
+| 1 | structural | High | naive-coherence: missing required section: description | - |
+| 2 | structural | High | naive-coherence: missing required section: api_surface | - |
+| 3 | structural | High | naive-coherence: unbalanced code fence (unclosed block) | - |
+| 4 | structural | Medium | naive-coherence: opening code fence at line 8 missing language tag | 8 |
+| 5 | structural | Medium | naive-coherence: table row at line 14 has 1 columns; header has 2 | 14 |
+| 6 | scripts-assets | Medium | naive-coherence: scripts/assets directory exists but Scripts & Assets section missing | - |
+| 7 | structural | Medium | naive-coherence: exported function `fetch\\|Data` is not referenced in any usage-family section \
+or reference file | - |
+"""
+
+
+class TestRenderStructuralFindings:
+    def test_the_golden_rows_of_the_three_scan_files(self, tmp_path: Path):
+        inputs = [a for path in _naive_scans(tmp_path) for a in ("--input", str(path))]
+        proc = run("render", "--from", "structure", *inputs, "--served", "usage")
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == GOLDEN_STRUCTURAL_FINDINGS
+        # the same files and --served give the append the same records, in the same order
+        records = mod.from_structure([json.loads(p.read_text(encoding="utf-8")) for p in _naive_scans(tmp_path)],
+                                     served=["usage"])
+        assert [r["title"] for r in records] == [line.split(" | ")[3].replace("\\|", "|")
+                                                 for line in proc.stdout.splitlines()[4:]]
+
+    def test_no_finding_leaves_the_header(self, tmp_path: Path):
+        empty = write_json(tmp_path / "usage-scope.json", {"zero_usage": []})
+        proc = run("render", "--from", "structure", "--input", str(empty))
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.splitlines() == ["### Structural Findings", "", "| # | Type | Severity | Detail | Line |",
+                                            "|---|------|----------|--------|------|"]
+
+    def test_a_file_that_is_no_scan_is_invalid_input(self, tmp_path: Path):
+        coverage = write_json(tmp_path / "coverage.json", {"branch": "enumerated", "missing": []})
+        proc = run("render", "--from", "structure", "--input", str(coverage))
+        assert proc.returncode == 2 and proc.stdout == ""
+        error = json.loads(proc.stderr)
+        assert error["code"] == "INVALID_INPUT" and "is not a scan" in error["error"]
+
+    def test_a_missing_scan_file_is_invalid_input(self, tmp_path: Path):
+        proc = run("render", "--from", "structure", "--input", str(tmp_path / "structure.json"))
+        assert proc.returncode == 2 and proc.stdout == ""
+        error = json.loads(proc.stderr)
+        assert error["code"] == "INVALID_INPUT" and "cannot read --input" in error["error"]
+
+    @pytest.mark.parametrize("args", [
+        ["--from", "coverage", "--input", "x.json"],
+        ["--from", "structure", "--input", "x.json", "--ledger", "l.json"],
+        ["--from", "structure", "--input", "x.json", "--heading"],
+        ["--from", "structure"],
+        ["--ledger", "l.json", "--input", "x.json"],
+        ["--ledger", "l.json", "--served", "usage"],
+        [],
+    ], ids=["another-kind", "with-ledger", "with-heading", "no-input", "input-without-from", "served-without-from",
+            "nothing"])
+    def test_each_refused_mix_is_a_usage_error(self, args: list[str]):
+        proc = run("render", *args)
+        assert proc.returncode == 2 and proc.stdout == "", proc.stdout
+        assert "usage: gap-ledger render" in proc.stderr and "error:" in proc.stderr
+
+    def test_coherence_check_runs_the_naive_render_as_written(self, tmp_path: Path):
+        """§6 runs the render with the same --served as its append; the format numbers the §2.5 rows on under it."""
+        text = COHERENCE_STEP.read_text(encoding="utf-8")
+        section = text[text.index("### 6. Write the Coherence Analysis Section"):text.index("### 7.")]
+        [command] = [line.strip() for line in section.splitlines()
+                     if line.strip().startswith("uv run {gapLedgerScript} render")]
+        [append] = [line.strip() for line in section.splitlines()
+                    if line.strip().startswith("uv run {gapLedgerScript} append") and "required-sections" in line]
+        # the same scan files and the same --served as the append that records them
+        assert command.split(" --input", 1)[1] == append.split(" --input", 1)[1]
+        call = OPTIONAL_GROUP.sub(lambda m: " " + m.group(1), command)
+        run_dir = _naive_scans(tmp_path)[0].parent
+        proc = run_prose(call, {"{run_dir}": run_dir.as_posix(), "<family>": "usage"})
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == GOLDEN_STRUCTURAL_FINDINGS
+        formats = (REFS.parent / "assets" / "output-section-formats.md").read_text(encoding="utf-8")
+        start = formats.index("**Mode:** Naive")
+        naive = formats[start:formats.index("\n## Coherence Analysis", start)]
+        assert ("\n{the render output}\n{one row per coherence-naive.md §2.5 finding, numbered on from the render's "
+                "last row") in naive
+        assert "**Structural Issues:** {the number of rows}" in naive

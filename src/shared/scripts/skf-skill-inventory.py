@@ -387,7 +387,9 @@ FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", 
 # The other names SKF writes into a forge version folder
 # (knowledge/version-paths.md, forge_data_folder tree), and
 # .manual-inventory.json, which update-skill kept there before it kept
-# that inventory beside its lock. A test-skill run writes its report as
+# that inventory beside its lock, and evidence-report-fallback.md, which
+# test-skill wrote there after a threshold fallback before the test report
+# took that record. A test-skill run writes its report as
 # .skf-test-report-{name}-{run_id}.md beside .test-skill.lock until the
 # report's checks pass: like every `.skf-` name it is SKF's, never foreign.
 # manual-backup/ holds the earlier SKILL.md that skf-promote-staged.py

@@ -119,7 +119,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them into
 - `observation` (`Annotation contradicted: {name}` included, which needs no skill edit: its remediation is an upstream report of the source's annotation): a person applies it only when they agree, since it is advisory, and a documented extra needs no change.
 - `discovery`: a person improves the skill's description so realistic prompts route to it, or runs the discovery test Test Skill skipped.
 - `description`: a person edits the description in the SKILL.md frontmatter as the gap suggests.
-- `external-validator`: a person applies the skill-check diagnostic or Tessl Review suggestion to SKILL.md.
+- `external-validator`: a person applies the skill-check diagnostic or Tessl Review suggestion to SKILL.md, or makes skill-check run again when the gap says it did not run.
 
 **Translation rules (referenced by the table above):**
 

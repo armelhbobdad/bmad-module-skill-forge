@@ -16,9 +16,8 @@ skillsOutputFolder: '{skills_output_folder}'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
-# frontmatterScript resolves deterministically by probing two candidate
-# paths from `{project-root}` in order. There is NO silent manual fallback —
-# if neither candidate exists, the step HALTs with a diagnostic.
+# Resolve `{frontmatterScript}` to the first existing path; §3a HALTs if
+# neither exists.
 frontmatterScriptProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
@@ -129,18 +128,7 @@ If `{pipeline_alias}` is set in the workflow data context (forwarded by the forg
 | `forge-quick`  | 80                |
 | `campaign`     | 90                |
 
-- **If `{pipeline_alias}` is present AND found in the table:** store the corresponding value as `{pipeline_default_threshold}` in workflow context. It is the precedence layer between CLI `--threshold` and `{defaultThreshold}` below.
-- **If `{pipeline_alias}` is present but NOT in the table:** `{pipeline_default_threshold}` remains unset, and the threshold falls through to `{defaultThreshold}`.
-- **If `{pipeline_alias}` is absent** (standalone TS invocation, not running inside a pipeline): `{pipeline_default_threshold}` remains unset, and the threshold falls through to `{defaultThreshold}`.
-
-**Resolve the pass threshold once, here (precedence: CLI > pipeline default > scalar > bundled fallback):**
-
-1. If the workflow received `--threshold=<N>` on invocation, use that integer as `effective_threshold` (CLI wins). Set `threshold_source` = `"CLI override ({N}%)"`.
-2. Else if `{pipeline_default_threshold}` is set (the table above), use it as `effective_threshold`. Set `threshold_source` = `"pipeline default ({pipeline_alias} → {N}%)"`.
-3. Else if the resolved `{defaultThreshold}` workflow-context variable (from SKILL.md On Activation §3: the `workflow.default_threshold` scalar, default `80`) is set, use it as `effective_threshold`. Set `threshold_source` = `"workflow default ({N}%)"`.
-4. Else fall back to `80` (the bundled default: this branch should be unreachable when SKILL.md resolution ran correctly, but keeps the step robust if customize.toml resolution failed silently). Set `threshold_source` = `"bundled fallback (80%)"`.
-
-§6c writes both into the report frontmatter (`threshold`, `thresholdSource`), and `references/score.md` §1 reads them from there: a long run's context may lose them, the report keeps them.
+`effective_threshold` is the first of `--threshold=<N>` (`threshold_source`: `"CLI override ({N}%)"`), a bound `{defaultThreshold}` (`"workflow override ({N}%)"`), the table's value for `{pipeline_alias}` when the table lists it (`"pipeline default ({pipeline_alias} → {N}%)"`) and `80` (`"bundled default (80%)"`). §6c writes both into the report frontmatter (`threshold`, `thresholdSource`), and `references/score.md` §1 reads them from there: a long run's context may lose them, the report keeps them.
 
 ### 2. Validate Skill Exists (version-aware)
 
@@ -159,17 +147,17 @@ Bind from its `resolve` object:
 
 Log each entry of `resolve.errors` (a broken `active` link, for example), and `resolve.manifest_error` when it is set (an export manifest that cannot be read), as an Info note, then act on `reason`:
 
-1. `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Continue.
-2. `manifest-lags-link`: the `active` link names a version the manifest has not caught up with (the Manifest-lag guard). Continue, and emit the helper's `detail` as an Info note.
-3. If neither: fall back to the flat path `{skillsOutputFolder}/{skill_name}/` (`reason` is `flat-layout`: `SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
-   - Run `uv run {skillInventoryHelper} {skillsOutputFolder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** run `uv run {skillInventoryHelper} migrate {skillsOutputFolder} --skill {skill_name} --forge-data-folder {forge_data_folder}` and show its `message` as an Info note, then run the `resolve` command above again and bind its values anew: they now name the version folder. When `migrate` exits 1, HALT as step 6 says, with its `error`.
-   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves (`halt_reason: "not-skf-output"`, phase `init:ownership`) with this message: "**`{skill_name}` is not SKF output: nothing was moved.** `{skillsOutputFolder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or test it. A shared `{skillsOutputFolder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skillsOutputFolder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF.
-4. `missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version of the skill is on disk, or the name names none. Take the not-found branch below.
-5. `newest-on-disk`: version folders exist, but neither the export manifest nor a working `active` link names one. The Reading Workflows rules test only a version one of them names, so take the SKILL.md error below.
-6. Any other error, or no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:resolve`) with the helper's stderr message. Nothing is written.
+- `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Continue.
+- `manifest-lags-link`: the `active` link names a version the manifest has not caught up with (the Manifest-lag guard). Continue, and emit the helper's `detail` as an Info note.
+- `flat-layout`: fall back to the flat path `{skillsOutputFolder}/{skill_name}/` (`SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
+  - Run `uv run {skillInventoryHelper} {skillsOutputFolder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+  - **`{group_flat_skf}` is true:** run `uv run {skillInventoryHelper} migrate {skillsOutputFolder} --skill {skill_name} --forge-data-folder {forge_data_folder}` and show its `message` as an Info note, keeping `flat-skill-migrated: {its message}` as a warning §6b records, then run the `resolve` command above again and bind its values anew: they now name the version folder. When `migrate` exits 1, HALT as the any-other-error case says, with its `error`.
+  - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves (`halt_reason: "not-skf-output"`, phase `init:ownership`) with this message: "**`{skill_name}` is not SKF output: nothing was moved.** `{skillsOutputFolder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or test it. A shared `{skillsOutputFolder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skillsOutputFolder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF.
+- `missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version of the skill is on disk, or the name names none. Take the not-found branch below.
+- `newest-on-disk`: version folders exist, but neither the export manifest nor a working `active` link names one. The Reading Workflows rules test only a version one of them names, so take the SKILL.md error below.
+- Any other error, or no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:resolve`) with the helper's stderr message. Nothing is written.
 
-If no helper candidate resolves, SKF can neither choose the version nor check a flat skill's marker. Nothing moves: when `{skillsOutputFolder}/{skill_name}/SKILL.md` exists, take step 3's Otherwise branch; else HALT (`halt_reason: "helper-missing"`, phase `init:resolve`) with "Error: cannot locate skf-skill-inventory.py at `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py` or `{project-root}/src/shared/scripts/skf-skill-inventory.py`. Install the SKF module or run from a development checkout with src/ present."
+If no helper candidate resolves, SKF can neither choose the version nor check a flat skill's marker. Nothing moves: when `{skillsOutputFolder}/{skill_name}/SKILL.md` exists, take the `flat-layout` case's Otherwise branch; else HALT (`halt_reason: "helper-missing"`, phase `init:resolve`) with "Error: cannot locate skf-skill-inventory.py at `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py` or `{project-root}/src/shared/scripts/skf-skill-inventory.py`. Install the SKF module or run from a development checkout with src/ present."
 
 Check that the skill package contains required files:
 
@@ -177,7 +165,7 @@ Check that the skill package contains required files:
 - `{resolved_skill_package}/SKILL.md` — the skill documentation
 - `{resolved_skill_package}/metadata.json` — skill metadata
 
-**Not found** (step 4): the name may be mistyped or partial, so list the skills there are to test, closest to it first, rather than sending the user to create a skill that already exists:
+**Not found** (the `missing` case): the name may be mistyped or partial, so list the skills there are to test, closest to it first, rather than sending the user to create a skill that already exists:
 
 ```bash
 uv run {skillInventoryHelper} {skillsOutputFolder} --near "{skill_name}"
@@ -185,34 +173,16 @@ uv run {skillInventoryHelper} {skillsOutputFolder} --near "{skill_name}"
 
 Its `near[]` lists every skill SKF generated that has a SKILL.md, the `close` names first (one name holds the other, or they are similar). Say "**No version of `{skill_name}` is on disk.** {the helper's `detail` or `error`}", then show each `close` entry's `name` and `active_version`, or, when none is close, every entry, adding "If `{skill_name}` is a new skill, run the **create-skill** workflow first." When the helper exits non-zero, or `near[]` is absent or empty (a `{skillsOutputFolder}` that does not exist, say), show no list, only that create-skill line. Interactively, ask for the skill name again and run this section anew with it. In `{headless_mode}`, HALT (`halt_reason: "target-inaccessible"`, phase `init:resolve`) with that message, the close names written as "Did you mean: {names}?".
 
-**If SKILL.md missing** (or step 5 found no version to test): HALT (`halt_reason: "target-inaccessible"`, phase `init:resolve`) with "**Error: SKILL.md not found at `{resolved_skill_package}/SKILL.md`**
+**If SKILL.md missing** (or the `newest-on-disk` case found no version to test): HALT (`halt_reason: "target-inaccessible"`, phase `init:resolve`) with "**Error: SKILL.md not found at `{resolved_skill_package}/SKILL.md`**
 
-This skill has not been created yet. Run the **create-skill** workflow first." When step 5 applies, say instead: "**Error: no version of `{skill_name}` is named for testing.** {the helper's `detail`}. Point `{skillsOutputFolder}/{skill_name}/active` at the version to test, then re-run."
+This skill has not been created yet. Run the **create-skill** workflow first." In the `newest-on-disk` case, say instead: "**Error: no version of `{skill_name}` is named for testing.** {the helper's `detail`}. Point `{skillsOutputFolder}/{skill_name}/active` at the version to test, then re-run."
 
 **If metadata.json missing:**
-"**Warning:** metadata.json not found. Proceeding with limited metadata. Some checks may be skipped."
+"**Warning:** metadata.json not found. Proceeding with limited metadata. Some checks may be skipped." Keep `metadata-missing: no metadata.json in {resolved_skill_package}` as a warning §6b records.
 
 ### 3. Validate Frontmatter Compliance
 
-**3a. Resolve `{frontmatterScript}` deterministically.** Probe each candidate path in `{frontmatterScriptProbeOrder}` (in order) against the filesystem:
-
-1. `{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py` (installed module layout)
-2. `{project-root}/src/shared/scripts/skf-validate-frontmatter.py` (development-tree layout)
-
-Use the first path that exists as `{frontmatterScript}`. There is no manual fallback.
-
-**If neither path exists, HALT** (`halt_reason: "helper-missing"`, phase `init:frontmatter`) with the diagnostic below. test-skill is a quality gate; without the deterministic validator it cannot produce a trustworthy frontmatter verdict, and a silent manual check can miss subtle spec drift. The missing helper must be restored before testing continues:
-
-```
-Error: cannot locate skf-validate-frontmatter.py at either of:
-  - {project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py
-  - {project-root}/src/shared/scripts/skf-validate-frontmatter.py
-
-test-skill requires the deterministic frontmatter validator. Install the
-SKF module (`skf init`) or run from a development checkout with src/ present.
-```
-
-Do not proceed. No partial test report is written.
+**3a. Resolve `{frontmatterScript}`** ← first existing path in `{frontmatterScriptProbeOrder}`. If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `init:frontmatter`) with: "Error: cannot locate skf-validate-frontmatter.py at `{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py` or `{project-root}/src/shared/scripts/skf-validate-frontmatter.py`. Install the SKF module or run from a development checkout with src/ present." No test report is written.
 
 **3b. Run the validator (30s timeout: the deterministic validator should finish in under 1s, and the cap only guards against runaway python).**
 
@@ -291,9 +261,9 @@ uv run {checkWorkspaceDriftHelper} "{tree}" --pinned-commit "{pinned_commit}" [-
 Log each call's `log_message`, then act on the statuses together:
 
 - **Any `mismatch`** (exit 2): HALT (`halt_reason: "workspace-drift"`, phase `init:workspace-drift`), displaying the `halt_message` of every tree that drifted, verbatim: it names the pinned commit and ref, the workspace HEAD, the `git checkout` that re-syncs the tree, and `--allow-workspace-drift`. The test report has not been created; no partial writes.
-- **Any `overridden`, and no `mismatch`:** carry `workspaceDrift: overridden` into the report frontmatter. The later steps read it there, never the flag: score.md §5 demotes a PASS under drift to `pass-with-drift` and forces `nextWorkflow` to `update-skill`, never `export-skill`, and coverage-check §4c skips its line check. A flag passed on a clean tree changes nothing. Continue.
+- **Any `overridden`, and no `mismatch`:** carry `workspaceDrift: overridden` into the report frontmatter. The later steps read it there, never the flag: score.md §6's `settle` demotes a PASS under drift to `pass-with-drift` and writes `update-skill` as its `nextWorkflow`, never `export-skill`, and coverage-check §4c skips its line check. A flag passed on a clean tree changes nothing. Continue.
 - **Otherwise** every call is `ok` or `skipped`: set `workspaceDrift: ok` when at least one tree was checked, else `not-checked`, and continue.
-- A call that exits 1 or prints no JSON could not read its tree (for example, `git` is not installed): log `workspace_drift_check: skipped (helper error: {its stderr})`, count it as `skipped`, and continue.
+- A call that exits 1 or prints no JSON could not read its tree (for example, `git` is not installed): log `workspace_drift_check: skipped (helper error: {its stderr})`, keep `workspace-drift-not-checked: {tree}: {its first stderr line, or no output}` as a warning §6b records, count it as `skipped`, and continue. A tree skipped above (no `source_root`, no tree on disk, no pinned commit) is expected and keeps no warning.
 
 ### 6. Create Output Document
 
@@ -307,13 +277,19 @@ The owner names no run id, so the helper adds one. Bind `{run_id}` ← `run_id` 
 
 **6b. Act on the result:**
 
-- `acquired` is true: the lock is this run's. When `stale_replaced` is not null, a run that ended without releasing its lock left it: log `run lock: replaced the stale lock of {stale_replaced.held_by} (held since {stale_replaced.held_since})` and continue. Then create the run folder, where the later steps keep the files their scripts hand each other, and bind `{run_dir}` ← `{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}`:
+- `acquired` is true: the lock is this run's. When `stale_replaced` is not null, a run that ended without releasing its lock left it: log `run lock: replaced the stale lock of {stale_replaced.held_by} (held since {stale_replaced.held_since})`, keep `run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}` (`an unnamed owner` for a null `held_by`) as a warning, and continue. Then create the run folder, where the later steps keep the files their scripts hand each other, and bind `{run_dir}` ← `{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}`:
 
   ```bash
   mkdir -p "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
   ```
 
   If it cannot be created, HALT (`halt_reason: "write-failed"`, phase `init:run-folder`, `"path"` the folder) with the first stderr line, releasing the run lock first as the **Halt envelope** paragraph says and passing the halt's fields as options and that line on stdin, as it says for a helper's text: there is no folder to stage a payload in. report.md §7 removes the folder when the run ends; a HALT leaves it for inspection.
+
+  Then record the warnings this step kept, in the order raised (§2's `flat-skill-migrated` and `metadata-missing`, §5b's `workspace-drift-not-checked`, then `run-lock-replaced`), so the result keeps them after a compaction: for each, write its text to `{run_dir}/warning.txt` with a file write, never `echo` (a helper's message can hold quotes or `$( )`), then, from `{project-root}`, run:
+
+  ```bash
+  uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"
+  ```
 - `acquired` is false (exit 3): another run holds a lock that has not gone stale. HALT (`halt_reason: "another-run-active"`, phase `init:run-lock`) with "**Another test-skill run is active for {skill_name}.** {message}": the helper's `message` names that run, the lock file to delete when no run is active, and the time the lock goes stale. This run holds no lock, so nothing is released.
 - The helper exits 1 or 2, or prints no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:run-lock`) with its stderr message (exit 2: the lock file could not be written, so check that `{forge_version}` is writable). This run holds no lock, so nothing is released.
 
@@ -343,6 +319,7 @@ score: ''
 threshold: '{effective_threshold}%'
 thresholdSource: '{threshold_source}'
 analysisConfidence: ''
+docsOnly: ''
 toolingStatus: '{ok|frontmatter-validator-timeout}'
 workspaceDrift: '{not-checked|ok|overridden}'
 health_check_dispatched: false
@@ -352,7 +329,7 @@ nextWorkflow: ''
 ---
 ```
 
-Replace the template's frontmatter with this block (the two hold the same keys). Then replace `{{skillName}}` in the template's H1 with `{skill_name}`, so the report's title is `# Test Report: {skill_name}`: report.md §4c halts on a report without that line. `toolingStatus` is the `tooling_status` §3b set: score.md §3a reads it back for Cap 1. `threshold` and `thresholdSource` are the pass threshold §1b resolved and its source: score.md §1 reads them back, and score.md §7 rewrites `threshold` with the threshold the verdict was settled against. `analysisConfidence` stays empty until score.md §7, or step-hard-gate.md §3 on a run the hard gate blocks, writes the source access coverage-check resolved: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`. report.md §4c halts on a report that holds none of them.
+Replace the template's frontmatter with this block (the two hold the same keys). Then replace `{{skillName}}` in the template's H1 with `{skill_name}`, so the report's title is `# Test Report: {skill_name}`: report.md §4c halts on a report without that line. `toolingStatus` is the `tooling_status` §3b set: score.md §3a reads it back for Cap 1. `threshold` and `thresholdSource` are the pass threshold §1b resolved and its source: score.md §1 reads them back, and score.md §6's `settle` rewrites `threshold` with the threshold the verdict was settled against. Coverage-check writes `analysisConfidence` once source-access-protocol.md resolves the source access (its Docs-Only Run writes `docs-only`), and score.md §7, or step-hard-gate.md §3 on a run the hard gate blocks, writes it again: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`. report.md §4c halts on a report that holds none of them. `docsOnly` stays empty until coverage-check §0 writes it, and score.md §3a reads both back.
 
 ### 7. Report Initialization Status
 

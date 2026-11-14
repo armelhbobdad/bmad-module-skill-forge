@@ -11,6 +11,7 @@ score: ''
 threshold: ''
 thresholdSource: ''
 analysisConfidence: ''
+docsOnly: ''
 toolingStatus: ''
 workspaceDrift: ''
 health_check_dispatched: false

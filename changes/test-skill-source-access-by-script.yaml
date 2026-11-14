@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill now takes its source access state and its access degradation notice from a script. Unless the run is docs-only, the new `load-coverage-inputs.py access` counts the provenance map's entries and `confidence` labels and the metadata exports, and writes the State (1 to 3, or null for the workflow to settle at State 4 or 5) and a `degradation` of `all-t1`, `mixed` or `low` to `access.json`, which the source access protocol and the Completeness Score's Access Degradation Notice read; a skill with no metadata.json leaves `--metadata` out and goes on as before. A metadata.json or provenance map that cannot be read now halts the run `helper-failed` at `coverage-check:access`. The notice follows a fixed rule where it said "all or most": at `provenance-map` every entry T1 is `all-t1`, none is `low` and any other map is `mixed`, so a map the model called mostly T1 can now read `mixed` and recommend a local clone for its other entries, each label written after its count and an entry with no label counted as `unlabeled`; every other access takes the `low` notice. States 2 and 3 no longer read the entry point remotely, since nothing scored what that read found.
+issues: [1188]
+prs: [1217]

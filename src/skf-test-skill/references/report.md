@@ -41,7 +41,7 @@ resolveCustomizationProbeOrder:
 
 ## STEP GOAL:
 
-Publish the run. Record the discovery outcome in the gap ledger, render the Gap Report from the ledger, check that every stage ran and wrote its section, then publish the report under its public name, write the result contract, run the on_complete hook and present the result. Do not recalculate scores (step 5 ran them) or classify the stages' gaps again (each stage recorded its own). A run the hard gate blocked comes here straight from step 4c and takes the same sequence, with the blocked-run branch each section names. This step chains to the local health-check step via `{nextStepFile}` after completion; the user-facing report is not the terminal step.
+Publish the run. Every run that reaches this step, a blocked one included, ends through one sequence, and a check that fails stops it before anything is published: §4b records the discovery outcome in the gap ledger (a run the hard gate blocked comes here straight from step 4c and skips it), §4c renders the Gap Report from the ledger, checks that every stage ran and wrote its section and that the health check is installed, then builds the result payload, publishes the report, writes the result contract and runs the on_complete hook, §6 presents the result, §6b keeps the headless envelope for the run's last line, and §7 releases the run lock and hands over to the health check. Do not recalculate scores (step 5 ran them) or classify the stages' gaps again (each stage recorded its own).
 
 **Halt envelope.** Every HALT in this step names its `halt_reason` and phase and carries exit code 1. It releases the run lock first, whatever the release prints: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"` (SKILL.md Workflow Rules). In headless mode it then writes `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{report_file}"}`, adding `"path"` when the halt names one, to `{run_dir}/halt.json` and runs:
 
@@ -57,23 +57,7 @@ Display the line it prints, as the run's last line, then stop. If the emitter ex
 
 The stages before this one recorded every gap they found in the gap ledger `{ledgerFile}`, each with the severity and the category the Gap Severity table gives it. The ledger is the record of the run's gaps: the hard gate counted it, and the Gap Report, the result contract and update-skill `--from-test-report` read it. Do not collect gaps again from the report's sections. The one source of gaps left is discovery testing (§4b), which runs after the gate.
 
-**A run the hard gate blocked** (frontmatter `hardGate: 'blocked'`, set by step 4c §3) was not scored and skips discovery testing (§4b) and the loads in §2 and §3: after §4, continue at §4c.
-
-### 2. Load Severity Rules
-
-For the discovery record §4b writes, load the **Gap Severity** table from `{scoringRulesFile}`, the single source of truth for a gap's severity and category; do not restate its rows here.
-
-### 3. Load the Record Format
-
-Load `{outputFormatsFile}` for the Ledger Record Format and the remediation quality rules the discovery record follows. The ledger numbers the gaps and the Gap Report orders them, so nothing is ordered by hand.
-
-### 4. The Terminal Sequence
-
-Every run that reaches this step, a blocked one included, ends through one sequence, and a check that fails stops it before anything is published:
-
-1. §4b records the discovery outcome in the ledger (a blocked run skips it).
-2. §4c renders the Gap Report from the ledger, checks that every stage ran and wrote its section and that the health check is installed, then builds the result payload, publishes the report, writes the result contract and runs the on_complete hook.
-3. §6 presents the result, §6b keeps the headless envelope for the run's last line, and §7 releases the run lock and hands over to the health check.
+**A run the hard gate blocked** (frontmatter `hardGate: 'blocked'`, set by step 4c §3) was not scored and skips discovery testing (§4b): continue at §4c.
 
 ### 4b. Discovery Testing
 
@@ -142,7 +126,7 @@ Realistic prompt patterns for synthesis (§4b.1 fallback):
 - Implicit: "why did {metric} drop last {period}"
 - Abbreviated: "run the {task word} thing on this data" ({task word} is a plain word for the job, such as memory or indexing, never an export or library name)
 
-**4b.5 Record the discovery gap.** A skip, a WARN or a FAIL is one gap; a PASS records none. Record it in the ledger, with the record between the two markers exactly as it is (`{gapLedgerScript}` resolves relative to the skill root):
+**4b.5 Record the discovery gap.** A skip, a WARN or a FAIL is one gap; a PASS records none. It takes the severity and category of the Gap Severity row §4b names, in `{scoringRulesFile}`, and follows the Ledger Record Format and the remediation quality rules of `{outputFormatsFile}`. Record it in the ledger, with the record between the two markers exactly as it is (`{gapLedgerScript}` resolves relative to the skill root):
 
 ```bash
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage report <<'SKF_GAPS'
@@ -219,7 +203,7 @@ uv run {runLockHelper} acquire --lock "{forge_version}/.test-skill.lock" --owner
 
 The run lock renewed here stays held until §7 releases it, so no other run publishes over this run's report or result files meanwhile.
 
-**Build the result payload** before the report takes its public name. Every value in it comes from the run's own records: `{resultContextScript}` (it resolves relative to the skill root) reads the report frontmatter, the gap ledger and the scoring output, checks the verdict fields score.md §7 wrote (`testResult`, `score`, `threshold` and the fallback fields) against the scoring output, checks that `analysisConfidence` names a source access (`full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`), a blocked run's included, derives `verdict`, `exit_code` and `next_workflow` from `testResult`, and writes the shared emitter's payload, which names the report by its public name. Pass `--score` for a scored run (a run the hard gate blocked has no scoring output), `--no-health-check` when that flag was given, and `--warning` when SKILL.md On Activation step 3 kept a `{customization_resolver_unavailable}` reason: first write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes, backticks or `$( )`), and pass that file's text (the emitter adds the warnings a stage recorded in the run's sink):
+**Build the result payload** before the report takes its public name. Every value in it comes from the run's own records: `{resultContextScript}` (it resolves relative to the skill root) reads the report frontmatter, the gap ledger and the scoring output, checks the verdict fields score.md §6's `settle` wrote (`testResult`, `score`, `threshold` and the fallback fields) against the scoring output, checks that `analysisConfidence` names a source access (`full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`), a blocked run's included, derives `verdict`, `exit_code` and `next_workflow` from `testResult`, and writes the shared emitter's payload, which names the report by its public name. Pass `--score` for a scored run (a run the hard gate blocked has no scoring output), `--no-health-check` when that flag was given, and `--warning` when SKILL.md On Activation step 3 kept a `{customization_resolver_unavailable}` reason: first write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes, backticks or `$( )`), and pass that file's text (the emitter adds the warnings a stage recorded in the run's sink):
 
 ```bash
 uv run {resultContextScript} --report "{report_file}" --report-path "{publishedReportFile}" --ledger "{ledgerFile}" [--score "{run_dir}/score.json"] [--no-health-check] [--warning "$(cat "{run_dir}/resolver-warning.txt")"] --output "{run_dir}/result-context.json"
@@ -259,12 +243,6 @@ If `{onCompleteCommand}` is non-empty and `{result_path}` is not null, invoke it
 
 Run it from `{project-root}` with a bounded timeout (default 60s). On success: log Info note "on_complete: invoked {command}" and continue. On non-zero exit, timeout, or any failure: keep the reason (for example `on_complete failed (exit {N}): {stderr_first_line}`) for a line of its own in §6, and continue. **The hook must never fail the workflow**: its purpose is integration glue (notify a CI router, post to a queue, archive the result) and any failure there is orthogonal to the test verdict, which the result files already hold. If `{onCompleteCommand}` is empty, this hook is a no-op (no log entry needed).
 
-### 5. Finalize Output Document
-
-The report is final once §4c published it and wrote the result files: no later section changes it.
-
-**INCONCLUSIVE as gate:** if `testResult == 'inconclusive'` (from step 5), §4c wrote the result contract with that verdict and §6 presents it. Do not auto-map INCONCLUSIVE to PASS or FAIL. Recommend `manual-review`. The step must still complete (§7 dispatches the health check): INCONCLUSIVE is a report-time signal, not a workflow abort.
-
 ### 6. Present Final Report
 
 "**Test summary for {skill_name}**
@@ -276,8 +254,11 @@ The report is final once §4c published it and wrote the result files: no later 
 {If the hard gate blocked the run, in place of the line above:}
 **Result:** **FAIL**, not scored: the hard gate blocked the run on {blocking_gaps} Critical or High gap(s).
 
+{If `{run_dir}/score.json` holds a non-null `capReason`:}
+**Cap:** {capReason}
+
 {If `thresholdFallback` is present in output frontmatter:}
-**Threshold fallback:** scored {score}% against {originalThreshold} target — accepted at 80% floor. Evidence report: {evidenceReportPath}
+**Threshold fallback:** scored {score}% against {originalThreshold} target: accepted at 80% floor (the Completeness Score section's Threshold Fallback subsection has the details)
 
 **Gaps Found:** {total_gaps}
 - Critical: {gap_counts.Critical}
@@ -299,6 +280,9 @@ The report is final once §4c published it and wrote the result files: no later 
 
 {IF PASS_WITH_DRIFT:}
 **update-skill** — The skill scored above threshold, but `--allow-workspace-drift` was in effect: the test ran against workspace HEAD, not `metadata.source_commit`. A conditional PASS is not trustworthy enough to export. Re-sync the source tree to the pinned commit (or re-extract against current HEAD) and re-run test-skill without the drift override before exporting.
+
+{IF FAIL after scoring, from a cap (`{run_dir}/score.json` holds a non-null `capReason`), in place of the next branch unless its `result` is `FAIL`:}
+**Restore the tooling, then test again**: {capReason}. No skill edit lifts a cap, so update-skill alone cannot turn this FAIL into a PASS, though the result file still names `update-skill`. Cap 1 (`tooling degraded`): make the tool `toolingStatus` names work again; for `frontmatter-validator-timeout`, the frontmatter validator must finish within 30 seconds. Cap 2 (`docs-only without external validators`): make skill-check run and score the skill (the Gap Report's `skill-check not run` gap says how, when it did not run), or opt in to Tessl Review. Then re-run test-skill. When its `result` is `FAIL` too, the skill also scored below its threshold: show the next branch after this one.
 
 {IF FAIL after scoring:}
 **update-skill `--from-test-report`**: This skill needs remediation. Review the Gap Report above, then run `@Ferris US {skill_name} --from-test-report`: Update Skill repairs the gaps it routes, at the skill's pinned commit, and lists each other gap as not repaired, with the reason. A `stale-documentation` or `metadata-drift` gap needs what its remediation names: a person, Create Skill or the skill brief. Test it again afterwards.

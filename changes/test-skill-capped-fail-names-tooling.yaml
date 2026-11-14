@@ -1,0 +1,6 @@
+type: added
+scope: skf-test-skill, skf-update-skill
+summary: |
+  A Test Skill run that a cap fails now says which tooling to restore. The Completeness Score section shows the cap on a **Cap:** line, the result file's `summary` holds it as `capReason`, and the score step and the final report recommend making the named tool work again (the frontmatter validator finishing within 30 seconds, or skill-check running and scoring the skill, or Tessl Review turned on) and testing again, since no skill edit lifts a cap, with Update Skill as well only when the skill also scored below its threshold. The envelope's exit code and `next_workflow` (`update-skill`) are unchanged. When skill-check did not run, the Gap Report holds an Info `skill-check not run` gap with the reason (`not-available`, `timeout-120s` or `no-json`) and the steps that make it run again, a probe that exited 127 (no `timeout` or no `npx` command) included: `gap-ledger.py append --from external` takes the reason file as `--skill-check-not-run`. Update Skill's not-routed reason for an `external-validator` gap now also says to make skill-check run again when the gap says it did not run. The skill-check step handles its probe and its run in one place.
+issues: [1185]
+prs: [1217]

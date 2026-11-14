@@ -2,10 +2,6 @@
 
 # Migration & Deprecation Section Rules (§2b / §5b)
 
-> **Single source of truth.** Both `coherence-check.md` §2b (naive path)
-> and §5b (contextual path) apply the rules in this file verbatim. Update this
-> file — not the step file sections — when the rule set changes.
-
 ## Gate Check
 
 Execute this check only when both conditions are met:
@@ -42,8 +38,7 @@ are formalized in the rules below:
 - **(b) other non-migration content** — reviewer may downgrade to Low with
   inline justification.
 
-Do not relax the gate otherwise — that would desync the test workflow from the
-authoring rule.
+Do not relax the gate otherwise.
 
 ## Case Rules
 
@@ -75,11 +70,10 @@ awk '{sub(/\r$/,"")} /^---$/{c++;next} c==1 && /^t2_future_count:/{print $2; exi
 - **`t2_future_count` a non-negative integer** (digits only) → use its value
   for the Case Rules below.
 
-The pinned field is emitted by `skf-create-skill/references/compile.md`
-§7 (frontmatter-pinned fields), which always writes `t2_future_count: N`
-(including 0). Legacy skills whose `evidence-report.md` predates the pinned
-field land in Case 4, and so does every stack skill: create-stack-skill's
-evidence report has no frontmatter.
+Create Skill always writes `t2_future_count: N` (0 included). A legacy
+skill whose `evidence-report.md` predates the field lands in Case 4, and so
+does every stack skill: create-stack-skill's evidence report has no
+frontmatter.
 
 ### Case 1 — T2-future > 0 AND Section 4b absent
 

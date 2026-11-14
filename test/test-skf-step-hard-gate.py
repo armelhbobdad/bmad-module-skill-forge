@@ -17,7 +17,9 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   the source still declares outside the surface is
   a documented extra, an Info `observation` at its declaration, unless a
   brief scoped it out (#678); and each per-export record gap-ledger.py
-  writes from the run files, as the prose calls it, names its export;
+  writes from the run files, as the prose calls it, names its export, a
+  split-body record built from the inventory and its settlement included
+  (#1187);
 - a blocked run is not a halt: it writes the Completeness Score section in
   scoring's place and ends through the report step, which gives the report
   its public name only once its checks pass (#587), renders the Gap Report,
@@ -72,6 +74,9 @@ COVERAGE_FILE = REFS / "coverage-check.md"
 # The text only some coverage-check branches take, loaded from the sentence that names its section.
 COVERAGE_BRANCHES_FILE = REFS / "coverage-check-branches.md"
 COHERENCE_FILE = REFS / "coherence-check.md"
+# The mode branches coherence-check.md §1 loads (#1187).
+COHERENCE_NAIVE_FILE = REFS / "coherence-naive.md"
+COHERENCE_CONTEXTUAL_FILE = REFS / "coherence-contextual.md"
 EXT_VALIDATORS_FILE = REFS / "external-validators.md"
 SCORE_FILE = REFS / "score.md"
 REPORT_FILE = REFS / "report.md"
@@ -82,6 +87,7 @@ FORMATS_FILE = TS_DIR / "assets" / "output-section-formats.md"
 HEADINGS_FILE = TS_DIR / "assets" / "report-headings.txt"
 GAP_LEDGER = TS_DIR / "scripts" / "gap-ledger.py"
 HARD_GATE = TS_DIR / "scripts" / "hard-gate.py"
+SCORE_SIGNATURES = TS_DIR / "scripts" / "score-signatures.py"
 COMBINE = TS_DIR / "scripts" / "combine-external-scores.py"
 BUILD_CONTEXT = TS_DIR / "scripts" / "build-result-context.py"
 CONTRACT_FILE = REFS / "invocation-contract.md"
@@ -95,8 +101,13 @@ GATE_CMD = (
 )
 # The stages that record their gaps before the gate, each with the file
 # whose append command records them: a heredoc of the stage's own records, or
-# for external-validators the adapter over the external.json §4 wrote (#1120).
+# for external-validators the adapter over the external.json §4 wrote (#1120),
+# and for coverage-check the split-body adapter, which runs when §1b found no
+# mismatch too (#1187).
 EXTERNAL_APPEND = "--stage external-validators --from external"
+SPLIT_BODY_APPEND = "--stage coverage-check --from split-body"
+# coverage-check's plain append, of the records a file holds; a test's own records reach it on stdin.
+COVERAGE_RECORDS_INPUT = ' --input "{run_dir}/signature-gaps.json"'
 RECORDING_STAGES = {
     "coverage-check": COVERAGE_FILE,
     "coherence-check": COHERENCE_FILE,
@@ -105,6 +116,8 @@ RECORDING_STAGES = {
 SEVERITIES = ("Critical", "High", "Medium", "Low", "Info")
 # "a High `split-body-mismatch` gap", "Medium `structural` gaps".
 SEVERITY_CATEGORY_RE = re.compile(r"\b(Critical|High|Medium|Low|Info) `([a-z][a-z-]*)` gaps?\b")
+# A grade score-signatures.py's docstring lists, one a line: "Critical `signature-mismatch`  every other mismatch".
+GRADE_RE = re.compile(r"^ +(Critical|High|Medium|Low|Info) `([a-z][a-z-]*)`", re.M)
 TEMPLATE_HEADINGS = [
     "## Test Summary",
     "## Coverage Analysis",
@@ -132,6 +145,7 @@ def _load(name: str, path: pathlib.Path):
 
 gap_ledger = _load("skf_gap_ledger_for_step_test", GAP_LEDGER)
 hard_gate = _load("skf_hard_gate_for_step_test", HARD_GATE)
+score_signatures = _load("skf_score_signatures_for_step_test", SCORE_SIGNATURES)
 
 
 # ---------------------------------------------------------------------------
@@ -271,12 +285,16 @@ def _external(diagnostics: tuple[dict, ...] = (), findings: tuple[dict, ...] = (
 
 
 def _record(stage: str, records: list[dict] | dict, values: dict[str, str]) -> dict:
-    """Append through the stage's documented call: its heredoc fed `records`, or for external-validators the
-    `--from external` call over `records` written as `{run_dir}/external.json` (an empty list: nothing found)."""
+    """Append through the stage's documented call: its heredoc fed `records`, for external-validators the
+    `--from external` call over `records` written as `{run_dir}/external.json` (an empty list: nothing found), and for
+    coverage-check its plain `append`, fed `records` on stdin in place of its file."""
     if stage == "external-validators":
         run = pathlib.Path(values["{ledgerFile}"]).parent / "external-run"
         _write_json(run / "external.json", records or _external())
         proc = _run(_ledger_call(EXT_VALIDATORS_FILE, EXTERNAL_APPEND), values | {"{run_dir}": run.as_posix()})
+    elif stage == "coverage-check":
+        call = _ledger_call(COVERAGE_FILE, "--stage coverage-check" + COVERAGE_RECORDS_INPUT)
+        proc = _run(call.replace(COVERAGE_RECORDS_INPUT, ""), values, json.dumps(records))
     else:
         proc = _run(_append_command(RECORDING_STAGES.get(stage, REPORT_FILE), stage), values, json.dumps(records))
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -313,7 +331,7 @@ class TestPipelineChain:
 
 @pytest.mark.parametrize(
     "path",
-    [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, STEP_FILE, SCORE_FILE, REPORT_FILE],
+    [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, STEP_FILE, REPORT_FILE],
     ids=lambda p: p.stem,
 )
 def test_every_ledger_reader_binds_the_same_ledger(path: pathlib.Path) -> None:
@@ -373,6 +391,8 @@ class TestGateReadsTheLedger:
         for stage, path in RECORDING_STAGES.items():
             if stage == "external-validators":
                 assert _ledger_call(path, EXTERNAL_APPEND), stage
+            elif stage == "coverage-check":
+                assert _ledger_call(path, SPLIT_BODY_APPEND), stage
             else:
                 assert _append_command(path, stage), stage
 
@@ -530,7 +550,7 @@ class TestBlockPath:
         # The gate still names the public path in the blocked payload.
         assert _frontmatter(STEP_FILE)["publishedReportFile"] == PUBLISHED
         assert '--report-path "{publishedReportFile}"' in GATE_CMD
-        contract = _slice(_read(REPORT_FILE), "### 4c. Result Contract", "### 5.")
+        contract = _slice(_read(REPORT_FILE), "### 4c. Result Contract", "### 6.")
         publish = _flow(contract[contract.index("**Publish the report.**"):contract.index("**Write the result contract.**")])
         assert move in _fence(contract, move) and "a blocked run's included" in publish
         assert "skip the move" not in publish and "took it at the gate" not in contract
@@ -540,9 +560,9 @@ class TestBlockPath:
 
     def test_report_step_publishes_a_blocked_run(self) -> None:
         text = _read(REPORT_FILE)
-        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 2."))
+        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
         assert "`hardGate: 'blocked'`" in collect and "skips discovery testing (§4b)" in collect
-        contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))
+        contract = _flow(_slice(text, "### 4c. Result Contract", "### 6."))
         assert "A run the hard gate blocked was never scored: its expected set ends at `'hard-gate'`" in contract
         assert "the line that discovery testing did not run" in contract
         for field in ('`status: "error"`', '`verdict: "FAIL"`', "`exit_code` 2",
@@ -580,7 +600,7 @@ class TestBlockPath:
     def test_the_health_check_runs_for_a_blocked_run(self) -> None:
         """§7 dispatches it (or skips it under --no-health-check) and records healthCheckDispatched."""
         text = _read(REPORT_FILE)
-        sequence = _flow(_slice(text, "### 4. The Terminal Sequence", "### 4b."))
+        sequence = _flow(_slice(text, "## STEP GOAL:", "**Halt envelope.**"))
         assert "a blocked one included" in sequence
         assert "§7 releases the run lock and hands over to the health check" in sequence
         section7 = _flow(_slice(text, "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
@@ -677,8 +697,10 @@ class TestGapSeverityTable:
         assert "unless `guards.deflation.fires` (a Medium `metadata-drift` gap" in protocol
         assert criterion not in protocol and "more than 25%" not in protocol
 
-    @pytest.mark.parametrize("path", [COVERAGE_FILE, COVERAGE_BRANCHES_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE,
-                                      REPORT_FILE], ids=lambda p: p.stem)
+    # coverage-check-branches.md names none since #1188: §5b records its gaps by script.
+    @pytest.mark.parametrize("path", [COVERAGE_FILE, COHERENCE_FILE, COHERENCE_CONTEXTUAL_FILE,
+                                      EXT_VALIDATORS_FILE, REPORT_FILE],
+                             ids=lambda p: p.stem)
     def test_every_severity_the_prose_writes_is_a_row(self, path: pathlib.Path) -> None:
         pairs = set(SEVERITY_CATEGORY_RE.findall(_flow(_body(path))))
         assert pairs, f"{path.name} names no severity and category"
@@ -686,11 +708,40 @@ class TestGapSeverityTable:
         assert pairs <= rows, sorted(pairs - rows)
 
     def test_every_blocking_row_has_a_writer_before_the_gate(self) -> None:
+        """A stage's prose writes the gap, or a script that records it does, by the docstring that states its
+        severity and category: gap-ledger.py's adapters and score-signatures.py's grades (#1188)."""
         written = set()
-        for path in (COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE):
+        for path in (COVERAGE_FILE, COHERENCE_FILE, COHERENCE_CONTEXTUAL_FILE, EXT_VALIDATORS_FILE):
             written |= set(SEVERITY_CATEGORY_RE.findall(_flow(_body(path))))
+        written |= set(SEVERITY_CATEGORY_RE.findall(_flow(gap_ledger.__doc__)))
+        written |= set(GRADE_RE.findall(score_signatures.__doc__))
         blocking = {(s, c) for s, c, _ in _severity_rows() if s in gap_ledger.BLOCKING and c != "discovery"}
         assert blocking <= written, sorted(blocking - written)
+
+    def test_the_coverage_stage_leaves_each_gap_s_classification_to_its_script(self) -> None:
+        """#1188: coverage-check.md §2b to §4c and the branch file keep the run conditions, the commands and §5b's
+        line; the severity, category and title of each gap they find are the scripts' (gap-ledger.py's adapters,
+        score-signatures.py's grades), so no stage restates them, and each blocking row keeps a writer."""
+        coverage = _read(COVERAGE_FILE)
+        for text in (_slice(coverage, "### 2b. Resolve the Denominator", "### 5. Write the Coverage Analysis"),
+                     _read(COVERAGE_BRANCHES_FILE)):
+            assert SEVERITY_CATEGORY_RE.findall(_flow(text)) == []
+        flow = _flow(coverage)
+        for line in ("into `signature-gaps.json`, which §5b appends to the ledger.",
+                     "The guards that fire raise coverage gaps too, which §5b records from `surface.json`.",
+                     "**The numerator ground truth §2b ran.** §5b records its finding from `numerator.json`.",
+                     "§5b records each `stale[]` item from that file.",
+                     "`{gapLedgerScript}` writes each gap a script found from that script's file, with the severity "
+                     "and category of its row in the Gap Severity table of `{scoringRulesFile}` and a fixed title, "
+                     "Source, `export` and Remediation."):
+            assert line in flow, line
+        branches = _flow(_read(COVERAGE_BRANCHES_FILE))
+        assert ("coverage-check.md §5b records the missing count (scalar or stack branch, `missingCount` above 0) "
+                "from the run files.") in branches
+        assert "§5b records each `findings[]` entry from that file." in branches
+        for gone in ("A signature gap is titled", "Medium `missing-export` gaps", "a Medium `metadata-drift` gap",
+                     "is a High `numerator-inflation` gap", "a Low `provenance-line` gap"):
+            assert gone not in flow + branches, gone
 
 
 # ---------------------------------------------------------------------------
@@ -706,6 +757,10 @@ class TestStagesRecordTheirGaps:
             # #1120: the adapter builds the records from external.json, so the step types none.
             assert "Run the command even when neither validator ran" in text
             assert "<<'SKF_GAPS'" not in text and "the quoted marker" not in text
+        elif stage == "coverage-check":
+            # #1187: the split-body adapter builds the records no other script wrote, so the step types none.
+            assert "Run the command even when §1b found none, leaving out `--settlements`" in text
+            assert "<<'SKF_GAPS'" not in text and "the quoted marker" not in text
         else:
             assert "Run the command even when the array is empty (`[]`)" in text
             assert "the quoted marker hands them to the script unchanged" in text
@@ -713,12 +768,17 @@ class TestStagesRecordTheirGaps:
             assert outcome in text, outcome
 
     def test_coverage_records_what_541_names(self) -> None:
-        # §4b's count findings are recorded from the branch section §4b loads
+        # #1188: §5b's calls record the numerator, count and line findings, by the severity and category
+        # gap-ledger.py's adapters give them; the stage names only the split-body gap §1b finds itself
         text = _flow(_body(COVERAGE_FILE)) + " " + _flow(_read(COVERAGE_BRANCHES_FILE))
-        for needle in ("High `split-body-mismatch` gap", "High `numerator-inflation` gap",
-                       "Medium `metadata-drift` gap", "Info `multi-denominator` gap",
+        assert "High `split-body-mismatch` gap" in text
+        calls = _flow(_slice(_read(COVERAGE_FILE), "### 5b. Record the Coverage Gaps", "### 6."))
+        for adapter in ("coverage", "guards", "numerator", "metadata-coherence", "provenance-line", "split-body"):
+            assert f"--stage coverage-check --from {adapter} --input" in calls, adapter
+        doc = _flow(gap_ledger.__doc__)
+        for needle in ("High `numerator-inflation` gap", "Medium `metadata-drift` gap", "Info `multi-denominator` gap",
                        "Low `provenance-line` gap", "Info `provenance-unverified` gap"):
-            assert needle in text, needle
+            assert needle in doc, needle
         for stale in ("gap list (built in section 5)", "feed into the gap report (step 6)"):
             assert stale not in text, stale
 
@@ -847,7 +907,7 @@ class TestStagesRecordTheirGaps:
         assert ("An entry for two references the body does not settle is titled `Split-body mismatch: {export} "
                 "({other_file}, {reference_file})`.") in section
         # §5b keeps the sentence that loads the Source rule; the rule itself is a branch section
-        side = _flow(_slice(text, "**A split-body mismatch's Source**", "Then write the records no script wrote"))
+        side = _flow(_slice(text, "**A split-body mismatch's Source**", "Save each §1b entry's settlement"))
         assert side == ("**A split-body mismatch's Source** is a line inside the skill package: when §1b found one, "
                         "load `{coverageBranchesFile}` and follow its **Split-Body Sources** section. ")
         assert text.index("**A split-body mismatch's Source**") > text.index("### 5b. Record the Coverage Gaps")
@@ -872,10 +932,13 @@ class TestStagesRecordTheirGaps:
                        "`{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two "
                        "references)"):
             assert needle in rule, needle
-        # #1026: the surface paragraph says what a surface no runner extraction built writes for that list
-        assert ("It is `null`, not `[]`, when no runner extraction looked for them: a surface with no extraction, or "
-                "one the fallback per-file scan builds, with or without the runner's JSON.") in _flow(
-                    _read(REFS / "source-access-protocol.md"))
+        # #1026: the surface paragraph says what a surface no runner extraction built writes for that list, and
+        # load-coverage-inputs.py's docstring which surfaces those are (#1188)
+        assert "and are `null` when no runner extraction looked for them." in _flow(
+            _read(REFS / "source-access-protocol.md"))
+        assert ("null with no extraction or with one the per-file scan replaces, which looks for none, so null means "
+                "never looked for") in _flow(_load("skf_coverage_inputs_for_split_body_test",
+                                                   TS_DIR / "scripts" / "load-coverage-inputs.py").__doc__)
         # #1035: a method pair is settled by the member its owner's body declares, read from the owner's record, or,
         # for a namespace object such as cognee's `session`, by the function its keyword binds, by the same
         # one-declaration test, before the remediation that cites the declaration's `file:line`
@@ -995,17 +1058,33 @@ class TestStagesRecordTheirGaps:
                                                                                ) -> None:
         """#841: a body that matches both references while they contradict each other leaves their pair to find it,
         a High `split-body-mismatch` the hard gate blocks on, beside another export's body pair. The pair's fixed
-        order gives it one title, so a rerun of §5b records each gap once."""
-        pair = _gap("High", "split-body-mismatch",
-                    "Split-body mismatch: run_tasks_parallel (references/a.md, references/b.md)",
-                    source="references/b.md:5", export="run_tasks_parallel")
-        body = _gap("High", "split-body-mismatch", "Split-body mismatch: fetch (references/b.md)",
-                    source="references/b.md:9", export="fetch")
-        first = _record("coverage-check", [pair, body], values)
-        again = _record("coverage-check", [pair, body], values)
+        order gives it one title, so a rerun of §5b records each gap once. #1187: §5b's `--from split-body` call
+        builds both records from the inventory and the settlements file."""
+        run = pathlib.Path(values["{ledgerFile}"]).parent / "run"
+        _write_json(run / "inventory.json", {
+            "exports": [{"name": "run_tasks_parallel", "kind": "function"}, {"name": "fetch", "kind": "function"}],
+            "references": ["references/a.md", "references/b.md"],
+            "cross_check_mismatches": [
+                {"export": "run_tasks_parallel", "reference_file": "references/b.md", "reference_line": 5,
+                 "other_file": "references/a.md", "other_line": 3, "issue": "a.md awaits it, b.md does not"},
+                {"export": "fetch", "reference_file": "references/b.md", "reference_line": 9, "skill_md_line": 20,
+                 "issue": "SKILL.md gives one parameter, b.md two"}]})
+        _write_json(run / "split-body-settlements.json", [
+            {"export": "run_tasks_parallel", "reference_file": "references/b.md", "source": "reference",
+             "remediation": "No source settled it: edit references/b.md:5 to take references/a.md:3's form."},
+            {"export": "fetch", "reference_file": "references/b.md", "source": "reference",
+             "remediation": "No source settled it: edit references/b.md:9 to take SKILL.md:20's form."}])
+        call = _ledger_call(COVERAGE_FILE, SPLIT_BODY_APPEND, keep=("--settlements",))
+        first = _run(call, values | {"{run_dir}": run.as_posix()})
+        again = _run(call, values | {"{run_dir}": run.as_posix()})
+        assert first.returncode == 0 and again.returncode == 0, first.stdout + again.stdout
+        first, again = json.loads(first.stdout), json.loads(again.stdout)
         assert (first["appended"], again["appended"], again["duplicates"]) == (
             ["GAP-001", "GAP-002"], [], ["GAP-001", "GAP-002"])
-        assert [r["title"] for r in _ledger_records(values)] == [pair["title"], body["title"]]
+        assert [(r["severity"], r["title"], r["source"], r["export"]) for r in _ledger_records(values)] == [
+            ("High", "Split-body mismatch: run_tasks_parallel (references/a.md, references/b.md)", "references/b.md:5",
+             "run_tasks_parallel"),
+            ("High", "Split-body mismatch: fetch (references/b.md)", "references/b.md:9", "fetch")]
         _record("coherence-check", [], values)
         _record("external-validators", [], values)
         out = json.loads(_gate(values).stdout)
@@ -1013,13 +1092,26 @@ class TestStagesRecordTheirGaps:
         assert [(g["id"], g["severity"]) for g in out["blocking"]] == [("GAP-001", "High"), ("GAP-002", "High")]
 
     def test_each_per_export_record_names_its_export(self) -> None:
-        """The hand-written split-body record and the script's per-export records name the export in
-        `export` and in the title."""
+        """The split-body record and the script's per-export records name the export in `export` and in the
+        title; #1187: the split-body adapter builds both from the inventory entry. #1188: score-signatures.py
+        titles a signature gap and names its export, which coverage-check.md no longer restates."""
         text = _flow(_body(COVERAGE_FILE))
         assert "titled `Split-body mismatch: {export} ({reference_file})`, with its `export`" in text
-        assert "titled `Signature mismatch: {name}`, with `export` `{name}`" in text
-        assert "§1b's split-body mismatches, in the Ledger Record Format" in text
-        assert "each naming its export in `export` and in its title" in text
+        assert "titled `Signature mismatch: {name}`" not in text
+        signature = score_signatures._gap_record({
+            "name": "fetch", "file": "src/a.ts", "line": 3, "documented_sig": "(url)", "source_sig": "(url, opts)",
+            "issue": "arity", "difference": None, "severity": "Critical"})
+        assert (signature["export"], signature["title"], signature["source"]) == (
+            "fetch", "Signature mismatch: fetch", "src/a.ts:3")
+        assert "The script builds each record's title, Source and `export` from the inventory entry." in text
+        assert "in the Ledger Record Format" not in _flow(_slice(_read(COVERAGE_FILE), "### 5b.", "### 6."))
+        [split] = gap_ledger.from_split_body(
+            {"exports": [], "references": ["references/api.md"], "cross_check_mismatches": [
+                {"export": "fetch", "reference_file": "references/api.md", "reference_line": 4, "skill_md_line": 9,
+                 "issue": "arity"}]},
+            [{"export": "fetch", "reference_file": "references/api.md", "source": "other", "remediation": "Fix."}])
+        assert (split["export"], split["title"], split["source"]) == (
+            "fetch", "Split-body mismatch: fetch (references/api.md)", "SKILL.md:9")
         records = gap_ledger.from_coverage(
             {"branch": "enumerated", "missing": ["fetchData", "Options"], "stale": ["ghost", "old"]},
             signatures={"missingTypes": ["Options"]},
@@ -1040,8 +1132,12 @@ class TestStagesRecordTheirGaps:
     def test_inflated_names_become_missing_exports_update_skill_can_route(self, values: dict[str, str],
                                                                           tmp_path: pathlib.Path) -> None:
         text = _flow(_body(COVERAGE_FILE))
-        scalar = _flow(_slice(_read(COVERAGE_BRANCHES_FILE), "## Scalar and Stack Branches", "## Denominator"))
-        assert "its `absent[]` names replace this gap, one each" in scalar
+        scalar = _flow(_slice(_read(COVERAGE_BRANCHES_FILE), "## Scalar and Stack Branches", "## Metadata Count Cross-Check"))
+        # #1188: the branch names the run condition, and gap-ledger.py's coverage adapter the rule
+        assert ("coverage-check.md §5b records the missing count (scalar or stack branch, `missingCount` above 0) "
+                "from the run files.") in scalar
+        assert ("a scalar count taken from the verified numerator (`numeratorSource` `verified`) is replaced by one "
+                "`Missing export: {name}` gap per --numerator `absent` name") in _flow(gap_ledger.__doc__)
         # §5b keeps `--provenance` whenever the map is bound, though no run file holds it: the absent names'
         # Source comes from it, and update-skill takes that line as its `source_citation`.
         assert ("leaving out a bracketed flag whose file does not exist: a run file this run did not write, "
@@ -1088,10 +1184,10 @@ class TestStagesRecordTheirGaps:
 
     def test_a_function_no_example_names_does_not_block(self) -> None:
         text = _flow(_body(COHERENCE_FILE))
-        assert "**Zero occurrences across the entire scope → Medium severity** finding" in text
+        assert ("**Zero occurrences across the entire scope → Medium severity** finding"
+                in _flow(_slice(_read(COHERENCE_NAIVE_FILE), "**2.4 Exports", "**2.5 ")))
         assert ("the §2.1, §2.2 and §2.5 findings are High `structural` gaps and the §2.3, §2.4 and §2.6 "
                 "findings Medium `structural` gaps") in text
-        assert '{"type": "export_not_in_usage", "severity": "Medium"' in text
 
     def test_external_validation_findings_are_recorded(self) -> None:
         section = _flow(_slice(_read(EXT_VALIDATORS_FILE), "### 5b. Record", "### 6. Report Results"))
@@ -1198,51 +1294,52 @@ class TestStaleNameLineCheck:
         assert "and run once (leave `--brief` out with no brief):" in _flow(section)
 
     def test_fabricated_needs_a_cited_file_without_the_name(self, section: str) -> None:
+        """#1188: §2c keeps the run condition and the call; the classification is gap-ledger.py's coverage
+        adapter's, whose docstring the two severity rows name as the rule's home."""
         flow = _flow(section)
         for needle in (
             "Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden`",
-            "A name it marks `fabricated: true` (every map entry of the name cites a missing file or one that "
-            "does not define it) is a Critical `fabricated-signature` gap at its `source`",
-            "is a Medium `stale-documentation` gap",
-            "a helper that does not resolve or exits non-zero",
-            "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
-            "so named counting unless the name's inventory kind rules it out), or whose `declared_in` lists several "
-            "files of which its forms' own `[AST:]`/`[SRC:]` citations (at their `at`), else, when they "
-            "cite none, the skill's on lines naming it, cite exactly one (or a package and its same-named module), "
-            "is a documented extra: an Info `observation` gap at "
-            "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "
-            "list the name",
-            "(no `defined_at` and no single cited declaring file, one scoped out, no `extraction`, a dotted name, a "
-            "helper that does not resolve or exits non-zero)",
+            "A helper that does not resolve or exits non-zero writes no `stale.json`, and §5b's call leaves "
+            "`--stale` out.",
         ):
             assert needle in flow, needle
-        # #1077 review: forms whose own citations cite two declaring files keep the Medium, whatever the skill's
-        # lines cite, since those lines miss a citation after a fence, on a comment line above or with no `:L<n>`
+        assert "`fabricated-signature` gap" not in flow and "`stale-documentation` gap" not in flow
+        doc = _flow(gap_ledger.__doc__)
+        for needle in (
+            "Each `stale` name the --stale result (classify-stale) marks `fabricated` is a Critical "
+            "`fabricated-signature` gap `Fabricated signature: {name}` at its `source`",
+            "an Info `observation` gap `Documented extra: {name}` at `defined_at`",
+            "is a Medium `stale-documentation` gap",
+            # #1077 review: forms whose own citations cite two declaring files keep the Medium, whatever the
+            # skill's lines cite, since those lines miss a citation after a fence, on a comment line above or with
+            # no `:L<n>`
+            "when its forms' own citations (at their inventory `at`), else the skill's on lines naming it, cite "
+            "exactly one of those files",
+            "so forms citing two of the files keep it Medium",
+        ):
+            assert needle in doc, needle
+        rule = "by the rule `scripts/gap-ledger.py`'s `coverage` adapter applies"
         medium = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Medium   | `stale-documentation`"))
-        assert ("and either its forms' own citations (at their inventory `at`) cite two of the files that do or "
-                "neither they nor the skill's citations on the lines that name it cite a single one (a Python package's "
-                "`NAME/__init__.py` cited with only its same-named module counting as one)") in medium
+        assert f"that is not a fabricated signature or an Info `observation`, {rule} (coverage-check §2c) |" in medium
         info = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Info     | `observation`"))
-        assert ("the one its forms' own citations cite (at their inventory `at`), else, when they cite none, the "
-                "one the skill cites on a line naming it,") in info
+        assert f"a documented extra or a stale name cited at another package's `export *`, {rule}," in info
 
     def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, section: str,
                                                                            tmp_path: pathlib.Path) -> None:
         """#1005: a stale name no file declares, which the skill cites at a file holding an `export *` from
         another package, is the Info observation §2c names, before the Medium catch-all, and §5b's coverage call
         records it so: the surface lists the star in `unresolvedStars`."""
-        flow = _flow(section)
         # #1005 review: a name the brief scopes out keeps its scoped-out Medium, and the record's title is not
         # the one score-signatures.py records at the Deep tier (#1084); #1070: a map entry at the star's own line
-        # reads the same
-        rule = ("With no `defined_at`, one cited at an `unresolvedStars` file, or whose map entry cites a star's own "
-                "line, and not scoped out is an Info `observation` naming the star.")
-        assert rule in flow
-        assert flow.index(rule) < flow.index("Any other stale name (")
-        medium = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Medium   | `stale-documentation`"))
-        assert ("not, with no `defined_at` and not scoped out by the brief, one the skill cites at a file holding "
-                "another package's `export *` or whose provenance map entry cites such an `export *` line itself (an "
-                "Info `observation`)") in medium
+        # reads the same. #1188: the rule is gap-ledger.py's, which the Info row names.
+        assert "`unresolvedStars`" not in _flow(section)
+        doc = _flow(gap_ledger.__doc__)
+        assert ("cite a file the --surface result's `unresolvedStars` lists (an `export *` from another package no "
+                "script resolves, #1005)") in doc
+        assert "is an Info `observation` gap `Not checked by script: {name} (another package's export *)`" in doc
+        info = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Info     | `observation`"))
+        assert ("a stale name cited at another package's `export *`, by the rule `scripts/gap-ledger.py`'s "
+                "`coverage` adapter applies") in info
         skill = tmp_path / "skill"
         skill.mkdir()
         (skill / "SKILL.md").write_bytes(b"# demo\n\n`Mock` mocks. `[AST:src/test/spy.ts:L1]`\n")
@@ -1329,9 +1426,9 @@ class TestStaleNameLineCheck:
         the star the surface lists in `unresolvedStars`: an Info observation, with or without the skill, and §4c's
         Info line check of the entry stays, so nothing blocks the hard gate. An entry at a relative star or at
         another line stays a Critical `fabricated-signature` gap."""
-        flow = _flow(section)
-        assert ("is a Critical `fabricated-signature` gap at its `source`, unless an entry cites an "
-                "`unresolvedStars` star's line (below).") in flow
+        # #1188: gap-ledger.py's coverage adapter, not §2c, says a star's own line fabricates nothing
+        assert ("unless one of its `entries` cites the line of an `unresolvedStars` star (below, #1070), which reads "
+                "it as not fabricated") in _flow(gap_ledger.__doc__)
         critical = next(r for r in _read(SCORING_FILE).splitlines()
                         if r.startswith("| Critical | `fabricated-signature`"))
         assert ("A provenance map entry's line that is an `export *` from another package no script resolves "
@@ -1651,7 +1748,7 @@ class TestReportTerminalSequence:
         return _read(REPORT_FILE)
 
     def test_the_expected_set_leaves_report_out(self, text: str) -> None:
-        contract = _slice(text, "### 4c. Result Contract", "### 5.")
+        contract = _slice(text, "### 4c. Result Contract", "### 6.")
         expected = re.findall(r"'([a-z-]+)'", _fence(contract, "'external-validators'"))
         assert expected == ["init", "detect-mode", "coverage-check", "coherence-check", "external-validators",
                             "hard-gate", "score"]
@@ -1800,9 +1897,13 @@ class TestReportTerminalSequence:
         assert counts == expected
         assert (counts == dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 6, "title": 1}) is (case == "bundled")
 
-    def test_the_inconclusive_paragraph_matches_the_order(self, text: str) -> None:
-        final = _flow(_slice(text, "### 5. Finalize Output Document", "### 6."))
-        assert "§4c wrote the result contract with that verdict and §6 presents it" in final
+    def test_the_inconclusive_branch_recommends_manual_review(self, text: str) -> None:
+        """#1189 leanness-7: §6's INCONCLUSIVE branch, after §4c wrote the verdict, is the one home of the
+        recommendation; the §5 that repeated it is gone."""
+        present = _slice(text, "### 6. Present Final Report", "### 6b.")
+        branch = _flow(present[present.index("{IF INCONCLUSIVE:}"):].split("\n\n", 1)[0])
+        assert branch.startswith("{IF INCONCLUSIVE:} **manual-review**") and branch.endswith("Do not export.")
+        assert "### 5." not in text and "INCONCLUSIVE as gate" not in text
         assert "have already been written" not in text
 
     def test_fail_names_update_skill_from_test_report(self, text: str) -> None:
@@ -1817,31 +1918,28 @@ class TestReportTerminalSequence:
                 "Skill or the skill brief.") in follow
 
     def test_counts_come_from_the_ledger(self, text: str) -> None:
-        contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))
+        contract = _flow(_slice(text, "### 4c. Result Contract", "### 6."))
         assert "Bind `{gap_counts}` ← `counts`, `{total_gaps}` ← `total` and `{blocking_gaps}` ← `blocking`" in contract
         # The result contract's gap counts come from the ledger too, through the script.
-        raw = _slice(text, "### 4c. Result Contract", "### 5.")
+        raw = _slice(text, "### 4c. Result Contract", "### 6.")
         assert '--ledger "{ledgerFile}"' in _fence(raw, "uv run {resultContextScript}")
         present = _slice(text, "### 6. Present Final Report", "### 6b.")
         assert "- Critical: {gap_counts.Critical}" in present
 
     def test_no_gap_is_classified_from_the_report_markdown(self, text: str) -> None:
-        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 2."))
+        collect = _flow(_slice(text, "### 1. Collect All Issues", "### 4b."))
         assert "Do not collect gaps again from the report's sections" in collect
-        evidence = _flow(_slice(_read(SCORE_FILE), "#### 4b.1 Generate Evidence Report", "**Evidence report template:**"))
-        assert "**Read the gaps from the gap ledger**" in evidence
-        assert "extract findings from the Coverage Analysis and Coherence Analysis sections" not in evidence
 
-    def test_the_evidence_report_takes_the_render_output(self) -> None:
-        """The script orders and counts the gaps; score.md §4b.1 sorts nothing by hand."""
-        section = _slice(_read(SCORE_FILE), "#### 4b.1 Generate Evidence Report", "### 5.")
-        command = 'uv run {gapLedgerScript} render --ledger "{ledgerFile}"'
-        assert _fence(section, command).strip() == command
-        assert "write its output unchanged under **Findings Preventing Higher Threshold**" in _flow(section)
-        assert "{the output of the render command above, unchanged}" in section
-        for gone in ("{For each gap entry", "{Count: N critical", "in the order the Gap Report uses",
-                     "The {N} findings above"):
-            assert gone not in section, gone
+    def test_the_fallback_points_at_the_gap_report(self) -> None:
+        """#1190: score.md reads no gap of its own; the fallback subsection points at the Gap Report, which §4c
+        renders from the ledger, so no step sorts or repeats the gaps by hand."""
+        score = _read(SCORE_FILE)
+        fm = _frontmatter(SCORE_FILE)
+        assert "ledgerFile" not in fm and "gapLedgerScript" not in fm
+        section = _flow(_slice(score, "### 4b. Threshold Fallback", "### 5."))
+        assert "a pointer to the Gap Report, which report.md §4c renders from the gap ledger" in section
+        for gone in ("render --ledger", "Findings Preventing Higher Threshold", "{the output of the render command"):
+            assert gone not in score, gone
 
 
 class TestDiscoveryGaps:
@@ -2246,12 +2344,12 @@ class TestExitCodes:
         assert "step 4c" in row and "hard-gate-blocked" in row and "step 6 publishes it as a FAIL" in row
 
     def test_every_verdict_exit_leaves_through_the_terminal_sequence(self, section: str) -> None:
-        # report.md §4 owns the sequence; the table names the step each verdict exit leaves through.
+        # report.md's STEP GOAL states the sequence; the table names the step each verdict exit leaves through.
         for code in ("0", "2", "3", "4"):
             row = next(line for line in section.splitlines() if re.match(rf"\|\s*{code}\s*\|", line))
             assert "step 6: `testResult:" in row, code
         assert "(after the result contract is written in §4c)" not in section
-        sequence = _flow(_slice(_read(REPORT_FILE), "### 4. The Terminal Sequence", "### 4b."))
+        sequence = _flow(_slice(_read(REPORT_FILE), "## STEP GOAL:", "**Halt envelope.**"))
         assert "Every run that reaches this step, a blocked one included, ends through one sequence" in sequence
         order = ["§4b records the discovery outcome", "§4c renders the Gap Report",
                  "writes the result contract and runs the on_complete hook", "§6 presents the result",

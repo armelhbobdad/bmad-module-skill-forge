@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now scores a run from flags it reads back from the test report, not from what a long run still remembers. The report gains a `docsOnly` key, which the coverage check writes when it decides whether the skill is docs-only, and a docs-only run writes `analysisConfidence: 'docs-only'` at once. The score step reads `tier` from `forgeTier`, `docsOnly` and `analysisConfidence` from the report, and the State 2 flag from `analysisConfidence`, and it passes `surface.json` to `compute-score.py` on every run that wrote one. `compute-score.py` now refuses (`INVALID_INPUT`, exit 2) a `docsOnly` that disagrees with `coverage.json`'s `denominatorSource` and a `state2` that is not true beside a `surface.json` holding State 2 counts, so a lost flag can no longer skip the docs-only cap or the State 2 deduction. The Coverage Analysis section's Tier line now names the tier the run tested at, through a value init binds, where it named one no step bound.
+issues: [1185]
+prs: [1217]

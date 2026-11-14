@@ -280,7 +280,7 @@ HOOK_STAGES = {
                                  "When `{result_path}` is null, skip it too")],
     "skf-rename-skill": [("report.md", "### 3. Post-Completion Hook", "### 4.",
                           "when `{result_path}` is null, skip it")],
-    "skf-test-skill": [("report.md", "**Post-finalization hook.**", "### 5.", "`{result_path}` is not null")],
+    "skf-test-skill": [("report.md", "**Post-finalization hook.**", "### 6.", "`{result_path}` is not null")],
     "skf-update-skill": [("report.md", "**Post-finalization hook.**", "### 6.", "skip it and say why")],
 }
 HOOK_STAGE_CASES = [(skill, *stage) for skill, stages in HOOK_STAGES.items() for stage in stages]

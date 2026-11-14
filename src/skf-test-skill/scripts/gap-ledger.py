@@ -63,7 +63,8 @@ Subcommands:
          [--surface <file>] [--signatures <file>] [--numerator <file>]
          [--stale <file>] [--provenance <file>] [--inventory <file>]
          [--skill-dir <dir>] [--metadata <path>] [--served <family>]...
-         [--not-applicable <index>:<rule-id>]...
+         [--not-applicable <index>:<rule-id>]... [--skill-check-not-run <file>]
+         [--settlements <file>]
       Build the records from the result file a script wrote (see Adapters
       below) instead of reading them, then append them as above, with the
       same output. A gap a script finds is recorded with a fixed title,
@@ -351,7 +352,30 @@ cites (never read; default `metadata.json`):
             `missing` is a Critical `broken-reference` gap, `inaccurate` a
             High `inaccurate-reference` gap (its `issues` as the issue) and
             `escapes` a High `reference-escape` gap naming its `canonical`
-            path.
+            path. Then each `incompletePatterns[]` entry (none when the
+            result has none) is a Medium `integration-pattern` gap
+            `coherence: incomplete integration pattern: {pattern}` at
+            `SKILL.md:{line}`, its `issue` the issue, whose remediation
+            completes the pattern there; an entry without a non-blank
+            `pattern` and `issue` and a `line` of 1 or more is INVALID_INPUT.
+  split-body
+            --input validate-inventory.py's inventory (inventory.json);
+            --settlements. With an empty `references`, or no
+            `cross_check_mismatches`, no record (a --settlements file then
+            holds none). Otherwise --settlements is required: a JSON array,
+            or {"settlements": [...]}, of one {"export", "reference_file",
+            "source", "remediation"} per `cross_check_mismatches` entry, in
+            its order, with the entry's `export` and `reference_file`,
+            `source` `reference` or `other` (the side coverage-check.md §5b
+            settled the Source at) and a non-blank `remediation`. Each entry
+            is a High `split-body-mismatch` gap `Split-body mismatch:
+            {export} ({reference_file})`, or `({other_file},
+            {reference_file})` for a pair of references, with `export`, its
+            `issue` as the issue and the settlement's remediation, at
+            `{reference_file}:{reference_line}` for `reference`, else at
+            `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`. A
+            missing settlement, another count or order, another `source`, a
+            blank remediation or an entry missing a field is INVALID_INPUT.
   structure --input one or more skf-scan-skill-md-structure.py results,
             each told apart by its keys; --served. A `scan --required-sections`
             result: each family not `satisfied` is a High `structural` gap
@@ -364,7 +388,7 @@ cites (never read; default `metadata.json`):
             A `usage-scope` result: each `zero_usage` export is a Medium
             `structural` gap with `export`. A `scan` or `reference-check`
             result whose `scripts_assets.missing` is true is a Medium
-            `scripts-assets` gap. The titles are coherence-check.md's
+            `scripts-assets` gap. The titles are coherence-naive.md's
             `naive-coherence:` texts; a `reference-check` result (contextual
             mode) titles its gap `coherence:` instead.
   external  --input combine-external-scores.py's file-mode result
@@ -377,7 +401,10 @@ cites (never read; default `metadata.json`):
             `tesslValidationFindings`, `tesslDescriptionSuggestions` and
             `tesslContentSuggestions` (a JSON-input result) is INVALID_INPUT,
             as is a mark of another form or whose index that list does not
-            have. In this order: each
+            have. --skill-check-not-run names the file in which §2 of
+            external-validators.md kept why skill-check did not run; a file
+            with no non-blank line, or one that cannot be read, is
+            INVALID_INPUT. In this order: each
             `skillCheckDiagnostics[]` entry is a Low `external-validator` gap
             `skill-check: {ruleId}` at `{file}:{line}` (a line above 0), else
             `{file}`, else `SKILL.md`, its message the issue and its
@@ -388,7 +415,10 @@ cites (never read; default `metadata.json`):
             `SKILL.md frontmatter description`, fixed there (and in the brief,
             when the skill has one); and each content suggestion no mark
             names an Info `external-validator` gap titled with it at
-            `SKILL.md`.
+            `SKILL.md`; then, with --skill-check-not-run, one Info
+            `external-validator` gap `skill-check not run: {the file's first
+            non-blank line}` at `SKILL.md`, whose remediation says how to
+            make skill-check run again.
 
   render --ledger <path> [--heading]
       Print the Gap Report body in Markdown on stdout: the totals, the
@@ -400,6 +430,18 @@ cites (never read; default `metadata.json`):
       which skf-parse-gaps.py reads back for a report whose ledger is gone.
       --heading adds the `## Gap Report` line. With no records the body says
       no gaps were found.
+
+  render --from structure --input <file>... [--served <family>]...
+      Print the naive Coherence Analysis section's Structural Findings table
+      (coherence-check.md §6, #1186) from the records the structure adapter
+      builds out of the same scan files and --served as its append: the
+      `### Structural Findings` heading, the `| # | Type | Severity | Detail
+      | Line |` header, then one row per record in the adapter's order, `#`
+      from 1, Type its category, Detail its title and Line the number after
+      `SKILL.md:` (else -), a `|` escaped. The rows the model judged (§2.5)
+      are numbered on under it. --ledger or --heading beside --from, or a
+      kind other than structure, is a usage error (exit 2); a file the
+      adapter refuses is INVALID_INPUT on stderr, exit 2.
 
   summary --ledger <path>
       Output: {"status": "ok", "ledger", "run_id", "stages", "total",
@@ -516,7 +558,10 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "observation": ("Structural", "a style suggestion, a documented extra or another non-blocking observation"),
     "discovery": ("Discovery", "a discovery test that misrouted prompts or did not run"),
     "description": ("Discovery", "a description whose triggers need optimizing"),
-    "external-validator": ("External", "a skill-check diagnostic or a Tessl Review suggestion"),
+    "external-validator": (
+        "External",
+        "a skill-check diagnostic, a Tessl Review suggestion or a skill-check that did not run",
+    ),
 }
 
 REQUIRED_FIELDS = ("severity", "category", "title", "source", "remediation")
@@ -569,7 +614,7 @@ ACTIONS = {
                  "test as its remediation says",
     "description": "edit the SKILL.md frontmatter description as each gap suggests",
     "external-validator": "apply each skill-check diagnostic or Tessl Review suggestion to SKILL.md as its "
-                          "remediation says",
+                          "remediation says, or make skill-check run again when it did not run",
 }
 
 _ID_RE = re.compile(r"^GAP-(\d{3,})$")
@@ -974,8 +1019,9 @@ ADAPTER_OPTIONS: dict[str, frozenset[str]] = {
     "metadata-coherence": frozenset({"metadata"}),
     "provenance-line": frozenset({"stale"}),
     "coherence": frozenset(),
+    "split-body": frozenset({"settlements"}),
     "structure": frozenset({"served"}),
-    "external": frozenset({"not_applicable"}),
+    "external": frozenset({"not_applicable", "skill_check_not_run"}),
 }
 ALL_ADAPTER_OPTIONS = frozenset().union(*ADAPTER_OPTIONS.values())
 _DEFAULT_METADATA = "metadata.json"
@@ -2275,7 +2321,15 @@ def without_fabricated(ledger: dict, records: list[dict]) -> list[dict]:
 
 
 def from_coherence(result: object) -> list[dict]:
-    """aggregate-coherence.py's invalid references."""
+    """aggregate-coherence.py's invalid references, then its incomplete integration patterns.
+
+    >>> [record] = from_coherence({"invalidReferences": [], "incompletePatterns": [
+    ...     {"pattern": "a + b", "issue": "no file:line citation.", "line": 95}]})
+    >>> record["title"], record["source"], record["issue"]
+    ('coherence: incomplete integration pattern: a + b', 'SKILL.md:95', 'no file:line citation.')
+    >>> record["remediation"]
+    'Complete the integration pattern `a + b` at SKILL.md:95: no file:line citation.'
+    """
     result = _object(result, "--input (aggregate-coherence.py)", "invalidReferences")
     records: list[dict] = []
     for index, ref in enumerate(_list(result, "invalidReferences", "--input")):
@@ -2306,6 +2360,94 @@ def from_coherence(result: object) -> list[dict]:
                 f"or remove it: it resolves to `{canonical}`."))
         else:
             raise AdapterError(f"--input: invalidReferences[{index}] has an unknown status {status!r}")
+    for index, entry in enumerate(_list(result, "incompletePatterns", "--input")):
+        pattern = entry.get("pattern") if isinstance(entry, dict) else None
+        issue = entry.get("issue") if isinstance(entry, dict) else None
+        line = _count(entry.get("line")) if isinstance(entry, dict) else None
+        if not (isinstance(pattern, str) and pattern.strip() and isinstance(issue, str) and issue.strip()
+                and line is not None and line >= 1):
+            raise AdapterError(f"--input: incompletePatterns[{index}] needs a non-blank `pattern` and `issue` and a "
+                               "`line` of 1 or more")
+        where = f"SKILL.md:{line}"
+        records.append(_gap(
+            "Medium", "integration-pattern", f"coherence: incomplete integration pattern: {pattern}", where,
+            f"Complete the integration pattern `{pattern}` at {where}: {issue.strip().rstrip('.')}.", issue=issue))
+    return records
+
+
+# The fields of a split-body settlement (coverage-check.md §5b), and the side its Source is at.
+SETTLEMENT_FIELDS = ("export", "reference_file", "source", "remediation")
+SETTLEMENT_SIDES = ("reference", "other")
+
+
+def _line_of(entry: dict, key: str, where: str) -> int:
+    line = _count(entry.get(key))
+    if line is None or line < 1:
+        raise AdapterError(f"{where} needs `{key}`, a line of 1 or more")
+    return line
+
+
+def _text_of(entry: dict, key: str, where: str) -> str:
+    value = entry.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise AdapterError(f"{where} needs a non-blank `{key}`")
+    return value
+
+
+def from_split_body(inventory: object, settlements: object = None) -> list[dict]:
+    """validate-inventory.py's split-body mismatches, each settled by the main thread (coverage-check.md §5b).
+
+    >>> inv = {"exports": [], "references": ["references/a.md", "references/b.md"], "cross_check_mismatches": [
+    ...     {"export": "run", "reference_file": "references/b.md", "reference_line": 7, "issue": "arity",
+    ...      "other_file": "references/a.md", "other_line": 3}]}
+    >>> [(r["title"], r["source"]) for r in from_split_body(inv, [{"export": "run", "reference_file":
+    ...     "references/b.md", "source": "other", "remediation": "Fix a.md."}])]
+    [('Split-body mismatch: run (references/a.md, references/b.md)', 'references/a.md:3')]
+    >>> from_split_body({"exports": [], "references": [], "cross_check_mismatches": inv["cross_check_mismatches"]})
+    []
+    """
+    inventory = _object(inventory, "--input (validate-inventory.py inventory)", "exports")
+    mismatches = _list(inventory, "cross_check_mismatches", "--input") if inventory.get("references") else []
+    if settlements is None:
+        if mismatches:
+            raise AdapterError(f"--input holds {len(mismatches)} split-body mismatch(es): pass their settlements "
+                               "as --settlements")
+        return []
+    if isinstance(settlements, dict) and isinstance(settlements.get("settlements"), list):
+        settlements = settlements["settlements"]
+    if not isinstance(settlements, list):
+        raise AdapterError("--settlements must be a JSON array of settlements or an object with a `settlements` "
+                           "array")
+    if len(settlements) != len(mismatches):
+        raise AdapterError(f"--settlements holds {len(settlements)} settlement(s) for the {len(mismatches)} "
+                           "split-body mismatch(es) of --input: one per mismatch, in its order")
+    records: list[dict] = []
+    for index, (entry, settled) in enumerate(zip(mismatches, settlements)):
+        where = f"--input: cross_check_mismatches[{index}]"
+        if not isinstance(entry, dict):
+            raise AdapterError(f"{where} is not an object")
+        export = _text_of(entry, "export", where)
+        reference = _text_of(entry, "reference_file", where)
+        issue = _text_of(entry, "issue", where)
+        reference_source = f"{reference}:{_line_of(entry, 'reference_line', where)}"
+        if entry.get("other_file") is not None:
+            other_file = _text_of(entry, "other_file", where)
+            other_source = f"{other_file}:{_line_of(entry, 'other_line', where)}"
+            title = f"Split-body mismatch: {export} ({other_file}, {reference})"
+        else:
+            other_source = f"SKILL.md:{_line_of(entry, 'skill_md_line', where)}"
+            title = f"Split-body mismatch: {export} ({reference})"
+        at = f"--settlements[{index}]"
+        if not isinstance(settled, dict) or any(key not in settled for key in SETTLEMENT_FIELDS):
+            raise AdapterError(f"{at} must be an object with {', '.join(SETTLEMENT_FIELDS)}")
+        if (settled["export"], settled["reference_file"]) != (export, reference):
+            raise AdapterError(f"{at} settles `{settled['export']}` in {settled['reference_file']}, not the "
+                               f"mismatch of `{export}` in {reference} at that place: one per mismatch, in its order")
+        if settled["source"] not in SETTLEMENT_SIDES:
+            raise AdapterError(f"{at} `source` must be `reference` or `other`, not {json.dumps(settled['source'])}")
+        remediation = _text_of(settled, "remediation", at)
+        source = reference_source if settled["source"] == "reference" else other_source
+        records.append(_gap("High", "split-body-mismatch", title, source, remediation, issue=issue, export=export))
     return records
 
 
@@ -2323,9 +2465,31 @@ def _suggestions(result: dict, key: str) -> list[str]:
     return items
 
 
-def from_external(result: object, marks: list[str] | None = None) -> list[dict]:
-    """combine-external-scores.py's file-mode result: the external validators' findings."""
+# What restores a skill-check that did not run (external-validators.md §2 kept the reason).
+SKILL_CHECK_NOT_RUN_FIX = (
+    "Make skill-check available: run `npx skill-check -h` once, so npx can run it without a download, or install "
+    "it. A probe that exited 127 found no `timeout` or no `npx` command: install GNU coreutils or Node.js first. "
+    "Check that `npx skill-check check` on the skill finishes within 120 seconds and prints JSON, then re-run "
+    "Test Skill.")
+
+
+def _skill_check_not_run(path: str) -> str:
+    """The first non-blank line of the file external-validators.md §2 kept the reason in. Raises AdapterError."""
+    try:
+        text = Path(path).read_bytes().decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AdapterError(f"cannot read --skill-check-not-run {path}: {exc}") from exc
+    reason = next((line.strip() for line in text.splitlines() if line.strip()), None)
+    if reason is None:
+        raise AdapterError(f"--skill-check-not-run {path} holds no reason: it is blank")
+    return reason
+
+
+def from_external(result: object, marks: list[str] | None = None, not_run: str | None = None) -> list[dict]:
+    """combine-external-scores.py's file-mode result: the external validators' findings, and, with `not_run`, the
+    reason skill-check did not run."""
     result = _object(result, "--input (combine-external-scores.py --skill-check)", *_EXTERNAL_LISTS)
+    reason = _skill_check_not_run(not_run) if not_run is not None else None
     content = _suggestions(result, "tesslContentSuggestions")
     skipped: set[int] = set()
     for mark in marks or []:
@@ -2371,6 +2535,9 @@ def from_external(result: object, marks: list[str] | None = None) -> list[dict]:
             records.append(_gap(
                 "Info", "external-validator", suggestion, "SKILL.md",
                 "Apply this Tessl Review suggestion to SKILL.md only if you agree: it is advisory."))
+    if reason is not None:
+        records.append(_gap("Info", "external-validator", f"skill-check not run: {reason}", "SKILL.md",
+                            SKILL_CHECK_NOT_RUN_FIX))
     return records
 
 
@@ -2498,13 +2665,39 @@ def build_records(args: argparse.Namespace) -> list[dict]:
         stale = read_result(args.stale, "--stale") if args.stale is not None else None
         return from_provenance_line(data, stale)
     if kind == "external":
-        return from_external(data, args.not_applicable)
+        return from_external(data, args.not_applicable, args.skill_check_not_run)
+    if kind == "split-body":
+        settlements = read_result(args.settlements, "--settlements") if args.settlements is not None else None
+        return from_split_body(data, settlements)
     return from_coherence(data)
 
 
 # --------------------------------------------------------------------------
 # Gap Report
 # --------------------------------------------------------------------------
+
+
+def render_structural_findings(records: list[dict]) -> str:
+    """The naive Coherence Analysis section's Structural Findings table, one row per `from_structure` record.
+
+    >>> print(render_structural_findings([_gap("Medium", "structural", "naive-coherence: table row at line 9 has 3 "
+    ...     "columns; header has 2", "SKILL.md:9", "Fix."), _gap("High", "structural", "a | b", "SKILL.md", "Fix.")]),
+    ...       end="")
+    ### Structural Findings
+    <BLANKLINE>
+    | # | Type | Severity | Detail | Line |
+    |---|------|----------|--------|------|
+    | 1 | structural | Medium | naive-coherence: table row at line 9 has 3 columns; header has 2 | 9 |
+    | 2 | structural | High | a \\| b | - |
+    """
+    lines = ["### Structural Findings", "", "| # | Type | Severity | Detail | Line |",
+             "|---|------|----------|--------|------|"]
+    for number, record in enumerate(records, 1):
+        source = str(record.get("source") or "")
+        line = source.split(":", 1)[1] if source.startswith("SKILL.md:") else "-"
+        cells = [str(number), record["category"], record["severity"], " ".join(str(record["title"]).split()), line]
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    return "\n".join(lines) + "\n"
 
 
 def render_gap_report(ledger: dict, heading: bool = False) -> str:
@@ -2666,6 +2859,25 @@ def _cmd_append(args: argparse.Namespace) -> int:
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
+    parser = args.render_parser
+    if args.adapter is not None:
+        if args.ledger is not None or args.heading:
+            parser.error("--from renders a script's result, --ledger the Gap Report: pass one of them")
+        if args.adapter != "structure":
+            parser.error(f"render --from reads only structure results, not {args.adapter}")
+        if not args.input:
+            parser.error("render --from structure reads one or more --input files")
+        try:
+            records = from_structure([read_result(p, "--input") for p in args.input], args.served)
+        except AdapterError as exc:
+            _emit(_error("INVALID_INPUT", str(exc)), stream=sys.stderr)
+            return 2
+        sys.stdout.write(render_structural_findings(records))
+        return 0
+    if args.ledger is None:
+        parser.error("render takes --ledger, or --from structure with its --input files")
+    if args.input or args.served:
+        parser.error("--input and --served work only with --from structure")
     path = Path(args.ledger)
     try:
         ledger = load_ledger(path)
@@ -2734,12 +2946,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--not-applicable", action="append", metavar="INDEX:RULE",
                    help="external: a Tessl Review content suggestion marked not applicable, by its index in "
                         "tesslContentSuggestions (from 0) and the tessl-review.md rule id; repeatable")
+    p.add_argument("--skill-check-not-run", metavar="FILE",
+                   help="external: the file external-validators.md §2 wrote why skill-check did not run to")
+    p.add_argument("--settlements", metavar="FILE",
+                   help="split-body: the settlement of each split-body mismatch, in the inventory's order "
+                        "(coverage-check.md §5b)")
     p.set_defaults(func=_cmd_append)
 
-    p = sub.add_parser("render", help="print the Gap Report in Markdown")
-    p.add_argument("--ledger", required=True)
+    p = sub.add_parser("render", help="print the Gap Report, or the naive Structural Findings table, in Markdown")
+    p.add_argument("--ledger", help="the gap ledger whose Gap Report to print")
     p.add_argument("--heading", action="store_true", help="start with the ## Gap Report line")
-    p.set_defaults(func=_cmd_render)
+    p.add_argument("--from", dest="adapter", choices=tuple(ADAPTER_OPTIONS),
+                   help="structure: print the Structural Findings table of the scan files given as --input")
+    p.add_argument("--input", action="append", help="with --from structure: a scan file (repeatable)")
+    p.add_argument("--served", action="append", choices=FAMILIES,
+                   help="with --from structure: a family another heading serves, as the append passes it")
+    p.set_defaults(func=_cmd_render, render_parser=p)
 
     p = sub.add_parser("summary", help="counts by severity and category")
     p.add_argument("--ledger", required=True)

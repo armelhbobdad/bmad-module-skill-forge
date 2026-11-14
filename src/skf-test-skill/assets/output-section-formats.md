@@ -9,13 +9,10 @@
 **Coherence category:** Not scored (weight redistributed)
 **Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it records none}
 
-### Structural Findings
+{the render output}
+{one row per coherence-naive.md §2.5 finding, numbered on from the render's last row: | {N} | structural | High | {its naive-coherence: text} | {its call's line} |}
 
-| # | Type | Severity | Detail | Line |
-|---|------|----------|--------|------|
-| {per-issue rows} |
-
-**Structural Issues:** {count}
+**Structural Issues:** {the number of rows}
 ```
 
 ## Coherence Analysis — Naive Mode: Reference Consistency (split-body)
@@ -40,28 +37,9 @@ Only rendered when `references/` directory exists alongside SKILL.md. Each row i
 ## Coherence Analysis
 
 **Mode:** Contextual (full reference validation)
-**References Found:** {count}
-**References Valid:** {count}
-**Broken References:** {count}
 **Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it records none}
-
-### Reference Validation
-
-| Reference | Type | Line | Target Exists | Accurate | Severity | Issues |
-|-----------|------|------|--------------|----------|----------|--------|
-| {per-reference rows} |
-
-### Integration Pattern Completeness
-
-| Pattern | Complete | Issue |
-|---------|----------|-------|
-| {per-pattern rows} |
-
-### Coherence Score
-
-- **Reference Validity:** {valid}/{total} ({percentage}%)
-- **Integration Completeness:** {complete}/{total} ({percentage}%)
-- **Combined Coherence:** {percentage}%
+{the render output}
+{one row per coherence-contextual.md §5 integration point, under the render's last table: | {pattern} | yes | - |, or | {pattern} | no | {its incomplete_patterns issue} |}
 ```
 
 ## Ledger Record Format
