@@ -166,7 +166,7 @@ CLASSIFY_CMD = ('uv run {severityClassifyHelper} "{auditDataFolder}/findings.jso
                 '-o "{auditDataFolder}/severity.json"')
 CONSTITUENT_CMD = ('uv run {compareConstituentHashesHelper} compare-constituent-hashes "{provenanceMap}" '
                    '--skills-root "{project-root}" > "{auditDataFolder}/constituent-freshness.json"')
-NORMALIZE_CMD = "uv run {loadProvenanceHelper} normalize {provenanceMap}"
+NORMALIZE_CMD = "uv run {loadProvenanceHelper} normalize {provenanceMap} --age-from-last-update"
 RESOLVE_CMD = ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} '
                '--forge-data-folder "{forge_data_folder}"')
 BINDING_RE = re.compile(r"`(\{[A-Za-z_]+\})` ← `([a-z_.]+)`")

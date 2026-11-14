@@ -138,7 +138,7 @@ NO_RECORD = {
     ("skf-setup", "references/auto-index.md"):
         "step 4 passes the flags that decided it, and the emitter records the decision with its `source`",
     # Update's §4b test-report offer: headless keeps normal mode and warns.
-    ("skf-update-skill", "references/init.md"):
+    ("skf-update-skill", "references/load-baseline.md"):
         "add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. The warning is the notice",
 }
 # Workflows whose gates keep their decisions elsewhere, with the SKILL.md

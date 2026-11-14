@@ -31,6 +31,7 @@ CLI:
       [--tree <path>] [--hygiene-helper <path>] [--drift-helper <path>] \\
       [--lock-timeout <seconds>] [--timeout <seconds>]
   uv run skf-source-tree.py close --tree <path>
+  uv run skf-source-tree.py classify --source-repo <repo> --source-root <path>
 
 --tree (advance and close) takes the `tree` path open or resolve printed,
 or the run folder that holds it.
@@ -241,10 +242,26 @@ close
     {"status": "removed" | "missing" | "left" | "refused",
      "tree": <--tree>, "warnings": [...]}
 
+classify
+
+  Says, with no network call and no tree, how open would take the source:
+  classify()'s verdict, which open reads first. update-skill runs it to
+  refuse a --source-root override for a skill read from a remote
+  repository (load-baseline.md §6), in every mode, before any tree is read.
+
+  Output (one ASCII line):
+    {"remote": true | false,   true when --source-repo names a remote
+                               repository (parse_remote), whatever
+                               --source-root holds
+     "skip_reason": null | "not-remote" | "not-workspace-clone"  (as open)
+     "clone": SKF's clone of --source-repo, as open reports it, else null
+     "usable": true when that clone is on disk with the same origin
+     "warnings": [...]}
+
 Exit codes:
   0  open: ready, offline or skipped; resolve: ready, ambiguous or
-     skipped; advance and close: always once JSON is printed (they never
-     gate)
+     skipped; advance, close and classify: always once JSON is printed
+     (they never gate)
   3  open, resolve: unavailable (JSON on stdout; the caller halts)
   1  unexpected error: {"status": "error", "message": ...} on stderr,
      nothing on stdout
@@ -1777,7 +1794,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_close = sub.add_parser("close", help="remove this run's private source tree")
     p_close.add_argument("--tree", required=True, help="the tree open reported, or its run folder")
+
+    p_classify = sub.add_parser("classify",
+                                help="say whether the source is a remote repository, and SKF's clone of it, "
+                                     "with no network call")
+    p_classify.add_argument("--source-repo", default="", help="metadata.json source_repo")
+    p_classify.add_argument("--source-root", default="", help="metadata.json source_root, or the folder to read")
     return parser
+
+
+def classify_source(args: argparse.Namespace) -> dict:
+    """classify: open's verdict on --source-repo and --source-root, with no network call."""
+    source_repo = args.source_repo.strip()
+    found = classify(source_repo, args.source_root)
+    return {"remote": parse_remote(source_repo) is not None, "skip_reason": found["skip_reason"],
+            "clone": found["clone"], "usable": found["usable"], "warnings": found["warnings"]}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1789,6 +1820,8 @@ def main(argv: list[str] | None = None) -> int:
             code, out = resolve(args)
         elif args.cmd == "advance":
             code, out = 0, advance(args)
+        elif args.cmd == "classify":
+            code, out = 0, classify_source(args)
         else:
             code, out = 0, close(args)
     except Exception as e:  # noqa: BLE001 - one JSON error line, never a traceback

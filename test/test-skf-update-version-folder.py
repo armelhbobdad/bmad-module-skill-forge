@@ -46,6 +46,11 @@ REPORT = REFS / "report.md"
 DETECT = REFS / "detect-changes.md"
 RE_EXTRACT = REFS / "re-extract.md"
 GAP_DRIVEN = REFS / "gap-driven.md"
+# #1196: the stages split out of init.md, gap-driven.md, merge.md and write.md
+LOAD_BASELINE = REFS / "load-baseline.md"
+GAP_CHECK = REFS / "gap-spot-check.md"
+MERGE_WRITE = REFS / "merge-write.md"
+WRITE_META = REFS / "write-metadata.md"
 SKILL = SRC / "skf-update-skill" / "SKILL.md"
 SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-update-result-envelope.v1.json"
 SCRIPTS = SRC / "shared" / "scripts"
@@ -76,7 +81,7 @@ def _slice(text: str, start: str, end: str) -> str:
 
 
 def _merge_6b() -> str:
-    return _slice(_read(MERGE), "### 6b. Write Merged Files to Disk", "### 7.")
+    return _slice(_read(MERGE_WRITE), "### 6b. Write Merged Files to Disk", "### 7.")
 
 
 def _step(section: str, number: int) -> str:
@@ -93,7 +98,7 @@ def _step(section: str, number: int) -> str:
 
 
 def test_merge_declares_the_atomic_write_helper():
-    text = _read(MERGE)
+    text = _read(MERGE_WRITE)
     frontmatter = text[4:text.index("\n---\n", 4) + 1]
     assert yaml.safe_load(frontmatter)["atomicWriteProbeOrder"] == ATOMIC_PATHS
     assert "HALT if neither resolves" in frontmatter
@@ -103,7 +108,7 @@ def test_merge_chooses_the_new_version():
     six_b = _merge_6b()
     choose = _slice(six_b, "**Choose the version this update writes**", "**Create the version folder**")
     assert "bind `{new_version}`" in choose
-    assert "`{new_version}` is `{source_version_detected}` when step 1 §6c recorded one" in choose
+    assert "`{new_version}` is `{source_version_detected}` when load-baseline.md §6c recorded one" in choose
     assert "patch number incremented" in choose
     assert "**Gap-driven mode**" in choose and "the version folder below is skipped" in choose
     assert "(normal, degraded and docs-only)" in choose
@@ -131,10 +136,14 @@ def test_merge_never_overwrites_a_version():
 
 def test_merge_stages_copies_publishes_and_rebinds_in_order():
     six_b = _merge_6b()
+    # the moved exports' citations move by script in the staged package before its [MANUAL] check, and in place
+    # after the repair's copy (#1191 determinism-1)
     marks = ["**Record what this run writes**", "**Never overwrite a version.**", "stage-dir --target",
              "**Copy the current package**", "**Write and verify the merged SKILL.md in the staged package**",
+             '--moves "{run_dir}/change-manifest.json"',
              'manual-verify "{version_staging}/{skill_name}/SKILL.md"', "commit-dir --target",
-             "**Create the forge folder**", "**Rebind**", "**Write the merged files in place**"]
+             "**Create the forge folder**", "**Rebind**", "**Write the merged files in place**",
+             "3. **Copy it over the package.**", '--moves "{run_dir}/reextract-records.json"', "**Do NOT write here:**"]
     positions = [six_b.index(m) for m in marks]
     assert positions == sorted(positions), marks
     # the merged SKILL.md is verified against the approved inventory before anything is published (W1 handoff)
@@ -142,6 +151,10 @@ def test_merge_stages_copies_publishes_and_rebinds_in_order():
     for token in ("`{version_staging}/{skill_name}/SKILL.md`", '--inventory "{manual_inventory}"',
                   "HALT with status `halted-for-manual-mismatch` before the version is published",
                   '`phase: "merge:verify-manual-integrity"`', "its rollback removes `{version_staging}`"):
+        assert token in staged, token
+    for token in ("When `counts.exports_moved` of `{run_dir}/change-manifest.json` is above 0",
+                  '--skill-dir "{version_staging}/{skill_name}"', '`phase: "merge:move-citations"`',
+                  "skf-verify-provenance-completeness.py is missing; re-install SKF"):
         assert token in staged, token
     assert "Bind `{version_staging}` ← `staging`" in _step(six_b, 2)
     copy = _step(six_b, 3)
@@ -153,18 +166,20 @@ def test_merge_stages_copies_publishes_and_rebinds_in_order():
     rebind = _step(six_b, 7)
     assert "`{skill_package}` ← `{skill_group}/{new_version}/{skill_name}`" in rebind
     assert "`{forge_version}` ← `{forge_data_folder}/{skill_name}/{new_version}`" in rebind
-    assert "`{manual_inventory}` keeps the amended path §4 bound" in rebind
+    assert "`{manual_inventory}` keeps the amended path merge.md §4 bound" in rebind
     failure = _slice(six_b, "If no `{atomicWriteProbeOrder}` candidate resolves", "**Write the merged files in place**")
     assert "its rollback removes what this section created" in failure and "merge:new-version-folder" in failure
     assert "none of which existed before `begin` recorded them" in failure
 
 
 def test_write_names_the_folder_step_4_created():
-    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    assert "`version` is `{new_version}`, the version step 4 §6b chose" in two
-    assert '--version "{new_version}"' in two
+    two = _slice(_read(WRITE), "### 2. Prepare the Write Inputs", "### 3.")
+    # one line: merge.md §6b chose the version, so write restates no rule for it (#1192 leanness-7)
+    assert '- `--version "{new_version}"` is the version merge-write.md §6b chose; never pick another.' in two
     assert "From here on `{version}` is `{new_version}`" in two
-    assert "increment patch version" not in two
+    assert "increment patch version" not in two and "`source_version_detected`" not in two
+    metadata = _read(WRITE_META)
+    assert '--version "{new_version}"' in metadata
     three = _slice(_read(WRITE), "### 3. Write Updated provenance-map.json", "Dispatch on its exit code:")
     assert "write the whole updated map there" in three
 
@@ -177,8 +192,9 @@ def test_report_and_contract_name_the_new_version():
     dry = _slice(report, "### 1b. Handle Dry-Run Mode", "### 2.")
     # --dry-run never reaches merge §6b, which binds {new_version}: it names the folder through the same helper
     assert "a new version folder beside the current one, `{dry_run_version}`" in dry and "{new_version}" not in dry
-    assert "`{source_version_detected}` when step 1 §6c recorded one" in dry
-    assert 'run `uv run {skillInventoryHelper} version next-patch "{version}"`' in dry and "as merge.md §6b does" in dry
+    assert "`{source_version_detected}` when load-baseline.md §6c recorded one" in dry
+    assert ('run `uv run {skillInventoryHelper} version next-patch "{version}"`' in dry
+            and "as merge-write.md §6b does" in dry)
     outputs = _slice(_read(REFS / "invocation-contract.md"), "| **Outputs** |", "\n")
     assert "new version folder `{skill_group}/{new_version}/`" in outputs
     status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["description"]
@@ -186,15 +202,17 @@ def test_report_and_contract_name_the_new_version():
 
 
 def test_init_follows_the_active_link():
-    """After an update, `active` names the new version and the manifest still the exported one."""
-    paths = _slice(_read(INIT), "**Version-Aware Path Resolution:**", "\n5. Store the resolved path")
-    step2 = _slice(paths, "\n2. If found:", "\n3. ")
-    assert "**Manifest-lag guard.**" in step2
-    assert "bind `{active_version}` to the link's target version instead" in step2
-    assert step2.index("**Manifest-lag guard.**") < step2.index("Resolve to `{skill_package}`")
-    step3 = _slice(paths, "\n3. If not in manifest:", "\n4. ")
-    assert "bind `{active_version}` to the version it names" in step3
-    assert "the `{active_version}` steps 1–3 resolved" in _read(INIT)
+    """After an update, `active` names the new version and the manifest still the exported one: init.md §1's
+    `resolve` takes the link's version (the Manifest-lag guard), and §1 binds every path from its result (#1193)."""
+    paths = _slice(_read(INIT), "**Version-Aware Path Resolution:**", "\n5. `missing`")
+    assert ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} '
+            '--forge-data-folder "{forge_data_folder}"') in paths
+    step2 = _slice(paths, "\n2. `manifest-lags-link`", "\n3. ")
+    assert "(the **Manifest-lag guard**): bind below, which takes the link's version" in step2
+    assert ("manifest active_version {active_version} lags the active link {symlink_target}: updating "
+            "{symlink_target}") in step2
+    bind = _slice(_read(INIT), "**Bind** from the `resolve` object:", "\n")
+    assert "`{active_version}` and `{baseline_version}` ← `chosen_version`" in bind
     us = _slice(_read(SRC / "knowledge" / "version-paths.md"),
                 "**Update-skill (US)** writes each new version into a folder of its own", "\n")
     assert "Manifest-lag guard" in us and "a second update before an export builds on the first" in us
@@ -246,12 +264,16 @@ def test_read_only_modes_never_reach_merge():
     two = _slice(gap, "### 2. Display the Gap Summary and Route", "### 3.")
     assert "then execute `{reportFile}` (report.md), which emits status `detect-only`" in \
         _slice(two, "**`detect_only_mode == true`**", "\n")
-    five = _slice(gap, "### 5. Display the Repair Summary and Route", "- **Otherwise**")
+    check = _read(GAP_CHECK)
+    five = _slice(check, "### 5. Display the Repair Summary and Route", "- **Otherwise**")
     assert "load `{reportFile}` (report.md, NOT `{nextStepFile}`)" in _slice(five, "**`dry_run_mode == true`**", "\n")
+    # SKILL.md's Stages row reaches gap-driven.md, which chains through gap-spot-check.md to merge.md by
+    # nextStepFile (#600, #1196)
     front = yaml.safe_load(gap[4:gap.index("\n---\n", 4)])
-    # SKILL.md's Stages row reaches gap-driven.md, so it chains to merge.md by nextStepFile (#600)
-    assert front["nextStepFile"] == "merge.md" and "resumeStepFile" not in front
+    assert front["nextStepFile"] == "gap-spot-check.md" and "resumeStepFile" not in front
     assert front["reportFile"] == "report.md"
+    front = yaml.safe_load(check[4:check.index("\n---\n", 4)])
+    assert front["nextStepFile"] == "merge.md" and front["reportFile"] == "report.md"
 
 
 def test_docs_and_knowledge_describe_version_folders():
@@ -390,19 +412,18 @@ def test_new_forge_folder_takes_a_flat_forge_skills_files(tmp_path):
     there, and leaves the originals in place."""
     step6 = _step(_merge_6b(), 6)
     for token in ("from `{forge_version}` when it is there",
-                  "else from `{forge_data_folder}/{skill_name}/` when it is there and init.md §4 bound "
+                  "else from `{forge_data_folder}/{skill_name}/` when it is there and load-baseline.md §4 bound "
                   "`{provenance_map_path}` to that flat folder's map",
                   "Copy, never move: the previous version's files and the flat ones stay as they are",
                   "the extraction rules record how the skill was extracted"):
         assert token in step6, token
     assert step6.index("from `{forge_version}`") < step6.index("else from `{forge_data_folder}/{skill_name}/`")
     # no audit-skill file reads extraction-rules.yaml
-    assert "audit-skill reads the extraction rules" not in _read(MERGE)
-    # the binding the rule keys on: init.md §4 falls back to the flat map
-    four = _slice(_read(INIT), "**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`**",
-                  "\n")
-    assert ("fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to "
-            "the path found") in four
+    assert "audit-skill reads the extraction rules" not in _read(MERGE) + _read(MERGE_WRITE)
+    # the binding the rule keys on: load-baseline.md §4 falls back to the flat map
+    four = _slice(_read(LOAD_BASELINE), "**Bind `{provenance_map_path}`** ←", "\n")
+    assert ("the `paths.provenance_map.path` of init.md §1's `resolve` object: `{forge_version}/provenance-map.json`, else "
+            "the flat `{forge_data_folder}/{skill_name}/provenance-map.json` an older skill keeps, else null") in four
 
     names = ("provenance-map.json", "evidence-report.md", "extraction-rules.yaml")
 
@@ -447,7 +468,7 @@ def test_manual_inventory_stays_out_of_every_version_folder(tmp_path):
     init.md §5 runs before merge creates the new version, so its inventory
     goes beside the update lock; the read-only modes write none.
     """
-    text = _read(INIT)
+    text = _read(LOAD_BASELINE)
     five = _slice(text, "### 5. Load [MANUAL] Section Inventory", "### 6.")
     fence = five[five.index("```bash\n") + len("```bash\n"):]
     fence = fence[:fence.index("```")]

@@ -2076,7 +2076,7 @@ class TestPublicSurface:
         assert summary["not_public"] == [] and summary["warnings"] == []
 
     def test_a_repair_carries_no_mark(self, tmp_path: Path) -> None:
-        """gap-driven.md §4a runs `records` over the files it scans: gap-records drops the mark, so merge documents
+        """gap-spot-check.md §4a runs `records` over the files it scans: gap-records drops the mark, so merge documents
         and apply maps the re-extracted export, as before."""
         remediation = _remediation(("pkg/b.py", [("fetch", 4, "ast-grep")]))
         remediation["files"][0]["exports"][0]["public"] = False
@@ -2372,6 +2372,22 @@ class TestUpdateMetadata:
                                      generation_date="2026-10-01T10:00:00Z", source_ref="")
         assert (out["source_commit"], out["source_ref"]) == ("aaa", None)
 
+    def test_the_cli_records_a_moved_local_source_root(self, tmp_path: Path) -> None:
+        """#1193 enhancement-5: `--source-root` records the folder a run's `--source-root` override read, so the
+        next run reads it; an empty one sets null, and a call without it keeps the recorded folder."""
+        moved = (tmp_path / "new source").as_posix()
+        target, argv = _metadata_files(tmp_path, {**_skill_metadata(), "source_root": "/gone/lib"})
+        result = _run_cli(*argv, "--source-root", moved)
+        assert result.returncode == 0, result.stderr
+        written = json.loads(target.read_bytes())
+        assert (written["source_root"], written["source_commit"], written["source_ref"]) == (moved, "aaa", "v1")
+        target, argv = _metadata_files(tmp_path, {**_skill_metadata(), "source_root": "/gone/lib"})
+        assert _run_cli(*argv, "--source-root", "").returncode == 0
+        assert json.loads(target.read_bytes())["source_root"] is None
+        target, argv = _metadata_files(tmp_path, {**_skill_metadata(), "source_root": "/gone/lib"})
+        assert _run_cli(*argv).returncode == 0
+        assert json.loads(target.read_bytes())["source_root"] == "/gone/lib"
+
     def test_the_cli_stamps_the_tool_versions_this_run_used(self, tmp_path: Path) -> None:
         """#801: tool_versions named the toolchain of the run that created the skill, however many updates later."""
         skf_root, extraction = tmp_path / "skf", tmp_path / "extraction.json"
@@ -2583,15 +2599,17 @@ def test_the_component_library_exemption_is_create_skills_block() -> None:
 
 
 def test_write_sets_metadata_through_the_helper() -> None:
-    """write.md §3 passes the flags and §2 writes metadata.json through `metadata`, keeping no rule of its own,
+    """write.md §3 passes the flags and §3b writes metadata.json through `metadata`, keeping no rule of its own,
     and merge.md's Priority 6 leaves the script and asset rows to it."""
     write = (UPDATE_REFS / "write.md").read_text(encoding="utf-8")
     call = write[write.index("uv run {buildChangeManifestHelper} apply"):]
     call = call[:call.index("```")]
     assert '--metadata-in "{skill_package}/metadata.json"' in call
     assert '--lists-out "{run_dir}/metadata-lists.json"' in call
-    two = write[write.index("### 2. Write Updated metadata.json"):write.index("### 3. ")]
-    meta = two[two.index("uv run {buildChangeManifestHelper} metadata"):]
+    two = write[write.index("### 2. Prepare the Write Inputs"):write.index("### 3. ")]
+    # write.md §3b loads write-metadata.md, which holds its body since #1196
+    three_b = (UPDATE_REFS / "write-metadata.md").read_text(encoding="utf-8")
+    meta = three_b[three_b.index("uv run {buildChangeManifestHelper} metadata"):]
     meta = meta[:meta.index("```")]
     for flag in ('--metadata "{skill_package}/metadata.json"', '--lists "{run_dir}/metadata-lists.json"',
                  '--stats "{run_dir}/stats.json"', '--version "{new_version}"',
@@ -2600,7 +2618,7 @@ def test_write_sets_metadata_through_the_helper() -> None:
                  '\n      --skf-root "{project-root}/_bmad/skf" \\\n',
                  '[--extraction "{run_dir}/extraction.json"]', '[--qmd-version "{qmd_version}"]'):
         assert flag in meta, flag
-    after = two[two.index("uv run {buildChangeManifestHelper} metadata"):]
+    after = three_b[three_b.index("uv run {buildChangeManifestHelper} metadata"):]
     after = after[after.index("```") + 3:after.index("On exit 1, fix the input its stderr names")]
     for token in ("Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`",
                   "and `--qmd-version` when re-extract.md §3 queried QMD and bound `{qmd_version}`",
@@ -2612,8 +2630,16 @@ def test_write_sets_metadata_through_the_helper() -> None:
         assert token in after, token
     # #815: a patch adds no explanatory stat the next recount would leave standing beside another count, in write,
     # in merge's Priority 8b, which queues it, and in gap-driven's rule R4, which routes it
-    assert "add an explanatory stat" not in two
-    assert "Log each patch the call overwrites, drops (its `dropped_stats`) or you leave out" in two
+    assert "add an explanatory stat" not in two + three_b
+    # #1192 architecture-5: each patch's outcome is a record the evidence report and the update report list, not a
+    # log kept in context: §2 records each field it applies or leaves out, §3b each applied one the call drops
+    assert "Log each patch" not in write
+    for token in ("append the record `metadata_patch_outcome: {gap_id, field, outcome, why}` to "
+                  "`{run_dir}/evidence-records.jsonl` as one JSON line keyed `metadata_patch_outcome`",
+                  "`outcome` `applied` with `why` null, or `left-out` with `why` the reason"):
+        assert token in two, token
+    assert ("whose `<key>` the call's `dropped_stats` names, append one more `metadata_patch_outcome` line to "
+            "`{run_dir}/evidence-records.jsonl`, with `outcome` `dropped`") in after
     priority_8b = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
     priority_8b = priority_8b[priority_8b.index("**Priority 8b:"):]
     priority_8b = priority_8b[:priority_8b.index("**If no metadata-update entries:**")]
@@ -2629,14 +2655,14 @@ def test_write_sets_metadata_through_the_helper() -> None:
     qmd = reextract[reextract.index("### 3. Deep Tier QMD Enrichment"):reextract.index("### 4. ")]
     assert "bind `{qmd_version}` ← the version `qmd --version` prints (`qmd 2.0.1` gives `2.0.1`)" in qmd
     assert qmd.index("bind `{qmd_version}`") < qmd.index("**If no matching collection found in registry:**")
-    assert two.count('-o "{run_dir}/stats.json"') == 2
+    assert three_b.count('-o "{run_dir}/stats.json"') == 2
     for gone in ("Update `exports` array to reflect current export list", "add no name whose record",
                  "Set `exports` to the list", "into `metadata.json` **verbatim**", "Update `generation_date`",
                  "and write the `stats` and `confidence_distribution` it returns"):
-        assert gone not in two, gone
+        assert gone not in two + three_b, gone
     # a gap-driven patch reaches metadata.json before apply reads it, and never exports[], which apply owns
-    assert "to `metadata.json`, before §3's `apply` reads it" in two
-    assert "apply none to `exports[]`, which §3's `apply` builds from the list it reads" in two
+    assert "set in `{skill_package}/metadata.json`, before §3's `apply` reads it" in two
+    assert "and `exports[]`, which §3's `apply` builds from the list it reads" in two
     merge = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
     assert "`metadata.json` `scripts[]`/`assets[]`" not in merge
     assert "and `stats.scripts_count`/`stats.assets_count`" not in merge
@@ -2847,7 +2873,7 @@ def test_the_oms_cognee_update_documents_its_public_surface_and_keeps_its_ast_la
     for name in TRACED:
         assert (by_name[name]["source_line"], by_name[name]["extraction_method"], by_name[name]["confidence"]) == \
             (fresh[name]["source_line"], "ast-grep", "T1"), name
-    # write.md §2's whole-scope count, and the stats helper over the written map
+    # write.md §3b's whole-scope count, and the stats helper over the written map
     counts = _run_runner(root, run / "public-api.json")["counts"]
     derived = stats.derive_stats(doc, {"exports_public_api": counts["exports_public_api"],
                                        "exports_internal": counts["exports_internal"]})
@@ -2907,7 +2933,7 @@ def test_a_public_api_create_maps_the_names_update_keeps_on_cognees_shape(tmp_pa
 
 
 # --------------------------------------------------------------------------
-# gap-records: update-skill gap-driven.md §3, §4 and §4a
+# gap-records: update-skill gap-spot-check.md §3b, §4 and §4a
 # --------------------------------------------------------------------------
 
 API_SOURCE = b"import os\n\n\n@decorate\ndef search(q):\n    return q\n"
@@ -4084,6 +4110,165 @@ class TestScriptPEP723:
         assert '# requires-python = ">=3.11"' in header and 'dependencies = ["pyyaml"]' in header
 
 
+# gap-records --extraction: the whole-scope runner's entry-point diff answers the reachability gate (#1191
+# determinism-6), as a normal update's public surface marks its exports
+
+SURFACE_SOURCE = b"def fetch():\n    pass\n\n\ndef helper():\n    pass\n\n\ndef gap():\n    pass\n\n\ndef other():\n    pass\n"
+
+
+def _surface_tree(tmp_path: Path) -> Path:
+    root = tmp_path / "src tree"
+    (root / "pkg").mkdir(parents=True, exist_ok=True)
+    (root / "pkg" / "api.py").write_bytes(SURFACE_SOURCE)
+    (root / "pkg" / "tool.rb").write_bytes(b"def run\nend\n")
+    return root
+
+
+def _surface_runner(**changes) -> dict:
+    """The whole-scope recipe runner's JSON: fetch public, helper internal, gap an extraction gap, a Ruby file no
+    recipe reads."""
+    doc = {"mode": "full", "status": "ok", "errors": [], "scope": {"type": "full-library"},
+           "entry_points": {"status": "barrel", "by_language": {"python": "barrel"}, "unresolved": []},
+           "entry_point_diff": {
+               "public": [{"name": "fetch", "language": "python", "entry": "pkg/__init__.py", "via": "re-export",
+                           "from": ".api", "local": None, "file": "pkg/api.py", "line": 1, "members": None}],
+               "other_definitions": [],
+               "internal": [{"name": "helper", "language": "python", "source_file": "pkg/api.py", "source_line": 5},
+                            {"name": "other", "language": "python", "source_file": "pkg/elsewhere.py",
+                             "source_line": 13}],
+               "extraction_gaps": [{"name": "gap", "language": "python", "entry": "pkg/__init__.py",
+                                    "file": "pkg/api.py", "line": 9}],
+               "outside_scope": []},
+           "files_in_scope_list": ["pkg/api.py"], "files_without_recipes_list": ["pkg/tool.rb"]}
+    doc.update(changes)
+    return doc
+
+
+def _surface_gap(gid: str, name: str, path: str, line: int) -> dict:
+    return _gap_entry(gid, name, "NEW_EXPORT", category="missing-export", citation={"file": path, "line": line})
+
+
+SURFACE_ENTRIES = [_surface_gap("GAP-001", "fetch", "pkg/api.py", 1), _surface_gap("GAP-002", "helper", "pkg/api.py", 5),
+                   _surface_gap("GAP-003", "gap", "pkg/api.py", 9), _surface_gap("GAP-004", "run", "pkg/tool.rb", 1),
+                   _surface_gap("GAP-005", "other", "pkg/api.py", 13)]
+SURFACE_REMEDIATION = _remediation(("pkg/api.py", [("fetch", 1, "ast-grep"), ("helper", 5, "ast-grep"),
+                                                   ("gap", 9, "source-read"), ("other", 13, "ast-grep")]),
+                                   ("pkg/tool.rb", [("run", 1, "source-read")]))
+
+
+class TestGapRecordsReachability:
+    def _records(self, tmp_path: Path, extraction, judgments: dict | None = None, **kw) -> tuple:
+        answers = {"GAP-004": {"declaring_line": 1}}
+        for gid, more in (judgments or {}).items():
+            answers.setdefault(gid, {}).update(more)
+        return _records(SURFACE_ENTRIES, source_root=_surface_tree(tmp_path), extraction=extraction,
+                        judgments=answers, **kw)
+
+    def test_one_verdict_per_name(self, tmp_path: Path) -> None:
+        # public in the diff: public; internal in the diff: internal-unreachable; an extraction gap, a file no recipe
+        # reads, and a pair the diff's internal list does not hold: asked
+        _, summary = self._records(tmp_path, _surface_runner(), remediation=SURFACE_REMEDIATION)
+        assert summary["status"] == "needs-judgment", summary
+        assert [(n["gap_id"], n["needs"]) for n in summary["needs_judgment"]] == [
+            ("GAP-003", ["reachability"]), ("GAP-004", ["reachability"]), ("GAP-005", ["reachability"])]
+        records, summary = self._records(
+            tmp_path, _surface_runner(), remediation=SURFACE_REMEDIATION,
+            judgments={g: {"reachability": "public"} for g in ("GAP-003", "GAP-004", "GAP-005")})
+        assert summary["status"] == "written", summary
+        assert [(r["export_name"], r["verification"], r["reachability"]) for r in records["verification"]] == [
+            ("fetch", "verified", "public"), ("helper", "verified", "internal-unreachable"),
+            ("gap", "verified", "public"), ("run", "verified", "public"), ("other", "verified", "public")]
+        assert summary["reclassified"] == ["helper"] and summary["counts"]["reclassified"] == 1
+        assert [b["file_path"] for b in records["files"]] == ["pkg/api.py", "pkg/tool.rb"]
+        assert "helper" not in [r["name"] for b in records["files"] for r in b["exports"]]
+
+    def test_the_diff_overrules_a_judgment(self, tmp_path: Path) -> None:
+        records, summary = self._records(
+            tmp_path, _surface_runner(), remediation=SURFACE_REMEDIATION,
+            judgments={"GAP-001": {"reachability": "internal-unreachable"}, "GAP-002": {"reachability": "public"},
+                       **{g: {"reachability": "public"} for g in ("GAP-003", "GAP-004", "GAP-005")}})
+        assert summary["status"] == "written", summary
+        assert [r["reachability"] for r in records["verification"][:2]] == ["public", "internal-unreachable"]
+
+    def test_the_plan_locates_no_export_the_diff_finds_internal(self, tmp_path: Path) -> None:
+        _, plan = self._records(tmp_path, _surface_runner(), plan=True)
+        assert plan["status"] == "planned", plan
+        assert [s["name"] for s in plan["reextract"]["signatures"]] == ["fetch", "gap", "run", "other"]
+        _, plan = self._records(tmp_path, None, plan=True)  # without the diff the export is located, as before
+        assert "helper" in [s["name"] for s in plan["reextract"]["signatures"]]
+
+    @pytest.mark.parametrize("extraction", [
+        None, _surface_runner(status="incomplete"), _surface_runner(errors=[{"reason": "time-limit"}]),
+        _surface_runner(entry_point_diff=None, status="no-ast-grep"),
+    ], ids=["not-passed", "incomplete", "errors", "no-diff"])
+    def test_without_a_usable_diff_every_export_is_asked(self, tmp_path: Path, extraction) -> None:
+        _, summary = self._records(tmp_path, extraction, remediation=SURFACE_REMEDIATION)
+        assert summary["status"] == "needs-judgment", summary
+        assert [n["gap_id"] for n in summary["needs_judgment"]] == [f"GAP-00{i}" for i in range(1, 6)]
+
+    def test_an_untraced_entry_point_asks_all_but_the_public_pairs(self, tmp_path: Path) -> None:
+        unresolved = _surface_runner(entry_points={"status": "barrel", "by_language": {"python": "barrel"},
+                                           "unresolved": [{"entry": "pkg/__init__.py", "name": "x", "from": ".gone",
+                                                           "file": "pkg/__init__.py"}]})
+        _, summary = self._records(tmp_path, unresolved, remediation=SURFACE_REMEDIATION)
+        assert [n["gap_id"] for n in summary["needs_judgment"]] == ["GAP-002", "GAP-003", "GAP-004", "GAP-005"]
+
+    def test_an_internal_pair_outside_the_scope_list_is_asked(self, tmp_path: Path) -> None:
+        _, summary = self._records(tmp_path, _surface_runner(files_in_scope_list=[]), remediation=SURFACE_REMEDIATION)
+        assert [n["gap_id"] for n in summary["needs_judgment"]] == ["GAP-002", "GAP-003", "GAP-004", "GAP-005"]
+
+    def test_a_re_extracted_export_is_answered_at_its_records_file(self, tmp_path: Path) -> None:
+        entry = _gap_entry("GAP-001", "helper", "NEW_EXPORT", category="missing-export", resolved=["pkg/api.py"])
+        records, summary = _records([entry], source_root=_surface_tree(tmp_path), extraction=_surface_runner(),
+                                    remediation=SURFACE_REMEDIATION, judgments={"GAP-001": {"docstring": None}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["reachability"]) == ("re-extracted", "internal-unreachable")
+        assert summary["reclassified"] == ["helper"] and records["files"] == []
+
+    def test_a_moved_export_is_answered_at_its_checked_file(self, tmp_path: Path) -> None:
+        # cited at line 4, defined at 5: the spot-check records it moved, and the diff answers it there, unasked
+        entry = _surface_gap("GAP-001", "helper", "pkg/api.py", 4)
+        records, summary = _records([entry], source_root=_surface_tree(tmp_path), extraction=_surface_runner(),
+                                    remediation=SURFACE_REMEDIATION)
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["new_location"], record["reachability"]) == (
+            "moved", "pkg/api.py:5", "internal-unreachable")
+        assert summary["reclassified"] == ["helper"] and not summary.get("needs_judgment")
+
+    def test_a_namespace_member_and_an_unfiled_name_are_public(self, tmp_path: Path) -> None:
+        runner = _surface_runner()
+        runner["entry_point_diff"]["public"] = [
+            {"name": "ns", "language": "python", "via": "namespace", "file": "pkg/ns.py", "local": None,
+             "members": [{"name": "gap", "local": None, "file": "pkg/api.py", "line": 9}]},
+            {"name": "other", "language": "python", "via": "re-export", "file": None, "local": None}]
+        runner["entry_point_diff"]["extraction_gaps"] = []
+        _, summary = self._records(tmp_path, runner, remediation=SURFACE_REMEDIATION)
+        assert [n["gap_id"] for n in summary["needs_judgment"]] == ["GAP-001", "GAP-004"]
+
+    def test_the_cli_reads_the_runner_json(self, tmp_path: Path) -> None:
+        run = tmp_path / "run"
+        run.mkdir()
+        (run / "change-manifest.json").write_bytes(
+            json.dumps({"mode": "gap-driven", "entries": SURFACE_ENTRIES[:2]}).encode("utf-8"))
+        (run / "public-api.json").write_bytes(json.dumps(_surface_runner()).encode("utf-8"))
+        (tmp_path / "provenance-map.json").write_bytes(b'{"entries": []}')
+        (run / "remediation-records.json").write_bytes(json.dumps(SURFACE_REMEDIATION).encode("utf-8"))
+        result = _run_cli("gap-records", "--manifest", str(run / "change-manifest.json"), "--provenance-map",
+                          str(tmp_path / "provenance-map.json"), "--source-root", str(_surface_tree(tmp_path)),
+                          "--extraction", str(run / "public-api.json"),
+                          "--remediation-records", str(run / "remediation-records.json"),
+                          "-o", str(run / "reextract-records.json"))
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert (summary["status"], summary["reclassified"]) == ("written", ["helper"])
+        (run / "bad.json").write_bytes(b"[]")
+        result = _run_cli("gap-records", "--manifest", str(run / "change-manifest.json"), "--provenance-map",
+                          str(tmp_path / "provenance-map.json"), "--extraction", str(run / "bad.json"), "--plan")
+        assert result.returncode == 1 and "--extraction must hold a JSON object" in result.stderr
+
+
 class TestGapRecordsCli:
     def _files(self, tmp_path: Path, entries: list) -> dict:
         run_dir = tmp_path / "run"
@@ -4125,7 +4310,7 @@ class TestGapRecordsCli:
     def test_a_file_a_still_incomplete_run_left_unread_resolves_once_read_by_eye(self, tmp_path: Path,
                                                                                 severity) -> None:
         """#710: a second runner run that stops at the time limit leaves the routed file unread. Without by-eye
-        records a High gap halts `unresolved` and a Medium `missing-export` ends `unknown`; once gap-driven §4a
+        records a High gap halts `unresolved` and a Medium `missing-export` ends `unknown`; once gap-spot-check §4a
         reads the file by eye, in Category B step 2's record shape, the gap is `re-extracted` T1-low."""
         paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
                                                   severity=severity, resolved=["pkg/api.py"])])

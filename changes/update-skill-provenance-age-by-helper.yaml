@@ -1,0 +1,6 @@
+type: added
+scope: skf-update-skill
+summary: |
+  Update Skill's baseline summary now takes the export count and the provenance age from `skf-load-provenance.py normalize` instead of reading the provenance map by hand. Its new `--age-from-last-update` counts the age from the map's `last_update`, the skill's last extraction, else from its `generated_at`, else from the file's last change. A provenance map that is not JSON, or not a JSON object, now stops the run at once with `blocked` and the new halt reason `provenance-invalid` (`error.phase` `init:load-provenance-map`), instead of failing a later step.
+issues: [1193]
+prs: [1220]

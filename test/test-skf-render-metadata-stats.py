@@ -757,5 +757,115 @@ class TestCLI:
         assert res.returncode == 2
 
 
+
+# --------------------------------------------------------------------------
+# --skill-md: a reference app's Pattern Surface rows, counted (#1191 determinism-7)
+# --------------------------------------------------------------------------
+
+PATTERN_SKILL_MD = """\
+---
+name: app
+---
+# app
+
+## Pattern Surface
+
+| Surface | File | Notes |
+|---------|------|-------|
+| search | src/app.py | a \\| b |
+| fetch | src/app.py | |
+| store | src/store.py | |
+
+More prose.
+
+| Second | Table |
+| one | two |
+
+## Other
+
+| x |
+|---|
+| not counted |
+"""
+
+
+def _skill_md(tmp_path, text=PATTERN_SKILL_MD):
+    path = tmp_path / "SKILL.md"
+    path.write_bytes(text.encode("utf-8"))
+    return path
+
+
+class TestPatternSurfaceCount:
+    def test_counts_the_data_rows_under_the_heading(self, tmp_path):
+        # the first table: a header and a separator left out, three rows; the second: no separator, so one
+        # row after its header; the table under another heading is not counted
+        assert mod.count_pattern_surfaces(_skill_md(tmp_path)) == 4
+
+    def test_a_header_a_separator_and_three_rows_count_three(self, tmp_path):
+        text = "## Pattern Surface\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n"
+        assert mod.count_pattern_surfaces(_skill_md(tmp_path, text)) == 3
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _entries(t1_low=1)})
+        out_file = tmp_path / "stats.json"
+        # a payload that says 4 is refused, and nothing is written
+        res = _run([str(prov), "--shape", "reference-app", "--skill-md", str(tmp_path / "SKILL.md"), "-o",
+                    str(out_file)], stdin=json.dumps({"pattern_surfaces_documented": 4}))
+        assert res.returncode == 2 and not out_file.exists()
+        assert "(4) is not the 3 data row(s)" in res.stderr
+
+    def test_a_header_alone_counts_nothing(self, tmp_path):
+        path = _skill_md(tmp_path, "## Pattern Surface\n\n| a | b |\n|---|---|\n")
+        assert mod.count_pattern_surfaces(path) == 0
+
+    def test_no_heading_is_refused(self, tmp_path):
+        path = _skill_md(tmp_path, "## Patterns\n\n| a |\n|---|\n| b |\n")
+        with pytest.raises(ValueError, match="no `Pattern Surface` heading"):
+            mod.count_pattern_surfaces(path)
+
+    def test_the_count_becomes_exports_documented(self, tmp_path):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _entries(t1_low=6)})
+        md = _skill_md(tmp_path)
+        for payload in ({"exports_public_api": 2}, {"exports_public_api": 2, "pattern_surfaces_documented": 4}):
+            res = _run([str(prov), "--shape", "reference-app", "--skill-md", str(md)], stdin=json.dumps(payload))
+            assert res.returncode == 0, res.stderr
+            out = json.loads(res.stdout)
+            assert out["stats"]["exports_documented"] == out["stats"]["pattern_surfaces_documented"] == 4
+            assert sum(out["confidence_distribution"].values()) == 6  # still per citation
+
+    @pytest.mark.parametrize("args, payload, message", [
+        (["--shape", "reference-app"], {"pattern_surfaces_documented": 3}, "is not the 4 data row(s)"),
+        (["--shape", "reference-app"], {"pattern_surfaces_documented": True}, "is not the 4 data row(s)"),
+        ([], {}, "never with --check or another shape"),
+        (["--shape", "library"], {}, "never with --check or another shape"),
+    ])
+    def test_a_count_it_cannot_stand_behind_exits_2(self, tmp_path, args, payload, message):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _entries(t1_low=1)})
+        out_file = tmp_path / "stats.json"
+        res = _run([str(prov), *args, "--skill-md", str(_skill_md(tmp_path)), "-o", str(out_file)],
+                   stdin=json.dumps(payload))
+        assert res.returncode == 2 and res.stdout == "" and not out_file.exists()
+        assert message in res.stderr, res.stderr
+
+    def test_check_mode_takes_no_skill_md(self, tmp_path):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _entries(t1_low=1)})
+        meta = _write_json(tmp_path / "metadata.json", {"scope_type": "reference-app", "stats": {}})
+        res = _run([str(prov), "--check", str(meta), "--shape", "reference-app", "--skill-md",
+                    str(_skill_md(tmp_path))])
+        assert res.returncode == 2 and "never with --check" in res.stderr
+
+    def test_a_missing_heading_or_file_exits_2(self, tmp_path):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _entries(t1_low=1)})
+        for md, message in ((_skill_md(tmp_path, "# app\n"), "no `Pattern Surface` heading"),
+                            (tmp_path / "gone.md", "cannot read")):
+            res = _run([str(prov), "--shape", "reference-app", "--skill-md", str(md)], stdin="{}")
+            assert res.returncode == 2 and res.stdout == "" and message in res.stderr, res.stderr
+
+    def test_a_missing_scan_helper_exits_2(self, tmp_path, monkeypatch, capsys):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _entries(t1_low=1)})
+        monkeypatch.setattr(mod, "_SCAN_HELPER", "skf-no-such-helper.py")
+        monkeypatch.setattr(sys, "stdin", __import__("io").StringIO("{}"))
+        code = mod.main([str(prov), "--shape", "reference-app", "--skill-md", str(_skill_md(tmp_path))])
+        assert code == 2 and "skf-no-such-helper.py not found" in capsys.readouterr().err
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -7,18 +7,18 @@ description: Smart regeneration preserving [MANUAL] sections after source change
 
 ## Overview
 
-Surgically updates existing skills when source code changes, preserving all [MANUAL] developer content while re-extracting only affected exports with full provenance tracking; unchanged content is never touched, and each regenerated instruction cites code by file:line. Stack skills (`skill_type: "stack"` in metadata.json) are not updated here: this workflow redirects them to `skf-create-stack-skill`, which re-composes them from updated constituents.
+Surgically updates existing skills when source code changes, preserving all [MANUAL] developer content while re-extracting only affected exports with full provenance tracking; unchanged content is never touched, and each regenerated instruction cites code by file:line (a docs-only skill cites its documents' URLs). Stack skills (`skill_type: "stack"` in metadata.json) are not updated here: this workflow redirects them to `skf-create-stack-skill`, which re-composes them from updated constituents.
 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `gapDrivenStepFile`, `noChangeReportFile` and `reportFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; stage files reference `knowledge/version-paths.md` and `knowledge/tool-resolution.md`, and the terminal step chains to `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `references/` holds the workflow stages, chained by each file's frontmatter `nextStepFile` (init.md §8 loads `gap-driven.md` through `gapDrivenStepFile` instead when `update_mode` is `gap-driven`), the [MANUAL] rules file merge.md loads, and the invocation contract; `scripts/` holds this skill's own helper.
+- `references/` holds the workflow stages, chained by each file's frontmatter `nextStepFile` (load-baseline.md §8 loads `gap-driven.md` through `gapDrivenStepFile` instead when `update_mode` is `gap-driven`), the invocation contract, and two sub-references a stage loads in place: `write-metadata.md` (write.md §3b) and `body-split.md` (verify-publish.md §7); `scripts/` holds this skill's own helper.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Cross-skill data coupling:** stages load shared assets from `skf-create-skill`, so create and update extract alike: `re-extract.md` pulls `extraction-patterns.md`, `extraction-patterns-tracing.md` and `tier-degradation-rules.md` from `skf-create-skill/references/`, `detect-changes.md` pulls `extraction-patterns.md`, and `gap-driven.md` pulls `extraction-patterns.md` and `tier-degradation-rules.md`; `init.md` §6c reads the version files the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` lists, and `skf-source-tree.py` (init.md §6b) computes a remote skill's clone path with its workspace rule; `write.md` reads `skill-sections.md` from `skf-create-skill/assets/`, and `extraction-patterns.md` and, for §2's by-hand public API count, `entry-points-by-hand.md` from `skf-create-skill/references/`.
+- **Cross-skill data coupling:** stages load extraction rules and templates from `skf-create-skill`, each named in the stage's frontmatter or where the stage reads it, so create and update extract alike.
 
 ## Role
 
@@ -28,7 +28,7 @@ You are a precision code analyst operating in Ferris Surgeon mode. This is a sur
 
 These rules apply to every step in this workflow:
 
-- Never hallucinate — every statement must have AST provenance
+- Never hallucinate: every statement cites where it was read (an ast-grep match, a source line read by eye, or a docs URL), with that method's confidence label
 - [MANUAL] sections survive regeneration with zero content loss
 - Only load one step file at a time — never preload future steps
 - Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
@@ -37,17 +37,23 @@ These rules apply to every step in this workflow:
 - Every HALT, ABORT or other exit before step 7 runs the **Halt procedure** of the step file it fires in: one `{runStateHelper}` `halt` call that undoes this run's writes, removes the private source tree, releases the run lock and, headless, prints the halt's line. A halt never falls through to step 6.
 - While `{source_tree}` is bound, a step that finds `{source_root}` missing HALTs with status `blocked` (`error.phase` `<step>:source-tree-missing`) instead of reading its files as deleted.
 - **Run log.** Warnings and gate decisions live in the run folder, never only in context: a step records each warning the moment it raises it, and each gate its decision, with the `record` call that step names.
+- **Run context.** A binding lost from context is read back from `{run_dir}/run-context.json`.
 
 ## Stages
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load | references/init.md | No (confirm) |
-| 2 | Detect Changes | references/detect-changes.md | Conditional (§1b, §1c and §2.2 ask when triggered) |
-| 2g | Gap-Driven Repair (only when `update_mode` is gap-driven: in place of steps 2 and 3) | references/gap-driven.md | Conditional (§1 rule R1 asks [D]/[R] when a gap's remediation names removal) |
+| 1 | Initialize | references/init.md | Yes |
+| 1b | Load the Baseline | references/load-baseline.md | No (confirm) |
+| 2a | Reconcile the Brief's Scope | references/reconcile-scope.md | Conditional (§1b and §1c ask when triggered) |
+| 2 | Detect Changes | references/detect-changes.md | Conditional (§2.2 asks when triggered) |
+| 2g | Gap-Driven Repair (only when `update_mode` is gap-driven: with 3g, in place of steps 2a to 3) | references/gap-driven.md | Conditional (§1 rule R1 asks [D]/[R] when a gap's remediation names removal) |
+| 3g | Gap Spot-Check | references/gap-spot-check.md | Yes |
 | 3 | Re-Extract | references/re-extract.md | Yes |
-| 4 | Merge | references/merge.md | Conditional ([C] after resolved [MANUAL] conflicts) |
+| 4 | Merge | references/merge.md | Conditional (§4 asks on a [MANUAL] conflict) |
+| 4b | Write the Merged Files | references/merge-write.md | Yes |
 | 5 | Write | references/write.md | Yes |
+| 5b | Verify and Publish | references/verify-publish.md | Yes |
 | 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 

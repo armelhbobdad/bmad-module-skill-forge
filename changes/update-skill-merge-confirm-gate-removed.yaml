@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-update-skill
+summary: |
+  Update Skill no longer asks `[C] Continue to Write` after you resolve `[MANUAL]` conflicts: the merged version is already written by then, so a clean or resolved merge goes straight on to write the skill's metadata. A headless run no longer records the `merge.clean-merge-gate` decision, which leaves the `headless_decisions[].gate` enum of the `SKF_UPDATE_RESULT_JSON` line. With no wait left before it, the update no longer renews its run lock before it writes the metadata, so `write:run-lock` no longer occurs as an `error.phase`.
+migration: |
+  Stop reading the `merge.clean-merge-gate` decision in `headless_decisions`. Treat `merge:run-lock` as the only `error.phase` of an update that lost its run lock while it waited.
+issues: [1194]
+prs: [1220]

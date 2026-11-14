@@ -962,7 +962,7 @@ def test_an_inflated_unions_summary_gap_routes_no_export(tmp_path: Path):
 
 
 def test_translate_leaves_barrel_drift_unrouted_with_its_reason():
-    """#803: write.md §2's `metadata` call recounts the counts a `metadata-drift` gap compares and builds
+    """#803: write.md §3b's `metadata` call recounts the counts a `metadata-drift` gap compares and builds
     exports[] from the provenance map, so a metadata patch never holds and the gap came back each round."""
     gap = _gap("GAP-001", "metadata-drift", export=None, severity="Medium",
                title="metadata drift: barrel export counts diverge",

@@ -48,18 +48,18 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 Source code matches provenance map exactly. The skill `{skill_name}` is current — no update was needed.
 
-**Provenance age:** {days} days since last extraction
+**Provenance age:** {provenance_age_days} days since last extraction
 **Forge tier:** {tier}
 **Source commit:** {source_commit_line}
 
 **Recommendation:** No action required. Run audit-skill periodically to monitor for drift."
 
-When `{unconsumed_test_report}` is bound (step 1 §4b found a test report newer than the skill that this normal run did not apply), replace that recommendation by its `{unconsumed_test_result}`:
+When `{unconsumed_test_report}` is bound (load-baseline.md §4b found a test report newer than the skill that this normal run did not apply), replace that recommendation by its `{unconsumed_test_result}`:
 
-- `fail`: "**Recommendation:** The source has not changed, but test report `{its file name}` (fail) has not been applied to this skill. Run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists, then re-run test-skill."
+- `fail`: "**Recommendation:** The source has not changed, but test report `{its file name}` (fail) has not been applied to this skill. Run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists, then re-run test-skill." When `{test_report_cap}` is set (load-baseline.md §4b), say instead: "**Recommendation:** The source has not changed, and test report `{its file name}` failed on a cap: {test_report_cap}. No skill edit lifts a cap, so restore the tooling it names and re-run test-skill; when that test fails too, run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists."
 - `pass-with-drift`: "**Recommendation:** The source has not changed, but test report `{its file name}` passed only under `--allow-workspace-drift`: test-skill read a workspace HEAD other than the commit this skill is pinned to. Once the workspace holds the pinned commit, re-run test-skill without `--allow-workspace-drift` before exporting."
 
-In gap-driven mode (gap-driven.md §1 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap it did not route (`{id}: {title} ({category}): {reason}`, with the `reason` gap-driven.md §1's `not_routed[]` gives it), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes."
+In gap-driven mode (gap-driven.md §1 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap it did not route (`{id}: {title} ({category}): {reason}`, with the `reason` gap-driven.md §1's `not_routed[]` gives it), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes.", followed, when `{test_report_cap}` is set, by "A cap also forced this report's FAIL ({test_report_cap}), and no skill edit lifts it: restore the tooling it names before you re-run test-skill."
 
 When `{source_moved}` is true, add before the recommendation: "Upstream moved to `{target_commit}`, but no file this skill tracks changed, so nothing was written and the skill stays pinned at `{source_commit}`." When `{target_ref_override}` is set and `{target_ref}` differs from `{source_ref}`, also add "**The re-pin to `{target_ref}` was not recorded** — an update records a new ref only when it writes, and `{target_ref}` changes no file this skill tracks." and add `target-ref-not-recorded: {target_ref} changes no file {skill_name} tracks; the skill still records {source_ref}` to `warnings[]`.
 
@@ -88,13 +88,13 @@ The change manifest below describes what would be updated. No artifact was modif
 
 **Recommendation:** Review the manifest; if it matches expectations, re-run `skf-update-skill` without `--detect-only` to perform the actual update."
 
-In `{headless_mode}`, print the line as §5b says, with `status: "detect-only"` and no `--result-dir`, and with no `result_contract`: a detect-only run writes no result file and does not run `{onCompleteCommand}`. `version` and `previous_version` are both the on-disk version (detect-only does not bump), `files_written: []`, `error: null`, and `update_mode` reflects the run's mode (`normal` or `gap-driven` or `degraded`) so consumers know which detection path produced the manifest. The emitter adds the `headless_decisions[]` detect-changes' §1b / §1c / §2.2 gates recorded and the `proposed-amendment:` warnings.
+In `{headless_mode}`, print the line as §5b says, with `status: "detect-only"` and no `--result-dir`, and with no `result_contract`: a detect-only run writes no result file and does not run `{onCompleteCommand}`. `version` and `previous_version` are both the on-disk version (detect-only does not bump), `files_written: []`, `error: null`, and `update_mode` reflects the run's mode (`normal` or `gap-driven` or `degraded`) so consumers know which detection path produced the manifest. The emitter adds the `headless_decisions[]` reconcile-scope.md's §1b / §1c and detect-changes.md's §2.2 gates recorded and the `proposed-amendment:` warnings.
 
 → Load, read the full file, and execute `{nextStepFile}` (health-check) — even detect-only runs through the terminal health-check step.
 
 ### 1b. Handle Dry-Run Mode
 
-**If `dry_run_mode` is true (routed here from re-extract.md §6 or gap-driven.md §5):**
+**If `dry_run_mode` is true (routed here from re-extract.md §6 or gap-spot-check.md §5):**
 
 "**Update Skill Report: {skill_name} — Dry-Run Mode**
 
@@ -120,7 +120,7 @@ The change manifest below shows what was detected; re-extraction ran to compute 
 
 **Recommendation:** Review the manifest and re-extraction summary; if both match expectations, re-run `skf-update-skill` without `--dry-run` to perform the actual update."
 
-`{dry_run_version}` names the folder the run would create, never "the next patch version" by eye: `{source_version_detected}` when step 1 §6c recorded one; otherwise resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and, from `{project-root}`, run `uv run {skillInventoryHelper} version next-patch "{version}"` with the metadata.json `version`, as merge.md §6b does, and take its `next_patch`. When no candidate resolves or the command exits 1 or prints no JSON, say "the next patch version (it could not be computed: {the helper's `error`, or skf-skill-inventory.py is missing})". In gap-driven mode leave this line out.
+`{dry_run_version}` names the folder the run would create, never "the next patch version" by eye: `{source_version_detected}` when load-baseline.md §6c recorded one; otherwise resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and, from `{project-root}`, run `uv run {skillInventoryHelper} version next-patch "{version}"` with the metadata.json `version`, as merge-write.md §6b does, and take its `next_patch`. When no candidate resolves or the command exits 1 or prints no JSON, say "the next patch version (it could not be computed: {the helper's `error`, or skf-skill-inventory.py is missing})". In gap-driven mode leave this line out.
 
 In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and no `--result-dir`, and with no `result_contract`: a dry run writes no result file and does not run `{onCompleteCommand}`. `files_written: []`, `error: null`, `update_mode` from the run; the emitter adds the decisions recorded so far (everything before merge) and the `proposed-amendment:` warnings.
 
@@ -146,12 +146,12 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 
 **`{mode_fallback_note}`** surfaces weak-signal fallbacks the workflow took silently and would otherwise be buried in the evidence report. Render it inline after the mode value when any of these conditions fire; render the empty string when none did:
 
-- `--from-test-report` was passed but no test report was found, or the one a result file named is gone, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing, fell back to normal)`
+- `--from-test-report` was passed but no test report was found, or the one a result file named is gone, so step 1 fell back to `normal` mode (an interactive run's fallback: a headless run halts `blocked` at `init:test-report` instead) → ` (gap-driven requested; test report missing, fell back to normal)`
 - `gap-driven.md §3` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
 - `gap-driven.md §3` accepted a drifted workspace under `--allow-workspace-drift` (`{workspace_drift_status}` is `overridden`; this row is where the report shows §3's override warning) → ` (workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; no provenance line moved or pinned)`
-- init.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
-- init.md §6b could not read `{source_commit}`, so every tracked file was re-checked (`{source_diff_status}` is `unavailable` in a source tree) → ` (file list unavailable: every tracked file re-checked)`
-- write.md §9 left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
+- load-baseline.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
+- load-baseline.md §6b could not read `{source_commit}`, so every tracked file was re-checked (`{source_diff_status}` is `unavailable` in a source tree) → ` (file list unavailable: every tracked file re-checked)`
+- verify-publish.md §9 left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
 - Several fired: concatenate the parenthetical notes with `; ` between them
 
 ### Changes Applied
@@ -169,6 +169,8 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 {when step 2 wrote `{run_dir}/new-files.json`: **New scripts and assets:** {the length of its `new_files[]`} new; set aside: {the length of `tracked_code[]`} code files the map cites, {the length of `out_of_scope[]`} outside the brief's scope, {the length of `intent_none[]`} of a kind whose intent is `none` (counted from the lists, never from `stats`)}
 
 {in gap-driven mode, when gap-driven.md §1 left gaps unrouted: **Not repaired by this run:** each `{id}: {title} ({category}): {reason}`, with the `reason` gap-driven.md §1's `not_routed[]` gives it}
+
+{when `{run_dir}/evidence-records.jsonl` holds a `structural_fix`, `metadata_patch`, `metadata_patch_outcome` or `reclassified` line: **Repairs applied:** each `structural_fix` as `{summary} at {file}:{line}`, each `metadata_patch` as `{summary}` with each field of its `set` and that field's `metadata_patch_outcome` lines (`applied`, `left-out` or `dropped`, with the `why`), and each `reclassified` export as `{export} (internal-unreachable)`}
 
 ### Export Changes
 
@@ -190,7 +192,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 | T1-low | {count} | Read by eye, at any tier (`extraction_method: source-read`) |
 | T2 | {count} | QMD-enriched semantic context |
 
-{if `{provenance_relabels}` is non-empty: **Relabeled to match extraction_method (write.md §2):** {export names}{; **WARN, no node kind found:** {export names}}}
+{if `{provenance_relabels}` is non-empty: **Relabeled to match extraction_method (write.md §3b):** {export names}{; **WARN, no node kind found:** {export names}}}
 
 ### [MANUAL] Section Preservation
 
@@ -204,7 +206,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 
 ### 3. Present Validation Findings
 
-Read the Validation Summary write.md recorded for this update in `{forge_version}/evidence-report.md`: `[MANUAL] integrity` from write.md §1's `manual-verify` verdict, `Confidence tiers` from §2's relabels, `Provenance` from §6, and `Spec compliance`, `Diff` and `Security` from §7.
+Read the Validation Summary write.md recorded for this update in `{forge_version}/evidence-report.md`: `[MANUAL] integrity` from write.md §1's `manual-verify` verdict, `Confidence tiers` from §3b's relabels, `Provenance` from verify-publish.md §6, and `Spec compliance`, `Diff` and `Security` from verify-publish.md §7.
 
 **If any row is WARN or FAIL:**
 
@@ -215,7 +217,7 @@ Read the Validation Summary write.md recorded for this update in `{forge_version
 | Spec compliance | {PASS/WARN/FAIL/SKIP} | {count} (quality score {score}/100) |
 | [MANUAL] integrity | {PASS/FAIL} | {count} |
 | Confidence tiers | {PASS/WARN} | {count} |
-| Provenance | {PASS/WARN} | {count} |
+| Provenance | {PASS/WARN/SKIP} | {count} |
 | Diff | {SKIP, or new and fixed counts} | {new} |
 | Security | {PASS/WARN/SKIP} | {count} |
 
@@ -234,7 +236,7 @@ Read the Validation Summary write.md recorded for this update in `{forge_version
 | `{forge_version}/provenance-map.json` | Updated |
 | `{forge_version}/evidence-report.md` | Appended |
 
-Where `{skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/`: the new version's folders step 4 §6b created (the current version's in gap-driven mode), beside the unchanged previous version — see `knowledge/version-paths.md`."
+Where `{skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/`: the new version's folders merge-write.md §6b created (the current version's in gap-driven mode), beside the unchanged previous version (see `knowledge/version-paths.md`)."
 
 ### 5. Workflow Chaining Recommendations
 
@@ -252,6 +254,8 @@ When `{run_dir}/warnings.jsonl` holds a `workspace-clone-not-updated:` line, add
 **If validation warnings/failures exist:**
 "- **audit-skill** — Run to identify remaining issues
 - Review validation findings above before exporting"
+
+When `{test_report_cap}` is set, add to either list: "- test-skill fails again until the tooling the last test report's cap names is restored ({test_report_cap}): no skill edit lifts a cap."
 
 **If triggered by audit-skill chain:**
 "- **audit-skill** — Re-run to verify CRITICAL/HIGH drift resolved
@@ -294,10 +298,10 @@ SKF_JSON
 Leave `files_written` out when the emitter's message names it (the line then holds `[]`), and write each value as a JSON string, as init.md's halt procedure does: escape `"` and `\`, and write every path with `/`. Bind `{result_envelope_line}` to the line it prints and do not display it here: the shared health check displays it as the run's last line. When it exits non-zero or prints no line, bind nothing. Either way the run has no result contract (`emit-halt` writes none, even when it exits 0): skip the hook with the no-result-contract line below, then go on to §6. The failure line undoes nothing: what this run wrote stays in place.
 
 - `status`: `"success"` here; §1 stages `"no-changes"`, §1a `"detect-only"` and §1b `"dry-run"`; the failure line above prints `"halted-for-write-failure"` at `error.phase` `report:result-contract`; a halt prints its own `halted-for-*` or `blocked` line through its step's halt procedure and never reaches this step. The full enum lives in the schema.
-- `files_written[]`: `references` stands for every `references/*.md` file of the package this run wrote, added or removed, one value however many: merge.md §6b's merge, at any priority, write.md §6's provenance fixes and write.md §7's body split. Read it from the files on disk, never from memory: a `references/` path in the `files_written[]` write.md §6's provenance `fix` printed; a file the `Body split` row lists in this run's `## Update Operation` section of `{forge_version}/evidence-report.md`, the one write.md §4 appended, never an earlier update's; outside gap-driven mode, a `references/*.md` file that `{skill_package}` and the previous version's package (`{skill_group}/{baseline_version}/{skill_name}/references/`) do not hold alike, one lacking it or the two differing; in gap-driven mode, which repairs the version in place, a file in `{run_dir}/references/`, where merge.md §6b staged each one it wrote, or a path `{run_dir}/references-removed.txt` lists.
-- `headless_decisions[]`: every gate's record in the run's decision log (init.md §4 degraded-rebuild and §8 confirmation, detect-changes.md §1b / §1c / §2.2, gap-driven.md §1 rule R1, merge.md §8). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gate auto-resolved.
+- `files_written[]`: `references` stands for every `references/*.md` file of the package this run wrote, added or removed, one value however many: merge-write.md §6b's merge, at any priority, verify-publish.md §6's provenance fixes and verify-publish.md §7's body split. Read it from the files on disk, never from memory: a `references/` path in the `files_written[]` verify-publish.md §6's provenance `fix` printed; a file the `Body split` row lists in this run's `## Update Operation` section of `{forge_version}/evidence-report.md`, the one write.md §4 appended, never an earlier update's; outside gap-driven mode, a `references/*.md` file that `{skill_package}` and the previous version's package (`{skill_group}/{baseline_version}/{skill_name}/references/`) do not hold alike, one lacking it or the two differing; in gap-driven mode, which repairs the version in place, a file in `{run_dir}/references/`, where merge-write.md §6b staged each one it wrote, a path `{run_dir}/references-removed.txt` lists, or a `references/` path in the `files_written[]` of `{run_dir}/citation-moves.json`, where merge-write.md §6b moved citations in place.
+- `headless_decisions[]`: the gate decisions this run recorded in its decision log, which the emitter folds into the line, each `{gate, default_action, taken_action, reason, evidence?}` with a `gate` from the schema's gate enum (`headless_decisions[].gate` in `shared/scripts/schemas/skf-update-result-envelope.v1.json`). Empty when no gate auto-resolved.
 - `error`: null on every exit this step prints except the failure line above, which carries `{phase: "report:result-contract", path, reason}`. A halt's line carries `{phase, path?, reason}`, and pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `new-files-not-checked` (Category D: a skill with no brief, so no new script or asset was looked for), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category}): {reason}` for each gap gap-driven.md §1 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (gap-driven.md §3), `run-state-not-finished`, `result_file_write_failed` (a result file the emitter could not write; the hook then does not run), `public-api-counted-by-hand:` (write.md §2: the recipe runner exited 2, so the public names were found without it; it quotes the runner's error line) and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+- `warnings[]`: every entry of `{run_dir}/warnings.jsonl`, which the emitter folds into the line; the schema's `warnings` description names each kind. One decides the hook below: `result_file_write_failed` (a result file the emitter could not write; the hook then does not run).
 
 **Post-finalization hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 

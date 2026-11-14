@@ -6248,3 +6248,455 @@ class TestFixPlan:
                      "a <!-- [MANUAL:x] -->in<!-- [/MANUAL:x]\u00a0-->"):
             assert mod.manual_interiors(nbsp) == []
             assert hash_content.find_manual_blocks(nbsp.encode("utf-8")) == []
+
+
+# --------------------------------------------------------------------------
+# fix --moves: a run's moved exports (#1191 determinism-1)
+# --------------------------------------------------------------------------
+
+MOVES_ENTRIES = [
+    {"export_name": "LIMIT", "source_file": "src/lib/config.py", "source_line": 6, "extraction_method": "ast-grep"},
+    {"export_name": "DEFAULT", "source_file": "src/lib/config.py", "source_line": 7, "extraction_method": "ast-grep"},
+    {"export_name": "search", "source_file": "src/lib/old.py", "source_line": 5, "extraction_method": "source-read"},
+]
+
+
+def _manifest(*per_file: tuple) -> dict:
+    """A change manifest: one per_file item per (file_path, [change, ...])."""
+    return {"counts": {"exports_moved": 1}, "per_file": [
+        {"file_path": path, "status": "MODIFIED", "exports_affected": list(changes)} for path, changes in per_file]}
+
+
+def _move(name: str, old: int, new: int, **extra: object) -> dict:
+    return dict({"name": name, "change_type": "MOVED_EXPORT", "old_line": old, "new_line": new}, **extra)
+
+
+def _moves(pkg: FixPackage, moves: dict, *flags: str) -> tuple[int, dict]:
+    moves_json = _write_json(pkg.root.parent / "moves.json", moves)
+    result = _run_cli("fix", "--moves", str(moves_json), "--provenance", str(pkg.prov),
+                      "--skill-dir", str(pkg.skill), *flags)
+    assert result.returncode in (0, 1), result.stderr
+    return result.returncode, json.loads(result.stdout)
+
+
+class TestFixMoves:
+    def test_a_chain_moves_each_citation_once_and_leaves_the_map(self, tmp_path: Path) -> None:
+        # LIMIT 6 -> 7 and DEFAULT 7 -> 8 in one pass: L6 becomes L7 and L7 becomes L8, never L6 -> L8
+        pkg = _fix_package(tmp_path, skill_md="`LIMIT` [AST:src/lib/config.py:L6], `DEFAULT` "
+                           "[SRC:./src/lib/config.py:L7]\n", api_md="- [AST:src/lib/config.py:L7]\n",
+                           entries=MOVES_ENTRIES)
+        before = pkg.prov.read_bytes()
+        code, out = _moves(pkg, _manifest(("src/lib/config.py", [_move("LIMIT", 6, 7), _move("DEFAULT", 7, 8)])))
+        assert code == 0 and out["left_as_warn"] == [] and out["warnings"] == []
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+            "`LIMIT` [AST:src/lib/config.py:L7], `DEFAULT` [SRC:./src/lib/config.py:L8]\n")
+        assert (pkg.skill / "references" / "api.md").read_text(encoding="utf-8") == "- [AST:src/lib/config.py:L8]\n"
+        assert pkg.prov.read_bytes() == before  # the map is read, never written
+        assert out["files_written"] == [str(pkg.skill / "SKILL.md"), str(pkg.skill / "references" / "api.md")]
+        assert [(a["kind"], a["citation"], a["fixed"], a["export_names"]) for a in out["applied"]] == [
+            ("citation-line", "[AST:src/lib/config.py:L6]", "[AST:src/lib/config.py:L7]", ["LIMIT"]),
+            ("citation-line", "[SRC:./src/lib/config.py:L7]", "[SRC:./src/lib/config.py:L8]", ["DEFAULT"]),
+            ("citation-line", "[AST:src/lib/config.py:L7]", "[AST:src/lib/config.py:L8]", ["DEFAULT"])]
+        assert out["summary"] == {"citation_prefixes_fixed": 0, "source_lines_moved": 0, "citations_moved": 3,
+                                  "left_as_warn_count": 0}
+
+    def test_a_move_across_files_rewrites_the_path_and_shifts_a_range(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, skill_md="`search` [SRC:src/lib/old.py:L5-8] and [AST: src\\lib\\old.py :L5]\n",
+                           api_md="", entries=MOVES_ENTRIES)
+        code, out = _moves(pkg, _manifest(("src/lib/new.py", [_move("search", 5, 9, old_file="src/lib/old.py")])))
+        assert code == 0, out
+        # the new file as the manifest writes it, the prefix kept, both ends of the range shifted
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+            "`search` [SRC:src/lib/new.py:L9-12] and [AST: src/lib/new.py :L9]\n")
+
+    def test_a_file_rename_rewrites_the_path_at_the_same_line(self, tmp_path: Path) -> None:
+        # a `git mv`: the export keeps its line, so only the path changes
+        pkg = _fix_package(tmp_path, skill_md="`search` [SRC:src/lib/old.py:L5]\n", api_md="", entries=MOVES_ENTRIES)
+        code, out = _moves(pkg, _manifest(("src/lib/new.py", [_move("search", 5, 5, old_file="src/lib/old.py")])))
+        assert code == 0, out
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == "`search` [SRC:src/lib/new.py:L5]\n"
+        assert out["files_written"] == [str(pkg.skill / "SKILL.md")]
+
+    def test_a_claimed_line_stays_with_a_warning(self, tmp_path: Path) -> None:
+        # a function inserted at line 6 above LIMIT: merge wrote its citation at L6 before the move runs, so
+        # neither L6 citation can be told apart and both stay
+        pkg = _fix_package(tmp_path, skill_md="`fresh` [AST:src/lib/config.py:L6] `LIMIT` "
+                           "[AST:src/lib/config.py:L6]\n", api_md="", entries=MOVES_ENTRIES)
+        code, out = _moves(pkg, _manifest(("src/lib/config.py", [
+            {"name": "fresh", "change_type": "NEW_EXPORT", "old_line": None, "new_line": 6},
+            _move("LIMIT", 6, 7)])))
+        assert code == 1 and out["applied"] == [] and out["files_written"] == []
+        assert [(w["line"], w["why"], w["export_names"]) for w in out["left_as_warn"]] == [
+            (1, "shared-line", ["LIMIT", "fresh"]), (1, "shared-line", ["LIMIT", "fresh"])]
+        assert out["warnings"][0] == ("provenance: citation [AST:src/lib/config.py:L6] at SKILL.md:1 not moved "
+                                      "(shared-line): LIMIT, fresh")
+        assert len(out["warnings"]) == 2
+        # one citation of the claimed line: it stays, with one warning line
+        pkg = _fix_package(tmp_path / "one", skill_md="`LIMIT` [AST:src/lib/config.py:L6]\n", api_md="",
+                           entries=MOVES_ENTRIES)
+        code, out = _moves(pkg, _manifest(("src/lib/config.py", [
+            {"name": "fresh", "change_type": "NEW_EXPORT", "old_line": None, "new_line": 6},
+            _move("LIMIT", 6, 7)])))
+        assert code == 1 and [w["why"] for w in out["left_as_warn"]] == ["shared-line"]
+        assert out["warnings"] == ["provenance: citation [AST:src/lib/config.py:L6] at SKILL.md:1 not moved "
+                                   "(shared-line): LIMIT, fresh"]
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == "`LIMIT` [AST:src/lib/config.py:L6]\n"
+
+    def test_other_claims_keep_a_citation(self, tmp_path: Path) -> None:
+        # a map entry of another name at the line, a MODIFIED_EXPORT placed there, and moves to two targets
+        entries = MOVES_ENTRIES + [{"export_name": "OTHER", "source_file": "src/lib/config.py", "source_line": 6}]
+        pkg = _fix_package(tmp_path, skill_md="a [AST:src/lib/config.py:L6] b [AST:src/lib/config.py:L7] "
+                           "c [AST:src/lib/old.py:L5]\n", api_md="", entries=entries)
+        code, out = _moves(pkg, _manifest(
+            ("src/lib/config.py", [_move("LIMIT", 6, 9),
+                                   {"name": "mod", "change_type": "MODIFIED_EXPORT", "old_line": 2, "new_line": 7},
+                                   _move("DEFAULT", 7, 8)]),
+            ("src/lib/a.py", [_move("search", 5, 1, old_file="src/lib/old.py")]),
+            ("src/lib/b.py", [_move("search", 5, 2, old_file="src/lib/old.py")])))
+        assert code == 1 and out["applied"] == []
+        assert [(w["citation"], w["export_names"]) for w in out["left_as_warn"]] == [
+            ("[AST:src/lib/config.py:L6]", ["LIMIT", "OTHER"]),
+            ("[AST:src/lib/config.py:L7]", ["DEFAULT", "mod"]),
+            ("[AST:src/lib/old.py:L5]", ["search"])]
+
+    def test_a_manual_block_stays(self, tmp_path: Path) -> None:
+        skill_md = ("a [AST:src/lib/config.py:L6]\n<!-- [MANUAL:notes] -->\nKeep [AST:src/lib/config.py:L6].\n"
+                    "<!-- [/MANUAL:notes] -->\n")
+        pkg = _fix_package(tmp_path, skill_md=skill_md, api_md="", entries=MOVES_ENTRIES)
+        inventory = _manual_inventory(pkg.skill, tmp_path / "inventory.json")
+        code, out = _moves(pkg, _manifest(("src/lib/config.py", [_move("LIMIT", 6, 7)])),
+                           "--manual-inventory", str(inventory))
+        assert code == 1 and out["manual_verify"]["ok"] is True
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == skill_md.replace("a [AST:src/lib/config.py:L6]",
+                                                                                       "a [AST:src/lib/config.py:L7]")
+        assert [(w["line"], w["why"]) for w in out["left_as_warn"]] == [(3, "inside-manual-block")]
+        assert out["warnings"] == ["provenance: citation [AST:src/lib/config.py:L6] at SKILL.md:3 not moved "
+                                   "(inside-manual-block): LIMIT"]
+
+    def test_gap_records_move_only_the_moved_in_map_records(self, tmp_path: Path) -> None:
+        def record(name: str, outcome: str, citation: str, new: str | None = None, in_map: bool = True,
+                   category: str = "MODIFIED_EXPORT") -> dict:
+            return {"gap_id": name, "export_name": name, "gap_category": category, "verification": outcome,
+                    "in_map": in_map, "provenance_citation": citation, "new_location": new}
+
+        skill_md = ("[AST:src/lib/config.py:L6] [AST:src/lib/config.py:L7] [SRC:src/lib/old.py:L5] "
+                    "[SRC:src/lib/old.py:L9]\n")
+        pkg = _fix_package(tmp_path, skill_md=skill_md, api_md="", entries=MOVES_ENTRIES)
+        records = {"mode": "gap-driven", "files": [], "verification": [
+            # two R5 moves in a chain: a moved MOVED_EXPORT's new line is no claim
+            record("LIMIT", "moved", "src/lib/config.py:6", "src/lib/config.py:7", category="MOVED_EXPORT"),
+            record("DEFAULT", "moved", "src/lib/config.py:7", "src/lib/config.py:8", category="MOVED_EXPORT"),
+            record("search", "verified", "src/lib/old.py:5"),  # verified: its citation stays
+            # a NEW_EXPORT the map does not hold: merge wrote its citation, nothing to move
+            record("fresh", "moved", "src/lib/old.py:2", "src/lib/old.py:9", in_map=False, category="NEW_EXPORT"),
+        ]}
+        code, out = _moves(pkg, records)
+        assert code == 0, out
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+            "[AST:src/lib/config.py:L7] [AST:src/lib/config.py:L8] [SRC:src/lib/old.py:L5] [SRC:src/lib/old.py:L9]\n")
+        # a moved MODIFIED_EXPORT's new line is a claim (merge rewrote its citation there): DEFAULT stays
+        records["verification"][0]["gap_category"] = "MODIFIED_EXPORT"
+        pkg = _fix_package(tmp_path / "again", skill_md=skill_md, api_md="", entries=MOVES_ENTRIES)
+        code, out = _moves(pkg, records)
+        assert code == 1
+        assert [(w["citation"], w["why"]) for w in out["left_as_warn"]] == [
+            ("[AST:src/lib/config.py:L7]", "shared-line")]
+        # a verified record claims its citation, a re-extracted one its new location: a move from that line stays
+        for claim in (record("fresh", "verified", "src/lib/config.py:6", category="NEW_EXPORT"),
+                      record("fresh", "re-extracted", "src/lib/config.py:6", "src/lib/config.py:6",
+                             in_map=False, category="NEW_EXPORT")):
+            pkg = _fix_package(tmp_path / claim["verification"], skill_md="`fresh` [AST:src/lib/config.py:L6] "
+                               "`LIMIT` [AST:src/lib/config.py:L6]\n", api_md="", entries=MOVES_ENTRIES)
+            code, out = _moves(pkg, {"mode": "gap-driven", "files": [], "verification": [
+                claim, record("LIMIT", "moved", "src/lib/config.py:6", "src/lib/config.py:7",
+                              category="MOVED_EXPORT")]})
+            assert code == 1 and out["applied"] == [], claim["verification"]
+            assert [(w["why"], w["export_names"]) for w in out["left_as_warn"]] == [
+                ("shared-line", ["LIMIT", "fresh"]), ("shared-line", ["LIMIT", "fresh"])]
+            assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+                "`fresh` [AST:src/lib/config.py:L6] `LIMIT` [AST:src/lib/config.py:L6]\n")
+
+    def test_the_moves_file_must_be_a_manifest_or_gap_records(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, entries=MOVES_ENTRIES)
+        for bad in ({"mode": "normal", "files": []}, {"stale": [], "citations": []}):
+            moves_json = _write_json(tmp_path / "bad.json", bad)
+            result = _run_cli("fix", "--moves", str(moves_json), "--provenance", str(pkg.prov),
+                              "--skill-dir", str(pkg.skill))
+            assert result.returncode == 2 and result.stdout == ""
+            assert "neither a change manifest" in result.stderr
+
+    def test_the_inputs_are_one_or_the_other(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, entries=MOVES_ENTRIES)
+        moves = _write_json(tmp_path / "m.json", _manifest(("src/lib/config.py", [_move("LIMIT", 6, 7)])))
+        before = (pkg.skill / "SKILL.md").read_bytes()
+        cases = [
+            (["--verify", str(moves), "--moves", str(moves)], "not allowed with argument"),
+            ([], "one of the arguments --verify --moves is required"),
+            (["--moves", str(moves), "--no-line-moves"], "--no-line-moves goes with --verify"),
+        ]
+        for args, message in cases:
+            result = _run_cli("fix", *args, "--provenance", str(pkg.prov), "--skill-dir", str(pkg.skill))
+            assert result.returncode == 2 and result.stdout == "", args
+            assert message in result.stderr, result.stderr
+        assert (pkg.skill / "SKILL.md").read_bytes() == before
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, skill_md="[AST:src/lib/config.py:L6]\n", api_md="", entries=MOVES_ENTRIES)
+        code, out = _moves(pkg, _manifest(("src/lib/config.py", [_move("LIMIT", 6, 7)])), "--dry-run")
+        assert code == 0 and out["files_written"] == [] and out["files_changed"] == [str(pkg.skill / "SKILL.md")]
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == "[AST:src/lib/config.py:L6]\n"
+
+
+# --------------------------------------------------------------------------
+# relabel: the Relabel Rule (#1191 determinism-5)
+# --------------------------------------------------------------------------
+
+STATS_SCRIPT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-render-metadata-stats.py"
+_stats_spec = importlib.util.spec_from_file_location("skf_render_metadata_stats_for_relabel", STATS_SCRIPT)
+stats_mod = importlib.util.module_from_spec(_stats_spec)
+assert _stats_spec.loader is not None
+_stats_spec.loader.exec_module(stats_mod)
+
+
+def _entry(name: str, method: str | None, confidence: str = "T1", kind: str | None = None,
+           sig: str = "T1", source_file: str = "pkg/api.py", line: int = 5) -> dict:
+    return {"export_name": name, "export_type": "function", "source_file": source_file, "source_line": line,
+            "confidence": confidence, "extraction_method": method, "ast_node_type": kind,
+            "signature_source": sig}
+
+
+def _relabel(tmp_path: Path, entries: list, *flags: str, records: dict | None = None,
+             node_kinds: list | None = None, violations: bool = True) -> tuple[int, dict, list]:
+    prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+    args = ["relabel", "--provenance", str(prov), "--recipes", str(EXTRACTION_PATTERNS)]
+    if violations:
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {
+            "ok": False, "violations": stats_mod.check_label_agreement({"entries": entries})}})
+        args += ["--violations", str(stats)]
+    if node_kinds is not None:
+        args += ["--node-kinds", str(_write_json(tmp_path / "verify.json", {"node_kinds": node_kinds}))]
+    if records is not None:
+        args += ["--records", str(_write_json(tmp_path / "records.json", records))]
+    result = _run_cli(*args, *flags)
+    assert result.returncode in (0, 1), result.stderr
+    return result.returncode, json.loads(result.stdout), json.loads(prov.read_text(encoding="utf-8"))["entries"]
+
+
+def _records_of(*records: tuple) -> dict:
+    """reextract-records.json: one block per (file, name, line, method, recipe)."""
+    files: dict[str, list] = {}
+    for path, name, line, method, recipe in records:
+        files.setdefault(path, []).append({"name": name, "location": f"{path}:{line}", "extraction_method": method,
+                                           "ast_recipe": recipe})
+    return {"mode": "normal", "files": [{"file_path": p, "exports": e} for p, e in files.items()]}
+
+
+class TestRelabel:
+    def test_labels_follow_the_method(self, tmp_path: Path) -> None:
+        code, out, entries = _relabel(tmp_path, [_entry("search", "source-read", kind="function_definition",
+                                                        sig="T1")])
+        assert code == 0 and out["left_as_warn"] == []
+        assert [(r["field"], r["from"], r["to"]) for r in out["relabeled"]] == [
+            ("confidence", "T1", "T1-low"), ("signature_source", "T1", "T1-low"),
+            ("ast_node_type", "function_definition", None)]
+        assert (entries[0]["confidence"], entries[0]["signature_source"], entries[0]["ast_node_type"]) == (
+            "T1-low", "T1-low", None)
+        assert stats_mod.check_label_agreement({"entries": entries}) == []
+        assert out["summary"] == {"relabeled_count": 3, "left_as_warn_count": 0}
+
+    def test_the_map_is_written_through_the_atomic_helper(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        entries = [_entry("search", "source-read", sig="T1-low", kind=None)]  # confidence T1: T1-low
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {
+            "ok": False, "violations": stats_mod.check_label_agreement({"entries": entries})}})
+        real = mod.atomic_write
+        writes: list[tuple[str, str]] = []
+
+        def spy(helper: Path, target: Path, data: bytes) -> None:
+            writes.append((helper.name, str(target)))
+            real(helper, target, data)
+
+        monkeypatch.setattr(mod, "atomic_write", spy)
+        code = mod.main(["relabel", "--provenance", str(prov), "--violations", str(stats),
+                         "--recipes", str(EXTRACTION_PATTERNS)])
+        assert code == 0 and json.loads(capsys.readouterr().out)["files_written"] == [str(prov)]
+        assert writes == [("skf-atomic-write.py", str(prov))]
+        assert json.loads(prov.read_text(encoding="utf-8"))["entries"][0]["confidence"] == "T1-low"
+        assert not list(tmp_path.glob("*.skf-tmp"))
+
+    def test_an_unknown_method_takes_the_records_tool_then_its_labels(self, tmp_path: Path) -> None:
+        # no record: source-read, then the labels that method needs
+        code, out, entries = _relabel(tmp_path, [_entry("search", "direct-read")])
+        assert code == 0
+        assert [(r["field"], r["to"]) for r in out["relabeled"]] == [
+            ("extraction_method", "source-read"), ("confidence", "T1-low"), ("signature_source", "T1-low")]
+        # a record that says ast-grep: ast-grep, and the kind of the recipe it names
+        code, out, entries = _relabel(tmp_path, [_entry("search", None)],
+                                      records=_records_of(("pkg/api.py", "search", 5, "ast-grep",
+                                                           "python-public-functions")))
+        assert code == 0
+        assert [(r["field"], r["to"]) for r in out["relabeled"]] == [
+            ("extraction_method", "ast-grep"), ("ast_node_type", "function_definition")]
+        assert stats_mod.check_label_agreement({"entries": entries}) == []
+
+    def test_the_recipe_wins_over_kind_at(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+        entries = [_entry("search", "ast-grep", kind=None)]
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {
+            "ok": False, "violations": stats_mod.check_label_agreement({"entries": entries})}})
+        records = _write_json(tmp_path / "records.json", _records_of(
+            ("pkg/api.py", "search", 5, "ast-grep", "python-public-functions")))
+        monkeypatch.setattr(mod, "kinds_at", lambda *a, **k: pytest.fail("kind-at ran"))
+        code = mod.main(["relabel", "--provenance", str(prov), "--violations", str(stats), "--recipes",
+                         str(EXTRACTION_PATTERNS), "--records", str(records), "--source-root", str(tmp_path)])
+        out = json.loads(capsys.readouterr().out)
+        assert code == 0 and [(r["field"], r["to"]) for r in out["relabeled"]] == [
+            ("ast_node_type", "function_definition")]
+        # the map: two-space JSON, non-ASCII kept, a final newline, through the atomic helper
+        text = prov.read_text(encoding="utf-8")
+        assert text.endswith("}\n") and text.startswith('{\n  "entries": [\n')
+        assert out["files_written"] == [str(prov)]
+
+    def test_no_kind_at_leaves_a_warn(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        code, out, entries = _relabel(tmp_path, [_entry("search", "ast-grep", kind=None)], "--no-kind-at",
+                                      "--source-root", str(tmp_path))
+        assert code == 1 and out["relabeled"] == [] and out["files_written"] == []
+        assert out["left_as_warn"] == [{"entry_index": 0, "export_name": "search", "source_file": "pkg/api.py",
+                                        "field": "ast_node_type", "why": "kind-at-skipped"}]
+        assert entries[0]["ast_node_type"] is None
+        # with no --source-root, no kind is looked up either
+        code, out, _ = _relabel(tmp_path, [_entry("search", "ast-grep", kind=None)])
+        assert code == 1 and [w["why"] for w in out["left_as_warn"]] == ["no-source-root"]
+
+    def test_node_kinds_take_kind_at_and_never_change_the_method(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = tmp_path / "src"
+        (src / "pkg").mkdir(parents=True)
+        (src / "pkg" / "api.py").write_bytes(b"def search():\n    pass\n")  # bytes: the same file on Windows
+        entries = [_entry("search", "ast-grep", kind="ERROR", line=1), _entry("gone", "ast-grep", kind="ERROR",
+                                                                             source_file="pkg/gone.py", line=1)]
+        items = [{"entry_index": 0, "export_name": "search", "source_file": "pkg/api.py"},
+                 {"entry_index": 1, "export_name": "gone", "source_file": "pkg/gone.py"},
+                 {"entry_index": 0, "export_name": "search", "source_file": "pkg/other.py"},
+                 {"entry_index": 7, "export_name": "search", "source_file": "pkg/api.py"}]
+        calls: list[tuple] = []
+
+        def fake(source, language, targets, recipes):
+            calls.append((source, language, targets))
+            return [{"line": line, "name": name, "status": "found", "kind": "function_definition",
+                     "matches": [], "errors": []} for line, name in targets]
+
+        monkeypatch.setattr(mod, "kinds_at", fake)
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        verify = _write_json(tmp_path / "verify.json", {"node_kinds": items})
+        code = mod.main(["relabel", "--provenance", str(prov), "--node-kinds", str(verify), "--recipes",
+                         str(EXTRACTION_PATTERNS), "--source-root", str(src), "-o", str(tmp_path / "out.json")])
+        out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        assert code == 1
+        assert calls == [(b"def search():\n    pass\n", "python", [(1, "search")])]
+        assert [(r["entry_index"], r["from"], r["to"]) for r in out["relabeled"]] == [
+            (0, "ERROR", "function_definition")]
+        # a file kind-at cannot read, an item whose file is not its entry's, an index past the map
+        assert [(w["entry_index"], w["why"]) for w in out["left_as_warn"]] == [
+            (0, "entry-not-found"), (7, "entry-not-found"), (1, "kind-at-failed")]
+        written = json.loads(prov.read_text(encoding="utf-8"))["entries"]
+        assert [(e["ast_node_type"], e["extraction_method"]) for e in written] == [
+            ("function_definition", "ast-grep"), ("ERROR", "ast-grep")]
+
+    def test_a_kind_at_status_is_the_why(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "pkg/api.py", "x = 1\n")
+        entries = [_entry("search", "ast-grep", kind=None, line=1)]
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {
+            "ok": False, "violations": stats_mod.check_label_agreement({"entries": entries})}})
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)  # no ast-grep: skipped-no-ast-grep
+        code = mod.main(["relabel", "--provenance", str(prov), "--violations", str(stats),
+                         "--recipes", str(EXTRACTION_PATTERNS), "--source-root", str(src)])
+        out = json.loads(capsys.readouterr().out)
+        assert code == 1 and [w["why"] for w in out["left_as_warn"]] == ["skipped-no-ast-grep"]
+        assert json.loads(prov.read_text(encoding="utf-8"))["entries"] == entries
+
+    def test_a_violation_on_another_entry_is_not_found(self, tmp_path: Path) -> None:
+        entries = [_entry("search", "source-read")]
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {"ok": False, "violations": [
+            {"field": "provenance.entries[0].confidence", "export_name": "other", "expected": "T1-low",
+             "actual": "T1"},
+            {"field": "stats.exports_total", "expected": 1, "actual": 2}]}})
+        result = _run_cli("relabel", "--provenance", str(prov), "--violations", str(stats),
+                          "--recipes", str(EXTRACTION_PATTERNS))
+        out = json.loads(result.stdout)
+        assert result.returncode == 1 and out["relabeled"] == []
+        assert [(w["entry_index"], w["export_name"], w["field"], w["why"]) for w in out["left_as_warn"]] == [
+            (0, "other", "confidence", "entry-not-found")]
+        assert json.loads(prov.read_text(encoding="utf-8"))["entries"] == entries
+
+    def test_input_errors_exit_2(self, tmp_path: Path) -> None:
+        prov = _write_json(tmp_path / "prov.json", {"entries": [_entry("search", "source-read")]})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {"ok": True, "violations": []}})
+        not_stats = _write_json(tmp_path / "not-stats.json", {"stats": {}})
+        not_verify = _write_json(tmp_path / "not-verify.json", {"stale": []})
+        empty = _write_text(tmp_path, "empty.md", "# no recipes\n")
+        before = prov.read_bytes()
+        cases = [
+            (["--recipes", str(EXTRACTION_PATTERNS)], "needs --violations, --node-kinds or both"),
+            (["--violations", str(not_stats), "--recipes", str(EXTRACTION_PATTERNS)], "no coherence.violations[]"),
+            (["--node-kinds", str(not_verify), "--recipes", str(EXTRACTION_PATTERNS)], "node_kinds[]"),
+            (["--violations", str(stats), "--recipes", str(empty)], "no ast-grep recipe"),
+            (["--violations", str(stats), "--recipes", str(tmp_path / "gone.md")], "recipes not found"),
+            (["--violations", str(stats), "--recipes", str(EXTRACTION_PATTERNS), "--records",
+              str(tmp_path / "gone.json")], "records not found"),
+        ]
+        for args, message in cases:
+            result = _run_cli("relabel", "--provenance", str(prov), *args)
+            assert result.returncode == 2 and result.stdout == "", args
+            assert message in result.stderr, result.stderr
+        assert prov.read_bytes() == before
+
+    def test_no_atomic_helper_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+        entries = [_entry("search", "source-read")]
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {
+            "ok": False, "violations": stats_mod.check_label_agreement({"entries": entries})}})
+        before = prov.read_bytes()
+        monkeypatch.setattr(mod, "_sibling_helper", lambda filename: None)
+        code = mod.main(["relabel", "--provenance", str(prov), "--violations", str(stats),
+                         "--recipes", str(EXTRACTION_PATTERNS)])
+        captured = capsys.readouterr()
+        assert code == 2 and captured.out == "" and "skf-atomic-write.py not found" in captured.err
+        assert prov.read_bytes() == before
+
+    def test_no_stats_helper_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+        # an extraction_method violation needs the stats helper's label check: without it nothing is relabeled
+        entries = [_entry("search", "direct-read")]
+        prov = _write_json(tmp_path / "prov.json", {"entries": entries})
+        stats = _write_json(tmp_path / "stats.json", {"coherence": {
+            "ok": False, "violations": stats_mod.check_label_agreement({"entries": entries})}})
+        before = prov.read_bytes()
+
+        def gone(filename: str, module_name: str):
+            raise FileNotFoundError(filename)
+
+        monkeypatch.setattr(mod, "_load_sibling_module", gone)
+        code = mod.main(["relabel", "--provenance", str(prov), "--violations", str(stats),
+                         "--recipes", str(EXTRACTION_PATTERNS)])
+        captured = capsys.readouterr()
+        assert code == 2 and captured.out == ""
+        assert "skf-render-metadata-stats.py could not be loaded" in captured.err and "nothing written" in captured.err
+        assert prov.read_bytes() == before
+
+    def test_the_record_at_the_entrys_line_is_its_record(self, tmp_path: Path) -> None:
+        # two records of one name in one file: each entry takes the one at its own source_line
+        records = _records_of(("pkg/api.py", "search", 5, "ast-grep", "python-public-functions"),
+                              ("pkg/api.py", "search", 20, "source-read", None))
+        code, out, entries = _relabel(tmp_path, [_entry("search", "direct-read", line=20),
+                                                 _entry("search", None, line=5)], records=records)
+        assert code == 0, out
+        assert [(e["source_line"], e["extraction_method"], e["confidence"], e["signature_source"],
+                 e["ast_node_type"]) for e in entries] == [
+            (20, "source-read", "T1-low", "T1-low", None), (5, "ast-grep", "T1", "T1", "function_definition")]
+        assert stats_mod.check_label_agreement({"entries": entries}) == []

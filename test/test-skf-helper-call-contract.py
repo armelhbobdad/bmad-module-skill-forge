@@ -457,8 +457,8 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-atomic-write.py", "commit-dir"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-verify-provenance-completeness.py", "verify"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-verify-provenance-completeness.py", "fix"),
-    ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "update"),
-    ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "verify"),
+    ("src/skf-update-skill/references/verify-publish.md", "skf-update-active-symlink.py", "update"),
+    ("src/skf-update-skill/references/verify-publish.md", "skf-update-active-symlink.py", "verify"),
     # Drop Skill (#1158): the `active` repair, the final-state check, the remaining versions from the roster and
     # the headless-purge guard its SKILL.md runs.
     ("src/skf-drop-skill/references/execute.md", "skf-update-active-symlink.py", "repair-after-drop"),
@@ -539,7 +539,7 @@ def test_a_skill_md_binds_the_helper_it_resolves_for_every_stage():
 FLAG_ONLY_MUST_FIND = [
     ("src/skf-create-skill/references/compile.md", "skf-render-metadata-stats.py", ()),
     ("src/skf-create-skill/references/validate.md", "skf-render-metadata-stats.py", ("--check",)),
-    ("src/skf-update-skill/references/write.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
+    ("src/skf-update-skill/references/write-metadata.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
      ("--provenance", "--skill-dir")),
     # audit-skill's re-index runs the recipe runner over its scan list (#589), with the scope type of a

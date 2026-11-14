@@ -314,9 +314,9 @@ def test_skill_model_says_what_a_stack_distribution_counts(tmp_path):
 def test_skill_model_says_where_an_update_records_itself():
     """#548: an update writes `last_update` and `update_type` into provenance-map.json, never into metadata.json."""
     write = _read(UPDATE_WRITE)
-    metadata = _slice(write, "### 2. Write Updated metadata.json", "### 3.")
+    metadata = _slice(write, "### 2. Prepare the Write Inputs", "### 3.")
     assert "the `metadata` call removes either key an older SKF version left in metadata.json" in metadata
-    provenance = _slice(write, "### 3. Write Updated provenance-map.json", "### 4.")
+    provenance = _slice(write, "### 3. Write Updated provenance-map.json", "### 3b.")
     for key in ('"last_update"', '"update_type"'):
         assert key in provenance, key
     doc = _read(SKILL_MODEL)
@@ -711,7 +711,7 @@ def test_refine_architecture_documents_the_report_lookup_and_its_halt():
 
 def test_docs_describe_the_unconsumed_test_report_offer():
     """A plain update offers an unconsumed failing report; a headless one warns `unconsumed-test-report`."""
-    init = _read(SRC / "skf-update-skill" / "references" / "init.md")
+    init = _read(SRC / "skf-update-skill" / "references" / "load-baseline.md")
     for token in ("### 4b. Offer an Unconsumed Test Report", "`testResult` is `fail` or `pass-with-drift`",
                   "- **[G]:**", "- **[S]:**", "add `unconsumed-test-report: {unconsumed_test_report}`"):
         assert token in init, token
@@ -721,6 +721,8 @@ def test_docs_describe_the_unconsumed_test_report_offer():
                       "(`[S]`)", "a headless run checks the source and adds an `unconsumed-test-report` warning"):
             assert token in text, token
     assert "routes each gap by its category, so a missing export" in modes
+    # #1185's cap rule: a FAIL a cap forced is not offered a repair first
+    assert "For a FAIL a cap forced, it names the cap and offers `[S]` first, since no skill edit lifts a cap" in modes
     assert "does not read the test report" not in _read(FORGE_AUTO)
 
 
@@ -1164,16 +1166,19 @@ def test_troubleshooting_names_the_run_lock_halts():
                   '`status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`',
                   "Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true"):
         assert token in guard, token
-    for name, phase in (("merge.md", "merge:run-lock"), ("write.md", "write:run-lock")):
-        text = _read(refs / name)
-        assert f'`phase: "{phase}"`' in text and '"run-lock-lost: ' in text, name
+    # #1194: merge-write.md §6b renews the lock; nothing waits after it, so step 5 renews nothing
+    merge = _read(refs / "merge-write.md")
+    assert '`phase: "merge:run-lock"`' in merge and '"run-lock-lost: ' in merge
+    for name in ("write.md", "verify-publish.md"):
+        assert "run-lock" not in _read(refs / name).replace("run-lock-not-released", ""), name
     doc = _read(TROUBLESHOOTING)
     update = _slice(doc, "### Update Skill stops with `halted-for-concurrent-run`", "\n### ")
     for token in ("`.skf-update.lock` in `<forge_data_folder>/<name>/`", "`init:concurrency-guard`",
                   "60 minutes after it was taken or renewed", "`--detect-only` and `--dry-run` take no lock",
                   "delete the lock file the message names", "**`run-lock-lost`:**",
-                  "`merge:run-lock` or `write:run-lock`"):
+                  "(`error.phase` is `merge:run-lock`). It stops before it writes anything to the skill package."):
         assert token in update, token
+    assert "write:run-lock" not in update
     # #723: another run's flip of `active` held the flip lock for the update's whole wait
     busy = _slice(update, "**`busy`:**", "\n")
     for token in ("another run's flip of the skill's `active` link (Create Skill, Quick Skill or Drop Skill) held "

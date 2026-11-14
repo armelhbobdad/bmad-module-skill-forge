@@ -553,6 +553,37 @@ class TestTableDrift:
         assert mod.find_table_drift("# Title\n\nSome prose only.\n") == []
 
 
+class TestTableBlocks:
+    """The one walker find_table_drift and skf-render-metadata-stats.py's Pattern Surface count read (#1191)."""
+
+    def test_each_block_with_its_section_header_and_body(self) -> None:
+        text = (
+            "intro\n"
+            "| before | heading |\n"
+            "\n"
+            "## Pattern Surface\n\n"
+            "| a | b |\n"
+            "| :--- | ---: |\n"
+            "| 1 | 2 |\n"
+            "| 3 | 4 |\n"
+            "prose\n"
+            "| no | separator |\n"
+            "| x | y |\n"
+        )
+        blocks = list(mod.iter_table_blocks(text))
+        assert blocks == [
+            ("", (2, "| before | heading |"), []),
+            ("Pattern Surface", (6, "| a | b |"), [(8, "| 1 | 2 |"), (9, "| 3 | 4 |")]),
+            ("Pattern Surface", (11, "| no | separator |"), [(12, "| x | y |")]),
+        ]
+
+    def test_drift_reads_the_same_blocks(self) -> None:
+        text = "## T\n\n| a | b |\n| --- | --- |\n| 1 |\n"
+        [(section, header, body)] = mod.iter_table_blocks(text)
+        assert mod.find_table_drift(text) == [
+            {"line": body[0][0], "section": section, "expected_cols": 2, "actual_cols": 1, "row": body[0][1]}]
+
+
 # --------------------------------------------------------------------------
 # Combined scan + empty-file edge case
 # --------------------------------------------------------------------------

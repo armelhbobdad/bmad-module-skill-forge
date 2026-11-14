@@ -1,0 +1,6 @@
+type: added
+scope: skf-update-skill
+summary: |
+  Update Skill now chooses the version to update with `skf-skill-inventory.py resolve`, which checks that the version's package is on disk, instead of reading the export manifest and the `active` link by hand. An `active` link to an empty version folder no longer stops the run at "No SKILL.md found": Update Skill updates the version the export manifest names or, for a skill never exported, the newest version on disk, with a `version-newest-on-disk` warning. When the new version would go into a version folder that holds no skill, such as the empty folder that link names, the update leaves that folder as it is, writes the next patch version instead and warns `version-folder-skipped`, where before it stopped with `halted-for-write-failure` because that version already existed. When the helper cannot resolve the skill for another reason, the run stops with `blocked` and the new halt reason `resolve-failed` (`error.phase` `init:resolve`).
+issues: [1193]
+prs: [1220]

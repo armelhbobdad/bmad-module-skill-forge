@@ -6,7 +6,7 @@
 
 Two patterns recur across the update-skill workflow's stage prose:
 
-  1. **Single-file hash** — detect-changes.md §1b, when a candidate file is
+  1. **Single-file hash**: reconcile-scope.md §1b, when a candidate file is
      promoted into `brief.scope.include`, the LLM is asked to "compute SHA-256
      content hash of candidate.path" and emit a record
      `{path, heuristic, size_bytes, line_count, content_hash}` for
@@ -22,9 +22,9 @@ Two patterns recur across the update-skill workflow's stage prose:
 
   3. **[MANUAL]-section integrity** — the update-skill workflow's headline
      Workflow Rule is "[MANUAL] sections survive regeneration with zero
-     content loss." init.md §5 captures a pre-write inventory of every
-     `<!-- [MANUAL:name] --> … <!-- [/MANUAL:name] -->` block; merge.md §6b,
-     write.md §1 (HALT gate) and write.md §7 verify the merged SKILL.md
+     content loss." load-baseline.md §5 captures a pre-write inventory of every
+     `<!-- [MANUAL:name] --> … <!-- [/MANUAL:name] -->` block; merge-write.md §6b,
+     write.md §1 (HALT gate) and verify-publish.md §7 verify the merged SKILL.md
      against it. Doing that by an LLM marker-count + eyeball can silently
      pass a block whose interior was truncated (marker count unchanged).
      The `manual-inventory` / `manual-verify` subcommands extract each block

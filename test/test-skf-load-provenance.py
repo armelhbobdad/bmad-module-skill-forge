@@ -10,6 +10,9 @@ Covers:
     absent)
   - audit baseline: export_count, generated_at in UTC, age_days from
     generated_at or the file mtime (--now pins the clock)
+  - --age-from-last-update (update-skill's baseline, and audit-skill's
+    since `baseline` counts the same way): age_days from last_update first,
+    the output unchanged without the flag
   - error paths: missing file, malformed JSON, non-object top-level
   - CLI smoke: exit 0 + JSON shape; exit 1 on malformed input
   - baseline (#1132): the compile tier, the scope type and its source
@@ -381,6 +384,37 @@ class TestBaselineFacts:
             1, "2026-04-01T12:00:00Z", 30, "generated_at")
 
 
+class TestAgeFromLastUpdate:
+    """#1193: update-skill's baseline counts the days since the last extraction, the map's `last_update`."""
+
+    MAP = {"generated_at": "2025-07-05T12:00:00Z", "last_update": "2026-04-01T12:00:00Z"}
+
+    def test_last_update_wins_with_the_flag(self) -> None:
+        out = mod.provenance_age(self.MAP, now=NOW, from_last_update=True)
+        assert out == {"generated_at": "2025-07-05T12:00:00Z", "age_days": 30, "age_source": "last_update"}
+
+    def test_without_the_flag_the_output_is_unchanged(self) -> None:
+        out = mod.provenance_age(self.MAP, now=NOW)
+        assert out == {"generated_at": "2025-07-05T12:00:00Z", "age_days": 300, "age_source": "generated_at"}
+        assert mod.normalize(self.MAP, now=NOW) == mod.normalize(self.MAP, now=NOW, from_last_update=False)
+
+    def test_a_date_alone_reads_as_its_midnight_utc(self) -> None:
+        out = mod.provenance_age({**self.MAP, "last_update": "2026-04-01"}, now=NOW, from_last_update=True)
+        assert (out["age_days"], out["age_source"]) == (30, "last_update")
+        out = mod.provenance_age({**self.MAP, "last_update": "2026-05-01"}, now=NOW, from_last_update=True)
+        assert (out["age_days"], out["age_source"]) == (0, "last_update")
+
+    @pytest.mark.parametrize("value", [None, 7, "", "yesterday", "2026-02-30"])
+    def test_an_unreadable_last_update_falls_back_to_generated_at(self, value) -> None:
+        out = mod.provenance_age({**self.MAP, "last_update": value}, now=NOW, from_last_update=True)
+        assert out == {"generated_at": "2025-07-05T12:00:00Z", "age_days": 300, "age_source": "generated_at"}
+
+    def test_then_the_mtime(self) -> None:
+        mtime = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        out = mod.provenance_age({"last_update": "soon"}, mtime=mtime, now=NOW, from_last_update=True)
+        assert out == {"generated_at": None, "age_days": 30, "age_source": "mtime"}
+
+
 # --------------------------------------------------------------------------
 # load_provenance error paths
 # --------------------------------------------------------------------------
@@ -487,6 +521,18 @@ class TestCli:
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert (payload["generated_at"], payload["age_days"], payload["age_source"]) == (None, 10, "mtime")
+
+    def test_normalize_age_from_last_update(self, tmp_path: Path) -> None:
+        path = _write_json(tmp_path / "p.json", {"generated_at": "2025-07-05T00:00:00Z",
+                                                 "last_update": "2026-04-01T00:00:00Z", "entries": [{}]})
+        flagged = _run_cli("normalize", str(path), "--now", "2026-05-01T00:00:00Z", "--age-from-last-update")
+        plain = _run_cli("normalize", str(path), "--now", "2026-05-01T00:00:00Z")
+        assert flagged.returncode == 0 and plain.returncode == 0, (flagged.stderr, plain.stderr)
+        flagged, plain = json.loads(flagged.stdout), json.loads(plain.stdout)
+        assert (flagged["export_count"], flagged["age_days"], flagged["age_source"]) == (1, 30, "last_update")
+        assert (plain["age_days"], plain["age_source"]) == (300, "generated_at")
+        assert {k: v for k, v in flagged.items() if k not in ("age_days", "age_source")} == \
+            {k: v for k, v in plain.items() if k not in ("age_days", "age_source")}
 
     def test_normalize_bad_now_exits_1(self, tmp_path: Path) -> None:
         path = _write_json(tmp_path / "p.json", {})
@@ -658,9 +704,19 @@ class TestBaselineCommand:
         facts = mod.baseline(json.loads(paths["metadata"].read_text(encoding="utf-8")), "Forge", None,
                              paths["provenance"], now)
         mtime = datetime.fromtimestamp(paths["provenance"].stat().st_mtime, timezone.utc)
-        normalized = mod.normalize(provenance, mtime, now)
+        normalized = mod.normalize(provenance, mtime, now, from_last_update=True)
         assert (facts["compose_mode_stack"], facts["provenance_age_days"]) == (
             normalized["compose_mode_stack"], normalized["age_days"]) == (compose, 30)
+
+    def test_the_age_counts_from_the_last_update(self, tmp_path: Path) -> None:
+        """An Update Skill run writes last_update and leaves generated_at as Create Skill wrote it: the
+        audit right after it reads the age Update Skill's baseline shows, and never asks to run it again."""
+        updated = {**FRESH_MAP, "last_update": "2026-11-12T00:00:00Z"}
+        payload = _baseline(_skill(tmp_path, {}, updated), "Forge", "2026-11-14T00:00:00Z")
+        assert (payload["provenance_age_days"], payload["baseline_old"]) == (2, False)
+        flagged = _run_cli("normalize", str(tmp_path / "provenance-map.json"), "--now", "2026-11-14T00:00:00Z",
+                           "--age-from-last-update")
+        assert json.loads(flagged.stdout)["age_days"] == 2
 
     @pytest.mark.parametrize("which, content, needle", [
         ("metadata", None, "metadata.json not found"),

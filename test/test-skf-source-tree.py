@@ -40,7 +40,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
-INIT = REPO_ROOT / "src" / "skf-update-skill" / "references" / "init.md"
+# update-skill's §6 and §7, which load-baseline.md holds since #1196
+INIT = REPO_ROOT / "src" / "skf-update-skill" / "references" / "load-baseline.md"
 HELPER = SCRIPTS / "skf-source-tree.py"
 ATOMIC_WRITE = SCRIPTS / "skf-atomic-write.py"
 HYGIENE = SCRIPTS / "skf-ccc-git-hygiene.py"
@@ -706,6 +707,36 @@ def test_local_and_quick_sources_skip(env):
     assert r.json["status"] == "skipped" and r.json["skip_reason"] == "not-workspace-clone"
     r = env.run("open", "--source-repo", URL, "--source-root", URL, "--source-ref", "v2")
     assert r.json["status"] == "skipped" and r.json["skip_reason"] == "not-workspace-clone"
+    assert _trees(env) == []
+
+
+def test_classify_tells_a_remote_skill_with_no_network(env):
+    """#1193: init.md §6 refuses `--source-root` for a skill read from a remote repository, in every mode, with
+    `classify`: `remote` follows `source_repo` alone, so a Quick-tier skill's URL root, a folder that is not SKF's
+    clone and SKF's clone itself all read as remote, and a local folder does not. No network call, no tree."""
+    six = INIT.read_text(encoding="utf-8").split("### 6. Resolve the Source", 1)[1].split("### 6b.", 1)[0]
+    call = re.search(r"`(uv run \{sourceTreeHelper\} classify [^`]*)`", six).group(1)
+    assert call == 'uv run {sourceTreeHelper} classify --source-repo "{source_repo}" --source-root "{source_root}"'
+    local = env.tmp_path / "local"
+    local.mkdir()
+    env.clone_at("v2")
+    env.unreachable()
+    cases = [
+        ("./lib", str(local), (False, "not-remote", None, False)),
+        (str(local), str(local), (False, "not-remote", None, False)),
+        (URL, str(local), (True, "not-workspace-clone", None, False)),
+        (URL, URL, (True, "not-workspace-clone", None, False)),
+        (URL, "", (True, "not-workspace-clone", None, False)),
+        (URL, str(env.clone), (True, None, str(env.clone), True)),
+    ]
+    for repo, root, expected in cases:
+        r = env.run(*shlex.split(call.replace("uv run {sourceTreeHelper} ", "")
+                                 .replace("{source_repo}", repo.replace("\\", "/"))
+                                 .replace("{source_root}", root.replace("\\", "/"))))
+        assert r.rc == 0, r.stdout + r.stderr
+        assert (r.json["remote"], r.json["skip_reason"], r.json["clone"] and str(Path(r.json["clone"])),
+                r.json["usable"]) == expected, (repo, root, r.json)
+        assert r.json["warnings"] == []
     assert _trees(env) == []
 
 

@@ -1279,7 +1279,8 @@ def _in_order(text: str, *parts: str) -> bool:
 
 
 def _regeneration() -> str:
-    return _section(UPDATE_WRITE.read_text(encoding="utf-8"), "### 5. Regenerate context-snippet.md", "### 6. ")
+    # §5 is write.md's last section since #1196, which moved §6 on to verify-publish.md
+    return _section(UPDATE_WRITE.read_text(encoding="utf-8"), "### 5. Regenerate context-snippet.md", None)
 
 
 def _sources(shared: str) -> str:

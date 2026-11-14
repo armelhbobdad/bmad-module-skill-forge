@@ -105,13 +105,13 @@ Runs pending database migrations in sequence.
 
 | Severity | Condition | Resolution |
 | --- | --- | --- |
-| HIGH | Regenerated content overlaps \[MANUAL\] position | Present both versions, user chooses |
+| HIGH | Regenerated content overlaps \[MANUAL\] position | Present both versions, user chooses; a headless Update Skill run keeps the block, which moves with its section |
 | HIGH | Parent section deleted, \[MANUAL\] block orphaned | Flag orphaned block, user decides to keep or remove |
 | MEDIUM | \[MANUAL\] references a deleted export | Flag stale reference for user review |
 | LOW | New export generated adjacent to \[MANUAL\] block | Auto-resolve: place new content before the block |
 
 **Key Points:**
-- HIGH conflicts always require user input — never auto-resolved
+- HIGH conflicts require user input, except that a headless Update Skill run keeps a block regenerated content only moved and records that decision
 - MEDIUM conflicts are flagged but do not block the update
 - LOW conflicts are auto-resolved with a deterministic rule (new content before block)
 

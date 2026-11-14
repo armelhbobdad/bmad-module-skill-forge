@@ -64,7 +64,7 @@ CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.m
 CCC_BRIDGE = SRC / "knowledge" / "ccc-bridge.md"
 SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution-protocols.md"
 TIER_DEGRADATION = SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md"
-UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "write.md"
+UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "verify-publish.md"  # §9, split out of write.md (#1196)
 AUDIT_INIT = SRC / "skf-audit-skill" / "references" / "init.md"
 # The upstream-moved gate step 1 §5b loads, whose [C] reads the private tree.
 AUDIT_CHECKOUT = SRC / "skf-audit-skill" / "references" / "upstream-checkout.md"

@@ -83,7 +83,7 @@ Subcommands:
 `source_citation` is set only when the whole Source is a `file:line` pair
 (`file:line-line`, `file:line:col` and `file#Lline` read the same).
 
-Map match (update-skill gap-driven.md §4's lookup of a gap's export in the
+Map match (update-skill gap-spot-check.md §4's lookup of a gap's export in the
 provenance map): for a gap with an `export` (null for one with none),
 
   {"status": "found" | "ambiguous" | "not-found",
@@ -149,7 +149,7 @@ its severity; a category the table does not hold is not routed, and takes
 no entry, so nothing is written for it. A `stale-documentation` gap is not
 routed: the source has no line to repair the name from, and removing its
 documentation unchecked could delete a name the surface missed or one the
-source still declares. Nor is a `metadata-drift` gap: write.md §2's
+source still declares. Nor is a `metadata-drift` gap: write.md §3b's
 `metadata` call recounts the counts a patch would set (except under the
 drift override and for a docs-only skill, where it passes the counts
 metadata.json records), so no metadata patch holds. Nor is a
