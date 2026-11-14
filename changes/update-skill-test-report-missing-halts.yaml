@@ -5,3 +5,4 @@ summary: |
 migration: |
   Run Test Skill on the skill before a headless `--from-test-report` run, or drop the flag to check the source for changes. A pipeline that repairs a skill from its test report branches on `error.phase` `init:test-report` to run Test Skill first, unless the `error.reason` names `skf-find-test-report.py`, which asks for a re-install of SKF.
 issues: [1194]
+prs: [1220]

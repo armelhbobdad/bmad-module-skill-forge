@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   When you start an interactive Update Skill run without naming a skill, it now asks only which skill to update, by number, name or folder path, or by name with `--from-test-report` to repair it from its test report, and points to `--dry-run` for a preview that writes nothing and to the invocation contract for the other flags. It no longer lists every flag, the headless-only `--allow-degraded` among them. Each flag still works as before when you pass it.
 issues: [1195]
+prs: [1220]

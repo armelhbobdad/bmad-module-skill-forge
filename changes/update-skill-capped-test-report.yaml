@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   A plain Update Skill run that finds a failed test report whose FAIL a cap forced (the report's **Cap:** line, such as a frontmatter validator that timed out) no longer offers to repair its gaps first. No skill edit lifts a cap, so it names the cap and offers to check the source for changes first. Its no-change report, its report of a repair from a capped test report and its next steps say to restore the tooling the cap names and run Test Skill again, and to repair the gaps only when that test fails too. Before, it offered the repair and recommended `--from-test-report`, which left the FAIL in place.
 issues: [1194]
+prs: [1220]

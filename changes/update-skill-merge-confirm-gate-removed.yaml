@@ -5,3 +5,4 @@ summary: |
 migration: |
   Stop reading the `merge.clean-merge-gate` decision in `headless_decisions`. Treat `merge:run-lock` as the only `error.phase` of an update that lost its run lock while it waited.
 issues: [1194]
+prs: [1220]

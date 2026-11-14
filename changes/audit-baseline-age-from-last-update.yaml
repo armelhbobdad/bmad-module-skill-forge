@@ -3,3 +3,4 @@ scope: skf-audit-skill
 summary: |
   Audit Skill now counts the provenance map's age from the map's `last_update`, which each Update Skill run writes, as Update Skill does, and from its `generated_at` only when no update ran. An audit right after an update no longer shows the age of the map Create Skill wrote as the days since the last extraction, and no longer stops to recommend the Update Skill run that just happened because the map is more than 90 days old.
 issues: [1193]
+prs: [1220]

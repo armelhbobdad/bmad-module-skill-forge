@@ -5,3 +5,4 @@ summary: |
 migration: |
   Before you update a reference app, make sure its SKILL.md holds its pattern table under a `## Pattern Surface` heading, the heading Create Skill writes. When the stop names a missing `skf-verify-provenance-completeness.py` or `skf-scan-skill-md-structure.py`, re-install SKF and run the update again.
 issues: [1191]
+prs: [1220]

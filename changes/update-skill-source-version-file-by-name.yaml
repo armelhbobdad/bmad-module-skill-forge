@@ -3,3 +3,4 @@ scope: skf-update-skill, skf-create-skill
 summary: |
   In a JavaScript or TypeScript monorepo, the source version that names Update Skill's new version folder could come from a sibling package's `package.json`. `skf-extract-public-api.py` now picks the version file itself with its new `--package-name`: the `package.json` whose `name` is the skill's name, as given or as a skill name, whole or without its `@scope/` (`@acme/foo` matches `acme-foo` and `foo`), else one with a `bin` field, else the root one. It reports the file it read as `manifest_file`, with the `rule` that chose it, and passes over a `package.json` that is not JSON, such as a template's placeholder. Create Skill reads the source version the same way for a source it reads from a local folder or a clone; for a remote source read without a clone, it still picks the file from the repository's file listing.
 issues: [1193]
+prs: [1220]
