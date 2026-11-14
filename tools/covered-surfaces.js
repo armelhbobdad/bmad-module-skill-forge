@@ -41,7 +41,10 @@
  * - Preference keys (src/forger/preferences.yaml) and install config keys
  *   (src/module.yaml)
  * - halt_reason and error.phase values written in the Markdown under src/,
- *   a halt_reason also as the value of an emitter's `--halt-reason` option
+ *   a halt_reason also as the value of an emitter's `--halt-reason` option.
+ *   An error.phase is `<step>:<check>`, its step one or more words joined
+ *   by spaces or hyphens (`step 2:write-tools`, `on-activation:config`,
+ *   `generate-output:not-a-stack`)
  * - Tool minimums: the `minimum` of each tool in
  *   src/shared/tool-requirements.yaml, keyed by the tool and named by its
  *   `name` (a tool with a null minimum has none)
@@ -585,7 +588,9 @@ function exitCodeItems(tree, add) {
 const HALT_REASON = /halt_reason[`"]?\s*:?\s*[`"]([a-z0-9][a-z0-9-]*)[`"]/g;
 // `emit-halt ... --halt-reason write-failed`; a placeholder such as '<halt_reason>' is not a value.
 const HALT_REASON_OPTION = /--halt-reason[ =]['"]?([a-z0-9][a-z0-9-]*)(?![\w-])/g;
-const ERROR_PHASE = /phase[`"]?\s*:?\s*[`"]([a-z0-9]+(?: [a-z0-9]+)*:[a-z0-9][a-z0-9-]*)[`"]/g;
+// phase `step 1:run-folder`, "phase":"generate-output:not-a-stack": the step before the colon is words joined by
+// a space or a hyphen, so a step with a leading or trailing hyphen is no value and no prose outside the quotes is taken.
+const ERROR_PHASE = /phase[`"]?\s*:?\s*[`"]([a-z0-9]+(?:[ -][a-z0-9]+)*:[a-z0-9][a-z0-9-]*)[`"]/g;
 
 function haltItems(tree, add) {
   for (const file of tree.files) {

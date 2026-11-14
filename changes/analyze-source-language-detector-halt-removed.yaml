@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-analyze-source
+summary: |
+  The step-by-step Analyze Source no longer stops at `error.phase` `identify-units:4` (`resolution-failure`, exit `3`) when `skf-detect-language.py` is missing. Unit identification now takes each unit's language and scope patterns from the `skf-disqualify-candidates.py units` call, which loads the language detector from beside itself, so a missing or broken `skf-detect-language.py` makes that call exit `1` and name the file on stderr instead.
+migration: |
+  A pipeline that branched on `error.phase` `identify-units:4` no longer sees it: a missing `skf-detect-language.py` now surfaces as a failed `skf-disqualify-candidates.py units` call at unit identification whose stderr names the file. Reinstall SKF (`npx bmad-module-skill-forge install`) so every shared script is present.
+issues: [1126]
+prs: [1211, 1228]
