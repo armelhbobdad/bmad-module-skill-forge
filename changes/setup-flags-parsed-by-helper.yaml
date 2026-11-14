@@ -3,3 +3,4 @@ scope: skf-setup
 summary: |
   Setup now reads its flags with a helper script, `skf-setup-args.py`, instead of splitting the command line by eye. `--require-tier --headless` (no tier given) used to take `--headless` as the tier and lose quiet mode, so a `claude -p` run ended on a prose reason: it now stays quiet and ends `blocked` at `step 1:detect-tools` with its envelope. An `--orphan-action` other than `keep` or `remove` still stops Setup at `on-activation:orphan-action-invalid`, with the reason the helper writes. A Setup install whose helper cannot read the flags stops at `on-activation:helper-missing` once `uv` is found.
 issues: [1183]
+prs: [1218]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   A script that runs `/skf-setup` with only `headless_mode: true` set and reads its `SKF_SETUP_RESULT_JSON` line passes `--headless` or `--quiet`.
 issues: [1183]
+prs: [1218]
