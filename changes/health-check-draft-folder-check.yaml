@@ -2,3 +2,4 @@ type: added
 scope: all workflows
 summary: |
   Before the health check shows or files a finding, the helper's new `skf-health-check-seen.py check-draft` subcommand refuses a draft, its title or a comment the health check would post when it names your project's folder or your home folder (written out, through `~`, `$HOME` or `%USERPROFILE%`, or as a `file://` URL), naming each such line. The health check rewrites those lines once; a draft refused again, or one the check could not run on, is saved to the local queue with the reason "These drafts may name a folder of yours; check them before submitting." and never filed. This also covers a headless run with `health_check_autosubmit: true`, where nobody reads a draft before it is filed.
+prs: [1233]

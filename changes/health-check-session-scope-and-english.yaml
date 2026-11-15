@@ -2,3 +2,4 @@ type: changed
 scope: all workflows
 summary: |
   The health check now reviews only the part of the session since the last health check that ran in it, and leaves out a finding an earlier check in the same session already showed, queued or filed, so a forger pipeline or back-to-back workflows no longer draft one defect again at each workflow's end. A finding's title, issue body and comment are now written in English whatever language the session speaks, so the maintainers can read every report; the review gate and every other message to you stay in your language, and a title, a draft or a comment is shown to you exactly as it will be posted. A health check you ask Ferris to run reviews the whole workflow it is run for.
+prs: [1233]

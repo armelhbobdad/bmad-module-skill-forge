@@ -2,3 +2,4 @@ type: fixed
 scope: all workflows
 summary: |
   The health check now reads `health_check_repo` and `health_check_autosubmit` in `_bmad/skf/config.yaml` with its helper's new `skf-health-check-seen.py settings` subcommand instead of by eye, so a value always reads the same way: a quoted repository, or one followed by a `# comment`, is that repository; `''`, `""`, `~`, `null` and nothing after the colon turn the check off; a URL, a block or a list is no repository, so every finding is saved to the local queue; and only a plain `true` turns autosubmit on, while `True`, `"true"` and `yes` leave it off. A clean run, or one with the check turned off, still runs no helper call.
+prs: [1233]

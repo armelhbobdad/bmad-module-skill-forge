@@ -1,3 +1,4 @@
 type: docs
 summary: |
   The Workflow Health Check docs now say that a BMAD Method install or update rewrites `_bmad/skf/config.yaml` and drops a `health_check_repo` or `health_check_autosubmit` you set by hand, so you set them again after one; an SKF update keeps them.
+prs: [1233]
