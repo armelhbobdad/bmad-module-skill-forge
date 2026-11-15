@@ -2,3 +2,4 @@ type: changed
 scope: all workflows
 summary: |
   The Evidence of a health-check issue now cites only SKF's own files (its step files, SKILL.md files, shared files and scripts), never your project's code, the source a skill was built from, a brief's or a skill's content, or a secret, and the Workflow Health Check docs now say exactly what an issue sends, row by row of its Environment table. The issue template's Evidence section says the same.
+prs: [1231]
