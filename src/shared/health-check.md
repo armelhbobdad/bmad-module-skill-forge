@@ -8,6 +8,7 @@ seenCachePath: '$HOME/.skf/health-check-seen.json'
 seenCacheProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-health-check-seen.py'
   - '{project-root}/src/shared/scripts/skf-health-check-seen.py'
+  - 'shared/scripts/skf-health-check-seen.py'
 liveSubmitSeverities: ['bug']  # friction/gap go local-queue-default with explicit opt-in
 ---
 
@@ -87,11 +88,11 @@ For each genuine finding, present it in this format:
 | Field | Value |
 |-------|-------|
 | **Severity** | `bug` / `friction` / `gap` |
-| **Workflow** | {workflow name} |
-| **Step File** | `src/skf-{workflow}/references/{step-file-path}` |
-| **Section** | {the specific section or instruction number — use a stable section heading slug, not line numbers} |
-| **Defect Key** | `{defect-key}`: one to four lower-case words naming the thing the fix would change (§5a sub-step 1) |
-| **Fingerprint** | `fp-{7-hex}`: first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, from §5a sub-step 1's `fingerprint` call (`N/A` when SKF's health-check helper is missing) |
+| **Workflow** | `{workflow}`: the folder name of the workflow whose `references/` folder holds the step file, such as `skf-test-skill` (§5a sub-step 1) |
+| **Step File** | `{step_file}`: `src/{workflow}/references/{file}.md`, as §5a sub-step 1's `fingerprint` call prints it, whatever the install |
+| **Section** | `{section-slug}`: the slug that call prints for the heading of the section (§5a sub-step 1), never a line number |
+| **Defect Key** | `{defect-key}`: one to four lower-case words naming the thing the fix would change, as that call prints it (§5a sub-step 1) |
+| **Fingerprint** | `fp-{7-hex}`: first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, from §5a sub-step 1's `fingerprint` call (`N/A` when SKF's health-check helper is missing or could not fingerprint the finding) |
 
 **What happened:**
 {Description of the actual issue encountered during execution}
@@ -146,37 +147,39 @@ A friction or gap finding that stays local still gets its fingerprint: compute i
 
 For each finding routed to live-submit:
 
-**1. Compute the fingerprint**, a deterministic 7-hex dedup key, and the legacy fingerprint that sub-steps 2 and 4 fall back on, with SKF's health-check helper. Resolve `{seenCacheHelper}` from `{seenCacheProbeOrder}`; first existing path wins. The helper computes both fingerprints, looks them up in the seen-cache (sub-step 2) and records each outcome there (§5a-i, §5b), so neither fingerprint is hashed by hand and `{seenCachePath}` is never read or written by hand. If no candidate exists, give each finding the fingerprint `N/A`, and send every finding that §4 does not discard to the local queue (§5c) with the missing-helper reason instead of submitting it: there is no fallback.
+**1. Compute the fingerprint**, a deterministic 7-hex dedup key, and the legacy fingerprint that sub-steps 2 and 4 fall back on, with SKF's health-check helper. Resolve `{seenCacheHelper}` from `{seenCacheProbeOrder}`; first existing path wins. Its last entry, `shared/scripts/skf-health-check-seen.py`, resolves from the SKF module root, as every `shared/` path in this file does (the path convention above): the folder that holds the `shared/` folder this file was loaded from, which is where a plugin install, with neither `{project-root}/_bmad/skf/` nor `{project-root}/src/`, keeps it. The helper computes both fingerprints, looks them up in the seen-cache (sub-step 2) and records each outcome there (§5a-i, §5b), so neither fingerprint is hashed by hand and `{seenCachePath}` is never read or written by hand. If no candidate exists, give each finding the fingerprint `N/A`, and send every finding that §4 does not discard to the local queue (§5c) with the missing-helper reason instead of submitting it: there is no fallback.
 
-Run it once per finding, with that finding's values:
+**Name the step file, the section and the defect.** The step file is the `references/` file whose instruction bit, and `{workflow}` is the folder name of the workflow whose `references/` folder holds it, such as `skf-test-skill`, never `test-skill` or a display name: usually the workflow that just ran, and the other workflow for a step file loaded from its `references/` (Update Skill loads `skf-create-skill/references/extraction-patterns.md`, a file of `skf-create-skill`). The section is the heading of the innermost section of the step file that holds the instruction, copied exactly as the file writes it, numbering included. A bold run-in label (`**Foo.**`) is no heading: take the heading that encloses it. A defect in an instruction of the workflow's SKILL.md, of a script or of a `shared/references` file takes the step file that was running when it bit and the heading of that file's section that was running, or the file's H1 when none fits. The defect name names the defect itself, so two different defects in one section get two fingerprints while two reports of one defect that name the same thing get the same one. It is the thing the fix would change, in the step file's or the code's own words: a script by its file name, a function, a script subcommand, a field, a flag, a rule's term or a section's concept. Pick the most specific name the fix would edit. When the defect is a missing rule, there is no name to copy yet: name the case the rule should cover in two to four of the step file's own words, the noun the rule would be about, then what makes the case distinct. A wrong check in `floor_check` gives `floor-check`, a misread `--orphan-action` flag gives `orphan-action`, and a missing rule for a `const` holding a function, in a step file whose rule covers a `const` holding a component, gives `const-holding-function`. Never use a path, a line number, a severity, or words from this session's own story: whoever reports the same defect next must reach the same key from the source alone. Never use the section's own subject alone either: every defect in the section shares it.
+
+Write the two names with the Write tool to `{localFallbackFolder}/bodies/names-{timestamp}-{i}.json`, `{timestamp}` being the time of the write as YYYYMMDD-HHmmss and `{i}` the finding's number, as the JSON object `{"section_heading": "<the heading>", "defect_name": "<the name>"}` with each value JSON-escaped, so no quote in a name meets the shell. If the Write fails, or the shell says it cannot open that file, make no fingerprint call for this finding (a call that cannot read its names file prints no JSON, which does not mean the helper is missing): log the error, naming the finding, give the finding the fingerprint `N/A` and send it to the local queue (§5c) with the could-not-fingerprint reason. Otherwise run the helper once per finding, with that finding's severity, workflow and step file (its name, or any path to it):
 
 ```
-uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" --step-file "{step_file}" --section "{section-slug}" --defect-key "{defect-key}"
+uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" --step-file "{step_file}" --stdin < "{localFallbackFolder}/bodies/names-{timestamp}-{i}.json"
 ```
 
-It prints `{"fp": "fp-XXXXXXX", "legacy_fp": "fp-XXXXXXX"}`. `{fp}` is `fp-` and the first 7 hex characters of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, and `{legacy_fp}` the same hash without `|{defect-key}`.
+It prints `{"fp", "legacy_fp", "tuple", "step_file", "section_slug", "defect_key"}`. `{fp}` is `fp-` and the first 7 hex characters of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")`, and `{legacy_fp}` the same hash without `|{defect-key}`. `tuple` is that sha1 input. From here on, `{step_file}`, `{section-slug}` and `{defect-key}` are the call's `step_file`, `section_slug` and `defect_key`: the helper writes each in one form, so one finding gets one fingerprint from a checkout, a CLI install or a plugin.
 
-The `section-slug` is a kebab-case normalized section heading (e.g. `missing-staging-path`). Never include line numbers — they drift when files are edited.
-
-The `defect-key` names the defect itself, so two different defects in one section get two fingerprints while two reports of one defect that name the same thing get the same one. It is one to four lower-case ASCII words joined by hyphens that name the thing the fix would change, in the step file's or the code's own words: a function, a script subcommand, a field, a flag, a rule's term or a section's concept. Pick the most specific name the fix would edit. To turn a name into the key, drop its leading dashes and underscores, split it at spaces, underscores, hyphens, dots and each lower-case letter followed by an upper-case one, drop every character of each word that is not an ASCII letter or digit, lower-case each word and join them with hyphens (`composeStories` gives `compose-stories`, `reader's own code` gives `readers-own-code`); a name of more than four words keeps its last four. When the defect is a missing rule, there is no name to copy yet: name the case the rule should cover in two to four of the step file's own words, the noun the rule would be about, then what makes the case distinct. A wrong check in `floor_check` gives `floor-check`, a misread `--orphan-action` flag gives `orphan-action`, and a missing rule for a `const` holding a function, in a step file whose rule covers a `const` holding a component, gives `const-holding-function`. Never use a line number, a file name or path (the step file already says where), a severity, or words from this session's own story: whoever reports the same defect next must reach the same key from the source alone. Never use the section's own subject alone either: every defect in the section shares it.
+- `step_file` is `src/{workflow}/references/{file}.md`, whatever path the call was given.
+- The section slug is the heading with its leading `#`s and its numbering token (`5a.`, `5a-ii.`) dropped, lower-cased, each run of characters other than ASCII letters and digits turned into one hyphen and the hyphens at its ends trimmed: `### 5a. Live-Submit Path: Compute Fingerprint and Dedup` gives `live-submit-path-compute-fingerprint-and-dedup`. A line number never enters it. A heading copied in another letter case or with other punctuation gives the same slug, so the helper takes it as that heading.
+- The defect key is one to four lower-case ASCII words joined by hyphens that name the thing the fix would change. The helper drops the backticks or quotes around the name, keeps its last path component, drops a `:N`, `:N-M` or `:N:M` line suffix, a file extension and then its leading dashes and underscores, splits it at spaces, underscores, hyphens, dots and each lower-case letter followed by an upper-case one, drops every character of each word that is not an ASCII letter or digit, lower-cases each word and joins them with hyphens (`scripts/gate_eval.py:42:7` gives `gate-eval`, `composeStories` gives `compose-stories`, `reader's own code` gives `readers-own-code`); a name of more than four words keeps its last four.
 
 `legacy_fp` is the section fingerprint, the fingerprint without the key, which every defect of one severity in one section shares. Issues and seen-cache records made by an SKF version without the key carry it as their fingerprint, and every issue this step files records it in its body (§5a-ii), so a match on it is only ever a possible match (sub-steps 2 and 4).
 
-A value that breaks its rule makes the call exit 2 and print one `{"status": "error", "message": ...}` line on stderr that names the rule: a severity other than `bug`, `friction` or `gap`, a section slug that is not kebab-case, a defect key that is not one to four such words, or a workflow or step file that is empty or holds `|` or a line break. Fix that value by its rule and run the call again. A call that prints no JSON on stdout and no such line on stderr did not run the helper (uv or Python could not start it, and uv's own errors exit 2 as well): treat it as a missing helper, so the finding gets the fingerprint `N/A` and goes to the local queue (§5c) with the missing-helper reason.
+A value that breaks its rule makes the call exit 2 and print one `{"status": "error", "message": ...}` line on stderr that names the rule: a severity other than `bug`, `friction` or `gap`, a workflow that is not one of the 15 workflow folders, a step file that is not a file of that workflow's `references/` folder (or is its `health-check.md` relay), a heading that is not one of that step file's own, a name that yields no word, or a names file that is not that JSON object. When it names the severity, the workflow, the step file, the name or the names file, fix that value and run the call once more; when it refuses the heading, take the heading that encloses that one (the file's H1 at the top) and run the call once more. Never loop: when that second call is refused too, log its message, naming the finding, give the finding the fingerprint `N/A` and send it to the local queue (§5c) with the could-not-fingerprint reason instead of submitting it. A call that prints no JSON on stdout and no such line on stderr did not run the helper (uv or Python could not start it, and uv's own errors exit 2 as well): treat it as a missing helper, so the finding gets the fingerprint `N/A` and goes to the local queue (§5c) with the missing-helper reason.
 
 **2. Check the local seen-cache** at `{seenCachePath}`:
 
 ```
-uv run {seenCacheHelper} lookup --fp "{fp}" --legacy-fp "{legacy_fp}"
+uv run {seenCacheHelper} lookup --fp "{fp}" --legacy-fp "{legacy_fp}" --repo "{healthCheckRepo}"
 ```
 
-It prints `{"verdict": ..., "record": ..., "matched_on": ...}`: the verdict, the record it came from, which the treatments below read, and whether that record sits under `{fp}` or `{legacy_fp}` (`record` and `matched_on` are null when there is none). The helper reads the file itself, and a missing, empty or corrupt cache is an empty one. If the call fails or prints no JSON, continue as `unseen`: this check never halts a run.
+It prints `{"verdict": ..., "record": ..., "matched_on": ..., "opening_line": ...}`: the verdict, the record it came from, whether that record sits under `{fp}` or `{legacy_fp}` (`record` and `matched_on` are null when there is none), and the line a regression's issue body carries (null for any other verdict). The helper reads the file itself, and a missing, empty or corrupt cache is an empty one. The cache serves every project on the machine, so with `--repo` a record of an issue on another repository than `{healthCheckRepo}` counts as no record: it neither suppresses this finding nor gives its body a line linking that issue, and `gh` is never asked about it. If the call fails or prints no JSON, continue as `unseen`: this check never halts a run.
 
 **Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT suppress: a fresh sighting of a fixed defect is a *regression*, and it is the single most valuable report this loop can produce. The helper looks up `{fp}`, and only when the cache has no record for it, `{legacy_fp}`, then works its branches on the record found. For a record with the action `created`, `reacted` or `commented` and an issue URL, it asks the issue itself through `gh issue view`, stopped after 10 seconds: the cache is machine-local and records only what *this* user did, while the issue's state is shared, so it is the better authority. Act on the `verdict` it prints:
 
-- `unseen`: no record under either fingerprint, or a record found only under `{legacy_fp}` (`matched_on` is `legacy_fp`) that would have suppressed. That record was written by an SKF version without the defect key, and every defect of this severity in this section shares its fingerprint, so it may be another defect's: log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. Go to sub-step 3.
+- `unseen`: no record under either fingerprint (a record of an issue on another repository counts as none), or a record found only under `{legacy_fp}` (`matched_on` is `legacy_fp`) that would have suppressed. That record was written by an SKF version without the defect key, and every defect of this severity in this section shares its fingerprint, so it may be another defect's: log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. Go to sub-step 3.
 - `handled`: a record under `{fp}` whose issue is open, was closed as not planned (how the dedup Action closes a duplicate and a maintainer closes a wontfix, neither of them a fix) or could not be checked (offline, no `gh`, the time limit, a deleted issue), or one with no issue URL. Skip the finding, as the next paragraph says.
-- `regression`: a record under `{fp}` marked `resolved` by hand when the defect was fixed, or whose issue was closed as completed (or whose pull request was merged). Go to sub-step 3 and apply the regression treatment below.
+- `regression`: a record under `{fp}` marked `resolved` (with the helper's `record --action resolved`) once the defect was fixed, or whose issue was closed as completed (or whose pull request was merged). Go to sub-step 3 and apply the regression treatment below.
 - `possible-regression`: the same, found only under `{legacy_fp}`, so what was fixed may be another defect in this section. Go to sub-step 3 and apply the possible-regression treatment below.
 - `unrecognized`: a record with no `action` or one this file does not write, hand-edited or written by a newer version of this file, so it cannot be confirmed handled. Go to sub-step 3 as an ordinary submission.
 
@@ -187,10 +190,10 @@ It prints `{"verdict": ..., "record": ..., "matched_on": ...}`: the verdict, the
 **Regression treatment** (verdicts `regression` only). Carry the prior record forward so the recurrence can never be filed as a first sighting:
 
 - Append ` — REGRESSION` to the issue title, after `{short description}`.
-- Add a `## Regression` section immediately above `## Finding`, containing one line: `Regression of {issue_url}, resolved {date}.` If the prior record has no `issue_url`, write `Regression of a previously resolved local finding, resolved {date}.` The `{fp}` label still ties the two together server-side.
+- Add a `## Regression` section immediately above `## Finding`, containing one line: the `opening_line` sub-step 2 printed, exactly as printed. It links the prior issue and says how the fix is known: `Regression of {issue_url} (resolved {date}).` after a `resolved` record, whose date is the fix's, or `Regression of {issue_url}, closed as completed since its report on {date}.` after an issue closed as completed, whose record dates only the report. The `{fp}` label still ties the two together server-side.
 - Leave `## Finding` and the other one-sentence sections exactly as specified below. The backlink lives in its own section precisely so those budgets are untouched.
 
-**Possible regression** (verdict `possible-regression` only). The resolved record was found under `{legacy_fp}`, so what was fixed may be another defect in this section. Add the same `## Regression` section, with one line: `Possibly a regression of {issue_url}, resolved {date}: that report's fingerprint has no defect key, so it may be another defect in this section.` If the prior record has no `issue_url`, write `Possibly a regression of a previously resolved local finding in this section, resolved {date}.` Leave the title unmarked, since this record cannot prove a recurrence. The two reports carry different `fp-*` labels, so this line is their only link.
+**Possible regression** (verdict `possible-regression` only). The resolved record was found under `{legacy_fp}`, so what was fixed may be another defect in this section. Add the same `## Regression` section, with the `opening_line` sub-step 2 printed, exactly as printed, which says so: it ends `: that report's fingerprint has no defect key, so it may be another defect in this section.`, or reads `Possibly a regression of a previously resolved local finding in this section (resolved {date}).` when the prior record has no issue URL. Leave the title unmarked, since this record cannot prove a recurrence. The two reports carry different `fp-*` labels, so this line is their only link.
 
 **What this does and does not catch.** The fingerprint is `sha1` over the section slug and the defect key, so a fix that renames or relocates the section it touches, or renames the thing the key names, changes the fingerprint. So does a report that names the same defect by another thing than an earlier report did: independent reports of one defect often pick different keys. Such a report arrives as `unseen` and is reported as a first sighting, which is safe but unlinked here; once it is filed, the dedup Action flags it (§5a-ii). These branches catch the regressions that recur under the same heading in the same step file, under the same key, which is the case where the old behaviour was silent.
 
@@ -257,15 +260,15 @@ uv run {seenCacheHelper} record --fp "{fp}" --action {reacted|commented} --issue
 
 For each confirmed finding, create a GitHub issue:
 
-**First, ensure the `{fp}` label exists** — it is per-fingerprint, so the first reporter of any defect is always creating a brand-new label. `gh issue create --label fp-XXXX` hard-fails if the label is missing, so guard it:
+**First, create the `{fp}` label**, which the create's `--label` needs: it is per-fingerprint, so the first reporter of a defect creates a new one, and `gh issue create` fails on a label that does not exist. Run it on its own:
 
 ```
 gh label create "{fp}" --repo {healthCheckRepo} \
   --color "ededed" \
-  --description "Health-check fingerprint dedup key" 2>/dev/null || true
+  --description "Health-check fingerprint dedup key"
 ```
 
-The `|| true` makes this idempotent: if the label already exists (second reporter of the same defect whose prior issue was closed, racing a parallel submission, etc.), `gh label create` exits non-zero and we proceed unharmed. The other labels in the command below (`health-check`, `workflow-improvement`, `bug`/`friction`/`gap`) are pre-created repo labels and do not need this guard.
+If it exits non-zero, that is no error: the label exists already (a second reporter of a defect whose earlier issue was closed, or a parallel submission), or you have no push access to `{healthCheckRepo}` and cannot create one. Go on to the create. The other labels in the command below (`health-check`, `workflow-improvement`, `bug`/`friction`/`gap`) are pre-created repo labels.
 
 **Then create the issue:**
 ```
@@ -282,13 +285,13 @@ When sub-step 2 returned `regression`, append ` — REGRESSION` to that `--title
 
 A `possible-regression` gets its `## Regression` section and no title marker.
 
-The fingerprint `{fp}` appears in both title (human-readable) and label (server-side filterable). Maintainers can query all reports for a defect via the `fp-*` label without relying on title text.
+The fingerprint `{fp}` appears in both title (human-readable) and label (server-side filterable). Maintainers can query all reports for a defect via the `fp-*` label without relying on title text. Keep the title's `[health-check][{severity}][{fp}] {workflow}: ` prefix exactly as the command writes it: the dedup Action reads the severity and the fingerprint from it to label an issue filed without labels.
 
 The dedup Action reads the body's `Section fingerprint:` line too. When the new issue matches no open issue's fingerprint but another open health-check issue records the same section fingerprint under a different defect key, or was filed without a key and carries it as its label, the Action comments with a link to each such issue and adds the `possible-duplicate` label. It closes nothing on that match: two reports of one defect can name it by different keys, and every defect of one severity in one section shares the section fingerprint, so a maintainer decides.
 
 After the issue is created, record it under `{fp}` as §5b says, so this user does not re-report it while that issue stays open.
 
-If `gh issue create` exits non-zero, log its stderr message and record nothing: §5b runs only after a create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its queue file holds the text of its body file under the §5c frontmatter, so what failed to post is what waits to be submitted.
+If `gh issue create` exits non-zero, run it once more without its `--label` line, with the same title (its REGRESSION marker included) and the same body file: a reporter without push access to `{healthCheckRepo}` can set no label, and the dedup Action labels the issue from its title. A create that succeeded on that retry is recorded as §5b says, as one that succeeded at once is. If the retry exits non-zero too, log its stderr message and record nothing: §5b runs only after a create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its queue file holds the text of its body file under the §5c frontmatter, so what failed to post is what waits to be submitted.
 
 **Writing rules — non-negotiable:**
 
@@ -300,10 +303,12 @@ If `gh issue create` exits non-zero, log its stderr message and record nothing: 
 **Issue body format:**
 ```markdown
 ## Workflow
-{workflow name, e.g. `skf-create-skill`}
+`{workflow}`
+<!-- The workflow's folder name, e.g. `skf-create-skill`. -->
 
 ## Step File
-`src/skf-{workflow}/references/step-NN-name.md`
+`{step_file}`
+<!-- As SKF's health-check helper prints it: `src/{workflow}/references/{file}.md`, whatever the install. -->
 
 ## Section
 `{section-slug}`
@@ -366,8 +371,16 @@ Section fingerprint: `{legacy_fp}`
 | AI Editor | {e.g. Claude Code, Cursor, Windsurf} |
 | Model | {e.g. Claude Opus 4.6, Claude Sonnet 4.6} |
 | Forge Tier | {Quick/Forge/Forge+/Deep, else N/A} |
-| SKF Version | {from `{project-root}/_bmad/skf/VERSION`, else N/A} |
+| SKF Version | {the `version` the helper prints, below, else N/A} |
 ```
+
+**SKF Version comes from the helper**, which reads the version of the SKF it belongs to, whatever the install (a CLI install's `_bmad/skf/VERSION`, a checkout's or a plugin's `package.json`), never from `{project-root}`:
+
+```
+uv run {seenCacheHelper} version
+```
+
+It prints `{"version": ..., "source": ...}`. Write `version` into the Environment table; write `N/A` when it is null, when the call fails or prints no JSON, or when no helper exists (§5a sub-step 1).
 
 After creating all issues, display those that were created, `{N}` counting only them, unless none was (a create that failed is listed by §5c):
 
@@ -378,7 +391,7 @@ After creating all issues, display those that were created, `{N}` counting only 
 
 ### 5b. On success, update the seen-cache
 
-After each successful `gh issue create`, record the new issue under `{fp}`, with the URL `gh issue create` printed and today's date as YYYY-MM-DD:
+After each successful `gh issue create`, on its first run or its retry without `--label` (§5a-ii), record the new issue under `{fp}`, with the URL `gh issue create` printed and today's date as YYYY-MM-DD:
 
 ```
 uv run {seenCacheHelper} record --fp "{fp}" --action created --issue-url "{new_issue_url}" --date "{today}"
@@ -396,11 +409,11 @@ It prints `{"written": ..., "fp": ..., "record": ..., "set_aside": ...}`, `recor
 
 **What the helper guarantees.** It merges, never replaces: it sets the `{fp}` key alone and keeps every other fingerprint the user has recorded. It writes under `{fp}` only: a record under `{legacy_fp}` stays exactly as it is, whatever its action, since it may be another defect's. It never downgrades a `resolved` record: without `--regression` it leaves one alone and prints `"written": false`, so a fixed defect's suppression never comes back without a new open issue to justify it. It holds `{seenCachePath}.lock` while it reads and writes, so parallel SKF sessions keep each other's records, and it renames a cache that does not parse to `{seenCachePath}.corrupt-<UTC time>` (its `set_aside`) instead of discarding the records in it.
 
-**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow. `resolved` is written by hand when the defect is fixed, and it is the only one that does not suppress. See the health-check section of `CONTRIBUTING.md` for when to record it.
+**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow. `resolved` is recorded once the defect is fixed, with the helper's `record --action resolved` and the fixing issue's or pull request's URL (or an empty one), and it is the only one that does not suppress; it replaces any record under its fingerprint. See the health-check section of `CONTRIBUTING.md` for when to record it.
 
 ### 5c. Local-Queue Path (gh unavailable, friction/gap default, or Queue locally)
 
-For findings that didn't go live (gh unavailable, SKF's health-check helper missing, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, a reaction or comment at the dedup gate failed, a new issue failed to post, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
+For findings that didn't go live (gh unavailable, SKF's health-check helper missing, the helper unable to fingerprint a finding, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, a reaction or comment at the dedup gate failed, a new issue failed to post, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
 
 **Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss; when findings share a timestamp, append `-2`, `-3`, … to the later names so no file is overwritten)
 
@@ -409,23 +422,24 @@ For findings that didn't go live (gh unavailable, SKF's health-check helper miss
 ```yaml
 ---
 type: workflow-health-finding
-workflow: {workflow name}
-step_file: {step file path}
+workflow: {workflow}
+step_file: {step_file}
 severity: {bug | friction | gap}
 fingerprint: {fp-XXXXXXX}
 date: {ISO date}
 ---
 ```
 
-When SKF's health-check helper is missing (§5a sub-step 1), write `N/A` as the `fingerprint` here and in the body's `## Fingerprint` and `Section fingerprint:` lines.
+When SKF's health-check helper is missing, or could not fingerprint a finding (§5a sub-step 1), write `N/A` as the `fingerprint` here and in the body's `## Fingerprint` and `Section fingerprint:` lines.
 
-After writing all files, display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason), "Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these locally."
+After writing all files, display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason), "Posting these to GitHub failed." (the failed-submission reason), "SKF's health-check helper could not fingerprint these findings, so they carry the fingerprint N/A; compute it with its fingerprint call before submitting." (the could-not-fingerprint reason) or "The review gate queued these locally."
 
 "**{N} finding(s) saved locally:**
 {list each file path}
 
-{reason} To submit these as issues, run:
+{reason} To submit these as issues, run, for each file, with its title, `[health-check][{severity}][{fingerprint}] {workflow}: ` and a short description:
 `gh issue create --repo {healthCheckRepo} --title \"[title]\" --body-file {file-path}`
+It sets no label, so it needs no push access to {healthCheckRepo}: the dedup Action labels an issue from the fingerprint in its title.
 
 Or open them manually at: <https://github.com/{healthCheckRepo}/issues/new/choose>
 

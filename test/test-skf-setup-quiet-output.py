@@ -1038,16 +1038,18 @@ def test_queue_fingerprint_has_a_portable_form():
     section = _section(_read(SHARED_HEALTH_CHECK), "### 5a.")
     assert "sha1sum" not in section and "shasum" not in section
     call = ('uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" '
-            '--step-file "{step_file}" --section "{section-slug}" --defect-key "{defect-key}"')
+            '--step-file "{step_file}" --stdin < "{localFallbackFolder}/bodies/names-{timestamp}-{i}.json"')
     assert call in section.splitlines()
     helper = SRC / "shared" / "scripts" / "skf-health-check-seen.py"
-    values = {"{severity}": "bug", "{workflow}": "skf-setup", "{step_file}": "references/report.md",
-              "{section-slug}": "emit-headless-json-envelope", "{defect-key}": "result-envelope"}
+    values = {"{severity}": "bug", "{workflow}": "skf-setup", "{step_file}": "references/report.md"}
     for placeholder, value in values.items():
         call = call.replace(placeholder, value)
-    out = subprocess.run([sys.executable, str(helper), *shlex.split(call)[3:]], capture_output=True, text=True,
-                         encoding="utf-8", check=True).stdout
-    key = "bug|skf-setup|references/report.md|emit-headless-json-envelope|result-envelope"
+    # The names file the step writes with the Write tool: the section's heading and the thing the fix would change.
+    names = json.dumps({"section_heading": "### 4. Emit Headless JSON Envelope", "defect_name": "result envelope"})
+    argv = shlex.split(call.split(" < ", 1)[0])[3:]
+    out = subprocess.run([sys.executable, str(helper), *argv], capture_output=True, text=True, encoding="utf-8",
+                         input=names, check=True).stdout
+    key = "bug|skf-setup|src/skf-setup/references/report.md|emit-headless-json-envelope|result-envelope"
     assert json.loads(out)["fp"] == "fp-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:7]
 
 

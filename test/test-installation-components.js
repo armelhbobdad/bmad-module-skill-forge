@@ -534,6 +534,9 @@ async function runTests() {
   // An installed project has _bmad/skf/ and no src/ tree. Install the module
   // into a temp project with the installer's own copy routine, then resolve
   // what the step files point at against that layout rather than against src/.
+  // A probe order may end with a third entry, the path relative to the SKF
+  // module root (the shared health check's helper, for a plugin install, which
+  // has neither {project-root} path): it must name the same file.
   console.log(`${colors.yellow}Test Suite 7: Paths Resolve in the Installed Layout${colors.reset}\n`);
 
   try {
@@ -572,6 +575,22 @@ async function runTests() {
 
       assert(!(await pathExists(path.join(tmpProject, 'src'))), 'installed project has no src/ tree');
 
+      // The health check's helper finds the step files two folders above itself, never through {project-root}:
+      // installed, that is _bmad/skf/, which must hold each workflow it fingerprints with its references/ folder.
+      const seenHelper = path.join(skfDir, 'shared', 'scripts', 'skf-health-check-seen.py');
+      assert(await pathExists(seenHelper), 'the health-check helper is at _bmad/skf/shared/scripts/ when installed');
+      const workflowsTuple = (await fs.readFile(seenHelper, 'utf8')).match(/^WORKFLOWS = \(([\s\S]*?)\n\)/m);
+      const workflows = workflowsTuple ? [...workflowsTuple[1].matchAll(/"(skf-[a-z-]+)"/g)].map((m) => m[1]) : [];
+      const missingReferences = [];
+      for (const workflow of workflows) {
+        if (!(await pathExists(path.join(skfDir, workflow, 'references')))) missingReferences.push(workflow);
+      }
+      assert(
+        workflows.length === 15 && missingReferences.length === 0,
+        `every workflow the health-check helper names has _bmad/skf/<workflow>/references/ (${workflows.length})`,
+        missingReferences.join(', '),
+      );
+
       const probeFailures = [];
       const valueFailures = [];
       const probeKeys = new Set();
@@ -592,8 +611,9 @@ async function runTests() {
           if (key.endsWith('ProbeOrder')) {
             probeKeys.add(`${rel}#${key}`);
             const suffix = typeof value?.[0] === 'string' && value[0].startsWith(INSTALLED) ? value[0].slice(INSTALLED.length) : null;
-            if (!Array.isArray(value) || value.length !== 2 || suffix === null || value[1] !== DEV + suffix) {
-              probeFailures.push(`${rel} ${key}: not [${INSTALLED}<path>, ${DEV}<path>]: ${JSON.stringify(value)}`);
+            const moduleRoot = Array.isArray(value) && value.length === 3 && value[2] === suffix;
+            if (!Array.isArray(value) || (value.length !== 2 && !moduleRoot) || suffix === null || value[1] !== DEV + suffix) {
+              probeFailures.push(`${rel} ${key}: not [${INSTALLED}<path>, ${DEV}<path>(, <path>)]: ${JSON.stringify(value)}`);
             } else if (!(await pathExists(inProject(value[0])))) {
               probeFailures.push(`${rel} ${key}: missing when installed: ${value[0]}`);
             } else if (!(await pathExists(path.join(projectRoot, 'src', ...suffix.split('/'))))) {
