@@ -2,3 +2,4 @@ type: added
 scope: all workflows
 summary: |
   The health check that ends every workflow can now be turned off: keep the `health_check_repo` key in `_bmad/skf/config.yaml` and leave it empty (`''`, `""`, `~` or nothing after the colon). Each workflow then ends with `Health Check: off.` and `Workflow complete.`, then its result line in a headless run, and nothing is reviewed or sent. An empty value used to be passed to `gh` as is, which filed on the repository of the folder the workflow ran in. A config with no `health_check_repo` key, as a BMAD Method install writes it, files on the default `armelhbobdad/bmad-module-skill-forge`.
+prs: [1231]

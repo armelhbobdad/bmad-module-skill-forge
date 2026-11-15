@@ -2,3 +2,4 @@ type: added
 scope: all workflows
 summary: |
   A defect in the health check's own instructions (`src/shared/health-check.md`), in its helper or in a `gh` command it runs can now be reported: it is drafted with the workflow `health-check` and the step file `shared/health-check.md`, which `skf-health-check-seen.py fingerprint` now takes, and it is never posted. Every choice at the review gate but `[N]`, and a headless run, saves it to the local queue with the reason "Found in the health check's own instructions; review it before submitting." A run reports at most one; a further one is shown as a one-line note.
+prs: [1231]

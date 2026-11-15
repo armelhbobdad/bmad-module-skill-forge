@@ -2,3 +2,4 @@ type: changed
 scope: all workflows
 summary: |
   The health check's review gate now shows what it would send: before it asks, it writes each finding's issue body to `{forge_data_folder}/improvement-queue/bodies/` and shows each finding's title, the path of its draft and the draft's full text, and the question names the repository the issues go on and that they are filed with your GitHub account, saying public issues on the default repository. `[Y]` now files the bug findings and keeps friction and gap findings local, and the new `[A]` files every finding, so the separate `[y/N]` question about friction and gap findings is gone. The issue title and the top of the body, from Workflow to Defect Key, are now printed by `skf-health-check-seen.py fingerprint` from a `short_description` in its names file, which refuses a description holding a backtick, `$`, double quote, backslash, `!` or line break, or making the title longer than GitHub's 256 characters.
+prs: [1231]
