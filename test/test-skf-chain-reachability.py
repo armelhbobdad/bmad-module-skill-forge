@@ -40,10 +40,12 @@ Every exit reaches its terminal sequence (#585):
    exception (folded in from test-skf-stack-step-rules.py, for every
    workflow). The step that hands over to the local health check prints
    no bold, heading or quoted line that calls the run complete (#1115).
-8. Every local health-check step but Update Skill's hands over to the
-   shared one with no Rules lines padding its one load: no heading below
-   the title (Setup keeps its headings, for the Rules its quiet mode reads)
-   and none of the old "only delegate" lines (#1114).
+8. Every local health-check step hands over to the shared one with its
+   load sentence and none of the old "only delegate" lines padding it
+   (#1114). A bare one holds nothing but that load: no heading below its
+   title. Update Skill's, Quick Skill's and Verify Stack's also hold an
+   instruction of their own, as skf-health-check-seen.py's
+   RELAYS_WITH_INSTRUCTIONS names them.
 
 The bare-path rule names the keys that point beside the stage (#1112):
 
@@ -634,25 +636,39 @@ def test_banner_pattern_matches_a_completion_banner_and_not_the_hook():
     assert "Workflow complete." in shared, "the shared health check no longer prints the run's completion line"
 
 
-# The local health-check step only hands over to the shared one (#1114): no
-# heading below its title, and none of the Rules lines that said "only
-# delegate" around its one load. Update Skill's step keeps its Steps (it first
-# releases its lock and removes its source tree and run folder), and Setup's
-# keeps its headings for the Rules its quiet mode reads before the load.
-RELAYS = sorted(path for path in SRC.glob("skf-*/references/health-check.md")
-                if path.parts[-3] != "skf-update-skill")
+# The local health-check step hands over to the shared one (#1114), with none
+# of the Rules lines that said "only delegate" around its load. A bare one
+# holds nothing else, so no heading below its title. Update Skill's step keeps
+# its Steps (it first releases its lock and removes its source tree and run
+# folder), and Quick Skill's and Verify Stack's each hold an instruction of
+# their own: the helper's RELAYS_WITH_INSTRUCTIONS, which takes a finding there
+# (#226's quality gate, round 1, architecture-2). Setup's lost its headings and
+# its quiet-mode rule, which never applied: a quiet run never loads it
+# (leanness-8).
+RELAYS = sorted(SRC.glob("skf-*/references/health-check.md"))
 RELAY_PADDING = ("Delegate directly", "additional commentary", "Do not attempt any other action")
 
 
+def _relays_with_instructions() -> tuple[str, ...]:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("skf_hc_seen_chain", SRC / "shared" / "scripts" /
+                                                  "skf-health-check-seen.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.RELAYS_WITH_INSTRUCTIONS
+
+
 def test_every_relay_is_read():
-    assert len(RELAYS) == 14, [path.parts[-3] for path in RELAYS]
+    assert len(RELAYS) == 15, [path.parts[-3] for path in RELAYS]
+    bare = [path for path in RELAYS if path.parts[-3] not in _relays_with_instructions()]
+    assert len(bare) == 12, [path.parts[-3] for path in bare]
 
 
 @pytest.mark.parametrize("path", RELAYS, ids=lambda p: p.parts[-3])
-def test_relay_step_only_loads_the_shared_health_check(path: pathlib.Path) -> None:
+def test_relay_step_loads_the_shared_health_check(path: pathlib.Path) -> None:
     body = path.read_text(encoding="utf-8").split("\n---\n", 1)[1]
-    if path.parts[-3] != "skf-setup":
-        assert not re.search(r"^## ", body, re.M), f"{path.parts[-3]}: a heading below the title"
+    if path.parts[-3] not in _relays_with_instructions():
+        assert not re.search(r"^## ", body, re.M), f"{path.parts[-3]}: a heading below the title of a bare relay"
     assert "Load `{nextStepFile}`, read it fully, then execute it" in body, path.parts[-3]
     padding = [phrase for phrase in RELAY_PADDING if phrase in body]
     assert not padding, f"{path.parts[-3]}: the relay still pads its one load with {padding}"

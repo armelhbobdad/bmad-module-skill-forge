@@ -28,6 +28,15 @@ tests pin its behaviour instead of the prose:
 - queue: the draft copied unchanged under a free name, the header and title
   it checks, and the quoted commands it prints, which file an issue whose
   body holds no frontmatter and whose title the dedup Action reads.
+- the relays that hold an instruction of their own (Update Skill's, Quick
+  Skill's and Verify Stack's), derived from the relay files, are step files
+  of their workflow; a bare relay is still refused (#226, quality gate
+  round 1).
+- settings: every YAML form of health_check_repo and
+  health_check_autosubmit the step used to read by eye, read with no YAML
+  library.
+- check-draft: a draft that names the project's or the home folder is
+  refused, naming each line, before anything is posted.
 
 No test reads or writes the real $HOME/.skf: every call names its cache, or
 runs with HOME pointed at a temporary folder.
@@ -1906,6 +1915,392 @@ class TestQueue:
 
 
 # --------------------------------------------------------------------------
+# the relays that hold an instruction of their own (#226 quality gate, round 1, architecture-2)
+# --------------------------------------------------------------------------
+
+# An instruction a relay holds besides its one load: a numbered step, or a condition that has the agent act.
+_RELAY_STEP_RE = re.compile(r"^\d+[a-z]?\. ", re.MULTILINE)
+_RELAY_ACTION_RE = re.compile(r"\b(?:When|If)\b[^.]*?, (?:print|log|run|tell|display|write|remove|release|say)\b")
+LOAD = "Load `{nextStepFile}`, read it fully, then execute it"
+
+
+def _relay_instructions(path: Path) -> bool:
+    """Whether a relay holds an instruction besides the load: what is left once the frontmatter, comments, headings
+    and the load sentence are gone, read for a numbered step or a conditional action."""
+    body = path.read_text(encoding="utf-8").split("\n---\n", 1)[1]
+    body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+    body = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
+    body = body.replace(LOAD, "")
+    return bool(_RELAY_STEP_RE.search(body) or _RELAY_ACTION_RE.search(body))
+
+
+def _relays() -> dict[str, Path]:
+    return {path.parent.parent.name: path for path in sorted(SRC.glob("skf-*/references/health-check.md"))}
+
+
+class TestRelays:
+    def test_the_relays_with_instructions_are_the_ones_the_relay_files_hold(self):
+        """The helper's literal list is derived here from the relay files, so a relay that gains or loses an
+        instruction of its own fails this test until the list follows it."""
+        derived = sorted(name for name, path in _relays().items() if _relay_instructions(path))
+        assert derived == sorted(_mod().RELAYS_WITH_INSTRUCTIONS)
+        assert derived == ["skf-quick-skill", "skf-update-skill", "skf-verify-stack"]
+        assert len(_relays()) == 15
+
+    def test_the_derivation_tells_an_instruction_from_a_description(self):
+        bare = "In a headless run report.md bound `{result_envelope_line}`. Do nothing else here."
+        assert not _RELAY_ACTION_RE.search(bare) and not _RELAY_STEP_RE.search(bare)
+        assert _RELAY_ACTION_RE.search("When `{headless_mode}` is true, print this step's `done` event.")
+        assert _RELAY_ACTION_RE.search("If `{nextStepFile}` cannot be loaded (a partial install, or a removed "
+                                       "file), log exactly the path.")
+        assert _RELAY_STEP_RE.search("1b. **Remove the private source tree**")
+
+    @pytest.mark.parametrize("workflow, heading", [
+        ("skf-update-skill", "## Steps"),
+        ("skf-update-skill", "# Step 7: Workflow Health Check"),
+        ("skf-quick-skill", "# Step 7: Workflow Health Check"),
+        ("skf-verify-stack", "# Step 7: Workflow Health Check"),
+    ])
+    def test_a_relay_with_instructions_is_a_step_file_of_its_workflow(self, workflow, heading):
+        for step_file in ("health-check.md", f"src/{workflow}/references/health-check.md",
+                          f"_bmad/skf/{workflow}/references/health-check.md"):
+            code, out, err = _cli(*_stdin_args(step_file, workflow=workflow),
+                                  stdin=_names(heading, "run folder", short_description="x"))
+            assert code == 0, err
+            payload = json.loads(out)
+            assert payload["step_file"] == f"src/{workflow}/references/health-check.md"
+            assert payload["body_header"].startswith(f"## Workflow\n`{workflow}`\n\n## Step File\n"
+                                                     f"`src/{workflow}/references/health-check.md`\n")
+
+    @pytest.mark.parametrize("workflow", ["skf-test-skill", "skf-setup"])
+    def test_another_workflows_relay_names_that_workflow_first(self, workflow):
+        """The owner check runs before the relay rule, so the retry takes the right --workflow."""
+        code, out, err = _cli(*_stdin_args("src/skf-update-skill/references/health-check.md", workflow=workflow),
+                              stdin=_names("## Steps", "run folder"))
+        assert code == 2 and out == ""
+        message = json.loads(err)["message"]
+        assert "so --workflow is skf-update-skill" in message and "relay" not in message
+
+    def test_its_headings_are_checked_against_that_relay(self):
+        code, out, err = _cli(*_stdin_args("health-check.md", workflow="skf-update-skill"),
+                              stdin=_names("## Rules", "run folder"))
+        assert code == 2 and out == "" and "section_heading" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("relay", ["Health-Check.md", "HEALTH-CHECK.MD"])
+    def test_a_relay_with_instructions_keeps_its_letter_case(self, relay):
+        code, _, err = _cli(*_stdin_args(relay, workflow="skf-update-skill"), stdin=_names("## Steps", "x"))
+        assert code == 2 and "--step-file" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("workflow", sorted(set(_chaining_workflows()) - {"skf-quick-skill", "skf-update-skill",
+                                                                              "skf-verify-stack"}))
+    def test_a_bare_relay_is_still_refused(self, workflow):
+        code, out, err = _cli(*_stdin_args("health-check.md", workflow=workflow),
+                              stdin=_names("# Step 7: Workflow Health Check", "x"))
+        assert code == 2 and out == ""
+        message = json.loads(err)["message"]
+        assert "relay" in message and "--workflow health-check" in message
+
+    def test_a_draft_from_a_relay_with_instructions_queues(self, tmp_path):
+        code, out, err = _cli(*_stdin_args("health-check.md", workflow="skf-update-skill"),
+                              stdin=_names("## Steps", "run folder", short_description=DESCRIPTION))
+        assert code == 0, err
+        fp = json.loads(out)
+        body = _draft(tmp_path, header=fp["body_header"], name=f"{fp['fp']}-{STAMP}.md")
+        code, out, err = _queue(tmp_path / "q", body, title=fp["title"])
+        assert code == 0, err
+        assert re.fullmatch(r"hc-skf-update-skill-\d{8}-\d{6}\.md", Path(json.loads(out)["path"]).name)
+
+
+# --------------------------------------------------------------------------
+# settings (#226 quality gate, round 1, determinism-1)
+# --------------------------------------------------------------------------
+
+
+def _settings(tmp_path: Path, text: str | bytes | None) -> dict:
+    config = tmp_path / "config.yaml"
+    if text is not None:
+        config.write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+    code, out, err = _cli("settings", "--config", str(config))
+    assert code == 0 and err == "", err
+    return json.loads(out)
+
+
+DEFAULT = {"repo_state": "default", "repo": HEALTH_CHECK_REPO, "is_default": True, "autosubmit": False}
+OFF = {"repo_state": "off", "repo": None, "is_default": False, "autosubmit": False}
+
+
+class TestSettings:
+    @pytest.mark.parametrize("line, repo", [
+        ("health_check_repo: owner/repo  # fork", "owner/repo"),
+        ('health_check_repo: "owner/repo"', "owner/repo"),
+        ("health_check_repo: 'owner/repo'  # a comment", "owner/repo"),
+        ("health_check_repo: ghe.example.com/my-org/my.repo_x", "ghe.example.com/my-org/my.repo_x"),
+        ("health_check_repo :   owner/repo", "owner/repo"),
+        ('"health_check_repo": me/fork', "me/fork"),
+        ("'health_check_repo': 'me/fork'", "me/fork"),
+    ], ids=["comment", "double-quoted", "single-quoted-comment", "host", "space-before-colon", "double-quoted-key",
+            "single-quoted-key"])
+    def test_a_repository_is_set(self, tmp_path, line, repo):
+        assert _settings(tmp_path, line + "\n") == {"repo_state": "set", "repo": repo, "is_default": False,
+                                                    "autosubmit": False}
+
+    @pytest.mark.parametrize("line", ["health_check_repo: ''", 'health_check_repo: ""', "health_check_repo: ~",
+                                      "health_check_repo: null", "health_check_repo: Null", "health_check_repo: NULL",
+                                      "health_check_repo:", "health_check_repo:    ", "health_check_repo: # off"])
+    def test_an_empty_value_turns_the_check_off(self, tmp_path, line):
+        assert _settings(tmp_path, line + "\n") == OFF
+
+    def test_a_key_in_unmatched_quotes_is_no_key(self, tmp_path):
+        assert _settings(tmp_path, "\"health_check_repo': me/fork\n") == DEFAULT
+
+    @pytest.mark.parametrize("text", [None, "", "# SKF Configuration\nskills_output_folder: skills\n",
+                                      "  health_check_repo: owner/repo\n", "# health_check_repo: owner/repo\n",
+                                      "health_check_repository: owner/repo\n"],
+                             ids=["no-file", "empty", "other-keys", "indented", "commented-out", "longer-key"])
+    def test_no_key_or_no_file_is_the_default(self, tmp_path, text):
+        assert _settings(tmp_path, text) == DEFAULT
+
+    @pytest.mark.parametrize("text, repo", [
+        ("health_check_repo: https://github.com/o/r\n", "https://github.com/o/r"),
+        ("health_check_repo: o/r; rm -rf ~\n", "o/r; rm -rf ~"),
+        ("health_check_repo: '~'\n", "~"),
+        ("health_check_repo: |\n  owner/repo\n", "|"),
+        ("health_check_repo: >-\n  owner/repo\n", ">-"),
+        ("health_check_repo:\n  - owner/repo\n", ""),
+        ("health_check_repo:\n- owner/repo\n", ""),
+        ("health_check_repo: [owner/repo]\n", "[owner/repo]"),
+        ("health_check_repo: {a: b}\n", "{a: b}"),
+        ("health_check_repo: owner/\n  repo\n", "owner/"),
+        ("health_check_repo: \"owner/repo\n", '"owner/repo'),
+        ("health_check_repo: 'owner/repo' trailing\n", "'owner/repo' trailing"),
+        ("health_check_repo: 'owner/repo'#x\n", "'owner/repo'#x"),
+        ('health_check_repo: "owner/repo"#x\n', '"owner/repo"#x'),
+        ("health_check_repo: &a owner/repo\n", "&a owner/repo"),
+        ("health_check_repo: '{health_check_repo}'\n", "{health_check_repo}"),
+    ], ids=["url", "shell", "quoted-tilde", "block-literal", "block-folded", "block-list", "list-at-column-0",
+            "flow-list", "flow-map", "multi-line", "unclosed-quote", "after-the-quote", "glued-comment",
+            "glued-comment-double", "anchor", "unresolved"])
+    def test_a_value_that_is_no_repository_is_invalid(self, tmp_path, text, repo):
+        assert _settings(tmp_path, text) == {"repo_state": "invalid", "repo": repo, "is_default": False,
+                                             "autosubmit": False}
+
+    @pytest.mark.parametrize("raw", [b"health_check_repo: \xff\xfe owner/repo\n"], ids=["not-utf8"])
+    def test_a_file_that_cannot_be_read_makes_the_repository_invalid(self, tmp_path, raw):
+        assert _settings(tmp_path, raw) == {"repo_state": "invalid", "repo": None, "is_default": False,
+                                            "autosubmit": False}
+        folder = tmp_path / "a folder"
+        folder.mkdir()
+        assert _mod().settings(folder)["repo_state"] == "invalid"
+
+    @pytest.mark.parametrize("value", [HEALTH_CHECK_REPO, HEALTH_CHECK_REPO.upper(), f'"{HEALTH_CHECK_REPO}"'])
+    def test_the_default_set_by_hand_is_the_default_in_any_letter_case(self, tmp_path, value):
+        out = _settings(tmp_path, f"health_check_repo: {value}\n")
+        assert out["repo_state"] == "set" and out["is_default"] is True
+
+    @pytest.mark.parametrize("value, on", [("true", True), ("true # on", True), ("true   ", True), ("True", False),
+                                           ("TRUE", False), ('"true"', False), ("'true'", False), ("yes", False),
+                                           ("on", False), ("1", False), ("", False), ("~", False),
+                                           ("|\n  true", False)])
+    def test_autosubmit_is_on_only_for_a_plain_true(self, tmp_path, value, on):
+        out = _settings(tmp_path, f"health_check_autosubmit: {value}\n")
+        assert out["autosubmit"] is on
+        assert out["repo_state"] == "default"
+
+    def test_an_absent_autosubmit_is_off(self, tmp_path):
+        assert _settings(tmp_path, "health_check_repo: owner/repo\n")["autosubmit"] is False
+
+    def test_the_last_line_of_a_key_wins_and_crlf_and_a_bom_are_read(self, tmp_path):
+        text = "health_check_repo: first/repo\r\nhealth_check_repo: second/repo\r\nhealth_check_autosubmit: true\r\n"
+        assert _settings(tmp_path, b"\xef\xbb\xbf" + text.encode("utf-8")) == {
+            "repo_state": "set", "repo": "second/repo", "is_default": False, "autosubmit": True}
+
+    def test_a_bmad_method_config_reads_as_the_default(self, tmp_path):
+        """A BMAD Method install writes no health_check key: header comments, quoted values and an indented list."""
+        text = ("# SKF Module Configuration\n# Generated by BMAD installer\n\nuser_name: \"Armel\"\n"
+                "skills_output_folder: \"{project-root}/skills\"\n\n# Core\nides:\n  - claude-code\n  - cursor\n")
+        assert _settings(tmp_path, text) == DEFAULT
+
+    def test_the_skf_installers_config_reads_as_set(self, tmp_path):
+        text = ("# SKF Configuration - Generated by installer\nskills_output_folder: skills\n"
+                "forge_data_folder: forge-data\nhealth_check_repo: armelhbobdad/bmad-module-skill-forge\n")
+        out = _settings(tmp_path, text)
+        assert out == {"repo_state": "set", "repo": HEALTH_CHECK_REPO, "is_default": True, "autosubmit": False}
+
+    def test_settings_reads_no_yaml_library_and_runs_no_gh(self, tmp_path, no_gh):
+        _mod().settings(tmp_path / "config.yaml")
+        assert no_gh == []
+        assert "import yaml" not in HELPER.read_text(encoding="utf-8")
+
+    def test_the_steps_settings_call_reads_the_projects_config(self, tmp_path):
+        (line,) = _step_calls("settings")
+        project = tmp_path / "project"
+        (project / "_bmad" / "skf").mkdir(parents=True)
+        (project / "_bmad" / "skf" / "config.yaml").write_text("health_check_repo: me/fork  # mine\n"
+                                                                "health_check_autosubmit: true\n", encoding="utf-8")
+        out = _run_step_call(line, {"{project-root}": str(project)}, dict(os.environ))
+        assert out == {"repo_state": "set", "repo": "me/fork", "is_default": False, "autosubmit": True}
+
+
+# --------------------------------------------------------------------------
+# check-draft (#226 quality gate, round 1, enhancement-1)
+# --------------------------------------------------------------------------
+
+
+def _home_env(home: Path) -> dict:
+    return {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+
+
+def _check(draft: Path, project: str, home: Path) -> tuple[int, str, str]:
+    return _cli("check-draft", "--body-file", str(draft), "--project-dir", project, env=_home_env(home))
+
+
+class TestCheckDraft:
+    @pytest.fixture
+    def home(self, tmp_path):
+        home = tmp_path / "home" / "someone"
+        home.mkdir(parents=True)
+        return home
+
+    def test_a_clean_draft_passes(self, tmp_path, home):
+        body = _draft(tmp_path, rest="\n## Evidence\n- `src/skf-test-skill/references/report.md:12`: \"x\"\n")
+        code, out, err = _check(body, "/work/project", home)
+        assert code == 0 and err == "", err
+        assert json.loads(out) == {"clean": True}
+
+    def test_each_line_that_names_a_users_folder_is_named(self, tmp_path, home):
+        rest = ("\n## Evidence\n"
+                "- `/work/project/_bmad/skf/skf-test-skill/references/report.md:12`: \"x\"\n"
+                f"- `{home}/notes.md`\n"
+                "- `src/skf-test-skill/references/report.md:3`\n")
+        body = _draft(tmp_path, rest=rest)
+        header_lines = SAMPLE_HEADER.count("\n")
+        code, out, err = _check(body, "/work/project", home)
+        assert code == 2 and out == ""
+        message = json.loads(err)["message"]
+        assert "--body-file" in message
+        assert f"line {header_lines + 3} holds the project's folder, /work/project" in message
+        assert f"line {header_lines + 4} holds the home folder, {home}" in message
+        assert f"line {header_lines + 5}" not in message
+
+    def test_a_project_inside_the_home_folder_is_named_as_the_project(self, tmp_path, home):
+        project = home / "proj"
+        body = _draft(tmp_path, rest=f"\n- `{project}/src/app.py`\n")
+        code, _, err = _check(body, str(project), home)
+        assert code == 2 and f"holds the project's folder, {project}" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("text", ["/work/project2/x.md", "/work/projects", "/srv/work/project/x",
+                                      "https://example.com/work/project/x", "/work/project.bak"],
+                             ids=["longer-name", "plural", "inside-another-path", "url", "suffix"])
+    def test_a_longer_name_or_another_path_is_no_match(self, tmp_path, home, text):
+        code, out, err = _check(_draft(tmp_path, rest=f"\n- `{text}`\n"), "/work/project", home)
+        assert code == 0, err
+
+    @pytest.mark.parametrize("text", ["/WORK/Project/x.md", "\\work\\project\\x.md", "(/work/project)",
+                                      "path: /work/project/", '"/work/project"'],
+                             ids=["letter-case", "backslashes", "parentheses", "trailing-slash", "quoted"])
+    def test_any_form_of_the_folder_matches(self, tmp_path, home, text):
+        code, _, err = _check(_draft(tmp_path, rest=f"\n{text}\n"), "/work/project", home)
+        assert code == 2 and "the project's folder" in json.loads(err)["message"]
+
+    def test_a_windows_project_folder_matches_in_either_separator(self, tmp_path, home):
+        module = _mod()
+        for folder in ("C:\\Users\\someone\\proj", "C:\\Users\\someone\\proj\\"):
+            pattern = module._folder_re(folder)
+            for text in ("C:\\Users\\someone\\proj\\x.md", "c:/users/someone/proj/x.md",
+                         "file:///C:/Users/someone/proj/x.md"):
+                assert pattern.search(text), (folder, text)
+            assert not pattern.search("C:\\Users\\someone\\project\\x.md")
+
+    def test_a_project_folder_given_with_a_trailing_separator_still_matches(self, tmp_path, home):
+        code, _, err = _check(_draft(tmp_path, rest="\n- `/work/project/x.md`\n"), "/work/project/", home)
+        assert code == 2 and "the project's folder" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("text", ["file:///work/project/x.md", "compiled in /work/project.",
+                                      "see /work/project. Then"], ids=["file-url", "sentence-end", "mid-sentence"])
+    def test_a_file_url_or_a_sentence_end_still_names_the_folder(self, tmp_path, home, text):
+        code, _, err = _check(_draft(tmp_path, rest=f"\n{text}\n"), "/work/project", home)
+        assert code == 2 and "the project's folder" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("text", ["~/proj/x.md", "$HOME/proj/x.md", "${HOME}/proj/x.md",
+                                      "%USERPROFILE%\\proj\\x.md"],
+                             ids=["tilde", "home-variable", "braced-home-variable", "userprofile"])
+    def test_a_project_below_home_written_through_home_is_named(self, tmp_path, home, text):
+        code, _, err = _check(_draft(tmp_path, rest=f"\n- `{text}`\n"), str(home / "proj"), home)
+        assert code == 2 and "the project's folder" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("text", ["~/notes.md", "$HOME/notes.md", "${HOME}/notes.md", "%USERPROFILE%\\notes.md",
+                                      "in $HOME."], ids=["tilde", "home-variable", "braced", "userprofile", "alone"])
+    def test_the_home_folder_written_through_a_variable_is_named(self, tmp_path, home, text):
+        code, _, err = _check(_draft(tmp_path, rest=f"\n{text}\n"), "/work/project", home)
+        assert code == 2 and "the home folder" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("text", ["`$HOME/.skf/health-check-seen.json`", "`~/.skf/health-check-seen.json`",
+                                      "a YAML null (`~`)", "~user/x", "$HOMEDIR/x"],
+                             ids=["seen-cache", "seen-cache-tilde", "yaml-null", "another-users-home", "longer-name"])
+    def test_skfs_own_home_folder_and_other_tildes_name_nobody(self, tmp_path, home, text):
+        code, out, err = _check(_draft(tmp_path, rest=f"\n{text}\n"), "/work/project", home)
+        assert code == 0, err
+
+    def test_the_project_folders_realpath_is_named_too(self, tmp_path, home):
+        real = tmp_path / "real" / "project"
+        real.mkdir(parents=True)
+        link = tmp_path / "linked"
+        try:
+            link.symlink_to(real.parent, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this file system makes no symlink")
+        code, _, err = _check(_draft(tmp_path, rest=f"\n- `{real}/x.md`\n"), str(link / "project"), home)
+        assert code == 2 and "the project's folder" in json.loads(err)["message"]
+
+    def test_the_title_is_checked_too(self, tmp_path, home):
+        body = _draft(tmp_path)
+        title = TITLE_PREFIX + "the rule misreads /work/project/notes"
+        code, out, err = _cli("check-draft", "--body-file", str(body), "--title", title, "--project-dir",
+                              "/work/project", env=_home_env(home))
+        assert code == 2 and out == ""
+        assert "the title holds the project's folder, /work/project" in json.loads(err)["message"]
+        code, out, err = _cli("check-draft", "--body-file", str(body), "--title", TITLE_PREFIX + DESCRIPTION,
+                              "--project-dir", "/work/project", env=_home_env(home))
+        assert code == 0 and json.loads(out) == {"clean": True}, err
+
+    @pytest.mark.parametrize("folder", ["/", "C:\\", "C:", "//"], ids=["root", "drive", "bare-drive", "slashes"])
+    def test_a_root_folder_names_nobody(self, folder):
+        assert _mod()._folder_re(folder) is None
+
+    def test_a_home_one_level_down_is_still_checked(self):
+        """A container's home is often /root."""
+        pattern = _mod()._folder_re("/root")
+        assert pattern.search("- `/root/project/x.md`") and not pattern.search("- `/rootfs/x.md`")
+
+    def test_a_root_home_folder_is_skipped(self, tmp_path):
+        body = _draft(tmp_path, rest="\n- `/usr/lib/x`\n")
+        code, out, err = _cli("check-draft", "--body-file", str(body), "--project-dir", "/work/project",
+                              env={**os.environ, "HOME": "/", "USERPROFILE": "/"})
+        assert code == 0, err
+
+    def test_a_relative_project_folder_exits_2(self, tmp_path, home):
+        code, out, err = _check(_draft(tmp_path), "project", home)
+        assert code == 2 and out == "" and "--project-dir" in json.loads(err)["message"]
+
+    def test_a_draft_that_cannot_be_read_exits_1(self, tmp_path, home):
+        code, out, err = _check(tmp_path / "bodies" / "missing.md", "/work/project", home)
+        assert code == 1 and out == "" and "--body-file" in json.loads(err)["message"]
+
+    def test_the_steps_call_checks_the_draft_it_wrote(self, tmp_path, home):
+        (line,) = _step_calls("check-draft")
+        project = tmp_path / "project"
+        draft = _draft(tmp_path, rest=f"\n- `{project}/_bmad/skf/skf-test-skill/references/report.md:1`\n")
+        words = shlex.split(line.replace("{seenCacheHelper}", "HELPER").replace("{draft_path}", str(draft))
+                            .replace("{project-root}", str(project)).replace("{title}", TITLE_PREFIX + DESCRIPTION))
+        assert words[:3] == ["uv", "run", "HELPER"]
+        code, _, err = _cli(*words[3:], env=_home_env(home))
+        assert code == 2 and "the project's folder" in json.loads(err)["message"]
+        draft.write_text(SAMPLE_HEADER + "\n- `src/skf-test-skill/references/report.md:1`\n", encoding="utf-8")
+        code, out, err = _cli(*words[3:], env=_home_env(home))
+        assert code == 0 and json.loads(out) == {"clean": True}, err
+
+
+# --------------------------------------------------------------------------
 # The helper's shape
 # --------------------------------------------------------------------------
 
@@ -1918,7 +2313,10 @@ def test_the_helper_is_a_stdlib_script_with_a_parser():
                  ["lookup", "--fp", FP_A, "--legacy-fp", LEGACY, "--repo", HEALTH_CHECK_REPO],
                  ["record", "--fp", FP_A, "--action", "created", "--issue-url", URL, "--date", DAY, "--regression"],
                  ["record", "--fp", FP_A, "--action", "resolved", "--issue-url", "", "--date", DAY], ["version"],
-                 ["queue", "--queue-dir", "q", "--body-file", "b.md", "--title", "t", "--repo", HEALTH_CHECK_REPO]):
+                 ["queue", "--queue-dir", "q", "--body-file", "b.md", "--title", "t", "--repo", HEALTH_CHECK_REPO],
+                 ["settings", "--config", "_bmad/skf/config.yaml"],
+                 ["check-draft", "--body-file", "b.md", "--project-dir", "/work/project"],
+                 ["check-draft", "--body-file", "b.md", "--title", "t", "--project-dir", "/work/project"]):
         parser.parse_args(argv)
 
 

@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-forger
+summary: |
+  `@Ferris please run the workflow health check for this session`, the recovery the docs give when a workflow's health check did not run, now runs the shared health check for the workflow the session last ran, as if that workflow had reached its end. Ferris read it as a described goal and answered with a menu code to run instead.

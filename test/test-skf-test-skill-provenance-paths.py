@@ -4524,7 +4524,7 @@ def test_the_result_envelope_is_the_runs_last_line():
     assert "may bind `{result_envelope_line}`" in arrival and "In a standalone headless run" in arrival
     # §5c, the local queue, is the file's last section: it runs to the end of the file
     assert shared.count("### 5c. Local-Queue Path") == 1
-    for start, end in (("### 2. Reflect on Execution", "### 3."), ("### 5c. Local-Queue Path", None)):
+    for start, end in (("### 2. Close a Clean Run", "### 3."), ("### 5c. Local-Queue Path", None)):
         stop = _flow(_slice(shared, start, end) if end else shared[shared.index(start):])
         assert "When `{result_envelope_line}` is bound (§0), display it verbatim after that" in stop, start
     # nothing follows §5c's envelope line: it is the shared health check's last line
@@ -4544,7 +4544,7 @@ def test_the_shared_health_check_states_its_findings_rule_once():
     shared = _read(SRC / "shared" / "health-check.md")
     rules = _flow(_slice(shared, "## MANDATORY EXECUTION RULES:", "## MANDATORY SEQUENCE"))
     assert ("Zero findings is the expected outcome of a good run. Report only a bug, friction or gap you hit in this "
-            "session, each with the step file and section where it happened, and leave out anything you cannot tell "
+            "session since its last health check, each with the step file and section where it happened, and leave out anything you cannot tell "
             "apart from your own confusion: a finding you invent can become a real GitHub issue filed against the "
             "module.") in rules
     folded = shared.lower()

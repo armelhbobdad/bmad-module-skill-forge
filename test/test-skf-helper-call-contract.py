@@ -511,10 +511,12 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "evidence-report"),
     # The context snippet step 7 writes and trims with it, its gotchas read from a file on stdin (#1157).
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "snippet"),
-    # The shared health check (armelhbobdad/bmad-module-ultracode-goal#226): the fingerprint from a names file on
-    # stdin, the lookup scoped to the health-check repository, the record calls, the version and the local queue,
-    # through a helper only its probe order binds.
+    # The shared health check (armelhbobdad/bmad-module-ultracode-goal#226): the settings from the config, the
+    # fingerprint from a names file on stdin, the check of each draft, the lookup scoped to the health-check
+    # repository, the record calls, the version and the local queue, through a helper only its probe order binds.
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "settings"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "fingerprint"),
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "check-draft"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "lookup"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "record"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "version"),

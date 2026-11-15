@@ -2,30 +2,36 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""SKF Health Check Seen: the fingerprints, the issue title and the top of
-the issue body of a health-check finding, the seen-issue cache that every SKF
-workflow on the machine shares, the local queue a finding waits in, and the
-SKF version a report names.
+"""SKF Health Check Seen: the health check's settings, the fingerprints, the
+issue title and the top of the issue body of a health-check finding, the check
+that its draft names no folder of the user's, the seen-issue cache that every
+SKF workflow on the machine shares, the local queue a finding waits in, and
+the SKF version a report names.
 
 src/shared/health-check.md, the last step of every SKF workflow, files a
 finding as a GitHub issue once per defect on a machine and reports a fixed
 defect that comes back as a regression. This helper owns the deterministic
-part of that: the workflow and step file in one form whatever the install,
+part of that: the repository and autosubmit setting read from config.yaml,
+the workflow and step file in one form whatever the install,
 the section slug from its heading and the defect key from a name, the two
 hashes, the issue title and the machine-read top of the issue body, the
 tolerant read of the cache, the bounded check of a recorded issue's state,
 the verdict and the line a regression's issue opens with, the locked
-merge-write of a record, the queue file a finding is saved to with the
-commands that submit it, and the installed SKF version. The step keeps the
+merge-write of a record, a draft's check for the project's and the home
+folder, the queue file a finding is saved to with the commands that submit
+it, and the installed SKF version. The step keeps the
 judgment: whether a finding is real, its severity, which section and which
 thing it names, its short description, the user's pick at the review gate
 and at a matching issue, and the rest of the issue's wording.
 
 CLI:
 
+  uv run skf-health-check-seen.py settings --config <config.yaml>
   uv run skf-health-check-seen.py fingerprint --severity <bug|friction|gap> \\
       --workflow <skf-name|health-check> --step-file <path> \\
       (--stdin | --section <slug> --defect-key <key>)
+  uv run skf-health-check-seen.py check-draft --body-file <draft> \\
+      --project-dir <absolute path> [--title <title>]
   uv run skf-health-check-seen.py lookup --fp <fp> --legacy-fp <fp> \\
       [--repo <[HOST/]OWNER/REPO>] [--cache <path>]
   uv run skf-health-check-seen.py record --fp <fp> \\
@@ -41,6 +47,33 @@ step passes none, so every workflow reads and writes the same file.
 Every file this helper reads besides the cache it finds from its own place:
 the SKF module root is the folder two levels up (src/ in a checkout or a
 plugin, _bmad/skf/ when installed), never {project-root}.
+
+settings
+--------
+Reads health_check_repo and health_check_autosubmit from --config (the step
+passes {project-root}/_bmad/skf/config.yaml) with no YAML library: only a
+top-level `key: value` line counts, the key bare or in a matching pair of
+quotes, the last of a key winning. A value drops its single or double quotes
+('' and the double-quoted escapes decoded) and a trailing comment, whose `#`
+follows whitespace. Nothing after the colon, a comment
+alone, '', "" and a plain ~, null, Null or NULL are empty. A block or flow
+value, an anchor, alias or tag, a quoted value that does not close on its
+line and a value that goes on below its line are invalid. A missing file
+holds neither key; one that cannot be read or is not UTF-8 makes the
+repository invalid.
+
+  repo_state  off      health_check_repo is empty: the check is off
+              default  no health_check_repo: repo is DEFAULT_REPO
+              set      a [HOST/]OWNER/REPO value (REPO_RE): repo is it
+              invalid  anything else: repo is the value as written, or
+                       null for a file that cannot be read
+  is_default  repo_state is default or set, with DEFAULT_REPO in any
+              letter case
+  autosubmit  true only for a plain `true`; True, "true", yes and an
+              absent key are false
+
+  Output: {"repo_state": ..., "repo": ... | null, "is_default": ...,
+           "autosubmit": ...}. Always exit 0 (2 for a bad argument).
 
 fingerprint
 -----------
@@ -68,9 +101,12 @@ from a checkout, a CLI install or a plugin gets one fingerprint:
              file's name, references/<file>.md, its src/ path, its installed
              _bmad/skf/ path or an absolute one: only its last component is
              kept, and it must be, letter case included, the name of a file
-             in the module's <workflow>/references/ folder. It may not be
-             health-check.md in any letter case (the relay that only loads
-             this step), and when the folder above references/ in the path
+             in the module's <workflow>/references/ folder. It may be
+             health-check.md, the workflow's relay, only for a workflow whose
+             relay holds an instruction besides the load
+             (RELAYS_WITH_INSTRUCTIONS): a bare relay, which only loads this
+             step, is refused in any letter case. When the folder above
+             references/ in the path
              is another SKF skill's, the step file is that skill's: the
              workflow is the one whose references/ folder holds the step
              file, so a step file one workflow loads from another's
@@ -191,7 +227,11 @@ closed as completed since its report on D." ("merged" for a merge), and
            "matched_on": "fp" | "legacy_fp" | null,
            "opening_line": <the line> | null}
 
-handled is the only verdict that suppresses a report.
+handled is the only verdict that suppresses a report. Anything uncertain
+reports instead: a fresh sighting of a fixed defect is a regression, the
+most valuable report the loop makes, and a duplicate heals itself (the dedup
+Action closes it and moves its upvote to the canonical issue) while a
+silenced regression is caught by nothing.
 
 record
 ------
@@ -267,6 +307,22 @@ each on one line, every argument quoted for a POSIX shell (shlex.quote), so
 a space or a quote in TITLE or PATH reaches gh as written, and --repo right
 after the subcommand, so an allow rule scoped to the repository matches.
 
+check-draft
+-----------
+Reads --body-file, a draft or a comment's body, and refuses it (exit 2,
+naming each line, and the title) when a line or --title holds the
+project's folder (--project-dir, {project-root} in the step, and its
+realpath) or the home folder (Path.home()): an issue on the default
+repository is public. A folder matches in either separator and any letter
+case, as a whole path or after file://, before a period that ends a
+sentence, never as the start of a longer name (`.bak` included) or inside
+another path; a root folder (/ or C:\\) matches nothing. The home folder,
+and a project folder below it, also match as ~/, $HOME, ${HOME} or
+%USERPROFILE% writes them, but for SKF's own ~/.skf/ (the seen cache).
+--project-dir must be absolute. A --body-file that cannot be read exits 1.
+
+  Output: {"clean": true}
+
 version
 -------
 The version of the SKF this helper belongs to, first hit wins:
@@ -289,7 +345,8 @@ loaded gives no version.
           or {"version": null, "source": "N/A"} when nothing gives one or
           the sibling cannot be loaded. Always exit 0.
 
-No network and no gh call in fingerprint, record, queue or version. Every
+No network and no gh call in settings, fingerprint, check-draft, record,
+queue or version. Every
 answer is one JSON line on stdout, in UTF-8 whatever the locale, a
 non-ASCII character as itself, so a title is used as printed.
 
@@ -298,7 +355,7 @@ Exit codes (1 and 2 print one JSON line on stderr, {"status": "error",
   0  answered
   1  record could not take the lock, read the cache, set a corrupt one
      aside or write it; queue could not read the draft, or create or write
-     the queue file
+     the queue file; check-draft could not read the draft
   2  a bad argument: a missing or unknown one, or a value that breaks its
      rule
 """
@@ -345,8 +402,13 @@ WORKFLOWS = (
 )
 # The module's skill folders: a step file path that names one but the finding's workflow is another skill's file.
 SKILL_FOLDERS = frozenset((*WORKFLOWS, "skf-forger"))
-# Each workflow's relay: it only loads shared/health-check.md, so no finding is ever its own.
+# Each workflow's relay, the step that loads shared/health-check.md. A bare relay holds nothing else, so no finding is
+# ever its own. These relays hold an instruction besides the load (Update Skill releases its lock and removes its
+# source tree and run folder, Quick Skill prints its done event, Verify Stack logs a health check it cannot load), so a
+# defect there is the relay's. A literal list, as WORKFLOWS is: test-skf-health-check-seen.py derives it from the
+# relay files.
 RELAY = "health-check.md"
+RELAYS_WITH_INSTRUCTIONS = ("skf-quick-skill", "skf-update-skill", "skf-verify-stack")
 # The health check's own stage: a defect in shared/health-check.md itself, which the step queues and never posts.
 OWN_STAGE = "health-check"
 OWN_STEP_FILE = "src/shared/health-check.md"
@@ -444,7 +506,7 @@ class UsageError(Exception):
 
 
 class WriteError(Exception):
-    """record could not take the lock, read the cache, set a corrupt one aside or write it (exit 1)."""
+    """A file a call needs could not be read or written, or record could not take the lock (exit 1)."""
 
 
 def _load(path: Path):
@@ -503,12 +565,8 @@ def step_file_path(workflow: str, step_file: str) -> tuple[str, Path]:
     if workflow == OWN_STAGE:
         return _own_step_file(step_file, parts)
     name = parts[-1]
-    if name.lower() == RELAY:
-        raise UsageError(f"--step-file {step_file!r} is {workflow}'s health-check relay, which only loads "
-                         f"shared/health-check.md: give the step file whose instruction bit, or the one that was "
-                         f"running when a defect in SKILL.md, a script or a shared file bit, or --workflow "
-                         f"{OWN_STAGE} and {OWN_FOLDER}/{RELAY} for a defect in the shared health check itself")
-    # Only the folder that holds references/ names the step file's skill; a folder further up is the user's.
+    # Only the folder that holds references/ names the step file's skill; a folder further up is the user's. It is
+    # checked first, so a relay of another workflow names that workflow rather than the relay rule.
     owner = parts[-3] if len(parts) >= 3 and parts[-2] == "references" else None
     if owner in WORKFLOWS and owner != workflow:
         raise UsageError(f"--step-file {step_file!r} is in {owner}/references/, so --workflow is {owner}: the workflow "
@@ -516,6 +574,11 @@ def step_file_path(workflow: str, step_file: str) -> tuple[str, Path]:
     if owner in SKILL_FOLDERS and owner != workflow:
         raise UsageError(f"--step-file {step_file!r} is in {owner}/references/, which ends in no health check: "
                          f"--step-file is a file of the references/ folder of one of the workflows")
+    if name.lower() == RELAY and workflow not in RELAYS_WITH_INSTRUCTIONS:
+        raise UsageError(f"--step-file {step_file!r} is {workflow}'s health-check relay, which only loads "
+                         f"shared/health-check.md: give the step file whose instruction bit, or the one that was "
+                         f"running when a defect in SKILL.md, a script or a shared file bit, or --workflow "
+                         f"{OWN_STAGE} and {OWN_FOLDER}/{RELAY} for a defect in the shared health check itself")
     references = MODULE_ROOT / workflow / "references"
     try:
         listing = set(os.listdir(references))
@@ -1053,7 +1116,7 @@ def _draft_keys(body: bytes) -> tuple[str, str, str] | None:
     else:
         named = _WORKFLOW_STEP_FILE_RE.fullmatch(step_file)
         if (workflow not in WORKFLOWS or not named or named.group("workflow") != workflow
-                or named.group("name").lower() == RELAY):
+                or (named.group("name").lower() == RELAY and workflow not in RELAYS_WITH_INSTRUCTIONS)):
             return None
     return workflow, match.group("severity"), match.group("fp")
 
@@ -1137,6 +1200,218 @@ def queue(queue_dir: Path, body_file: Path, title: str, repo: str) -> dict:
 
 
 # --------------------------------------------------------------------------
+# settings
+# --------------------------------------------------------------------------
+
+# The repository a health check files on when config.yaml names none, as src/module.yaml's default.
+DEFAULT_REPO = "armelhbobdad/bmad-module-skill-forge"
+REPO_KEY = "health_check_repo"
+AUTOSUBMIT_KEY = "health_check_autosubmit"
+# The YAML spellings of null: a key holding one, or nothing, is empty.
+_YAML_NULLS = ("~", "null", "Null", "NULL")
+# A top-level `key:` line: the key at column 0, bare or in a matching pair of quotes, then whitespace or the end of
+# the line after the colon.
+_CONFIG_LINE_RE = re.compile(
+    r"(?P<quote>[\"']?)(?P<key>[A-Za-z_][A-Za-z0-9_-]*)(?P=quote)[ \t]*:(?=[ \t]|$)(?P<rest>.*)")
+# What a plain scalar may not start with: a block scalar, a flow collection, an anchor, an alias, a tag or a
+# reserved indicator.
+_NOT_PLAIN_START = "|>[]{}&*!%@`"
+# A plain scalar's comment: a `#` after whitespace.
+_PLAIN_COMMENT_RE = re.compile(r"[ \t]#.*$")
+PLAIN, QUOTED, EMPTY, INVALID = "plain", "quoted", "empty", "invalid"
+
+
+def _quoted(rest: str) -> str | None:
+    """The value of a quoted scalar that opens rest, or None when it does not close on the line, cannot be decoded or
+    is followed by anything but a comment."""
+    quote = rest[0]
+    i, chars = 1, []
+    while i < len(rest):
+        ch = rest[i]
+        if quote == "'" and ch == "'":
+            if rest[i + 1:i + 2] == "'":  # '' is one quote
+                chars.append("'")
+                i += 2
+                continue
+            break
+        if quote == '"' and ch == "\\":
+            chars.append(rest[i:i + 2])
+            i += 2
+            continue
+        if quote == '"' and ch == '"':
+            break
+        chars.append(ch)
+        i += 1
+    else:
+        return None
+    after = rest[i + 1:]
+    if after.strip() and not (after[0] in " \t" and after.strip().startswith("#")):
+        return None
+    if quote == "'":
+        return "".join(chars)
+    try:
+        return json.loads('"' + "".join(chars) + '"')  # YAML's double-quoted escapes, as far as a repository needs
+    except ValueError:
+        return None
+
+
+def _continues(lines: list[str], i: int) -> bool:
+    """Whether the value of the key on line i goes on below it: an indented line or a block sequence entry follows,
+    blank and comment lines aside."""
+    for line in lines[i + 1:]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return line[0] in " \t" or stripped == "-" or stripped.startswith("- ")
+    return False
+
+
+def config_values(text: str) -> dict:
+    """{key: (kind, text)} for each top-level `key:` line of a YAML text, the last line of a key winning.
+
+    kind is PLAIN or QUOTED for a scalar, whose text drops its quotes (decoding `''` and the double-quoted escapes),
+    a trailing ` #` comment and the whitespace around it; EMPTY for nothing after the colon, a comment alone, `''`,
+    `""` or a YAML null (`~`, `null`, `Null`, `NULL`); INVALID, with the text after the colon, for a block or flow
+    value, an anchor, alias or tag, a quoted scalar that does not close on its line, or a value that goes on below
+    its line.
+    """
+    values: dict = {}
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        match = _CONFIG_LINE_RE.fullmatch(line)
+        if not match:
+            continue
+        rest = match.group("rest").strip()
+        value, kind = None, INVALID
+        if rest[:1] in ("'", '"'):
+            value = _quoted(rest)
+            kind = QUOTED
+        elif rest and rest[0] not in _NOT_PLAIN_START and not rest.startswith("#"):
+            value = _PLAIN_COMMENT_RE.sub("", rest).strip()
+            kind = PLAIN
+        elif not rest or rest.startswith("#"):
+            value, kind = "", EMPTY
+        if value is None or (kind != QUOTED and _continues(lines, i)):
+            values[match.group("key")] = (INVALID, rest)
+        elif value == "" or (kind == PLAIN and value in _YAML_NULLS):
+            values[match.group("key")] = (EMPTY, "")
+        else:
+            values[match.group("key")] = (kind, value)
+    return values
+
+
+def settings(config: Path) -> dict:
+    """The health check's two settings in config, as {"repo_state", "repo", "is_default", "autosubmit"}."""
+    try:
+        values = config_values(config.read_bytes().decode("utf-8-sig"))
+    except FileNotFoundError:
+        values = {}
+    except (OSError, UnicodeDecodeError):
+        values = {REPO_KEY: (INVALID, None)}
+    kind, repo = values.get(REPO_KEY, (None, DEFAULT_REPO))
+    if kind is None:
+        state = "default"
+    elif kind == EMPTY:
+        state, repo = "off", None
+    elif kind == INVALID or not REPO_RE.fullmatch(repo):
+        state = "invalid"
+    else:
+        state = "set"
+    return {"repo_state": state, "repo": repo,
+            "is_default": state in ("default", "set") and repo.lower() == DEFAULT_REPO.lower(),
+            "autosubmit": values.get(AUTOSUBMIT_KEY) == (PLAIN, "true")}
+
+
+# --------------------------------------------------------------------------
+# check-draft
+# --------------------------------------------------------------------------
+
+
+# The home folder as a draft may write it without its path: each stands for it before a separator, or alone.
+HOME_VARIABLES = ("$HOME", "${HOME}", "%USERPROFILE%")
+# SKF's own folder under the home folder, where the step keeps its seen cache ($HOME/.skf/health-check-seen.json):
+# written through the tilde or a variable it names nothing of the user's.
+SKF_HOME_FOLDER = ".skf"
+# Where a folder's path starts: not inside a longer name or another path, but right after a file:// scheme.
+_PATH_START = r"(?:(?<![\w.\-/\\])|(?<=file://)|(?<=file:///))"
+# Where it ends: not in a longer name, and a period only when it ends the sentence (`/work/project.`, not `.bak`).
+_PATH_END = r"(?![\w\-]|\.[\w\-])"
+_NOT_SKF_HOME = r"(?![\\/]" + re.escape(SKF_HOME_FOLDER) + r"\b)"
+
+
+def _path_forms(folder: str) -> list[str]:
+    """folder in either separator, its trailing separators dropped; [] for a root (`/` or a bare drive, `C:`)."""
+    path = folder.rstrip("/\\")
+    parts = [part for part in _PATH_SEP_RE.split(path) if part]
+    if not parts or (len(parts) == 1 and parts[0].endswith(":")):
+        return []
+    return sorted({path, path.replace("\\", "/"), path.replace("/", "\\")}, key=len, reverse=True)
+
+
+def _under_home(folder: str, home: str | None) -> str | None:
+    """folder's path below home, "" for home itself, or None when it is not there (letter case aside)."""
+    folders, homes = _path_forms(folder), _path_forms(home) if home else []
+    if not folders or not homes:
+        return None
+    path, base = folders[0].replace("\\", "/"), homes[0].replace("\\", "/")
+    if path.lower() == base.lower():
+        return ""
+    if path.lower().startswith(base.lower() + "/"):
+        return path[len(base) + 1:]
+    return None
+
+
+def _folder_re(*folders: str, home: str | None = None) -> re.Pattern | None:
+    """Each folder's path in either separator and any letter case, as a whole path; with home, a folder that is home
+    or below it also as `~`, `$HOME`, `${HOME}` or `%USERPROFILE%` writes it. None when every folder is a root."""
+    forms = []
+    for folder in folders:
+        forms += [re.escape(form) + _PATH_END for form in _path_forms(folder)]
+        below = _under_home(folder, home)
+        if below == "":
+            forms += [re.escape(variable) + _PATH_END + _NOT_SKF_HOME for variable in HOME_VARIABLES]
+            forms.append(r"~(?=[\\/])" + _NOT_SKF_HOME)
+        elif below:
+            forms += [re.escape(prefix + sep + below.replace("/", sep)) + _PATH_END
+                      for prefix in ("~", *HOME_VARIABLES) for sep in ("/", "\\")]
+    if not forms:
+        return None
+    return re.compile(_PATH_START + "(?:" + "|".join(forms) + ")", re.IGNORECASE)
+
+
+def check_draft(body_file: Path, project_dir: str, title: str | None = None) -> dict:
+    """Refuse a draft, or its title, that names the project's folder or the home folder. Raises UsageError or
+    WriteError."""
+    if not os.path.isabs(project_dir):
+        raise UsageError(f"--project-dir must be the project's absolute path, got {project_dir!r}")
+    try:
+        text = body_file.read_bytes().decode("utf-8-sig", errors="replace")
+    except OSError as exc:
+        raise WriteError(f"cannot read --body-file {body_file}: {exc}") from None
+    try:
+        home = str(Path.home())
+    except (RuntimeError, KeyError):  # no home folder to name
+        home = None
+    # The project as given and as the file system resolves it: a project reached through a symlink has two paths.
+    project = _folder_re(project_dir, os.path.realpath(project_dir), home=home)
+    patterns = [("the project's folder", project_dir, project),
+                ("the home folder", home, _folder_re(home, home=home) if home else None)]
+    lines = ([("the title", title)] if title is not None else []) + [
+        (f"line {n}", line) for n, line in enumerate(text.splitlines(), 1)]
+    found = []
+    for where, line in lines:
+        # The first that matches: the project's folder, more specific than a home folder it sits in.
+        hit = next(((label, folder) for label, folder, pattern in patterns if pattern and pattern.search(line)), None)
+        if hit:
+            found.append(f"{where} holds {hit[0]}, {hit[1]}")
+    if found:
+        raise UsageError(f"--body-file {body_file} names a folder of the user's, which an issue never does: "
+                         f"{'; '.join(found)}. Rewrite each such line or the title, citing SKF's files by their "
+                         f"module path (src/<workflow>/references/<file>.md, src/shared/...)")
+    return {"clean": True}
+
+
+# --------------------------------------------------------------------------
 # version
 # --------------------------------------------------------------------------
 
@@ -1216,12 +1491,18 @@ class _JsonErrorParser(argparse.ArgumentParser):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = _JsonErrorParser(
-        description="Fingerprint a health-check finding and print its title and the top of its issue body, look it "
-                    "up in the seen-issue cache, record it there, save its draft to the local queue, and print the "
-                    "installed SKF version.",
+        description="Read the health check's settings, fingerprint a finding and print its title and the top of "
+                    "its issue body, check its draft names no folder of the user's, look it up in the seen-issue "
+                    "cache, record it there, save its draft to the local queue, and print the installed SKF version.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="cmd", required=True, metavar="{fingerprint,lookup,record,queue,version}")
+    sub = parser.add_subparsers(dest="cmd", required=True,
+                                metavar="{settings,fingerprint,check-draft,lookup,record,queue,version}")
+
+    p_settings = sub.add_parser("settings", help="the health check's repository and autosubmit setting, read from "
+                                                 "the config file")
+    p_settings.add_argument("--config", required=True, help="the module's config.yaml; a missing one gives the "
+                                                            "defaults")
 
     p_fp = sub.add_parser("fingerprint", help="print the fingerprint, the section (legacy) fingerprint and the "
                                               "fields they hash, and with a short_description the title, the "
@@ -1241,6 +1522,12 @@ def _build_parser() -> argparse.ArgumentParser:
                                         "(no heading check)")
     p_fp.add_argument("--defect-key", dest="defect_key",
                       help="one to four lower-case words joined by hyphens, in place of a --stdin defect_name")
+
+    p_check = sub.add_parser("check-draft", help="refuse a draft that names the project's folder or the home "
+                                                 "folder")
+    p_check.add_argument("--body-file", required=True, dest="body_file", help="the draft, or a comment's body")
+    p_check.add_argument("--project-dir", required=True, dest="project_dir", help="the project's absolute path")
+    p_check.add_argument("--title", help="the issue title, checked as the draft's lines are")
 
     p_lookup = sub.add_parser("lookup", help="the verdict for a finding from the seen-issue cache")
     p_lookup.add_argument("--fp", required=True)
@@ -1291,7 +1578,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.cmd == "fingerprint":
+        if args.cmd == "settings":
+            out = settings(Path(args.config).expanduser())
+        elif args.cmd == "check-draft":
+            out = check_draft(Path(args.body_file).expanduser(), args.project_dir, args.title)
+        elif args.cmd == "fingerprint":
             if not args.stdin:
                 missing = [flag for flag, value in (("--section", args.section), ("--defect-key", args.defect_key))
                            if value is None]

@@ -1,0 +1,4 @@
+type: fixed
+scope: all workflows
+summary: |
+  When the session refuses one of the health check's helper calls or file writes before its review gate (a permission prompt answered no, or a headless run with no rule that allows it), the health check now skips the gate and saves the findings straight to the local queue with the reason that a call was refused, instead of showing a gate that offered to submit findings it had no draft or fingerprint for.
