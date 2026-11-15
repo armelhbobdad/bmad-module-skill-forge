@@ -1,0 +1,4 @@
+type: fixed
+scope: all workflows
+summary: |
+  When the session refuses a `gh` call of the health check (a permission prompt answered no, or a headless run with no rule that allows it), the health check now makes no further `gh` call and saves every finding it has not filed to the local queue, with a reason that says so, instead of retrying or going on to the next call.

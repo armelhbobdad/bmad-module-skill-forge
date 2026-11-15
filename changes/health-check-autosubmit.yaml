@@ -1,0 +1,4 @@
+type: added
+scope: all workflows
+summary: |
+  A headless run can now file its health-check bug findings as GitHub issues: add `health_check_autosubmit: true` to `_bmad/skf/config.yaml` by hand. Only `true` turns it on. Each bug finding then goes through the same seen-cache check and dedup search as an interactive one, and a finding that matches an open issue is saved to the local queue instead of being posted; friction and gap findings always stay in the queue. Allow the `gh` commands the health check runs (`gh auth status`, `gh search issues`, `gh label create` and `gh issue create`, optionally scoped with `--repo`), as the Workflow Health Check docs show, so nobody has to answer a permission prompt. The issue's Environment table gains a Run Mode row, `interactive` or `headless`, and so does the issue template.
