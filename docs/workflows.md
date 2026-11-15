@@ -682,20 +682,104 @@ All 15 workflows above share the same final step, a **health check** defined in 
 - Did a scenario arise that the workflow didn't account for?
 - Were any instructions wrong or contradictory?
 
-If the answer to all of these is "no", the health check ends with one line (`Health Check: Clean run. No workflow issues to report.`). If real friction was observed, Ferris presents structured findings, waits for your review and, on your approval, routes them to this repo.
+If the answer to all of these is "no", the health check ends with one line (`Health Check: Clean run. No workflow issues to report.`). If real friction was observed, Ferris drafts each finding as an issue, shows you the drafts, waits for your review and, on your approval, files them on this repo.
 
-In headless mode the review gate takes its listed default, **[Q] Queue locally**: every finding is saved to `{forge_data_folder}/improvement-queue/` and nothing is submitted. A `/skf-setup --headless` or `--quiet` run runs no health check: it ends on its envelope line.
+In headless mode the review gate takes its listed default, **[Q] Queue locally**: every finding is saved to `{forge_data_folder}/improvement-queue/` and nothing is submitted, unless you turn on `health_check_autosubmit` ([Submitting from headless runs](#submitting-from-headless-runs)). A `/skf-setup --headless` or `--quiet` run runs no health check: it ends on its envelope line.
 
 **Zero overhead for clean runs. High leverage when something breaks.** The health check is honest-by-default: zero findings is the expected outcome. Fabricated issues would hurt the signal, so Ferris only reports what the agent actually experienced.
 
+### Turning it off
+
+The health check files its findings on the repository that `health_check_repo` names in `_bmad/skf/config.yaml`. The installer writes the default, `armelhbobdad/bmad-module-skill-forge`, and a config with no `health_check_repo` key, as a BMAD Method install writes it, uses that default too. To turn the health check off, keep the key and leave it empty:
+
+```yaml
+health_check_repo: ''
+```
+
+`''`, `""`, nothing after the colon, only whitespace and a YAML null (`~`, `null`, `Null` or `NULL`) all count as empty, and an SKF update keeps the empty key. A value that is not `OWNER/REPO` or `HOST/OWNER/REPO` (a URL, say) turns no check off: Ferris says so in one line and saves every finding to the local queue, submitting nothing. Every workflow then ends with `Health Check: off.` and `Workflow complete.`: Ferris reviews nothing and sends nothing. To file on another repository instead, set the key to `OWNER/REPO`, and give that repository the labels `health-check`, `workflow-improvement`, `bug`, `friction`, `gap`, `duplicate` and `possible-duplicate`, this repo's issue template ([`.github/ISSUE_TEMPLATE/workflow-health-check.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/.github/ISSUE_TEMPLATE/workflow-health-check.md)) and its dedup Action ([`.github/workflows/health-check-dedup.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/.github/workflows/health-check-dedup.yaml)).
+
+### What gets sent
+
+Each finding Ferris files is one GitHub issue on `health_check_repo`, filed with your own GitHub account; on the default repository it is public. Its body holds the finding's Workflow, Step File, Section, Severity, Fingerprint, `Section fingerprint:` line and Defect Key, which SKF's helper writes; one sentence each for the Finding, Expected, Actual and Impact; two to five Evidence bullets; a Suggested Fix; and an Environment table with these rows:
+
+| Field       | What it holds                                                                     |
+|-------------|-----------------------------------------------------------------------------------|
+| Date        | The date of the run                                                               |
+| OS          | Your operating system, such as macOS 15.2 or Ubuntu 24.04                         |
+| AI Editor   | The editor that ran the workflow, such as Claude Code or Cursor                   |
+| Model       | The model that ran it                                                             |
+| Forge Tier  | Quick, Forge, Forge+ or Deep                                                      |
+| Run Mode    | `interactive`, or `headless` for a run with `--headless`, `-H` or `headless_mode` |
+| SKF Version | The version of the SKF install that ran, as SKF's helper reads it                 |
+
+The health check's writing rules keep your work out of the issue: its title, every section of its body and any comment Ferris posts on a matching issue describe SKF's instructions, and name no project, library, skill, file or path of yours and no secret, and the Evidence quotes only SKF's own files (its step files, SKILL.md files, shared files and scripts), never your project's code or the source a skill was built from. The gate shows you each draft in full, so you can check that before anything is sent. Before anything is filed, the seen-cache check sends the URL of an issue this machine already recorded, to read its state, and the dedup search sends the finding's fingerprints.
+
+### The review gate
+
+Before the gate, Ferris writes each finding's issue body to `{forge_data_folder}/improvement-queue/bodies/`. The gate shows each finding's title, the path of its draft and the draft's full text, then asks "Submit these findings as issues on `<health_check_repo>`, filed with your GitHub account?", saying public issues on the default repository and, for any other one, that they are public if that repository is:
+
+- **[Y]** files the `bug` findings, and saves the `friction` and `gap` findings to the local queue.
+- **[A]** files every finding.
+- **[N]** discards every finding.
+- **[E]** lets you revise the drafts first, then asks again.
+- **[Q]** saves every finding to the local queue and files nothing.
+
+What you approve is what is sent, but for these changes after the gate: when the defect was fixed before, a `## Regression` section linking that fix is added above the Finding, and a confirmed regression's title gains `REGRESSION: ` before its description; when you choose to file anyway at an open issue with the same fingerprint, the finding takes a more specific defect key, which rewrites its Fingerprint and Defect Key; and when you choose to comment on a matching issue, Ferris shows you the comment before it posts it.
+
+**A defect in the health check itself.** When the health check's own instructions, [`src/shared/health-check.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/health-check.md), or the helper or a `gh` command they run go wrong while it runs, Ferris drafts that as a finding of the workflow `health-check`, at most one per run, and shows any further one as a one-line note. It is never filed: whatever you choose but **[N]**, it is saved to the local queue for you to review and submit by hand, since a report the health check filed about itself could call for another.
+
 ### How findings are routed
 
-- **Severity gate.** Only `bug` findings are submitted live as GitHub issues by default. `friction` and `gap` findings, the most subjective categories, go to a **local queue** at `{forge_data_folder}/improvement-queue/` unless you explicitly opt in to submit them live during the review gate. This keeps the high-signal reports (real defects) flowing to maintainers while the softer observations stay on your disk for you to batch or revisit.
+- **Severity gate.** **[Y]** submits only `bug` findings live as GitHub issues. `friction` and `gap` findings, the most subjective categories, go to a **local queue** at `{forge_data_folder}/improvement-queue/` unless you choose **[A]** at the review gate. This keeps the high-signal reports (real defects) flowing to maintainers while the softer observations stay on your disk for you to batch or revisit.
 - **Fingerprint dedup.** Every finding gets a 7-character fingerprint, a `sha1` hash of `severity|workflow|step_file|section|defect-key`. The defect key is one to four words naming the thing the fix would change (a function, a flag, a field or a rule), taken from the step file's or the code's own words; for a missing rule, it names the case the rule should cover. Two reports of the same defect that name the same thing get the same fingerprint, and two different defects in one section get different ones. The key is a name read from the source, not an LLM similarity judgment. SKF's health-check helper computes the fingerprint: it takes the section's slug from its heading and the key from the name, and writes the workflow and the step file in one form, so a report from a checkout, a CLI install or a plugin gets the same fingerprint. Before Ferris opens a new issue, it searches the repo for an open issue whose title carries the same fingerprint. If one exists, you choose: add a 👍 reaction (silent upvote), react and post a one-sentence note on how your environment differs, open a new issue anyway (only if you're certain it's distinct; Ferris then names the defect more specifically, since an issue under the same fingerprint would be closed as a duplicate), or skip. Re-reporting the same fingerprint is safe: it just adds to the signal count on the canonical issue. When no open issue carries the same fingerprint, Ferris searches for the section fingerprint, the same hash without the defect key, which each issue Ferris files also records in its body. It finds issues filed by an SKF version whose fingerprints carry no defect key, and other open reports from the same section, including one that named the same defect differently. Since every defect of one severity in one section shares that fingerprint, each is a possible match only: Ferris shows it to you with the same choices and never skips your finding or upvotes an issue on its own. Two reports of one defect often name it differently, so a report you open anyway can arrive as a new issue even when it duplicates an open one. The repository's dedup Action flags it: when another open issue records the same section fingerprint under a different defect key, it links each one in a comment and adds the `possible-duplicate` label, and leaves the issue open for a maintainer to decide.
 - **Global seen-cache.** Once you've submitted or reacted for a given fingerprint, it's recorded at `~/.skf/health-check-seen.json` so the same user doesn't re-report the same defect across sessions or across different projects on the same machine, for as long as the issue it points at stays open. Once that issue is closed as completed, the suppression lifts on purpose: a fresh sighting of a fixed defect is a regression, and it gets reported and linked back to the original. A record written by an SKF version whose fingerprints carry no defect key never suppresses on its own, since it may be another defect's: Ferris shows you its issue as a possible match while it is open, links a fixed one as a possible regression without the REGRESSION title marker, and records your choice under the new fingerprint. A record of an issue on another repository than the one findings are filed on is ignored, since the cache serves every project on the machine.
 - **Server-side safety net.** If two users race past the client-side search and both open issues with the same fingerprint, a GitHub Action on this repo catches it: the later issue is auto-closed as a duplicate, linked to the earliest open issue with that fingerprint (the canonical one), and a 👍 is added there to preserve the signal-count. An issue is never closed in favour of a later one, so two reports filed together never close each other. Without push access to this repo you can neither create a fingerprint label nor set one, so Ferris files your issue again without labels when its first try fails, and the Action labels it from its title, or from its Fingerprint and Severity sections, before it dedups it. Manual filers using the [issue template](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) feed the same pipeline.
 
 **Net effect:** 1,000 users hitting the same bug produce **one canonical issue** with a reaction count of roughly 1,000, not 1,000 duplicate issues or a 1,000-comment thread. The maintainer sees population impact at a glance, and your report is never lost.
+
+### Submitting from headless runs
+
+A headless run has nobody at the review gate, so it saves every finding to the local queue. To let it file its `bug` findings, add this line to `_bmad/skf/config.yaml` by hand:
+
+```yaml
+health_check_autosubmit: true
+```
+
+Only `true` turns it on: a missing key, or any other value, leaves it off. A headless run then files each bug finding as a new issue, after the same seen-cache check and dedup search. At an open issue that may report the same defect, it files nothing and saves the finding to the queue, since only you can choose to upvote, comment or file anyway. `friction` and `gap` findings always stay in the queue, as does a finding about the health check itself.
+
+Filing runs `gh` and SKF's helper and writes files, and in a headless run nobody answers a permission prompt, so allow what the health check runs: its four `gh` commands, the helper `skf-health-check-seen.py` it runs with `uv run`, and its writes to `{forge_data_folder}/improvement-queue/` (`forge-data` by default), where it drafts each finding. In Claude Code, add these rules to `permissions.allow` in `.claude/settings.local.json` (or `.claude/settings.json`, to share them with your team; an Edit rule covers the Write tool too); other editors have their own allowlists for the same commands and folder:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh auth status)",
+      "Bash(gh search issues *)",
+      "Bash(gh label create *)",
+      "Bash(gh issue create *)",
+      "Bash(uv run *skf-health-check-seen.py *)",
+      "Edit(./forge-data/improvement-queue/**)"
+    ]
+  }
+}
+```
+
+A headless run never upvotes or comments on a matching issue, so it needs no rule for `gh api` or `gh issue comment`; an interactive run asks you for those as usual. A rule outlasts the run: it applies to every later session in the project, so any agent working there can then search, label and file issues on any repository without asking. To keep the rules to the health-check repository, scope them with it: every `gh` command the health check runs puts `--repo` right after its subcommand, so `Bash(gh search issues --repo armelhbobdad/bmad-module-skill-forge *)`, `Bash(gh label create --repo armelhbobdad/bmad-module-skill-forge *)` and `Bash(gh issue create --repo armelhbobdad/bmad-module-skill-forge *)` still match. When a session refuses one of these calls, the health check makes no further `gh` call (after a refused helper call or write, no further call of any kind) and saves the findings it has not filed to the queue, with a reason that says a call was refused.
+
+### Submitting a queued finding
+
+A queued finding is a file in `{forge_data_folder}/improvement-queue/` named `hc-<workflow>-<YYYYMMDD-HHmmss>.md` (UTC; `-2`, `-3` and so on when two share a second), holding its issue body exactly as it was drafted, with no frontmatter. The health check lists each one with the three commands that submit it, every argument quoted for a POSIX shell (bash, zsh, Git Bash or WSL): run the first two, the label create and the create (the first fails, harmlessly, when the label exists), or, without push access to the repository, the third alone, the create without labels, and the dedup Action labels the issue from its title. Written by hand, they read:
+
+```bash
+gh label create --repo armelhbobdad/bmad-module-skill-forge "<fingerprint>" --color "ededed" \
+  --description "Health-check fingerprint dedup key"
+gh issue create --repo armelhbobdad/bmad-module-skill-forge \
+  --title "[health-check][<severity>][<fingerprint>] <workflow>: <short description>" \
+  --label "health-check,workflow-improvement,<severity>,<fingerprint>" \
+  --body-file <path-to-queued-finding>
+```
+
+Keep the full title: the dedup Action reads the severity and fingerprint from it, and the next reporter's search looks for the fingerprint there. A queue file written by an earlier SKF version opens with YAML frontmatter between two `---` lines: delete it before you pass the file to `--body-file`. A finding listed by its draft in `bodies/`, with the fingerprint `N/A` (SKF's helper was missing or could not fingerprint it), needs its fingerprint first: run the helper's `fingerprint` call, as the [issue template](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/.github/ISSUE_TEMPLATE/workflow-health-check.md) says, with a `"short_description"` added to its names file, replace the draft's whole header, from `## Workflow` to the `## Defect Key` section, with the `body_header` it prints (the draft holds the section's heading and the defect's name where the slug and the key belong), and file it under the `title` it prints. Afterwards, delete the queue file.
 
 ### Please let workflows run to completion
 

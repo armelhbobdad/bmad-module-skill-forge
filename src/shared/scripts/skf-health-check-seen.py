@@ -2,32 +2,37 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""SKF Health Check Seen: the fingerprints of a health-check finding, the
-seen-issue cache that every SKF workflow on the machine shares, and the SKF
-version a report names.
+"""SKF Health Check Seen: the fingerprints, the issue title and the top of
+the issue body of a health-check finding, the seen-issue cache that every SKF
+workflow on the machine shares, the local queue a finding waits in, and the
+SKF version a report names.
 
 src/shared/health-check.md, the last step of every SKF workflow, files a
 finding as a GitHub issue once per defect on a machine and reports a fixed
 defect that comes back as a regression. This helper owns the deterministic
 part of that: the workflow and step file in one form whatever the install,
 the section slug from its heading and the defect key from a name, the two
-hashes, the tolerant read of the cache, the bounded check of a recorded
-issue's state, the verdict and the line a regression's issue opens with, the
-locked merge-write of a record, and the installed SKF version. The step keeps
-the judgment: whether a finding is real, its severity, which section and
-which thing it names, the user's pick at a matching issue, and the rest of
-the issue's wording.
+hashes, the issue title and the machine-read top of the issue body, the
+tolerant read of the cache, the bounded check of a recorded issue's state,
+the verdict and the line a regression's issue opens with, the locked
+merge-write of a record, the queue file a finding is saved to with the
+commands that submit it, and the installed SKF version. The step keeps the
+judgment: whether a finding is real, its severity, which section and which
+thing it names, its short description, the user's pick at the review gate
+and at a matching issue, and the rest of the issue's wording.
 
 CLI:
 
   uv run skf-health-check-seen.py fingerprint --severity <bug|friction|gap> \\
-      --workflow <skf-name> --step-file <path> \\
+      --workflow <skf-name|health-check> --step-file <path> \\
       (--stdin | --section <slug> --defect-key <key>)
   uv run skf-health-check-seen.py lookup --fp <fp> --legacy-fp <fp> \\
       [--repo <[HOST/]OWNER/REPO>] [--cache <path>]
   uv run skf-health-check-seen.py record --fp <fp> \\
       --action <created|reacted|commented|resolved> --issue-url <url> \\
       --date <YYYY-MM-DD> [--regression] [--cache <path>]
+  uv run skf-health-check-seen.py queue --queue-dir <dir> --body-file <draft> \\
+      --title <title> --repo <[HOST/]OWNER/REPO>
   uv run skf-health-check-seen.py version
 
 --cache is $HOME/.skf/health-check-seen.json (Path.home()) by default. The
@@ -53,8 +58,13 @@ from a checkout, a CLI install or a plugin gets one fingerprint:
   workflow   one of the 15 workflow folders whose references/health-check.md
              loads shared/health-check.md (WORKFLOWS: every skf-* folder but
              skf-forger), as written there: skf-test-skill, never test-skill
-             or Test Skill
-  step_file  src/<workflow>/references/<file>.md. --step-file may be the
+             or Test Skill. Or health-check (OWN_STAGE), the health check's
+             own stage, for a defect in shared/health-check.md itself.
+  step_file  src/<workflow>/references/<file>.md. With --workflow
+             health-check it is src/shared/health-check.md: --step-file is
+             health-check.md, alone or under a shared/ folder, and the heading
+             is checked against the health-check.md beside this script's
+             folder. Otherwise --step-file may be the
              file's name, references/<file>.md, its src/ path, its installed
              _bmad/skf/ path or an absolute one: only its last component is
              kept, and it must be, letter case included, the name of a file
@@ -70,7 +80,8 @@ The section comes from a --stdin section_heading or from --section, never
 both, and the defect key from a --stdin defect_name or from --defect-key,
 never both; each pair is checked on its own, so a --stdin object may hold
 one key while the other value is a flag. --stdin reads one JSON object, as
-UTF-8, holding only those keys, each a non-empty string.
+UTF-8, holding only those keys and an optional short_description, each a
+non-empty string.
 
   section_heading: a heading of the step file, outside its frontmatter and
     fenced code, as the file writes it or in any form that gives the same
@@ -87,6 +98,12 @@ UTF-8, holding only those keys, each a non-empty string.
     character that is not an ASCII letter or digit; lower-case; keep the
     last four words, joined by `-`. `scripts/gate_eval.py:42` gives
     `gate-eval`, `composeStories` gives `compose-stories`.
+  short_description: the issue title's description, its surrounding
+    whitespace dropped. It may hold no backtick, `$`, double quote,
+    backslash, `!` or character that is not printable (a tab, a line break,
+    NUL, U+2028 and the like), since the title goes on a command line inside
+    double quotes, and may not make regression_title longer than 256
+    characters (TITLE_MAX, GitHub's limit).
   --section <slug>: kebab-case (^[a-z0-9]+(-[a-z0-9]+)*$), with no heading
     check. --defect-key <key>: one to four such words
     (^[a-z0-9]+(-[a-z0-9]+){0,3}$). These flags stay for tests and old
@@ -94,12 +111,23 @@ UTF-8, holding only those keys, each a non-empty string.
 
 Each value must keep its rule, else exit 2 naming it: the severity is bug,
 friction or gap; the workflow, the step file, the JSON object and its keys,
-the heading and the name (it yields a word) as above; the step file holds
-no "|" and no line break.
+the heading, the name (it yields a word) and the description as above; the
+step file holds no "|" and no line break.
 
   Output: {"fp": "fp-a54e7a6", "legacy_fp": "fp-eb2d6f2",
            "tuple": <fp's sha1 input>, "step_file": "src/skf-.../...md",
            "section_slug": ..., "defect_key": ...}
+
+With a short_description D, three more keys:
+
+  title             [health-check][<severity>][<fp>] <workflow>: D
+  regression_title  [health-check][<severity>][<fp>] <workflow>: REGRESSION: D
+  body_header       the machine-read top of the issue body: the sections
+                    `## Workflow`, `## Step File`, `## Section`,
+                    `## Severity`, `## Fingerprint` (fp alone on its line,
+                    then the line "Section fingerprint: `<legacy_fp>`", which
+                    the dedup Action reads) and `## Defect Key`, each value in
+                    backticks, ending in a newline
 
 lookup
 ------
@@ -201,6 +229,44 @@ nothing is written. An empty file is an empty cache.
            "record": <what the cache now holds under --fp>,
            "set_aside": <the path the corrupt cache was renamed to> | null}
 
+queue
+-----
+Reads --body-file, a finding's draft, which must open (after a UTF-8 BOM,
+its line endings LF or CRLF) with the body_header fingerprint prints: the
+workflow (one of WORKFLOWS, or health-check), its step file in the form
+fingerprint writes it, the severity and the fingerprint are read from it.
+Each of these exits 2 and writes nothing: a draft that opens with no such
+header (one whose Fingerprint is N/A included); a --title that does not
+start with `[health-check][<severity>][<fp>] <workflow>: ` and a
+description, the title fingerprint printed for another finding; a --title
+longer than TITLE_MAX or holding a character a short_description may not;
+a --repo that is not [HOST/]OWNER/REPO. A --body-file that cannot be read
+exits 1.
+
+Creates --queue-dir when absent and writes the draft's bytes, unchanged
+and with no frontmatter, to <queue-dir>/hc-<workflow>-<UTC
+YYYYMMDD-HHmmss>.md, opened with O_CREAT|O_EXCL so no file is ever
+overwritten: a taken name gets -2, -3 and so on before `.md`. A folder or a
+file that cannot be created or written exits 1, and a file half written is
+removed.
+
+  Output: {"path": <the absolute path written>, "commands": [L, C, B]}
+
+L, C and B submit it: the label create and the create, run in that order (a
+failed L, the label there already or no push access, is no error), and B,
+the create without labels, for a reporter without push access to run
+alone:
+
+  L  gh label create --repo REPO FP --color ededed
+       --description 'Health-check fingerprint dedup key'
+  C  gh issue create --repo REPO --title TITLE
+       --label health-check,workflow-improvement,SEVERITY,FP --body-file PATH
+  B  gh issue create --repo REPO --title TITLE --body-file PATH
+
+each on one line, every argument quoted for a POSIX shell (shlex.quote), so
+a space or a quote in TITLE or PATH reaches gh as written, and --repo right
+after the subcommand, so an allow rule scoped to the repository matches.
+
 version
 -------
 The version of the SKF this helper belongs to, first hit wins:
@@ -223,13 +289,16 @@ loaded gives no version.
           or {"version": null, "source": "N/A"} when nothing gives one or
           the sibling cannot be loaded. Always exit 0.
 
-No network and no gh call in fingerprint, record or version.
+No network and no gh call in fingerprint, record, queue or version. Every
+answer is one JSON line on stdout, in UTF-8 whatever the locale, a
+non-ASCII character as itself, so a title is used as printed.
 
 Exit codes (1 and 2 print one JSON line on stderr, {"status": "error",
 "message": ...}, and nothing on stdout):
   0  answered
   1  record could not take the lock, read the cache, set a corrupt one
-     aside or write it
+     aside or write it; queue could not read the draft, or create or write
+     the queue file
   2  a bad argument: a missing or unknown one, or a value that breaks its
      rule
 """
@@ -243,6 +312,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -277,6 +347,11 @@ WORKFLOWS = (
 SKILL_FOLDERS = frozenset((*WORKFLOWS, "skf-forger"))
 # Each workflow's relay: it only loads shared/health-check.md, so no finding is ever its own.
 RELAY = "health-check.md"
+# The health check's own stage: a defect in shared/health-check.md itself, which the step queues and never posts.
+OWN_STAGE = "health-check"
+OWN_STEP_FILE = "src/shared/health-check.md"
+# The folder that holds shared/health-check.md, as a --step-file path may name it.
+OWN_FOLDER = "shared"
 
 # Each rule is matched with fullmatch: `$` alone would let a value that ends in a newline through.
 SECTION_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
@@ -309,9 +384,34 @@ _NAME_SPLIT_RE = re.compile(r"[\s_.-]+")
 _CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
 _NOT_ALNUM_RE = re.compile(r"[^A-Za-z0-9]")
 DEFECT_KEY_WORDS = 4
-STDIN_KEYS = ("section_heading", "defect_name")
+STDIN_KEYS = ("section_heading", "defect_name", "short_description")
+# What a title may not hold besides a character that is not printable (a tab, a line break, NUL, U+2028): it goes
+# on a command line inside double quotes, where each of these is special (`!` to an interactive shell's history).
+TITLE_UNSAFE = "`$\"\\!"
+# GitHub refuses an issue title longer than this many characters.
+TITLE_MAX = 256
 # The record date an opening line names when the record holds no YYYY-MM-DD date.
 UNRECORDED_DATE = "on an unrecorded date"
+
+QUEUE_STAMP_FORMAT = "%Y%m%d-%H%M%S"
+# What every health-check issue is filed with besides its severity and fingerprint labels, and the fp-* label's
+# look as the step creates it (the dedup Action creates it the same way).
+ISSUE_LABELS = ("health-check", "workflow-improvement")
+FP_LABEL_COLOR = "ededed"
+FP_LABEL_DESCRIPTION = "Health-check fingerprint dedup key"
+# The start of a draft: the body_header fingerprint prints, its line endings LF or CRLF. Which workflow and step
+# file go together is checked after the match.
+_DRAFT_HEADER_RE = re.compile(
+    r"## Workflow\r?\n`(?P<workflow>[a-z][a-z-]*)`\r?\n\r?\n"
+    r"## Step File\r?\n`(?P<step_file>[^`\r\n]+)`\r?\n\r?\n"
+    r"## Section\r?\n`[^`\r\n]+`\r?\n\r?\n"
+    r"## Severity\r?\n`(?P<severity>" + "|".join(SEVERITIES) + r")`\r?\n\r?\n"
+    r"## Fingerprint\r?\n`(?P<fp>fp-[0-9a-f]{7})`\r?\n\r?\n"
+    r"Section fingerprint: `fp-[0-9a-f]{7}`\r?\n\r?\n"
+    r"## Defect Key\r?\n`[^`\r\n]+`(?:\r?\n|\Z)"
+)
+# A workflow's step file as fingerprint writes it: a file of its references/ folder, never a path below it.
+_WORKFLOW_STEP_FILE_RE = re.compile(r"src/(?P<workflow>[a-z][a-z-]*)/references/(?P<name>[^/\\`\r\n]+\.md)")
 
 GH_TIMEOUT_SEC = 10.0
 LOCK_STALE_SEC = 15.0
@@ -326,6 +426,8 @@ _REPLACE_POLL_SECONDS = 0.02
 HERE = Path(__file__).resolve().parent
 # src/ in a checkout or a plugin, _bmad/skf/ when installed: where the workflow folders are.
 MODULE_ROOT = HERE.parent.parent
+# The shared health check, beside this script's folder: the step file of a finding of the own stage.
+OWN_STEP_PATH = HERE.parent / RELAY
 SOURCE_TREE_HELPER = HERE / "skf-source-tree.py"
 RUN_LOCK_HELPER = HERE / "skf-run-lock.py"
 QUICK_METADATA_HELPER = HERE / "skf-render-quick-metadata.py"
@@ -375,9 +477,21 @@ def _check_field(name: str, value: str) -> None:
 
 
 def _check_workflow(workflow: str) -> None:
-    if workflow not in WORKFLOWS:
+    if workflow not in WORKFLOWS and workflow != OWN_STAGE:
         raise UsageError(f"--workflow must be the folder name of one of the {len(WORKFLOWS)} SKF workflows that end "
-                         f"in the health check, {', '.join(WORKFLOWS)}, got {workflow!r}")
+                         f"in the health check, {', '.join(WORKFLOWS)}, or {OWN_STAGE} for a defect in the shared "
+                         f"health check's own instructions, got {workflow!r}")
+
+
+def _own_step_file(step_file: str, parts: list[str]) -> tuple[str, Path]:
+    """The own stage's step file: health-check.md, alone or under a shared/ folder, never a workflow's relay."""
+    if parts[-1] != RELAY or (len(parts) >= 2 and parts[-2] != OWN_FOLDER):
+        raise UsageError(f"--step-file {step_file!r} is not the shared health check: with --workflow {OWN_STAGE}, "
+                         f"--step-file is {OWN_FOLDER}/{RELAY}")
+    if not OWN_STEP_PATH.is_file():
+        raise UsageError(f"--step-file {step_file!r}: {OWN_FOLDER}/{RELAY} is not beside this helper's folder, so "
+                         f"its headings cannot be read")
+    return OWN_STEP_FILE, OWN_STEP_PATH
 
 
 def step_file_path(workflow: str, step_file: str) -> tuple[str, Path]:
@@ -386,11 +500,14 @@ def step_file_path(workflow: str, step_file: str) -> tuple[str, Path]:
     parts = [part for part in _PATH_SEP_RE.split(step_file.strip()) if part]
     if not parts:
         raise UsageError(f"--step-file names no file, got {step_file!r}")
+    if workflow == OWN_STAGE:
+        return _own_step_file(step_file, parts)
     name = parts[-1]
     if name.lower() == RELAY:
         raise UsageError(f"--step-file {step_file!r} is {workflow}'s health-check relay, which only loads "
                          f"shared/health-check.md: give the step file whose instruction bit, or the one that was "
-                         f"running when a defect in SKILL.md, a script or a shared file bit")
+                         f"running when a defect in SKILL.md, a script or a shared file bit, or --workflow "
+                         f"{OWN_STAGE} and {OWN_FOLDER}/{RELAY} for a defect in the shared health check itself")
     # Only the folder that holds references/ names the step file's skill; a folder further up is the user's.
     owner = parts[-3] if len(parts) >= 3 and parts[-2] == "references" else None
     if owner in WORKFLOWS and owner != workflow:
@@ -476,8 +593,16 @@ def defect_key(name: str) -> str:
     return "-".join(words[-DEFECT_KEY_WORDS:])
 
 
+def _title_unsafe(text: str) -> bool:
+    """True when text holds a character a title on a command line may not: TITLE_UNSAFE, or one not printable."""
+    return any(ch in TITLE_UNSAFE or not ch.isprintable() for ch in text)
+
+
 def read_stdin_names(raw: bytes) -> dict:
-    """The {"section_heading", "defect_name"} object --stdin reads, as UTF-8. Raises UsageError for anything else."""
+    """The {"section_heading", "defect_name", "short_description"} object --stdin reads, as UTF-8.
+
+    Raises UsageError for anything else.
+    """
     try:
         data = json.loads(raw.decode("utf-8-sig"))
     except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
@@ -487,10 +612,14 @@ def read_stdin_names(raw: bytes) -> dict:
     unknown = sorted(set(data) - set(STDIN_KEYS))
     if unknown:
         raise UsageError(f"unknown --stdin key(s) {', '.join(map(repr, unknown))}; expected only "
-                         f"{' and '.join(STDIN_KEYS)}")
+                         f"{', '.join(STDIN_KEYS[:-1])} and {STDIN_KEYS[-1]}")
     for key, value in data.items():
         if not isinstance(value, str) or not value.strip():
             raise UsageError(f"--stdin {key} must be a non-empty string")
+    if _title_unsafe(data.get("short_description", "").strip()):
+        raise UsageError(f"--stdin short_description {data['short_description']!r} holds a backtick, `$`, double "
+                         f"quote, backslash, `!` or a character that is not printable (a tab or a line break "
+                         f"included); the title goes on a command line, so it may hold none")
     return data
 
 
@@ -558,8 +687,40 @@ def fingerprint(severity: str, workflow: str, step_file: str, section: str | Non
 
     legacy = f"{severity}|{workflow}|{hashed_step_file}|{section}"
     keyed = f"{legacy}|{key}"
-    return {"fp": "fp-" + _sha7(keyed), "legacy_fp": "fp-" + _sha7(legacy), "tuple": keyed,
-            "step_file": hashed_step_file, "section_slug": section, "defect_key": key}
+    fp, legacy_fp = "fp-" + _sha7(keyed), "fp-" + _sha7(legacy)
+    out = {"fp": fp, "legacy_fp": legacy_fp, "tuple": keyed, "step_file": hashed_step_file, "section_slug": section,
+           "defect_key": key}
+    if "short_description" in names:
+        description = names["short_description"].strip()
+        prefix = title_prefix(severity, fp, workflow)
+        regression_title = f"{prefix}REGRESSION: {description}"
+        if len(regression_title) > TITLE_MAX:
+            raise UsageError(f"--stdin short_description makes the regression title {len(regression_title)} "
+                             f"characters long; GitHub takes at most {TITLE_MAX}, so shorten it by "
+                             f"{len(regression_title) - TITLE_MAX}")
+        out.update(title=prefix + description, regression_title=regression_title,
+                   body_header=body_header(severity, workflow, hashed_step_file, section, key, fp, legacy_fp))
+    return out
+
+
+def title_prefix(severity: str, fp: str, workflow: str) -> str:
+    """The start of every title of a finding: the dedup Action reads the severity and the fingerprint from it."""
+    return f"[health-check][{severity}][{fp}] {workflow}: "
+
+
+def body_header(severity: str, workflow: str, step_file: str, section: str, key: str, fp: str,
+                legacy_fp: str) -> str:
+    """The machine-read top of an issue body: the sections the dedup Action and a maintainer's triage read."""
+    return (
+        f"## Workflow\n`{workflow}`\n\n"
+        f"## Step File\n`{step_file}`\n\n"
+        f"## Section\n`{section}`\n\n"
+        f"## Severity\n`{severity}`\n\n"
+        f"## Fingerprint\n`{fp}`\n\n"
+        # At the start of a line of its own: the dedup Action's SECTION_RE reads it there.
+        f"Section fingerprint: `{legacy_fp}`\n\n"
+        f"## Defect Key\n`{key}`\n"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -872,6 +1033,110 @@ def record(fp: str, action: str, issue_url: str, day: str, regression: bool, cac
 
 
 # --------------------------------------------------------------------------
+# queue
+# --------------------------------------------------------------------------
+
+
+def _queue_stamp() -> str:
+    return datetime.now(timezone.utc).strftime(QUEUE_STAMP_FORMAT)
+
+
+def _draft_keys(body: bytes) -> tuple[str, str, str] | None:
+    """The (workflow, severity, fp) of the body_header a draft opens with, or None when it opens with none."""
+    match = _DRAFT_HEADER_RE.match(body.decode("utf-8-sig", errors="replace"))
+    if not match:
+        return None
+    workflow, step_file = match.group("workflow"), match.group("step_file")
+    if workflow == OWN_STAGE:
+        if step_file != OWN_STEP_FILE:
+            return None
+    else:
+        named = _WORKFLOW_STEP_FILE_RE.fullmatch(step_file)
+        if (workflow not in WORKFLOWS or not named or named.group("workflow") != workflow
+                or named.group("name").lower() == RELAY):
+            return None
+    return workflow, match.group("severity"), match.group("fp")
+
+
+def submit_commands(repo: str, title: str, severity: str, fp: str, path: str) -> list[str]:
+    """The label create, the create, and the create without labels that file a queued draft.
+
+    Each argument is quoted for a POSIX shell, and --repo follows the subcommand, so an allow rule scoped to the
+    repository (`gh issue create --repo OWNER/REPO`) matches.
+    """
+
+    def line(*argv: str) -> str:
+        return " ".join(shlex.quote(arg) for arg in argv)
+
+    label = line("gh", "label", "create", "--repo", repo, fp, "--color", FP_LABEL_COLOR,
+                 "--description", FP_LABEL_DESCRIPTION)
+    create = line("gh", "issue", "create", "--repo", repo, "--title", title,
+                  "--label", ",".join((*ISSUE_LABELS, severity, fp)), "--body-file", path)
+    bare = line("gh", "issue", "create", "--repo", repo, "--title", title, "--body-file", path)
+    return [label, create, bare]
+
+
+def _create_new(queue_dir: Path, stem: str) -> tuple[int, Path]:
+    """Open queue_dir/<stem>.md for writing, never over a file: <stem>-2.md, -3 and so on when taken.
+
+    Raises OSError when a free name cannot be opened.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    target = queue_dir / f"{stem}.md"
+    n = 2
+    while True:
+        try:
+            return os.open(target, flags, 0o644), target
+        except FileExistsError:
+            target = queue_dir / f"{stem}-{n}.md"
+            n += 1
+
+
+def queue(queue_dir: Path, body_file: Path, title: str, repo: str) -> dict:
+    """Write a draft into the local queue under a free name. Raises UsageError or WriteError."""
+    if not REPO_RE.fullmatch(repo):
+        raise UsageError(f"--repo must be [HOST/]OWNER/REPO, as gh takes it, got {repo!r}")
+    try:
+        body = body_file.read_bytes()
+    except OSError as exc:
+        raise WriteError(f"cannot read --body-file {body_file}: {exc}. Nothing was queued.") from None
+    keys = _draft_keys(body)
+    if keys is None:
+        raise UsageError(f"--body-file {body_file} opens with no body_header: open the draft with the body_header the "
+                         f"fingerprint call printed for it (a draft whose Fingerprint is N/A has none)")
+    workflow, severity, fp = keys
+    prefix = title_prefix(severity, fp, workflow)
+    if not title.startswith(prefix) or not title[len(prefix):].strip():
+        raise UsageError(f"--title {title!r} is not this draft's: its body_header gives {workflow}, {severity} and "
+                         f"{fp}, so its title is {prefix!r} and a description, as the fingerprint call printed it")
+    if len(title) > TITLE_MAX:
+        raise UsageError(f"--title is {len(title)} characters long; GitHub takes at most {TITLE_MAX}")
+    if _title_unsafe(title):
+        raise UsageError(f"--title {title!r} holds a backtick, `$`, double quote, backslash, `!` or a character that "
+                         f"is not printable (a tab or a line break included)")
+    try:
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        fd, target = _create_new(queue_dir, f"hc-{workflow}-{_queue_stamp()}")
+    except OSError as exc:
+        raise WriteError(f"cannot create a queue file in {queue_dir}: {exc}. Nothing was queued.") from None
+    try:
+        try:
+            data = memoryview(body)
+            while data:
+                data = data[os.write(fd, data):]  # os.write may write fewer bytes than asked
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        try:
+            target.unlink()
+        except OSError:
+            pass
+        raise WriteError(f"cannot write {target}: {exc}. Nothing was queued.") from None
+    path = os.path.abspath(target)
+    return {"path": path, "commands": submit_commands(repo, title, severity, fp, path)}
+
+
+# --------------------------------------------------------------------------
 # version
 # --------------------------------------------------------------------------
 
@@ -929,6 +1194,18 @@ def _error(message: str) -> None:
     print(json.dumps({"status": "error", "message": message}), file=sys.stderr)
 
 
+def _print_utf8(payload: dict) -> None:
+    """Print payload as JSON in UTF-8 whatever the locale, non-ASCII as itself: a title is used as printed."""
+    text = json.dumps(payload, ensure_ascii=False) + "\n"
+    out = getattr(sys.stdout, "buffer", None)
+    if out is None:
+        sys.stdout.write(text)
+        return
+    sys.stdout.flush()
+    out.write(text.encode("utf-8"))
+    out.flush()
+
+
 class _JsonErrorParser(argparse.ArgumentParser):
     """Report a usage error as a JSON error with exit 2, like every value that breaks its rule."""
 
@@ -939,21 +1216,27 @@ class _JsonErrorParser(argparse.ArgumentParser):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = _JsonErrorParser(
-        description="Fingerprint a health-check finding, look it up in the seen-issue cache, record it there, and "
-                    "print the installed SKF version.",
+        description="Fingerprint a health-check finding and print its title and the top of its issue body, look it "
+                    "up in the seen-issue cache, record it there, save its draft to the local queue, and print the "
+                    "installed SKF version.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="cmd", required=True, metavar="{fingerprint,lookup,record,version}")
+    sub = parser.add_subparsers(dest="cmd", required=True, metavar="{fingerprint,lookup,record,queue,version}")
 
     p_fp = sub.add_parser("fingerprint", help="print the fingerprint, the section (legacy) fingerprint and the "
-                                              "fields they hash")
+                                              "fields they hash, and with a short_description the title, the "
+                                              "regression title and the body header")
     p_fp.add_argument("--severity", required=True, choices=SEVERITIES)
-    p_fp.add_argument("--workflow", required=True, help=f"the workflow's folder name, one of {', '.join(WORKFLOWS)}")
+    p_fp.add_argument("--workflow", required=True,
+                      help=f"the workflow's folder name, one of {', '.join(WORKFLOWS)}, or {OWN_STAGE} for a defect "
+                           f"in the shared health check itself")
     p_fp.add_argument("--step-file", required=True, dest="step_file",
-                      help="the step file: its name or any path to it, of which only the name is kept")
+                      help="the step file: its name or any path to it, of which only the name is kept "
+                           f"({OWN_FOLDER}/{RELAY} with --workflow {OWN_STAGE})")
     p_fp.add_argument("--stdin", action="store_true",
-                      help='read {"section_heading": ..., "defect_name": ...} from stdin, in place of --section and '
-                           "--defect-key: the heading must be one of the step file's own")
+                      help='read {"section_heading": ..., "defect_name": ..., "short_description": ...} from stdin: '
+                           "the first two in place of --section and --defect-key (the heading must be one of the "
+                           "step file's own), the optional third for the title and the body header")
     p_fp.add_argument("--section", help="the kebab-case section heading slug, in place of a --stdin section_heading "
                                         "(no heading check)")
     p_fp.add_argument("--defect-key", dest="defect_key",
@@ -976,6 +1259,16 @@ def _build_parser() -> argparse.ArgumentParser:
                           help="after a regression verdict: the issue tracks the recurrence, so it replaces a resolved "
                                "record")
     p_record.add_argument("--cache", help="the cache file (default $HOME/.skf/health-check-seen.json)")
+
+    p_queue = sub.add_parser("queue", help="save a finding's draft to the local queue, unchanged, and print the "
+                                           "commands that submit it")
+    p_queue.add_argument("--queue-dir", required=True, dest="queue_dir", help="the local queue folder")
+    p_queue.add_argument("--body-file", required=True, dest="body_file",
+                         help="the draft, opening with the body_header the fingerprint call printed: the queue file "
+                              "is named after its workflow")
+    p_queue.add_argument("--title", required=True, help="the title the fingerprint call printed for the draft")
+    p_queue.add_argument("--repo", required=True,
+                         help="the repository the commands file the issue on, [HOST/]OWNER/REPO")
 
     sub.add_parser("version", help="the version of the SKF this helper belongs to")
     return parser
@@ -1012,6 +1305,8 @@ def main(argv: list[str] | None = None) -> int:
             out = lookup(args.fp, args.legacy_fp, _cache_arg(args.cache), args.repo)
         elif args.cmd == "record":
             out = record(args.fp, args.action, args.issue_url, args.date, args.regression, _cache_arg(args.cache))
+        elif args.cmd == "queue":
+            out = queue(Path(args.queue_dir).expanduser(), Path(args.body_file).expanduser(), args.title, args.repo)
         else:
             out = skf_version()
     except UsageError as exc:
@@ -1020,7 +1315,7 @@ def main(argv: list[str] | None = None) -> int:
     except WriteError as exc:
         _error(str(exc))
         return 1
-    print(json.dumps(out))
+    _print_utf8(out)
     return 0
 
 

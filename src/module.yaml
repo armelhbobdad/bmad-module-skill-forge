@@ -20,6 +20,11 @@ sidecar_path:
   default: "_bmad/_memory/forger-sidecar"
   result: "{project-root}/{value}"
 
+# The repository the health check at the end of every workflow files its
+# findings on. An empty value in _bmad/skf/config.yaml ('', "" or ~) turns the
+# health check off; with no key, as in a BMAD Method install, it uses this
+# default. health_check_autosubmit: true, added to config.yaml by hand, lets a
+# headless run submit its bug findings.
 health_check_repo:
   prompt: false
   default: "armelhbobdad/bmad-module-skill-forge"

@@ -1009,24 +1009,27 @@ def test_only_setup_reads_quiet_mode():
                     '"headless: skipped health-check arrival announcement".')
     clean = _section(shared, "### 2.")
     assert "\nDisplay:\n" in clean
-    assert "After writing all files, display the block below." in _section(shared, "### 5c.")
+    assert "After writing the files, display one block per reason" in _section(shared, "### 5c.")
 
 
 def test_shared_health_check_gate_has_listed_headless_default_q():
     """Every workflow's headless run resolves the review gate to a listed option
-    instead of waiting for input, and that option never submits anything."""
+    instead of waiting for input: [Q], which submits nothing, unless
+    health_check_autosubmit is on, when [Y] submits the bug findings alone."""
     section = _section(_read(SHARED_HEALTH_CHECK), "### 4.")
     assert "**GATE [default: Q]**" in section
-    assert "- **[Q]** Queue locally — save every finding to {localFallbackFolder}/, submit nothing" in section
+    assert "- **[Q]** Queue locally: save every finding to {localFallbackFolder}/, submit nothing" in section
+    assert "- **[Y]** Yes: submit the bug findings; friction and gap findings stay local" in section
     assert '"headless: queued {N} finding(s) locally"' in section
     gate = next(b for _, _, b in _prose_blocks(section) if "**GATE [default: Q]**" in b)
-    assert gate.startswith("**GATE [default: Q]**: if `{headless_mode}` is true, choose **[Q]**")
+    assert gate.startswith("**GATE [default: Q]**: if `{headless_mode}` is true, skip the question below and choose "
+                           "by `{healthCheckAutosubmit}`")
     assert QUIET not in gate and "Otherwise" not in gate
-    assert ("skip the question below and go to Menu Handling: live submission always needs an interactive "
-            "**[Y]**") in gate
-    assert re.findall(r"\bchoose \*\*\[(\w)\]\*\*", gate) == ["Q"]
+    assert "while it is off, choose **[Q]**" in gate and "when it is on, choose **[Y]**" in gate
+    assert "Then go to Menu Handling." in gate
+    assert re.findall(r"\bchoose \*\*\[(\w)\]\*\*", gate) == ["Q", "Y"]
     handling = next(line for line in section.splitlines() if line.startswith("- **IF Q:**"))
-    assert "§5a sub-step 1" in handling and "§5c" in handling
+    assert "§5c" in handling and "The review gate queued these locally." in handling
     local_queue = _section(_read(SHARED_HEALTH_CHECK), "### 5c.")
     assert "**\\[Q]**" in local_queue
 
@@ -1034,8 +1037,8 @@ def test_shared_health_check_gate_has_listed_headless_default_q():
 def test_queue_fingerprint_has_a_portable_form():
     """[Q] is the default for every headless run with findings, so its
     fingerprint cannot depend on `sha1sum`, which stock macOS and Windows lack:
-    the shared helper hashes it in Python (#1122)."""
-    section = _section(_read(SHARED_HEALTH_CHECK), "### 5a.")
+    the shared helper hashes it in Python (#1122), in §3, before any route."""
+    section = _section(_read(SHARED_HEALTH_CHECK), "### 3.")
     assert "sha1sum" not in section and "shasum" not in section
     call = ('uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" '
             '--step-file "{step_file}" --stdin < "{localFallbackFolder}/bodies/names-{timestamp}-{i}.json"')

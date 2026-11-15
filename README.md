@@ -134,7 +134,7 @@ If it doesn't, that's a bug. Open an issue and SKF will republish the skill with
 
 ## Help SKF Improve
 
-Every workflow ends with a health check. If it finds a problem in SKF's own instructions, it shows you the findings and, only if you approve, files bug reports as GitHub issues. Duplicates are detected, so reporting a known problem again is safe. Friction notes and gaps go to a local queue unless you choose to submit them too. **Please let workflows run to completion**, or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) directly. [Full details →](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#terminal-step-health-check)
+Every workflow ends with a health check. If it finds a problem in SKF's own instructions, it shows you the drafted issues and, only if you approve, files them on GitHub with your account: the bug reports with **[Y]**, every finding with **[A]**. Duplicates are detected, so reporting a known problem again is safe. Friction notes and gaps go to a local queue unless you choose to submit them too. Headless runs queue every finding unless you add `health_check_autosubmit: true` to `_bmad/skf/config.yaml`, which files their bug reports, and an empty `health_check_repo` there turns the health check off. **Please let workflows run to completion**, or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) directly. [Full details →](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#terminal-step-health-check)
 
 ## Learn More
 

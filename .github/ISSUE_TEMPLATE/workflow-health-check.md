@@ -71,8 +71,10 @@ Section fingerprint: `fp-XXXXXXX`
 
 
 ## Evidence
-<!-- 2-5 bulleted `file:line` citations. Quote the exact text. No narrative. -->
-- `path/to/file.md:NN` — "quoted text"
+<!-- 2-5 bulleted `file:line` citations of SKF's own files: its step files, SKILL.md files, shared files and
+     scripts. Quote the exact text. Never your project's code, the source a skill was built from, a brief's or a
+     skill's content, or a secret: this issue is public. No narrative. -->
+- `path/to/file.md:NN`: "quoted text"
 -
 
 ## Impact
@@ -91,7 +93,8 @@ Section fingerprint: `fp-XXXXXXX`
 </details>
 
 ## Environment
-<!-- SKF Version: what `uv run src/shared/scripts/skf-health-check-seen.py version` prints in a checkout (or
+<!-- Run Mode: interactive, or headless for a run with --headless, -H or headless_mode: true.
+     SKF Version: what `uv run src/shared/scripts/skf-health-check-seen.py version` prints in a checkout (or
      _bmad/skf/shared/scripts/ when installed), else `npm ls bmad-module-skill-forge`. -->
 | Field | Value |
 |-------|-------|
@@ -100,4 +103,5 @@ Section fingerprint: `fp-XXXXXXX`
 | AI Editor |  |
 | Model |  |
 | Forge Tier |  |
+| Run Mode |  |
 | SKF Version |  |

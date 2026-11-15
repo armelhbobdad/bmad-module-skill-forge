@@ -1,0 +1,4 @@
+type: changed
+scope: all workflows
+summary: |
+  A health-check issue filed for a confirmed regression now puts `REGRESSION: ` before its short description, `[health-check][bug][fp-1234567] skf-test-skill: REGRESSION: <description>`, instead of a dash and `REGRESSION` after it; the helper prints this title beside the plain one.

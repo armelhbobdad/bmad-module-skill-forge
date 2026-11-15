@@ -512,12 +512,13 @@ MUST_FIND = [
     # The context snippet step 7 writes and trims with it, its gotchas read from a file on stdin (#1157).
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "snippet"),
     # The shared health check (armelhbobdad/bmad-module-ultracode-goal#226): the fingerprint from a names file on
-    # stdin, the lookup scoped to the health-check repository, the record calls and the version, through a helper
-    # only its probe order binds.
+    # stdin, the lookup scoped to the health-check repository, the record calls, the version and the local queue,
+    # through a helper only its probe order binds.
     ("src/shared/health-check.md", "skf-health-check-seen.py", "fingerprint"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "lookup"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "record"),
     ("src/shared/health-check.md", "skf-health-check-seen.py", "version"),
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "queue"),
 ]
 
 
@@ -664,6 +665,9 @@ def test_manifest_ops_commands_are_read_from_its_main():
     ("skf-health-check-seen.py", ' record --fp "{fp}" --action {created|queued} --issue-url "{u}" --date "{d}"'),
     ("skf-health-check-seen.py", " version --project-root {project-root}"),
     ("skf-health-check-seen.py", ' fingerprint --severity "{s}" --workflow "{w}" --step-file "{f}" --stdn < "{n}"'),
+    # queue needs its repository and its title, and takes no --cache.
+    ("skf-health-check-seen.py", ' queue --queue-dir "{q}" --body-file "{b}" --title "{t}"'),
+    ("skf-health-check-seen.py", ' queue --queue-dir "{q}" --body-file "{b}" --title "{t}" --repo "{r}" --cache "{c}"'),
 ])
 def test_the_checker_rejects_broken_calls(script, rest):
     assert call_error(_script(script), rest), f"{script}{rest} must not fit the CLI"
@@ -701,6 +705,8 @@ def test_the_checker_rejects_broken_calls(script, rest):
     ("skf-health-check-seen.py",
      ' record --fp "{fp}" --action {reacted|commented|resolved} --issue-url "{u}" --date "{d}"'),
     ("skf-health-check-seen.py", " version"),
+    ("skf-health-check-seen.py",
+     ' queue --queue-dir "{localFallbackFolder}" --body-file "{b}" --title "{title}" --repo "{healthCheckRepo}"'),
 ])
 def test_the_checker_accepts_valid_calls(script, rest):
     assert call_error(_script(script), rest) is None

@@ -12,7 +12,10 @@ tests pin its behaviour instead of the prose:
   and step file in one form whatever the install (a helper copied under a
   fake _bmad/skf/ tree prints what the src/ one prints), the 15 workflows
   the helper names, the slug of every heading of every step file, and the
-  section and defect key it derives from a --stdin heading and name.
+  section and defect key it derives from a --stdin heading and name. With a
+  short_description, the title, the regression title and the body header
+  it prints, and the description's rules (UltraCode Goal's, #226). The
+  health check's own stage, whose step file is shared/health-check.md.
 - lookup: every branch, the legacy demotions, a cache that is not usable,
   the regression's opening line, --repo, with the gh call replaced in the
   loaded module (no test runs the gh a developer has installed), and end to
@@ -22,6 +25,9 @@ tests pin its behaviour instead of the prose:
   helper, a corrupt cache set aside, the lock, the failure paths, the
   Windows rename retry, and eight parallel writers.
 - version: each install layout, and no version without blocking.
+- queue: the draft copied unchanged under a free name, the header and title
+  it checks, and the quoted commands it prints, which file an issue whose
+  body holds no frontmatter and whose title the dedup Action reads.
 
 No test reads or writes the real $HOME/.skf: every call names its cache, or
 runs with HOME pointed at a temporary folder.
@@ -33,6 +39,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -435,7 +442,7 @@ class TestFixedForm:
         assert "defect_name" in json.loads(err)["message"]
 
     @pytest.mark.parametrize("raw", [b"", b"not json", b"[1]", b'{"section": "x", "defect_name": "y"}',
-                                     b'{"section_heading": "x", "defect_name": "y", "short_description": "z"}',
+                                     b'{"section_heading": "x", "defect_name": "y", "short_description": 1}',
                                      b'{"section_heading": 1, "defect_name": "x"}',
                                      b'{"section_heading": " ", "defect_name": "x"}', b"\xff\xfe"],
                              ids=["empty", "junk", "list", "unknown-key", "description", "not-a-string", "blank",
@@ -1349,7 +1356,7 @@ def _run_step_call(line: str, values: dict, env: dict, files: dict | None = None
     return json.loads(out)
 
 
-# What the step's fingerprint call names its names file with: §5a sub-step 1 writes it there with the Write tool.
+# What the step's fingerprint call names its names file with: §3 writes it there with the Write tool.
 NAMES_FILE = {"{localFallbackFolder}": "/q", "{timestamp}": "20261115-101500", "{i}": "1"}
 
 
@@ -1527,6 +1534,378 @@ class TestVersion:
 
 
 # --------------------------------------------------------------------------
+# fingerprint: the title, the regression title and the body header (UltraCode Goal's #226)
+# --------------------------------------------------------------------------
+
+DESCRIPTION = "inventory-contract names no rule for a const holding a function"
+DEDUP_WORKFLOW = REPO / ".github" / "workflows" / "health-check-dedup.yaml"
+TITLE_PREFIX = f"[health-check][gap][{FP_A}] skf-test-skill: "
+SAMPLE_HEADER = ("## Workflow\n`skf-test-skill`\n\n"
+                 f"## Step File\n`{SAMPLE['step_file']}`\n\n"
+                 f"## Section\n`{SAMPLE['section']}`\n\n"
+                 "## Severity\n`gap`\n\n"
+                 f"## Fingerprint\n`{FP_A}`\n\n"
+                 f"Section fingerprint: `{LEGACY}`\n\n"
+                 "## Defect Key\n`const-holding-function`\n")
+
+
+def _titled(description: str = DESCRIPTION, env: dict | None = None) -> tuple[int, str, str]:
+    return _cli(*_stdin_args(), stdin=_names(short_description=description), env=env)
+
+
+def _action_title_re() -> re.Pattern:
+    """The dedup Action's title regex, as a Python pattern (the JS literal uses only syntax both share)."""
+    yaml = pytest.importorskip("yaml")
+    script = yaml.safe_load(DEDUP_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["dedup"]["steps"][0]["with"]["script"]
+    match = re.search(r"const title = /(.+)/i\.exec", script)
+    assert match, "the Action reads the title with a case-blind regex literal"
+    return re.compile(match.group(1), re.IGNORECASE)
+
+
+class TestTitle:
+    def test_a_description_gives_the_title_the_regression_title_and_the_body_header(self):
+        code, out, err = _titled()
+        assert code == 0, err
+        assert json.loads(out) == {**_sample_out(FP_A, "const-holding-function"),
+                                   "title": TITLE_PREFIX + DESCRIPTION,
+                                   "regression_title": TITLE_PREFIX + "REGRESSION: " + DESCRIPTION,
+                                   "body_header": SAMPLE_HEADER}
+
+    def test_without_a_description_there_is_no_title(self):
+        """Old calls and the flags print what they printed: only a description gives a title to print."""
+        for flags, stdin in ((_stdin_args(), _names()), (_fingerprint_args(), None)):
+            code, out, err = _cli(*flags, stdin=stdin)
+            assert code == 0, err
+            assert not {"title", "regression_title", "body_header"} & set(json.loads(out))
+
+    def test_both_titles_match_the_dedup_actions_regex(self):
+        out = json.loads(_titled()[1])
+        for title in (out["title"], out["regression_title"]):
+            match = _action_title_re().match(title)
+            assert match and match.groups() == ("gap", FP_A), title
+        # The regression marker comes before the description, never after it.
+        assert out["regression_title"].endswith(DESCRIPTION) and "REGRESSION" not in out["title"]
+
+    def test_surrounding_whitespace_is_dropped(self):
+        out = json.loads(_titled(f"  {DESCRIPTION}  ")[1])
+        assert out["title"] == TITLE_PREFIX + DESCRIPTION
+
+    @pytest.mark.parametrize("description", ["the `x` rule", "costs $5", 'the "x" rule', "a\\b", "wow!",
+                                             "a\tb", "a\nb", "a\u2028b", "a\x00b", "a\rb"],
+                             ids=["backtick", "dollar", "double-quote", "backslash", "bang", "tab", "newline",
+                                  "line-separator", "nul", "carriage-return"])
+    def test_a_description_the_command_line_cannot_carry_exits_2(self, description):
+        code, out, err = _titled(description)
+        assert code == 2 and out == ""
+        assert "short_description" in json.loads(err)["message"]
+
+    def test_an_apostrophe_is_allowed(self):
+        """Inside double quotes a single quote is plain text, and the queue's commands quote it for the shell."""
+        code, out, err = _titled("the reader's own code rule")
+        assert code == 0, err
+
+    def test_the_regression_title_may_be_256_characters_and_no_more(self):
+        room = 256 - len(TITLE_PREFIX + "REGRESSION: ")
+        code, out, err = _titled("x" * room)
+        assert code == 0, err
+        assert len(json.loads(out)["regression_title"]) == 256
+        code, out, err = _titled("x" * (room + 1))
+        assert code == 2 and out == ""
+        message = json.loads(err)["message"]
+        assert "short_description" in message and "256" in message and "shorten it by 1" in message
+
+    def test_a_non_ascii_description_is_printed_as_itself_whatever_the_locale(self):
+        env = {**os.environ, "PYTHONIOENCODING": "ascii", "LC_ALL": "C"}
+        code, out, err = _titled("café résumé rule", env=env)
+        assert code == 0, err
+        assert "café résumé rule" in out and "\\u00e9" not in out
+        assert json.loads(out)["title"] == TITLE_PREFIX + "café résumé rule"
+
+
+# --------------------------------------------------------------------------
+# fingerprint: the health check's own stage
+# --------------------------------------------------------------------------
+
+OWN_HEADING = "# Health Check: Workflow Self-Improvement"
+
+
+def _own_args(step_file: str = "shared/health-check.md", severity: str = "bug") -> list[str]:
+    return _stdin_args(step_file, workflow="health-check", severity=severity)
+
+
+class TestOwnStage:
+    @pytest.mark.parametrize("step_file", ["shared/health-check.md", "health-check.md", "src/shared/health-check.md",
+                                           "_bmad/skf/shared/health-check.md",
+                                           "C:\\work\\_bmad\\skf\\shared\\health-check.md"])
+    def test_the_shared_health_check_is_its_step_file(self, step_file):
+        code, out, err = _cli(*_own_args(step_file), stdin=_names(OWN_HEADING, "queue hint", short_description="x"))
+        assert code == 0, err
+        payload = json.loads(out)
+        keyed = "bug|health-check|src/shared/health-check.md|health-check-workflow-self-improvement|queue-hint"
+        assert payload["tuple"] == keyed and payload["step_file"] == "src/shared/health-check.md"
+        assert payload["fp"] == "fp-" + hashlib.sha1(keyed.encode("utf-8")).hexdigest()[:7]
+        assert payload["title"] == f"[health-check][bug][{payload['fp']}] health-check: x"
+        assert payload["body_header"].startswith("## Workflow\n`health-check`\n\n## Step File\n"
+                                                 "`src/shared/health-check.md`\n\n")
+        assert _action_title_re().match(payload["title"]).groups() == ("bug", payload["fp"])
+
+    def test_its_headings_are_the_shared_health_checks(self):
+        shared = _mod()._stage_headings(SHARED_HEALTH_CHECK)
+        assert OWN_HEADING.lstrip("# ") in shared
+        slugs = [_mod().section_slug(heading) for heading in shared]
+        assert all(slugs) and len(slugs) == len(set(slugs)), "two sections of the step share a slug"
+        for heading in shared:
+            code, _, err = _cli(*_own_args(), stdin=_names(heading, "queue hint"))
+            assert code == 0, (heading, err)
+        code, out, err = _cli(*_own_args(), stdin=_names(HEADING, "queue hint"))
+        assert code == 2 and out == "" and "section_heading" in json.loads(err)["message"]
+
+    @pytest.mark.parametrize("step_file", ["src/skf-test-skill/references/health-check.md", "Health-Check.md",
+                                           "inventory-contract.md", "other/health-check.md",
+                                           "shared/references/health-check.md"])
+    def test_any_other_step_file_exits_2(self, step_file):
+        code, out, err = _cli(*_own_args(step_file), stdin=_names(OWN_HEADING, "queue hint"))
+        assert code == 2 and out == ""
+        message = json.loads(err)["message"]
+        assert "--step-file" in message and "shared/health-check.md" in message
+
+    def test_a_workflows_relay_names_the_own_stage(self):
+        code, _, err = _cli(*_stdin_args("shared/health-check.md"), stdin=_names())
+        assert code == 2
+        message = json.loads(err)["message"]
+        assert "relay" in message and "--workflow health-check" in message
+
+    def test_the_own_stage_is_not_one_of_the_15_workflows(self):
+        assert "health-check" not in _mod().WORKFLOWS and len(_mod().WORKFLOWS) == 15
+        code, _, err = _cli(*_fingerprint_args(workflow="health-check"))
+        assert code == 2 and "--step-file" in json.loads(err)["message"]
+
+
+# --------------------------------------------------------------------------
+# queue
+# --------------------------------------------------------------------------
+
+STAMP = "20261115-101500"
+
+
+def _draft(folder: Path, header: str = SAMPLE_HEADER, rest: str = "\n## Finding\nOne sentence.\n",
+           name: str = f"{FP_A}-{STAMP}.md", raw: bytes | None = None) -> Path:
+    path = folder / "bodies" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw if raw is not None else (header + rest).encode("utf-8"))
+    return path
+
+
+def _queue(queue_dir: Path, body: Path, title: str = TITLE_PREFIX + DESCRIPTION,
+           repo: str = HEALTH_CHECK_REPO) -> tuple[int, str, str]:
+    return _cli("queue", "--queue-dir", str(queue_dir), "--body-file", str(body), "--title", title, "--repo", repo)
+
+
+def _commands(path: str, title: str = TITLE_PREFIX + DESCRIPTION, repo: str = HEALTH_CHECK_REPO) -> list[str]:
+    q = shlex.quote
+    return [f"gh label create --repo {repo} {FP_A} --color ededed --description 'Health-check fingerprint dedup key'",
+            f"gh issue create --repo {repo} --title {q(title)} "
+            f"--label health-check,workflow-improvement,gap,{FP_A} --body-file {q(path)}",
+            f"gh issue create --repo {repo} --title {q(title)} --body-file {q(path)}"]
+
+
+class TestQueue:
+    def test_the_draft_is_copied_unchanged_under_its_workflows_name(self, tmp_path):
+        body = _draft(tmp_path)
+        queue_dir = tmp_path / "improvement-queue"
+        code, out, err = _queue(queue_dir, body)
+        assert code == 0 and err == "", err
+        payload = json.loads(out)
+        written = Path(payload["path"])
+        assert written.parent == queue_dir and written.is_absolute()
+        assert re.fullmatch(r"hc-skf-test-skill-\d{8}-\d{6}\.md", written.name), written.name
+        assert written.read_bytes() == body.read_bytes()
+        assert written.read_text(encoding="utf-8").startswith("## Workflow\n"), "no frontmatter"
+        assert payload["commands"] == _commands(str(written))
+        assert body.is_file(), "the draft stays in bodies/"
+
+    def test_a_taken_name_gets_the_next_number_and_nothing_is_overwritten(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_mod(), "_queue_stamp", lambda: STAMP)
+        body = _draft(tmp_path)
+        queue_dir = tmp_path / "q"
+        queue_dir.mkdir()
+        taken = queue_dir / f"hc-skf-test-skill-{STAMP}.md"
+        taken.write_text("an earlier finding\n", encoding="utf-8")
+        paths = [_mod().queue(queue_dir, body, TITLE_PREFIX + DESCRIPTION, HEALTH_CHECK_REPO)["path"]
+                 for _ in range(2)]
+        assert [Path(path).name for path in paths] == [f"hc-skf-test-skill-{STAMP}-2.md",
+                                                       f"hc-skf-test-skill-{STAMP}-3.md"]
+        assert taken.read_text(encoding="utf-8") == "an earlier finding\n"
+
+    def test_the_commands_quote_every_argument_and_put_the_repo_first(self, tmp_path):
+        title = TITLE_PREFIX + "the reader's own code rule"
+        body = _draft(tmp_path / "a folder with spaces")
+        code, out, err = _queue(tmp_path / "queue dir", body, title=title, repo="ghe.example.com/o/r")
+        assert code == 0, err
+        payload = json.loads(out)
+        label, create, bare = (shlex.split(command) for command in payload["commands"])
+        assert label == ["gh", "label", "create", "--repo", "ghe.example.com/o/r", FP_A, "--color", "ededed",
+                         "--description", "Health-check fingerprint dedup key"]
+        assert create == ["gh", "issue", "create", "--repo", "ghe.example.com/o/r", "--title", title, "--label",
+                          f"health-check,workflow-improvement,gap,{FP_A}", "--body-file", payload["path"]]
+        assert bare == ["gh", "issue", "create", "--repo", "ghe.example.com/o/r", "--title", title, "--body-file",
+                        payload["path"]]
+        assert " " in payload["path"]
+
+    def test_the_printed_commands_file_a_body_with_no_frontmatter_and_a_title_the_action_reads(self, tmp_path,
+                                                                                                 fake_gh):
+        body = _draft(tmp_path)
+        code, out, err = _queue(tmp_path / "q", body)
+        assert code == 0, err
+        payload = json.loads(out)
+        for command in payload["commands"]:
+            done = subprocess.run(["/bin/sh", "-c", command], capture_output=True, timeout=60)
+            assert done.returncode == 0, done.stderr
+        label, create, bare = _logged(fake_gh)
+        assert label[:4] == ["label", "create", "--repo", HEALTH_CHECK_REPO]
+        for argv in (create, bare):
+            sent = Path(argv[argv.index("--body-file") + 1]).read_text(encoding="utf-8")
+            assert not sent.startswith("---") and sent.startswith("## Workflow\n")
+            title = argv[argv.index("--title") + 1]
+            assert _action_title_re().match(title).groups() == ("gap", FP_A)
+
+    @pytest.mark.parametrize("raw", [
+        b"",
+        b"## Finding\nno header\n",
+        ("---\ntype: workflow-health-finding\nfingerprint: " + FP_A + "\n---\n" + SAMPLE_HEADER).encode("utf-8"),
+        SAMPLE_HEADER.replace(f"`{FP_A}`", "`N/A`").encode("utf-8"),
+        SAMPLE_HEADER.replace(f"Section fingerprint: `{LEGACY}`", "Section fingerprint: `N/A`").encode("utf-8"),
+        SAMPLE_HEADER.replace("`skf-test-skill`", "`skf-setup`").encode("utf-8"),
+        SAMPLE_HEADER.replace("`skf-test-skill`", "`test-skill`").encode("utf-8"),
+        SAMPLE_HEADER.replace(SAMPLE["step_file"], "src/skf-test-skill/references/health-check.md")
+        .encode("utf-8"),
+        SAMPLE_HEADER.replace("`skf-test-skill`", "`health-check`").encode("utf-8"),
+        SAMPLE_HEADER.replace("`gap`", "`nit`").encode("utf-8"),
+        (f"Regression of {URL} (resolved {DAY}).\n\n" + SAMPLE_HEADER).encode("utf-8"),
+    ], ids=["empty", "no-header", "frontmatter", "na-fingerprint", "na-section", "other-workflows-step",
+            "display-name", "relay", "own-stage-with-a-workflow-step", "severity", "opening-line"])
+    def test_a_draft_with_no_header_exits_2_and_writes_nothing(self, tmp_path, raw):
+        body = _draft(tmp_path, raw=raw)
+        queue_dir = tmp_path / "q"
+        code, out, err = _queue(queue_dir, body)
+        assert code == 2 and out == ""
+        assert "--body-file" in json.loads(err)["message"]
+        assert not queue_dir.exists()
+
+    @pytest.mark.parametrize("title", [
+        f"[health-check][gap][{FP_B}] skf-test-skill: {DESCRIPTION}",
+        f"[health-check][bug][{FP_A}] skf-test-skill: {DESCRIPTION}",
+        f"[health-check][gap][{FP_A}] skf-setup: {DESCRIPTION}",
+        f"[health-check][gap][{FP_A}] skf-test-skill:",
+        TITLE_PREFIX + "   ",
+        f"{DESCRIPTION} {TITLE_PREFIX}",
+        "[title]",
+    ], ids=["other-fp", "other-severity", "other-workflow", "no-description", "blank-description", "no-prefix",
+            "placeholder"])
+    def test_a_title_that_is_not_the_drafts_exits_2(self, tmp_path, title):
+        code, out, err = _queue(tmp_path / "q", _draft(tmp_path), title=title)
+        assert code == 2 and out == ""
+        assert "--title" in json.loads(err)["message"] and "not this draft's" in json.loads(err)["message"]
+        assert not (tmp_path / "q").exists()
+
+    @pytest.mark.parametrize("title", [TITLE_PREFIX + "costs $5", TITLE_PREFIX + "a`b", TITLE_PREFIX + "a\tb",
+                                       TITLE_PREFIX + "x" * (257 - len(TITLE_PREFIX))],
+                             ids=["dollar", "backtick", "tab", "too-long"])
+    def test_a_title_the_command_line_cannot_carry_exits_2(self, tmp_path, title):
+        code, out, err = _queue(tmp_path / "q", _draft(tmp_path), title=title)
+        assert code == 2 and out == "" and "--title" in json.loads(err)["message"]
+        assert not (tmp_path / "q").exists()
+
+    @pytest.mark.parametrize("repo", ["", "bmad-module-skill-forge", "https://github.com/o/r", "o/r/x/y", "-o/r"])
+    def test_a_repo_that_is_not_one_exits_2(self, tmp_path, repo):
+        code, out, err = _queue(tmp_path / "q", _draft(tmp_path), repo=repo)
+        assert code == 2 and out == "" and "--repo" in json.loads(err)["message"]
+
+    def test_a_draft_that_cannot_be_read_exits_1(self, tmp_path):
+        code, out, err = _queue(tmp_path / "q", tmp_path / "bodies" / "missing.md")
+        assert code == 1 and out == "" and "--body-file" in json.loads(err)["message"]
+        assert not (tmp_path / "q").exists()
+
+    def test_a_queue_folder_that_cannot_be_made_exits_1(self, tmp_path):
+        blocker = tmp_path / "q"
+        blocker.write_text("a file, not a folder\n", encoding="utf-8")
+        code, out, err = _queue(blocker, _draft(tmp_path))
+        assert code == 1 and out == ""
+        assert blocker.read_text(encoding="utf-8") == "a file, not a folder\n"
+
+    def test_a_write_that_fails_halfway_leaves_no_queue_file(self, tmp_path, monkeypatch, capsys):
+        """The first write lands half the draft, the second fails: exit 1, and the half-written file is removed."""
+        body = _draft(tmp_path)
+        queue_dir = tmp_path / "q"
+        real_write = os.write
+        calls = []
+
+        def failing_write(fd, data):
+            if fd <= 2:  # stdout and stderr stay as they are
+                return real_write(fd, data)
+            calls.append(fd)
+            if len(calls) == 1:
+                return real_write(fd, bytes(data[: len(data) // 2]))
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(_mod().os, "write", failing_write)
+        code = _mod().main(["queue", "--queue-dir", str(queue_dir), "--body-file", str(body), "--title",
+                            TITLE_PREFIX + DESCRIPTION, "--repo", HEALTH_CHECK_REPO])
+        monkeypatch.undo()
+        assert code == 1 and len(calls) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and "No space left on device" in json.loads(captured.err)["message"]
+        assert list(queue_dir.glob("hc-*")) == []
+
+    @pytest.mark.parametrize("crlf, bom", [(True, False), (False, True), (True, True)])
+    def test_a_crlf_or_bom_draft_is_read_and_copied_unchanged(self, tmp_path, crlf, bom):
+        text = SAMPLE_HEADER + "\n## Finding\nOne sentence.\n"
+        raw = (b"\xef\xbb\xbf" if bom else b"") + (text.replace("\n", "\r\n") if crlf else text).encode("utf-8")
+        code, out, err = _queue(tmp_path / "q", _draft(tmp_path, raw=raw))
+        assert code == 0, err
+        assert Path(json.loads(out)["path"]).read_bytes() == raw
+
+    def test_a_regression_section_after_the_header_keeps_the_draft_queueable(self, tmp_path):
+        """§5a adds `## Regression` above `## Finding`, below the header, and the regression title goes with it."""
+        rest = f"\n## Regression\nRegression of {URL} (resolved {DAY}).\n\n## Finding\nOne sentence.\n"
+        title = TITLE_PREFIX + "REGRESSION: " + DESCRIPTION
+        code, out, err = _queue(tmp_path / "q", _draft(tmp_path, rest=rest), title=title)
+        assert code == 0, err
+        create = shlex.split(json.loads(out)["commands"][1])
+        assert create[create.index("--title") + 1] == title
+        assert _action_title_re().match(title).groups() == ("gap", FP_A)
+
+    def test_the_own_stage_queues_under_its_name(self, tmp_path):
+        code, out, err = _cli(*_own_args(), stdin=_names(OWN_HEADING, "queue hint", short_description="x"))
+        assert code == 0, err
+        fp = json.loads(out)
+        body = _draft(tmp_path, header=fp["body_header"], name=f"{fp['fp']}-{STAMP}.md")
+        code, out, err = _queue(tmp_path / "q", body, title=fp["title"])
+        assert code == 0, err
+        assert re.fullmatch(r"hc-health-check-\d{8}-\d{6}\.md", Path(json.loads(out)["path"]).name)
+
+    def test_the_steps_queue_call_copies_the_draft_its_fingerprint_call_headed(self, tmp_path):
+        """§3's call prints the title and the header, §3 writes the draft, and §5c's call queues it."""
+        (fingerprint_line,) = _step_calls("fingerprint")
+        (queue_line,) = _step_calls("queue")
+        folder = str(tmp_path / "forge-data" / "improvement-queue")
+        names_file = f"{folder}/bodies/names-{STAMP}-1.json"
+        values = {"{severity}": "gap", "{workflow}": "skf-test-skill", "{step_file}": "inventory-contract.md",
+                  "{localFallbackFolder}": folder, "{timestamp}": STAMP, "{i}": "1"}
+        printed = _run_step_call(fingerprint_line, values, dict(os.environ),
+                                 {names_file: _names(short_description=DESCRIPTION)})
+        assert printed["body_header"] == SAMPLE_HEADER
+        draft = Path(folder) / "bodies" / f"{printed['fp']}-{STAMP}.md"
+        draft.parent.mkdir(parents=True)
+        draft.write_text(printed["body_header"] + "\n## Finding\nOne sentence.\n", encoding="utf-8")
+        queued = _run_step_call(queue_line, {**values, "{draft_path}": str(draft), "{title}": printed["title"],
+                                             "{healthCheckRepo}": HEALTH_CHECK_REPO}, dict(os.environ))
+        assert Path(queued["path"]).parent == Path(folder)
+        assert Path(queued["path"]).read_bytes() == draft.read_bytes()
+        assert queued["commands"] == _commands(queued["path"])
+
+
+# --------------------------------------------------------------------------
 # The helper's shape
 # --------------------------------------------------------------------------
 
@@ -1538,7 +1917,8 @@ def test_the_helper_is_a_stdlib_script_with_a_parser():
     for argv in (_fingerprint_args(), _stdin_args(), ["lookup", "--fp", FP_A, "--legacy-fp", LEGACY],
                  ["lookup", "--fp", FP_A, "--legacy-fp", LEGACY, "--repo", HEALTH_CHECK_REPO],
                  ["record", "--fp", FP_A, "--action", "created", "--issue-url", URL, "--date", DAY, "--regression"],
-                 ["record", "--fp", FP_A, "--action", "resolved", "--issue-url", "", "--date", DAY], ["version"]):
+                 ["record", "--fp", FP_A, "--action", "resolved", "--issue-url", "", "--date", DAY], ["version"],
+                 ["queue", "--queue-dir", "q", "--body-file", "b.md", "--title", "t", "--repo", HEALTH_CHECK_REPO]):
         parser.parse_args(argv)
 
 
@@ -1550,7 +1930,10 @@ def test_the_helper_finds_files_from_its_own_place_never_the_project():
     assert "getcwd" not in text and "Path.cwd" not in text
 
 
-def test_fingerprint_and_record_run_no_gh(tmp_path, no_gh):
+def test_fingerprint_record_and_queue_run_no_gh(tmp_path, no_gh, monkeypatch):
     _mod().fingerprint(key="shared-text", **SAMPLE)
     _mod().record(FP_A, "created", URL, DAY, False, tmp_path / "seen.json")
+    tree = _mod()._load(_mod().SOURCE_TREE_HELPER)
+    monkeypatch.setattr(tree, "_run", _must_not_run)
+    _mod().queue(tmp_path / "q", _draft(tmp_path), TITLE_PREFIX + DESCRIPTION, HEALTH_CHECK_REPO)
     assert no_gh == []
