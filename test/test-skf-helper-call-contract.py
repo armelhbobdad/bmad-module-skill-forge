@@ -511,6 +511,13 @@ MUST_FIND = [
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "evidence-report"),
     # The context snippet step 7 writes and trims with it, its gotchas read from a file on stdin (#1157).
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "snippet"),
+    # The shared health check (armelhbobdad/bmad-module-ultracode-goal#226): the fingerprint from a names file on
+    # stdin, the lookup scoped to the health-check repository, the record calls and the version, through a helper
+    # only its probe order binds.
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "fingerprint"),
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "lookup"),
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "record"),
+    ("src/shared/health-check.md", "skf-health-check-seen.py", "version"),
 ]
 
 
@@ -651,6 +658,12 @@ def test_manifest_ops_commands_are_read_from_its_main():
     ("skf-check-workspace-drift.py", ' upstream --source-root "{r}" --baseline-commit "{c}"'),
     ("skf-check-workspace-drift.py", ' upstream --source-root "{r}" --baseline-commit "{c}" --baseline-ref "{b}" --fetch'),
     ("skf-check-workspace-drift.py", ' "{r}" --pinned-commit "{c}"'),
+    # The health check's helper: a flag lookup lacks, an action record does not write, version takes no argument,
+    # and fingerprint without --stdin needs both flags only at run time, so a misspelled one is what fails here.
+    ("skf-health-check-seen.py", ' lookup --fp "{fp}" --legacy-fp "{l}" --repository "{r}"'),
+    ("skf-health-check-seen.py", ' record --fp "{fp}" --action {created|queued} --issue-url "{u}" --date "{d}"'),
+    ("skf-health-check-seen.py", " version --project-root {project-root}"),
+    ("skf-health-check-seen.py", ' fingerprint --severity "{s}" --workflow "{w}" --step-file "{f}" --stdn < "{n}"'),
 ])
 def test_the_checker_rejects_broken_calls(script, rest):
     assert call_error(_script(script), rest), f"{script}{rest} must not fit the CLI"
@@ -683,6 +696,11 @@ def test_the_checker_rejects_broken_calls(script, rest):
      " --mode quick --language {l} --source-root {r} --entry-file {e} [--entry-file {e}]..."),
     ("skf-extraction-snapshot.py",
      ' build --source-root "{r}" --tier "{t}" --date "{d}" [--details "{f}"]... -o "{o}"'),
+    ("skf-health-check-seen.py", ' fingerprint --severity "{s}" --workflow "{w}" --step-file "{f}" --stdin < "{n}"'),
+    ("skf-health-check-seen.py", ' lookup --fp "{fp}" --legacy-fp "{l}" --repo "{healthCheckRepo}"'),
+    ("skf-health-check-seen.py",
+     ' record --fp "{fp}" --action {reacted|commented|resolved} --issue-url "{u}" --date "{d}"'),
+    ("skf-health-check-seen.py", " version"),
 ])
 def test_the_checker_accepts_valid_calls(script, rest):
     assert call_error(_script(script), rest) is None

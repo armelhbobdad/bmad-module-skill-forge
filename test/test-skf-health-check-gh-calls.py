@@ -16,6 +16,10 @@ put its output in its place: text from a finding ran on the user's machine, the 
 come out empty, and a double quote in the body broke the command, whose failed create then had no fallback and
 lost the finding. Now each body is written with the Write tool to a file of its own in the local queue folder's
 `bodies/` subfolder and passed with `--body-file`, and a create that fails goes to the local queue with that body.
+
+A reporter without push access can neither create the `fp-*` label nor set one, so `gh issue create --label` fails
+for them (armelhbobdad/bmad-module-ultracode-goal#226). The label create runs on its own, its failure no error, and
+a create that fails is run once more without `--label`: the dedup Action labels that issue from its title.
 """
 
 from __future__ import annotations
@@ -50,8 +54,8 @@ REQUIRED_CALLS = {
 }
 
 # `gh` commands the step names without running them on an issue of its own: the helper's `gh issue view` (it
-# asks by the recorded issue URL), the availability check, and the commands the label guard talks about.
-MENTIONS = {"gh issue view", "gh auth status", "gh issue create --label fp-XXXX", "gh label create", "gh issue create"}
+# asks by the recorded issue URL), the availability check, and the commands the label and create rules talk about.
+MENTIONS = {"gh issue view", "gh auth status", "gh label create", "gh issue create"}
 
 PLACEHOLDER = re.compile(r"\{[^{}]+\}")
 # A code span may wrap onto the next line; the extractor never lets one cross a blank line.
@@ -185,8 +189,9 @@ def test_only_a_reaction_or_comment_that_posted_is_recorded():
     assert ("a run with no user to ask took **\\[S]** at a possible match, a reaction or comment at the dedup gate "
             "failed, a new issue failed to post, or the §4 review gate resolved to **\\[Q]**") in queue
     reasons = _flow(_slice(text, "`{reason}` is the sentence", "**{N} finding(s) saved locally:**"))
-    assert ('"Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these '
-            'locally."') in reasons
+    assert ('"Posting these to GitHub failed." (the failed-submission reason), "SKF\'s health-check helper could not '
+            'fingerprint these findings, so they carry the fingerprint N/A; compute it with its fingerprint call before '
+            'submitting." (the could-not-fingerprint reason) or "The review gate queued these locally."') in reasons
 
 
 def test_no_body_goes_on_the_command_line():
@@ -241,13 +246,20 @@ def test_a_create_that_failed_goes_to_the_local_queue_with_its_body():
     create = _flow(_slice(text, CREATE, WRITING_RULES))
     recorded = ("After the issue is created, record it under `{fp}` as §5b says, so this user does not re-report it "
                 "while that issue stays open.")
-    failed = ("If `gh issue create` exits non-zero, log its stderr message and record nothing: §5b runs only after a "
+    retry = ("If `gh issue create` exits non-zero, run it once more without its `--label` line, with the same title "
+             "(its REGRESSION marker included) and the same body file: a reporter without push access to "
+             "`{healthCheckRepo}` can set no label, and the dedup Action labels the issue from its title. A create "
+             "that succeeded on that retry is recorded as §5b says, as one that succeeded at once is.")
+    failed = ("If the retry exits non-zero too, log its stderr message and record nothing: §5b runs only after a "
               "create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding "
               "to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its "
               "queue file holds the text of its body file under the §5c frontmatter, so what failed to post is what "
               "waits to be submitted.")
-    assert recorded in create and failed in create
-    assert create.index(recorded) < create.index(failed)
+    assert recorded in create and retry in create and failed in create
+    assert create.index(recorded) < create.index(retry) < create.index(failed)
+    # §5b records a create that succeeded on either run.
+    assert ("After each successful `gh issue create`, on its first run or its retry without `--label` (§5a-ii), record "
+            "the new issue under `{fp}`") in _flow(_slice(text, "### 5b.", "### 5c."))
     # The issues-created display counts only the issues that posted.
     display = _flow(_slice(text, "**Issue body format:**", "### 5b."))
     assert ("After creating all issues, display those that were created, `{N}` counting only them, unless none was "
@@ -257,6 +269,31 @@ def test_a_create_that_failed_goes_to_the_local_queue_with_its_body():
     assert ("**File content:** Same structured format as the issue body above, with YAML frontmatter (for a create "
             "that failed, that body is the text of its body file in `{localFallbackFolder}/bodies/`, "
             "unchanged):") in queue
+
+
+def test_the_label_create_runs_on_its_own_and_its_failure_is_no_error():
+    """A reporter without push access cannot create the `fp-*` label: the create goes on, retried without labels."""
+    text = _read(SHARED_HEALTH_CHECK)
+    label = _slice(text, "**First, create the `{fp}` label**", CREATE)
+    # The prose names `gh issue create`, which fails on a label that does not exist; the call is the label's alone.
+    calls = [call for call in _gh_calls(label) if PLACEHOLDER.search(call)]
+    assert calls == ['gh label create "{fp}" --repo {healthCheckRepo} --color "ededed" '
+                     '--description "Health-check fingerprint dedup key"'], calls
+    # No shell glue: a call the session allows on its own needs no `|| true` or redirect after it.
+    assert "|| true" not in text and "2>/dev/null" not in text
+    assert ("If it exits non-zero, that is no error: the label exists already (a second reporter of a defect whose "
+            "earlier issue was closed, or a parallel submission), or you have no push access to `{healthCheckRepo}` "
+            "and cannot create one. Go on to the create.") in _flow(label)
+    # The title keeps the prefix the dedup Action labels a report without labels from.
+    create = _flow(_slice(text, CREATE, WRITING_RULES))
+    assert ("Keep the title's `[health-check][{severity}][{fp}] {workflow}: ` prefix exactly as the command writes it: "
+            "the dedup Action reads the severity and the fingerprint from it to label an issue filed without "
+            "labels.") in create
+    # The local queue's hint files without labels too, so it needs no push access either.
+    hint = _flow(_slice(text, "{reason} To submit these as issues", "Or open them manually"))
+    assert ("It sets no label, so it needs no push access to {healthCheckRepo}: the dedup Action labels an issue from "
+            "the fingerprint in its title.") in hint
+    assert "`[health-check][{severity}][{fingerprint}] {workflow}: `" in hint
 
 
 def test_a_run_that_posts_and_queues_says_workflow_complete_once_and_last():
