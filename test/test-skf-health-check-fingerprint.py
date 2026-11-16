@@ -92,14 +92,12 @@ def test_the_fingerprint_hashes_the_defect_key():
     # The draft's header shows the fields in the form the helper prints, never a doubled `src/skf-skf-` prefix.
     assert "skf-{workflow}" not in text
     step = _slice(text, DRAFT, WRITE_DRAFT)
-    # The helper hashes both (test-skf-health-check-seen.py runs this call); the step names the heading, the thing
-    # and the title's description, in a file the Write tool writes, so no quote in them meets the shell.
+    # The helper hashes both (test-skf-health-check-seen.py runs this call and pins the formula); the step names the
+    # heading, the thing and the title's description, in a file the Write tool writes, so no quote in them meets the
+    # shell.
     assert ('uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" '
             '--step-file "{step_file}" --stdin < "{localFallbackFolder}/bodies/names-{timestamp}-{i}.json"') in step
     flow = _flow(step)
-    assert ("`{fp}` is `fp-` and the first 7 hex characters of "
-            "`sha1(\"{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}\")`, and `{legacy_fp}` the same "
-            "hash without `|{defect-key}`.") in flow
     assert ("Write the two names and the description with the Write tool to "
             "`{localFallbackFolder}/bodies/names-{timestamp}-{i}.json`, `{timestamp}` being the time of the write as "
             "YYYYMMDD-HHmmss and `{i}` the finding's number, as the JSON object `{\"section_heading\": \"<the "
@@ -108,28 +106,22 @@ def test_the_fingerprint_hashes_the_defect_key():
     # The title, its regression form and the body's header come from the same call: the model types none of them.
     assert ("It prints `{\"fp\", \"legacy_fp\", \"tuple\", \"step_file\", \"section_slug\", \"defect_key\", "
             "\"title\", \"regression_title\", \"body_header\"}`.") in flow
-    assert ("`{title}` is the issue title, `[health-check][{severity}][{fp}] {workflow}: {short description}`, and "
-            "`{regression_title}` the same with `REGRESSION: ` before the description: use them exactly as printed, "
-            "wherever this finding's title appears.") in flow
-    assert ("When what it prints has no `title`, the names file held no description: add it there and run the call "
-            "once more.") in flow
-    body = _flow(_slice(text, "**Issue body format:**", "### 4."))
-    assert ("In the header, `{fp}` is the deterministic dedup key, "
-            "`sha1(severity|workflow|step_file|section-slug|defect-key)[:7]` over the fields as the header writes them"
-            in body)
-    assert ("From here on, `{step_file}`, `{section-slug}` and `{defect-key}` are the call's `step_file`, "
-            "`section_slug` and `defect_key`: the helper writes each in one form, so one finding gets one fingerprint "
-            "from a checkout, a CLI install or a plugin.") in flow
-    # No formula anywhere in the file leaves the key out.
-    assert "|{section-slug}\")" not in text and "section-slug)[:7]" not in text
+    assert ("Use `{title}`, or `{regression_title}` after a `regression` verdict (§5a), exactly as printed wherever "
+            "the finding's title appears.") in flow
+    assert "No `title` means the names file held no description: add it there and run the call once more." in flow
+    # UltraCode Goal's quality gate (round 1, leanness-1): the model hashes nothing, so the step states no formula.
+    assert "sha1(" not in text and "sha1sum" not in text
 
 
 def test_the_defect_key_rule_says_how_to_pick_it():
     rule = _flow(_slice(_read(SHARED_HEALTH_CHECK), DRAFT, WRITE_DRAFT))
     for needle in (
-        "one to four lower-case ASCII words joined by hyphens that name the thing the fix would change",
         "in the step file's or the code's own words: a script by its file name, a function, a script subcommand",
-        "Pick the most specific name the fix would edit.",
+        "Pick the most specific name the fix would edit, so two defects in one section get two fingerprints and two "
+        "reports of one defect get one",
+        # The cap the helper holds (test_the_helpers_slug_and_key_rules_give_the_steps_examples): a name to keep short.
+        "the helper turns it into the defect key, one to four lower-case ASCII words (a longer name keeps its last "
+        "four).",
         "When the defect is a missing rule, there is no name to copy yet: name the case the rule should cover in two "
         "to four of the step file's own words, the noun the rule would be about, then what makes the case distinct.",
         "`floor_check` gives `floor-check`",
@@ -150,12 +142,11 @@ def test_the_defect_key_rule_says_how_to_pick_it():
 def test_the_step_says_how_to_name_the_step_file_and_the_section():
     rule = _flow(_slice(_read(SHARED_HEALTH_CHECK), DRAFT, WRITE_DRAFT))
     for needle in (
-        # A step file one workflow loads from another's references/ is that other workflow's: one fingerprint.
+        # A step file one workflow loads from another's references/ is that other workflow's: one fingerprint. The
+        # helper names that workflow when it is given the wrong one (test-skf-health-check-seen.py).
         "The step file is the `references/` file whose instruction bit, and `{workflow}` is the folder name of the "
-        "workflow whose `references/` folder holds it, such as `skf-test-skill`, never `test-skill` or a display "
-        "name: usually the workflow that just ran, and the other workflow for a step file loaded from its "
-        "`references/` (Update Skill loads `skf-create-skill/references/extraction-patterns.md`, a file of "
-        "`skf-create-skill`).",
+        "workflow whose `references/` folder holds it: usually the workflow that just ran, and the other workflow for "
+        "a step file loaded from its `references/`.",
         "The section is the heading of the innermost section of the step file that holds the instruction, copied "
         "exactly as the file writes it, numbering included.",
         "A bold run-in label (`**Foo.**`) is no heading: take the heading that encloses it.",
@@ -163,19 +154,25 @@ def test_the_step_says_how_to_name_the_step_file_and_the_section():
         "A defect in an instruction of the workflow's SKILL.md, of a script or of a `shared/references` file takes "
         "the step file that was running when it bit and the heading of that file's section that was running, or the "
         "file's H1 when none fits.",
+        # Round 1 architecture-2: the relays that hold an instruction of their own are step files too. Round 2: the
+        # section comes from the innermost-section rule, since Update Skill's relay has three headings, and a defect in
+        # its steps 1 to 1c named under the H1 or under `Steps` would get two fingerprints.
+        "A defect in what a workflow's own `references/health-check.md` does besides loading this step (Update "
+        "Skill's, Quick Skill's and Verify Stack's) takes that file, its section found by the innermost-section "
+        "rule above.",
     ):
         assert needle in rule, needle
+    assert "takes that file and its heading" not in rule
 
 
 def test_a_refused_value_is_fixed_once_and_never_loops():
     """A headless run has nobody to fix a value for it: a second refusal sends the finding to the local queue."""
     text = _read(SHARED_HEALTH_CHECK)
     rule = _flow(_slice(text, DRAFT, WRITE_DRAFT))
-    assert ("When it names the severity, the workflow, the step file, the name, the description or the names file, fix "
-            "that value and run the call once more; when it refuses the heading, take the heading that encloses that one (the file's "
-            "H1 at the top) and run the call once more. Never loop: when that second call is refused too, log its "
-            "message, naming the finding, give the finding the fingerprint `N/A` and send it to the local queue (§5c) "
-            "with the could-not-fingerprint reason instead of submitting it.") in rule
+    assert ("On exit 2 its stderr line names the value it refused: fix that value, or for a refused heading take the "
+            "heading that encloses it (the file's H1 at the top), and run the call once more. Never loop: when that "
+            "second call is refused too, log its message, naming the finding, give the finding the fingerprint `N/A` "
+            "and send it to the local queue (§5c) with the could-not-fingerprint reason.") in rule
     assert "Fix that value by its rule and run the call again." not in rule
     # A names file that was never written makes a call that prints no JSON: that is no missing helper.
     assert ("If the Write fails, or the shell says it cannot open that file, make no fingerprint call for this finding "
@@ -183,7 +180,8 @@ def test_a_refused_value_is_fixed_once_and_never_loops():
             "the error, naming the finding, give the finding the fingerprint `N/A` and send it to the local queue "
             "(§5c) with the could-not-fingerprint reason.") in rule
     queue = _flow(text[text.index("### 5c."):])
-    assert "SKF's health-check helper missing or unable to fingerprint a finding (§3)" in queue
+    assert ("a missing helper, no fingerprint, an unchecked draft, no repository or a refused call, which skips §4 "
+            "before the gate (§3)") in queue
     assert ('"SKF\'s health-check helper could not fingerprint these findings, so they carry the fingerprint N/A; '
             'compute it with its fingerprint call before submitting." (the could-not-fingerprint reason)') in queue
     assert "refused-values" not in text and "as its message says" not in text
@@ -194,26 +192,21 @@ def test_a_refused_value_is_fixed_once_and_never_loops():
             "anyone reviews it") in _flow(text)
 
 
-def test_the_step_states_the_helpers_slug_and_key_rules():
-    """The model no longer turns a heading into a slug or a name into a key: the helper does, as the step says."""
-    rule = _flow(_slice(_read(SHARED_HEALTH_CHECK), DRAFT, WRITE_DRAFT))
-    assert ("The section slug is the heading with its leading `#`s and its numbering token (`5a.`, `5a-ii.`) dropped, "
-            "lower-cased, each run of characters other than ASCII letters and digits turned into one hyphen and the "
-            "hyphens at its ends trimmed: `### 5a. Live-Submit Path: Dedup and Create` gives "
-            "`live-submit-path-dedup-and-create`.") in rule
-    assert ("The helper drops the backticks or quotes around the name, keeps its last path component, drops a `:N`, "
-            "`:N-M` or `:N:M` line suffix, a file extension and then its leading dashes and underscores, splits it at "
-            "spaces, underscores, hyphens, dots and each lower-case letter followed by an upper-case one, drops every "
-            "character of each word that is not an ASCII letter or digit, lower-cases each word and joins them with "
-            "hyphens (`scripts/gate_eval.py:42:7` gives `gate-eval`, `composeStories` gives `compose-stories`, "
-            "`reader's own code` gives `readers-own-code`); a name of more than four words keeps its last four.") in rule
-    assert ("A heading copied in another letter case or with other punctuation gives the same slug, so the helper takes "
-            "it as that heading.") in rule
-    # Every example the step gives is what the helper gives.
+def test_the_helpers_slug_and_key_rules_give_the_steps_examples():
+    """The model no longer turns a heading into a slug or a name into a key: the helper does, so the step states
+    neither rule (UltraCode Goal's quality gate, round 1, leanness-1) and the helper holds both, with every example
+    the step and the old prose gave."""
+    text = _read(SHARED_HEALTH_CHECK)
+    rule = _flow(_slice(text, DRAFT, WRITE_DRAFT))
+    for gone in ("The section slug is the heading with its leading", "The helper drops the backticks or quotes",
+                 "keeps its last path component"):
+        assert gone not in rule, gone
     helper = _helper()
     assert helper.section_slug("### 5a. Live-Submit Path: Dedup and Create") == "live-submit-path-dedup-and-create"
-    # The example is a heading of the step itself, so the own stage's call takes it.
-    assert "### 5a. Live-Submit Path: Dedup and Create\n" in _read(SHARED_HEALTH_CHECK)
+    # A heading copied in another letter case or with other punctuation gives the same slug.
+    assert helper.section_slug("### 5A. LIVE-SUBMIT PATH: dedup and create") == "live-submit-path-dedup-and-create"
+    # The heading is the step's own, so the own stage's call takes it.
+    assert "### 5a. Live-Submit Path: Dedup and Create\n" in text
     for name, key in re.findall(r"`([^`]+)` gives `([a-z0-9-]+)`", rule):
         if name.startswith("#"):
             assert helper.section_slug(name) == key, name
@@ -221,9 +214,14 @@ def test_the_step_states_the_helpers_slug_and_key_rules():
             assert helper.defect_key(name) == key, name
     for name, key in (("floor_check", "floor-check"), ("--orphan-action", "orphan-action"),
                       ("const holding function", "const-holding-function"),
+                      ("scripts/gate_eval.py:42:7", "gate-eval"), ("composeStories", "compose-stories"),
                       # Two independent reports of one defect wrote these two (PR #982's key-stability measurement).
-                      ("reader's own code", "readers-own-code"), ("readers own code", "readers-own-code")):
+                      ("reader's own code", "readers-own-code"), ("readers own code", "readers-own-code"),
+                      # A name of more than four words keeps its last four (DEFECT_KEY_WORDS), as the step says.
+                      ("the run lock release step", "run-lock-release-step"),
+                      ("one two three four five six", "three-four-five-six")):
         assert helper.defect_key(name) == key, name
+    assert helper.DEFECT_KEY_WORDS == 4
     for key in KEYS:
         assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+){0,3}", key), key
 
@@ -249,10 +247,12 @@ def test_the_step_hashes_nothing_and_works_no_cache_by_hand():
     for gone in ("sha1sum", "shasum", "python -c", "timeout 10", "Read `{seenCachePath}`", "append to `{seenCachePath}`",
                  "Read the existing file", "**Legacy records.**"):
         assert gone not in text, gone
-    calls = re.findall(r"^uv run \{seenCacheHelper\} (\w+)(?: |$)", text, re.MULTILINE)
-    # §3 fingerprints each finding and takes the version for its draft's Environment; §5a-i and §5b each have a plain
-    # record call and one with --regression; §5c queues each finding that stays local.
-    assert calls == ["fingerprint", "version", "lookup", "record", "record", "record", "record", "queue"], calls
+    calls = re.findall(r"^uv run \{seenCacheHelper\} ([\w-]+)(?: |$)", text, re.MULTILINE)
+    # §3 reads the settings once, fingerprints and checks each finding and takes the version for its draft's
+    # Environment; §5a-i and §5b each have a plain record call and one with --regression; §5c queues each finding
+    # that stays local.
+    assert calls == ["settings", "fingerprint", "check-draft", "version", "lookup", "record", "record", "record",
+                     "record", "queue"], calls
     frontmatter = text.split("\n---\n", 1)[0]
     # The last entry resolves from the SKF module root, as the path convention says: a plugin install has neither
     # {project-root} path.
@@ -262,29 +262,23 @@ def test_the_step_hashes_nothing_and_works_no_cache_by_hand():
     assert "seenCachePath: '$HOME/.skf/health-check-seen.json'" in frontmatter
     step = _flow(_slice(text, DRAFT, WRITE_DRAFT))
     assert "Resolve `{seenCacheHelper}` from `{seenCacheProbeOrder}`; first existing path wins." in step
-    assert ("Its last entry, `shared/scripts/skf-health-check-seen.py`, resolves from the SKF module root, as every "
-            "`shared/` path in this file does (the path convention above): the folder that holds the `shared/` folder "
-            "this file was loaded from, which is where a plugin install, with neither `{project-root}/_bmad/skf/` nor "
-            "`{project-root}/src/`, keeps it.") in step
+    assert ("Its last entry resolves from the SKF module root (the path convention above), where a plugin install "
+            "keeps it.") in step
     assert "> **Path convention:** This file is referenced as `shared/health-check.md`" in text
     # No helper, no hand-rolled fallback: the findings stay local, with their own reason.
     assert ("If no candidate exists, give each finding the fingerprint `N/A`, write its draft by hand as **Write the "
             "draft** says, and send every finding that §4 does not discard to the local queue (§5c) with the "
-            "missing-helper reason instead of submitting it: there is no fallback.") in step
-    assert ("so neither fingerprint is hashed by hand and `{seenCachePath}` is never read or written by hand."
-            in step)
-    assert ("makes the call exit 2 and print one `{\"status\": \"error\", \"message\": ...}` line on stderr that names "
-            "the rule") in step
+            "missing-helper reason: there is no fallback.") in step
+    assert "Never hash a fingerprint or read or write `{seenCachePath}` by hand: the helper does both." in step
+    assert "On exit 2 its stderr line names the value it refused" in step
     # A call the helper never answered (uv or Python could not start it) is a missing helper, not a value to fix.
-    assert ("A call that prints no JSON on stdout and no such line on stderr did not run the helper (uv or Python could "
-            "not start it, and uv's own errors exit 2 as well): treat it as a missing helper, so the finding gets the "
-            "fingerprint `N/A` and goes to the local queue (§5c) with the missing-helper reason.") in step
+    assert ("JSON on neither stream means the helper did not run: treat it as missing (fingerprint `N/A`, "
+            "missing-helper reason).") in step
     queue = _flow(text[text.index("### 5c."):])
-    assert "gh unavailable or a refused `gh` call (§5a sub-step 2)" in queue
+    assert "gh unavailable or refused (§5a sub-step 2)" in queue
     # A finding with no fingerprint has no header the queue call reads: its hand-written draft stands in.
-    assert ("A finding with the fingerprint `N/A` gets no queue call (its draft has no `body_header` the helper can "
-            "read), and nor does any finding when `{healthCheckRepo}` is no repository (§0) or after a refused call "
-            "(§3): list its draft (§3) in the queue file's place") in queue
+    assert ("A finding with the fingerprint `N/A` gets no queue call, and nor does any finding when `{healthCheckRepo}` "
+            "is no repository (§3) or after a refused call (§3): list its draft (§3) in the queue file's place") in queue
     assert '"SKF\'s health-check helper is missing; re-install SKF to submit these."' in queue
     draft = _flow(_slice(text, WRITE_DRAFT, "**Writing rules"))
     assert ("A finding with the fingerprint `N/A` has no `body_header`: write its header by hand in the same form, "
@@ -297,58 +291,47 @@ def test_the_step_hashes_nothing_and_works_no_cache_by_hand():
 # ---------------------------------------------------------------- the legacy fallback
 
 
-def test_the_seen_cache_falls_back_to_the_legacy_fingerprint():
+def test_the_step_maps_each_verdict_to_its_action():
+    """The helper works the cache, the issue's state, --repo and the legacy fallback (test-skf-health-check-seen.py
+    pins every branch); the step maps its five verdicts to skip, submit or submit with a `## Regression` section
+    (UltraCode Goal's quality gate, round 1, leanness-2)."""
     text = _read(SHARED_HEALTH_CHECK)
     raw = _slice(text, SUB_STEP_2, SUB_STEP_3)
     assert 'uv run {seenCacheHelper} lookup --fp "{fp}" --legacy-fp "{legacy_fp}" --repo "{healthCheckRepo}"\n' in raw
     step = _flow(raw)
-    # The cache serves every project on the machine: another repository's issue neither suppresses nor links.
-    assert ("The cache serves every project on the machine, so with `--repo` a record of an issue on another "
-            "repository than `{healthCheckRepo}` counts as no record: it neither suppresses this finding nor gives its "
-            "body a line linking that issue, and `gh` is never asked about it.") in step
     assert "If the call fails or prints no JSON, continue as `unseen`: this check never halts a run." in step
-    assert ("The helper looks up `{fp}`, and only when the cache has no record for it, `{legacy_fp}`, then works its "
-            "branches on the record found.") in step
-    # One line per verdict the helper prints, in its branch order, each saying what comes next.
-    verdicts = re.findall(r"^- `([a-z-]+)`: ", raw, re.MULTILINE)
-    assert verdicts == ["unseen", "handled", "regression", "possible-regression", "unrecognized"]
+    bullets = re.findall(r"^- `([a-z-]+)`(?: and `([a-z-]+)`)?[,:]", raw, re.MULTILINE)
+    assert sorted(v for pair in bullets for v in pair if v) == sorted(
+        ["unseen", "handled", "regression", "possible-regression", "unrecognized"]), bullets
     for needle in (
-        "- `unseen`: no record under either fingerprint (a record of an issue on another repository counts as none), "
-        "or a record found only under `{legacy_fp}` (`matched_on` is `legacy_fp`) that would have suppressed. That "
-        "record was written by an SKF version without the defect key",
-        "so it may be another defect's: log `\"{fp}: legacy record {legacy_fp} may be another defect, reporting\"`",
-        "sub-step 3 still offers its issue while that issue is open. Go to sub-step 2.",
-        "- `possible-regression`: the same, found only under `{legacy_fp}`, so what was fixed may be another defect "
-        "in this section. Go to sub-step 2 and apply the possible-regression treatment below.",
-        "- `regression`: a record under `{fp}` marked `resolved` (with the helper's `record --action resolved`) once "
-        "the defect was fixed, or whose issue was closed as completed",
-        "was closed as not planned (how the dedup Action closes a duplicate and a maintainer closes a wontfix, neither "
-        "of them a fix)",
+        "- `handled`, the only verdict that suppresses: skip the finding and log "
+        "`\"{fp}: already handled on {date}, issue {url}, skipping\"`.",
+        "- `unseen` and `unrecognized`: submit it as a first sighting. When `matched_on` is `legacy_fp`, log "
+        "`\"{fp}: legacy record {legacy_fp} may be another defect, reporting\"`.",
+        "- `regression`: file it under `{regression_title}` in place of `{title}` (§5a-ii, §5c), and add a "
+        "`## Regression` section to the draft right above `## Finding`, holding the `opening_line` exactly as printed.",
+        "- `possible-regression`: add the same section, and keep `{title}`: the fix it links may be another defect's.",
+        "Every verdict but `handled` goes on to sub-step 2. If adding the `## Regression` section fails, log its error "
+        "and write the finding to the local queue (§5c) with the failed-submission reason.",
     ):
         assert needle in step, needle
-    # What the old prose said around the branches stays.
-    assert ("**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT "
-            "suppress: a fresh sighting of a fixed defect is a *regression*") in step
-    assert "**`handled` is the only verdict that suppresses.**" in step
+    # What the helper decides is no longer retold.
+    for gone in ("**Presence in the cache is not the verdict.**", "**What this does and does not catch.**",
+                 "**Why anything uncertain reports instead of suppressing.**", "The cache serves every project"):
+        assert gone not in text, gone
+    # The reason the helper reports anything uncertain lives beside the verdicts it gives.
+    doc = _helper().__doc__
+    assert "handled is the only verdict that suppresses a report." in doc
+    assert "a duplicate heals itself" in doc and "silenced regression is caught by nothing" in doc
 
 
 def test_a_legacy_regression_is_only_a_possible_one():
     text = _read(SHARED_HEALTH_CHECK)
-    treatment = _flow(_slice(text, "**Possible regression** (verdict `possible-regression` only).",
-                             "**What this does and does not catch.**"))
-    assert "Add the same `## Regression` section, with the `opening_line` sub-step 1 printed, exactly as printed" in \
-        treatment
-    assert "Leave the title unmarked, `{title}`" in treatment
-    # The helper writes the line, as UCG's does: the regression's own treatment copies it too.
-    regression = _flow(_slice(text, "**Regression treatment**", "**Possible regression**"))
-    assert ("Add a `## Regression` section to the draft immediately above `## Finding`, containing one line: the "
-            "`opening_line` sub-step 1 printed, exactly as printed.") in regression
-    # The regression title is the helper's, with the marker before the description.
-    assert ("File the finding under `{regression_title}` (§3), the title with `REGRESSION: ` before its short "
-            "description, in place of `{title}`: the create (§5a-ii) and the queue (§5c) take it.") in regression
-    assert "\u2014 REGRESSION" not in _read(SHARED_HEALTH_CHECK), "the old suffix marker"
-    assert "`Regression of {issue_url} (resolved {date}).` after a `resolved` record, whose date is the fix's" in \
-        regression
+    step = _flow(_slice(text, SUB_STEP_2, SUB_STEP_3))
+    assert "- `possible-regression`: add the same section, and keep `{title}`" in step
+    # The helper writes the line, as UCG's does (test-skf-health-check-seen.py's TestOpeningLine pins its text).
+    assert "holding the `opening_line` exactly as printed" in step
+    assert "\u2014 REGRESSION" not in text, "the old suffix marker"
     assert "resolved {date}.`" not in text, "no hand-written line that dates a fix by its report"
     # The title marker stays with `regression` alone.
     create = _flow(_slice(text, SUB_STEP_5A_II, "### 5b."))
@@ -369,10 +352,7 @@ def test_the_remote_search_falls_back_to_the_legacy_fingerprint():
     flow = _flow(search)
     assert "When it finds none, search once more, for the section fingerprint in titles and bodies" in flow
     # Bodies too: a keyed issue from the same section under another key carries the section fingerprint only there.
-    assert ("Each issue this second search finds is a possible match: it was filed by an SKF version whose "
-            "fingerprints carry no defect key, or it reports a defect of this severity in this section under another "
-            "defect key.") in flow
-    assert "the user decides at 5a-i" in flow
+    assert "Each issue this second search finds is only a possible match: the user decides at 5a-i." in flow
 
 
 def test_a_keyless_fingerprint_is_not_dated_to_this_change():
@@ -380,7 +360,8 @@ def test_a_keyless_fingerprint_is_not_dated_to_this_change():
     text = _flow(_read(SHARED_HEALTH_CHECK))
     assert "filed before fingerprints carried a defect key" not in text
     assert "made before the key existed" not in text
-    assert "Issues and seen-cache records made by an SKF version without the key carry it" in text
+    assert ("`{legacy_fp}` is the section fingerprint, the same hash without the defect key, so a match on it is only "
+            "ever a possible match.") in text
 
 
 def test_a_legacy_match_goes_to_the_users_choice():
@@ -388,17 +369,14 @@ def test_a_legacy_match_goes_to_the_users_choice():
     assert ("When the issues were found by `{legacy_fp}`, list each one and present the same options under this "
             "opening instead") in choice
     assert '"**Possible match:** #{N}: {title} (one line for each issue found)' in choice
-    assert "it was filed by an SKF version whose fingerprints carry no defect key, or it reports a defect in this " \
-           "section under another defect key" in choice
+    assert ("It carries this section's fingerprint `{legacy_fp}`, which every `{severity}` finding in this section "
+            "shares, so it may report another defect.") in choice
     assert "naming it when more than one is listed, and **\\[N]** if none does" in choice
     for option in ("**\\[R]**", "**\\[C]**", "**\\[N]**", "**\\[S]**"):
         assert option in choice, option
-    # Headless never reaches it; a run with nobody to ask never acts on a guess.
     # A headless run with autosubmit on reaches it, and never acts on a guess.
-    assert "**Headless default: \\[S].** Only the user decides a match." in choice
-    assert ("A headless run, which reaches this choice only with `{healthCheckAutosubmit}` on (§4), takes **\\[S]** at "
-            "an exact or a possible match, so the finding goes to the local queue (§5c) with the match reason after an "
-            "exact match and the possible-match reason after a possible one, and nothing is posted on a guess.") in choice
+    assert ("**Headless default: \\[S].** Only the user decides a match: a headless run takes **\\[S]** at an exact or "
+            "a possible match, with the match or the possible-match reason.") in choice
     # #1202: only a reaction or comment that posted is recorded (test-skf-health-check-gh-calls.py pins the rest).
     assert ("When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was "
             "found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**") in choice
@@ -408,10 +386,9 @@ def test_a_legacy_match_goes_to_the_users_choice():
     assert f"{reaction}\n" in raw and f"{reaction} --regression\n" in raw
     # After a regression verdict, a plain call leaves the hand-written `resolved` record in place, so every later
     # session would get `regression` again and ask about the same open issue (#1122, review loop 1).
-    assert ("When sub-step 1 returned `regression`, run this one instead: **R** or **C** says this open issue reports "
-            "the defect, so it now tracks the recurrence and replaces the `resolved` record the fix left under "
-            "`{fp}`.") in choice
-    assert "**S** records nothing, and **N** records its new issue in §5b." in choice
+    assert ("When sub-step 1 returned `regression`, run this one instead, since this open issue now tracks the "
+            "recurrence:") in choice
+    assert "- **S:** Record nothing" in choice
     assert "Read what the call prints as §5b says; if it fails, log its stderr message and go on." in choice
 
 
@@ -419,16 +396,13 @@ def test_new_at_an_exact_match_names_the_defect_more_specifically():
     """The issue 5a-ii creates carries the `{fp}` label, which the dedup Action closes as a duplicate of the
     open match: [N] there has to change the key first. A possible match carries another label."""
     choice = _flow(_slice(_read(SHARED_HEALTH_CHECK), "**5a-i. If a matching open issue exists:**", SUB_STEP_5A_II))
-    assert ("**N:** After a match found by `{fp}`: the open issue carries this same fingerprint, so a new issue "
-            "under it would be closed as its duplicate. Choose a more specific defect key that names what sets this "
-            "defect apart (the more specific name the fix edits, or the case it covers, still in the source's words), "
-            "write the names file anew with the new name, run §3's fingerprint call again on it and write the draft "
-            "anew under the new `{fp}`, without a section the old verdict added, then run sub-steps 1 to 3 again for "
-            "the new fingerprints and act on what they return as for any finding.") in choice
+    assert ("**N:** After a match found by `{fp}`, a new issue under that fingerprint would be closed as its duplicate: "
+            "choose a more specific defect name that sets this defect apart, still in the source's words, write the "
+            "names file anew, run §3's fingerprint call again and write and check the draft anew under the new `{fp}`, "
+            "as §3 does, without a section the old verdict added, then run sub-steps 1 to 3 again for it.") in choice
     # A longer name can give the same key, so the same match would come back: that is a skip.
-    assert ("When the new `{fp}` is the old one (the new name gives the same key), take **S** instead." in choice)
-    assert ("After a possible match, proceed to step 5a-ii as is: that issue's `fp-*` label differs from `{fp}`."
-            in choice)
+    assert "When the new `{fp}` is the old one, take **S** instead." in choice
+    assert "After a possible match, go on to 5a-ii as is: that issue's `fp-*` label differs from `{fp}`." in choice
     assert "- **N:** Proceed to step 5a-ii." not in choice
     action = _read(REPO / ".github" / "workflows" / "health-check-dedup.yaml")
     assert "labels: `health-check,${fpLabel}`" in action
@@ -437,7 +411,7 @@ def test_new_at_an_exact_match_names_the_defect_more_specifically():
 def test_a_run_with_nobody_to_ask_queues_with_its_own_reason():
     text = _read(SHARED_HEALTH_CHECK)
     queue = _flow(text[text.index("### 5c."):])
-    assert "**\\[S]** at the dedup gate, the user's or a headless run's (§5a-i)" in queue
+    assert "**\\[S]** (§5a-i)" in queue
     reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
     assert ('"These may match an open issue from the same section; review them before submitting." '
             "(the possible-match reason)") in reasons
@@ -445,42 +419,41 @@ def test_a_run_with_nobody_to_ask_queues_with_its_own_reason():
             'review." (the match reason)') in reasons
 
 
-def test_a_differently_named_report_is_safe_but_unlinked():
-    caught = _flow(_slice(_read(SHARED_HEALTH_CHECK), "**What this does and does not catch.**", SUB_STEP_3))
-    assert ("changes the fingerprint. So does a report that names the same defect by another thing than an earlier "
-            "report did: independent reports of one defect often pick different keys.") in caught
-    assert "safe but unlinked here; once it is filed, the dedup Action flags it (§5a-ii)." in caught
-
-
-def test_the_step_says_the_action_flags_a_shared_section_fingerprint():
-    filing = _flow(_slice(_read(SHARED_HEALTH_CHECK), SUB_STEP_5A_II, "### 5b."))
-    assert ("The dedup Action reads the body's `Section fingerprint:` line too. When the new issue matches no open "
-            "issue's fingerprint but another open health-check issue records the same section fingerprint under a "
-            "different defect key, or was filed without a key and carries it as its label, the Action comments with a "
-            "link to each such issue and adds the `possible-duplicate` label. It closes nothing on that match") in filing
+def test_a_differently_named_report_is_left_to_the_docs_and_the_action():
+    """The step no longer retells what the fingerprint cannot catch or what the dedup Action does with a shared
+    section fingerprint (round 1, leanness-2): the docs say it (test_the_docs_state_the_keyed_fingerprint) and the
+    Action does it (the node tests below)."""
+    text = _read(SHARED_HEALTH_CHECK)
+    assert "safe but unlinked" not in text and "possible-duplicate" not in text
+    bullet = next(line for line in _read(WORKFLOWS_DOC).splitlines() if line.startswith("- **Fingerprint dedup.**"))
+    assert ("Two reports of one defect often name it differently, so a report you open anyway can arrive as a new "
+            "issue even when it duplicates an open one.") in bullet
 
 
 def test_the_seen_cache_is_written_under_the_new_fingerprint():
     text = _read(SHARED_HEALTH_CHECK)
-    assert "After the issue is created, record it under `{fp}` as §5b says" in _flow(text)
+    assert "After the issue is created, record it under `{fp}` as §5b says." in _flow(text)
     raw = _slice(text, "### 5b.", "### 5c.")
     created = 'uv run {seenCacheHelper} record --fp "{fp}" --action created --issue-url "{new_issue_url}" --date "{today}"'
     assert f"{created}\n" in raw and f"{created} --regression\n" in raw
     cache = _flow(raw)
     assert ("When sub-step 1 returned `regression`, run this one instead: the new issue tracks the recurrence, so it "
             "replaces the `resolved` record the fix left under `{fp}`.") in cache
-    assert ("It writes under `{fp}` only: a record under `{legacy_fp}` stays exactly as it is, whatever its action"
-            in cache)
-    assert "It never downgrades a `resolved` record: without `--regression` it leaves one alone" in cache
-    assert "It merges, never replaces: it sets the `{fp}` key alone and keeps every other fingerprint" in cache
+    # What the helper guarantees is its own (TestRecord): the step keeps what the model acts on (spec-gh-1122).
+    assert ('`"written": false` is no error: the helper kept a `resolved` record, which only `--regression` '
+            "replaces.") in cache
+    assert ("If the call fails, log its stderr message and go on: a lost record costs at most a duplicate report, "
+            "which the dedup Action closes.") in cache
+    assert "**What the helper guarantees.**" not in cache
     # A cache the helper set aside is named to the user, who can still copy its records back.
     assert ("When `set_aside` is not null, after this call or §5a-i's, tell the user that `{seenCachePath}` did not "
             "parse, so it was renamed to that path and a new cache was started, and that they keep its records by "
             "fixing that file and copying its entries into `{seenCachePath}`.") in cache
-    # The vocabulary and the global-file note stay; the helper makes the folder, so the step does not.
+    # The vocabulary stays; the helper makes the folder, so the step does not.
     assert "**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.**" in cache
-    assert ("This file is global across the user's machine, not per-project, so the same defect is not re-reported "
-            "across different repos the user works in while its issue stays open.") in cache
+    assert ("Nothing else is recorded: not a queued finding, not **\\[S]**, not a failed or refused call. A queued "
+            "finding is not an issue, and a record for it would suppress the same defect when a later run approves "
+            "it.") in cache
     assert "Ensure the parent directory exists." not in text
 
 
@@ -496,7 +469,6 @@ def test_the_issue_body_records_every_fingerprint_input():
     assert [h for h in headings if h in order] == order
     assert "## Section\n`{section-slug}`\n" in body
     assert "## Defect Key\n`{defect-key}`\n" in body
-    assert "sha1(severity|workflow|step_file|section-slug|defect-key)[:7]" in body
     # The section fingerprint rides in the body, where the fallback search reads it, and never as a label,
     # because the dedup Action takes the first `fp-*` label it finds.
     fingerprint = _slice(body, "## Fingerprint", "## Defect Key")
@@ -504,7 +476,7 @@ def test_the_issue_body_records_every_fingerprint_input():
     assert "body text only, never a label, since the dedup Action reads it to flag possible duplicates." in _flow(body)
     # The Action finds that line by the pattern the body writes it in, at the start of a line.
     assert "const SECTION_RE = /^Section fingerprint: `(fp-[0-9a-f]{7})`/m;" in _read(DEDUP_WORKFLOW)
-    create = _slice(text, "**Then create the issue:**", "The fingerprint `{fp}` appears in both title")
+    create = _slice(text, "**Then create the issue:**", "When sub-step 1 returned `regression`, put")
     assert '--label "health-check,workflow-improvement,{severity},{fp}"' in create
     assert "legacy_fp" not in create
 
@@ -789,7 +761,7 @@ def _skf_title(severity: str, fp: str, regression: bool = False) -> str:
     """SKF's title as §5a-ii's create command takes it from the helper: `{title}`, or `{regression_title}` after a
     regression, whose marker comes before the description."""
     text = _read(SHARED_HEALTH_CHECK)
-    command = _slice(text, "**Then create the issue:**", "The body file is the finding's draft")
+    command = _slice(text, "**Then create the issue:**", "When sub-step 1 returned `regression`, put")
     (template,) = re.findall(r'--title "([^"]+)"', command)
     assert template == "{title}"
     assert "put `{regression_title}` in that `--title` value in place of `{title}`" in _flow(text)

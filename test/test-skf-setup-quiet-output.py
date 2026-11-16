@@ -1069,10 +1069,13 @@ def test_campaign_relay_carries_no_routing_consent():
 # ---------------------------------------------------------------- agent notes between tool calls
 
 
-@pytest.mark.parametrize("name", [*STEP_FILES, "health-check.md"])
+@pytest.mark.parametrize("name", STEP_FILES)
 def test_every_setup_step_forbids_notes_between_tool_calls(name):
     """Live quiet runs showed the agent narrating step transitions, so each
-    step restates the rule where the agent reads it, not only SKILL.md."""
+    step restates the rule where the agent reads it, not only SKILL.md. Step 5,
+    the health-check relay, runs only when quiet mode is off (SKILL.md, #1183),
+    so it holds the one load and no rule (round 1 of #226's quality gate,
+    leanness-8)."""
     rules = _section(_read(REFS / name), "## Rules")
     assert NO_NARRATION_RULE in rules
 

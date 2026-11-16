@@ -28,6 +28,11 @@ the default one, with **[Y]** for the bug findings and **[A]** for all of them; 
 finding about the health check itself is only ever queued; and the helper's `queue` writes each local finding with
 the commands that submit it. Every `gh` call stands alone, with `--repo` right after its subcommand, so an allow
 rule, scoped to the repository or not, matches it.
+
+The round-1 quality gate of that change (#226) moved the rest of the deterministic work to the helper: `settings`
+reads the two config keys, `check-draft` refuses a draft that names the user's folders before anything is posted,
+and the step, held to its token budget, keeps only what the model judges or acts on. A call refused before the gate
+skips it and goes to the local queue.
 """
 
 from __future__ import annotations
@@ -185,25 +190,25 @@ def test_r_and_c_react_and_comment_on_the_health_check_issue():
     assert "- **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`\n" in actions
     # The comment's body goes in a file, written and shown to the user before either call, so a Write that fails
     # posts nothing and what is posted is what was shown.
-    assert ("- **C:** Write the delta body, the Environment table plus ONE sentence describing what's different from "
-            "the original and no session narrative, with the Write tool to "
-            "`{localFallbackFolder}/bodies/{fp}-comment-{timestamp}.md`, as **Write the draft** in §3 writes a draft, "
-            "and show the user its text. Then run the same reaction call, then "
+    assert ("- **C:** Write the delta body, the Environment table plus one sentence on what differs from the "
+            "original, with no session narrative, with the Write tool to "
+            "`{localFallbackFolder}/bodies/{fp}-comment-{timestamp}.md`, check that file as §3 checks a draft, and "
+            "show the user its text. Then run the same reaction call, then "
             f"`gh issue comment --repo {{healthCheckRepo}} {{N}} {COMMENT_FILE}`. If the Write fails, make no call for "
             "this finding: log the error and write the finding to the local queue (§5c) with the failed-submission "
-            "reason.") in _flow(actions)
-    assert ("The **R** and **C** calls name `{healthCheckRepo}`, as the step's other issue calls do: without it, `gh` "
-            "reacts or comments on the repository of the folder the workflow ran in, usually the user's own "
-            "project.") in _flow(actions)
+            "reason; a comment the check refused twice or could not check posts nothing either, and the finding goes "
+            "there with the unchecked-draft reason.") in _flow(actions)
+    # Every issue call names the repository (test_every_gh_call_with_a_placeholder_names_the_health_check_repository).
+    assert "If the **R** or **C** call exits non-zero" in _flow(actions)
 
 
 def test_only_a_reaction_or_comment_that_posted_is_recorded():
     text = _read(SHARED_HEALTH_CHECK)
     choice = _flow(_slice(text, SUB_STEP_5A_I, SUB_STEP_5A_II))
-    rule = ("If one of them exits non-zero, log its stderr message and make no further call for this finding: **C** "
-            "posts no comment after a failed reaction, and a reaction it already added stays. Record nothing (run "
-            "neither record call below) and write the finding to the local queue (§5c) with the failed-submission "
-            "reason.")
+    rule = ("If the **R** or **C** call exits non-zero, log its stderr message and make no further call for this "
+            "finding: **C** posts no comment after a failed reaction, and a reaction it already added stays. Record "
+            "nothing (run neither record call below) and write the finding to the local queue (§5c) with the "
+            "failed-submission reason.")
     assert rule in choice
     success = ("When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was "
                "found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**")
@@ -215,10 +220,7 @@ def test_only_a_reaction_or_comment_that_posted_is_recorded():
     plain = choice.index(f"{record} ```")
     regression = choice.index(f"{record} --regression ```")
     instead = choice.index("When sub-step 1 returned `regression`, run this one instead")
-    # A **C** whose reaction or comment failed keeps its comment file, named by the finding's fingerprint.
-    kept = ("When **C** fails, its comment file stays in `{localFallbackFolder}/bodies/`, its name starting with the "
-            "finding's fingerprint.")
-    assert choice.index(rule) < choice.index(kept) < choice.index(success) < plain < instead < regression
+    assert choice.index(rule) < choice.index(success) < plain < instead < regression
     # The queue takes the finding, with a reason of its own.
     queue = _flow(text[text.index("### 5c."):])
     assert "or a reaction, comment or new issue that failed to post (§5a-i, §5a-ii)." in queue
@@ -226,7 +228,10 @@ def test_only_a_reaction_or_comment_that_posted_is_recorded():
     assert '"Posting these to GitHub failed." (the failed-submission reason).' in reasons
     assert ('"SKF\'s health-check helper could not fingerprint these findings, so they carry the fingerprint N/A; '
             'compute it with its fingerprint call before submitting." (the could-not-fingerprint reason)') in reasons
-    assert '"The review gate queued these locally."' in reasons
+    # A reason its route quotes is not listed again.
+    assert "the one its route quotes, or the one named here:" in reasons
+    assert '"The review gate queued these locally."' not in reasons
+    assert 'the reason "The review gate queued these locally."' in _flow(_slice(text, "- **IF Q:**", "### 5."))
 
 
 def test_no_body_goes_on_the_command_line():
@@ -246,33 +251,24 @@ def test_no_body_goes_on_the_command_line():
 
 def test_each_body_is_written_to_a_file_with_the_write_tool():
     text = _read(SHARED_HEALTH_CHECK)
-    raw = _slice(text, CREATE, "The fingerprint `{fp}` appears in both title")
+    raw = _slice(text, CREATE, "When sub-step 1 returned `regression`, put")
     # The command keeps its other lines; the title is the one the helper printed.
     assert ('  --title "{title}" \\\n'
             '  --label "health-check,workflow-improvement,{severity},{fp}" \\\n'
             f"  {BODY_FILE}\n```\n") in raw
-    assert ("The body file is the finding's draft, `{draft_path}` (§3), and `{title}` the title §3's call printed."
-            in _flow(raw))
     # §3 writes every draft before the gate, so the gate shows what `gh` posts and the queue copies.
     draft = _flow(_slice(text, WRITE_DRAFT, WRITING_RULES))
     for needle in (
         "**Write the draft.** Write each finding's issue body (the format below) with the Write tool to a file of its "
-        "own, `{localFallbackFolder}/bodies/{fp}-{timestamp}.md`, `{timestamp}` being the time of the write as "
-        "YYYYMMDD-HHmmss, opening with the call's `body_header` exactly as printed. From here on `{draft_path}` is "
-        "the path of the draft this step wrote for the finding.",
-        "SKF has no run folder at this step, so every draft lives in `bodies/`.",
-        "Every route uses that file as it stands: the review gate shows it (§4), `gh` posts it with `--body-file` "
-        "(§5a-ii) and the queue copies it (§5c).",
-        "on the command line, inside double quotes, the shell would run each backticked span or `$(...)` as a "
-        "command and put its output in its place, and a double quote in it would end the argument.",
-        "So a body never goes on the command line, and the file is never written through the shell (`echo`, "
-        "`printf` or a heredoc), which can expand it the same way.",
+        "own, `{localFallbackFolder}/bodies/{fp}-{timestamp}.md`, opening with the call's `body_header` exactly as "
+        "printed: `{draft_path}` is its path from here on.",
+        "Every route uses that file as it stands, and after the gate it changes only by a regression's "
+        "`## Regression` section (§5a sub-step 1) or an **\\[N]** re-key at the dedup gate (§5a-i).",
+        "Never put a body on the command line or write it through the shell (`echo`, `printf` or a heredoc): the "
+        "shell would run each backticked span or `$(...)` in it, and a double quote in it would end the argument.",
         # With no draft written, there is nothing to show, post or queue.
         "If the Write fails, log the error, naming the finding, and drop the finding: there is no text to show, post "
         "or queue.",
-        # Each post keeps its own file, out of the queue's findings, so none is replaced or read as one waiting.
-        "The file stays after the run, in `bodies/` apart from the findings the queue holds, as the record of what "
-        "was sent or tried.",
     ):
         assert needle in draft, needle
     # Inside double quotes a backslash still escapes what follows it, the closing quote included: the helper refuses
@@ -285,17 +281,12 @@ def test_each_body_is_written_to_a_file_with_the_write_tool():
 def test_a_create_that_failed_goes_to_the_local_queue_with_its_body():
     text = _read(SHARED_HEALTH_CHECK)
     create = _flow(_slice(text, CREATE, CLOSING))
-    recorded = ("After the issue is created, record it under `{fp}` as §5b says, so this user does not re-report it "
-                "while that issue stays open.")
+    recorded = "After the issue is created, record it under `{fp}` as §5b says."
     retry = ("If `gh issue create` exits non-zero, run it once more without its `--label` line, with the same title "
              "(`{regression_title}` after a `regression` verdict) and the same body file: a reporter without push "
-             "access to "
-             "`{healthCheckRepo}` can set no label, and the dedup Action labels the issue from its title. A create "
-             "that succeeded on that retry is recorded as §5b says, as one that succeeded at once is.")
-    failed = ("If the retry exits non-zero too, log its stderr message and record nothing: §5b runs only after a "
-              "create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding "
-              "to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its "
-              "queue file holds its draft, unchanged, so what failed to post is what waits to be submitted.")
+             "access to `{healthCheckRepo}` can set no label, and the dedup Action labels the issue from its title.")
+    failed = ("If the retry exits non-zero too, log its stderr message, record nothing, and write the finding to the "
+              "local queue (§5c) with the failed-submission reason.")
     assert recorded in create and retry in create and failed in create
     assert create.index(recorded) < create.index(retry) < create.index(failed)
     # §5b records a create that succeeded on either run.
@@ -308,7 +299,7 @@ def test_a_create_that_failed_goes_to_the_local_queue_with_its_body():
     # The queue file of a failed create holds the draft that failed to post, with no frontmatter.
     queue = _flow(text[text.index("### 5c."):])
     assert ("It copies the draft, unchanged and with no frontmatter, to "
-            "`{localFallbackFolder}/hc-{workflow}-{YYYYMMDD-HHmmss}.md`, named by the UTC time of the copy") in queue
+            "`{localFallbackFolder}/hc-{workflow}-{YYYYMMDD-HHmmss}.md` (UTC)") in queue
     assert "```yaml" not in text and "type: workflow-health-finding" not in text
 
 
@@ -322,9 +313,8 @@ def test_the_label_create_runs_on_its_own_and_its_failure_is_no_error():
                      '--description "Health-check fingerprint dedup key"'], calls
     # No shell glue: a call the session allows on its own needs no `|| true` or redirect after it.
     assert "|| true" not in text and "2>/dev/null" not in text
-    assert ("If it exits non-zero, that is no error: the label exists already (a second reporter of a defect whose "
-            "earlier issue was closed, or a parallel submission), or you have no push access to `{healthCheckRepo}` "
-            "and cannot create one. Go on to the create.") in _flow(label)
+    assert ("If it exits non-zero, that is no error: the label exists already, or you have no push access to "
+            "`{healthCheckRepo}` and cannot create one. Go on to the create.") in _flow(label)
     # The title keeps the prefix the dedup Action labels a report without labels from.
     create = _flow(_slice(text, CREATE, CLOSING))
     assert ("Keep the title's `[health-check][{severity}][{fp}] {workflow}: ` prefix exactly as the helper printed it: "
@@ -349,10 +339,9 @@ def test_a_run_that_posts_and_queues_says_workflow_complete_once_and_last():
     assert closing == (
         '**Closing line.** The step displays "Workflow complete." once, after everything else it displays but a bound '
         "`{result_envelope_line}` (§0). When any finding of this run goes to the local queue (§5c), display nothing "
-        'more here: §5c writes its files, then ends its block with that line. Otherwise display "Workflow complete." '
-        "now, after the block above, or alone when no issue was created because every finding was a reaction or a "
-        "comment that posted (§5a-i) or one the seen-cache found handled (§5a sub-step 1). When "
-        "`{result_envelope_line}` is bound (§0), display it verbatim after that line, as the last line.")
+        'more here: §5c ends its block with that line. Otherwise display "Workflow complete." now, after the block '
+        "above, or alone when no issue was created. When `{result_envelope_line}` is bound (§0), display it verbatim "
+        "after that line, as the last line.")
     # §5c's blocks, displayed after its files are written, end with the line, and only the result line comes after.
     queue = text[text.index("After writing the files,"):]
     assert queue.rstrip().endswith('"Workflow complete."\n\nWhen `{result_envelope_line}` is bound (§0), display it '
@@ -363,6 +352,15 @@ def test_a_run_that_posts_and_queues_says_workflow_complete_once_and_last():
 # ---------------------------------------------------------------- the gate and routing (UltraCode Goal's #226)
 
 DEFAULT_REPO = "armelhbobdad/bmad-module-skill-forge"
+
+
+def helper():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("skf_hc_seen_gh_calls",
+                                                  REPO / "src" / "shared" / "scripts" / "skf-health-check-seen.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _section(text: str, heading: str) -> str:
@@ -378,56 +376,116 @@ def test_an_empty_repository_turns_the_check_off_before_anything_else():
     # Before the announcement, and so before the reflection.
     assert arrival.index("**Off switch.**") < arrival.index("**Display in `{communication_language}`:**")
     flow = _flow(arrival[arrival.index("**Off switch.**"):])
-    # Both keys are read here: a workflow binds only its own config keys, so neither frontmatter value is bound.
-    assert ("**Off switch.** Before anything else, read the `health_check_repo` and `health_check_autosubmit` keys of "
-            "`{project-root}/_bmad/skf/config.yaml` yourself: a workflow binds only its own config keys, so neither "
-            "frontmatter value is bound for you. A missing `config.yaml` counts as both keys absent: the default "
-            "repository, autosubmit off. Resolve `{healthCheckRepo}` from `health_check_repo`:") in flow
-    assert ("Resolve `{healthCheckAutosubmit}` from `health_check_autosubmit`: it is on only when the key's value is "
-            "exactly `true`; absent, unresolved or any other value is off.") in flow
-    # Every YAML null and a value of only whitespace are empty.
-    assert ("- The key is there with an empty value: `''`, `\"\"`, nothing after its colon, only whitespace, or a YAML "
-            "null (`~`, `null`, `Null` or `NULL`). The health check is off.") in flow
+    # The model reads the one key itself: a switched-off run makes no helper call (round 1, determinism-1).
+    assert ("**Off switch.** Before anything else, read `health_check_repo` in `{project-root}/_bmad/skf/config.yaml` "
+            "yourself: a workflow binds only its own config keys. When the key is there and empty (`''`, `\"\"`, "
+            "nothing or only a comment after its colon, or a YAML null such as `~` or `null`), the health check is "
+            "off") in flow
     # One off line and the completion line, then the envelope line last, and nothing reflected on.
     assert ('"**Health Check: off.** `health_check_repo` is empty in `_bmad/skf/config.yaml`, so nothing was reviewed '
             'or sent. Workflow complete."') in flow
-    assert ("then, when `{result_envelope_line}` is bound, that line verbatim, as the last line. STOP: announce "
-            "nothing, and read no workflow context and reflect on nothing.") in flow
-    # Absent (every BMAD Method install) or unresolved: the default.
-    assert ("- The key is absent (a BMAD Method install writes none), or `{healthCheckRepo}` is still the unresolved "
-            f"`{{health_check_repo}}`: `{{healthCheckRepo}}` is the default, `{DEFAULT_REPO}`.") in flow
+    assert ("then, when `{result_envelope_line}` is bound, that line verbatim, as the last line, and STOP: announce "
+            "nothing and reflect on nothing.") in flow
+    # Absent (every BMAD Method install) or no file: the default, until the helper reads the file.
+    assert (f"Otherwise `{{healthCheckRepo}}` is that value, or `{DEFAULT_REPO}` when the key or the file is absent, "
+            "until §3's `settings` call checks it.") in flow
     assert "wherever this step stops (the off switch below, the clean-run stop in §2," in _flow(arrival)
     assert f'default: "{DEFAULT_REPO}"' in _read(REPO / "src" / "module.yaml")
+    # The helper's settings call decides the rest, and an off state it finds stops the check as §0's does.
+    settings = _flow(_slice(text, "**Read the settings.**", "**A refused call.**"))
+    assert 'uv run {seenCacheHelper} settings --config "{project-root}/_bmad/skf/config.yaml"' in settings
+    assert ("From here on `{healthCheckRepo}` is its `repo` and `{healthCheckAutosubmit}` its `autosubmit`, which is "
+            "off without a helper. On `off`, display §0's two off lines, then the bound `{result_envelope_line}`, and "
+            "STOP, drafting nothing.") in settings
+    assert helper().DEFAULT_REPO == DEFAULT_REPO
+
+
+def test_a_clean_or_switched_off_run_makes_no_helper_call():
+    """Zero overhead: the settings call runs once §3 resolves the helper, never before a finding exists."""
+    text = _read(SHARED_HEALTH_CHECK)
+    before = text[:text.index("### 3. Draft Each Finding")]
+    assert "{seenCacheHelper}" not in before
+    # A run with findings skips the clean-run close that sits between them.
+    reflect = _flow(_section(text, "### 1. Reflect on the Run"))
+    assert "If there is none, close the clean run (§2); otherwise go on to §3." in reflect
+    draft = text[text.index("### 3. Draft Each Finding"):]
+    assert draft.index("**Resolve the helper.**") < draft.index("uv run {seenCacheHelper} settings") < draft.index(
+        "uv run {seenCacheHelper} fingerprint")
+
+
+def test_a_later_check_in_one_session_reviews_only_what_came_after_the_last():
+    """Round 2: in a forger pipeline or back-to-back workflows, each workflow's check would draft again what an
+    earlier check in the same session already showed, queued or filed. A check that was off reviewed nothing, so it
+    sets no start, and a check run on request (Ferris's health-check bullet) reviews the whole workflow it is run
+    for, whose own check may already have run."""
+    text = _read(SHARED_HEALTH_CHECK)
+    reflect = _flow(_section(text, "### 1. Reflect on the Run"))
+    assert ("Silently review this session, from the end of the last health check in it that was not off (its start "
+            "when none did; for a check run on request, the start of the workflow it is run for), for each point "
+            "where") in reflect
+    # The leave-out rule governs the whole step, the own-stage finding of §3 included.
+    rules = _flow(_slice(text, "### Findings Rule:", "## MANDATORY SEQUENCE"))
+    assert "Report only a bug, friction or gap you hit in this session since its last health check" in rules
+    assert "Leave out too any finding an earlier check in this session already showed, queued or filed." in rules
+    assert "Leave out any finding an earlier check" not in reflect
+    goal = _flow(_slice(text, "## STEP GOAL:", "**Zero overhead for clean runs.**"))
+    assert "Reflect on this session since the last health check that ran in it" in goal
+    assert "the workflow that just completed" not in goal
+
+
+def test_the_issue_text_is_english_and_the_displays_are_the_users_language():
+    """Round 2: a non-English session filed issues the maintainers read in that language."""
+    rules = _flow(_slice(_read(SHARED_HEALTH_CHECK), WRITING_RULES, "**Issue body format:**"))
+    # What the user approves is what is posted: a draft, a title or a comment is never shown translated.
+    assert ("- **Write it in English.** The short description, the issue body and a **C** comment are in English "
+            "whatever `{communication_language}`; the gate and every other display stay in `{communication_language}`, "
+            "and a title, a draft or a comment is shown exactly as written.") in rules
+    docs = _flow(_slice(_read(WORKFLOWS_DOC), "### What gets sent", "### The review gate"))
+    assert "It is written in English, whatever language Ferris speaks with you." in docs
+
+
+def test_no_limit_is_shouted_and_the_version_cell_is_said_once():
+    """Round 2 leanness: the last all-caps limit is gone, and the Environment table's version cell is not restated
+    after the version call."""
+    text = _read(SHARED_HEALTH_CHECK)
+    assert not re.search(r"\bONE\b", text)
+    assert "Write its `version` into the Environment table" not in text
+    assert "| SKF Version | {the `version` the helper prints, below, else N/A} |" in text
+    version = _flow(_slice(text, "**SKF Version comes from the helper**", "### 4."))
+    assert "never from `{project-root}`" in version and "uv run {seenCacheHelper} version" in version
+    assert "Run Mode is `headless` when `{headless_mode}` is true, else `interactive`." in _flow(text)
+
+
+def test_the_step_stays_within_its_token_budget():
+    """The step is read at the end of all 15 workflows (UltraCode Goal's quality gate, round 1, architecture-1): it
+    stays one file of at most 9,000 tokens by SKF's chars/4 convention."""
+    assert len(_read(SHARED_HEALTH_CHECK)) // 4 <= 9000
 
 
 def test_a_value_that_is_no_repository_queues_every_finding_and_runs_no_gh_call():
-    """A URL or a value with shell characters is never handed to `gh` or to the helper's `--repo`."""
+    """A URL or a value with shell characters is never handed to `gh` or to the helper's `--repo`: the helper's
+    `settings` checks it against REPO_RE, which test-skf-health-check-seen.py pins with every YAML form."""
     text = _read(SHARED_HEALTH_CHECK)
-    flow = _flow(_section(text, "### 0. Announce Arrival"))
-    assert ("- Otherwise, when the value is `OWNER/REPO` or `HOST/OWNER/REPO`, the shape the helper's `--repo` takes "
-            "(letters, digits and `-` in the owner, `.` too in a host, `.` and `_` too in the repository, the host and "
-            "the owner starting with a letter or a digit), `{healthCheckRepo}` is that value") in flow
-    assert ("- Any other value (a URL, a value with a space, a quote or another shell character) is no repository. "
-            "Display one line, \"**Health Check:** `health_check_repo` is `{the value}` in `_bmad/skf/config.yaml`, "
-            "which is not OWNER/REPO or HOST/OWNER/REPO, so no finding will be submitted.\", and go on: the check "
-            "reflects and drafts as usual, runs no `gh` call, and sends every finding to the local queue (§5c) with the "
-            "reason \"health_check_repo in _bmad/skf/config.yaml is not a repository; fix it, then submit these.\"") in flow
-    # The shape the step states is the helper's REPO_RE: the queue call would refuse anything else.
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("skf_hc_seen_repo", REPO / "src" / "shared" / "scripts" /
-                                                  "skf-health-check-seen.py")
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
+    settings = _flow(_slice(text, "**Read the settings.**", "**A refused call.**"))
+    # The line names the value as `settings` printed it, so the user sees what to fix.
+    assert ("On `invalid`, `{healthCheckRepo}` is no repository: display \"**Health Check:** `health_check_repo` is "
+            "`{repo}` in `_bmad/skf/config.yaml`, which is not OWNER/REPO or HOST/OWNER/REPO, so no finding will be "
+            "submitted.\", run no `gh` call, and send every finding to the local queue (§5c) with the no-repository "
+            "reason.") in settings
+    # The step no longer sorts the value by eye.
+    assert "letters, digits and `-` in the owner" not in text
+    module = helper()
     for good in (DEFAULT_REPO, "ghe.example.com/my-org/my.repo_x"):
-        assert helper.REPO_RE.fullmatch(good), good
+        assert module.REPO_RE.fullmatch(good), good
     for bad in ("https://github.com/o/r", "o/r; rm -rf ~", "my org/r", "o/r/x/y", "o/$(id)"):
-        assert not helper.REPO_RE.fullmatch(bad), bad
+        assert not module.REPO_RE.fullmatch(bad), bad
     route = _flow(_section(text, "### 5. Route Each Finding by Severity"))
-    assert "every other finding with §0's reason when `{healthCheckRepo}` is no repository" in route
+    assert "and one that §3 sent there keeps its reason: none of them is submitted." in route
     queue = _flow(text[text.index("### 5c."):])
-    assert "and nor does any finding when `{healthCheckRepo}` is no repository (§0)" in queue
+    assert "and nor does any finding when `{healthCheckRepo}` is no repository (§3)" in queue
     reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
-    assert '"health_check_repo in _bmad/skf/config.yaml is not a repository; fix it, then submit these."' in reasons
+    assert ('"health_check_repo in _bmad/skf/config.yaml is not a repository; fix it, then submit these." (the '
+            'no-repository reason)') in reasons
 
 
 def test_the_gate_shows_each_draft_and_names_the_repository_before_it_halts():
@@ -436,9 +494,9 @@ def test_the_gate_shows_each_draft_and_names_the_repository_before_it_halts():
     shown = _flow(gate[:halt])
     assert ("**If interactive:** show every finding: for each one, its title (§3), the path of its draft and the "
             "draft's full text.") in shown
-    assert ('Then ask, saying "public issues" for "issues" when `{healthCheckRepo}` is the default, '
-            f'`{DEFAULT_REPO}` in any letter case, and for any other repository adding "(public if that repository is '
-            'public)" after its name:') in shown
+    # The helper says whether the repository is the default, in any letter case (test-skf-health-check-seen.py).
+    assert ('Then ask, saying "public issues" for "issues" when §3\'s `settings` call printed `is_default` true, and '
+            'for any other repository adding "(public if that repository is public)" after its name:') in shown
     assert '"**Submit these findings as issues on {healthCheckRepo}, filed with your GitHub account?**' in shown
     options = re.findall(r"^- \*\*\[(\w)\]\*\* (.+)$", gate[:halt], re.MULTILINE)
     assert options == [("Y", "Yes: submit the bug findings; friction and gap findings stay local"),
@@ -464,9 +522,9 @@ def test_a_headless_run_queues_or_submits_its_bug_findings_only():
     gate = _section(text, "### 4. User Review Gate")
     (annotation,) = [block for block in gate.split("\n\n") if block.startswith("**GATE [default: Q]**")]
     flow = _flow(annotation)
+    # The helper's `settings` reads autosubmit: on only for a plain `true` (test-skf-health-check-seen.py).
     assert ("**GATE [default: Q]**: if `{headless_mode}` is true, skip the question below and choose by "
-            "`{healthCheckAutosubmit}`, which is on only when it is exactly `true`") in flow
-    assert "absent, unresolved or any other value is off" in flow
+            "`{healthCheckAutosubmit}` (§3)") in flow
     assert ('while it is off, choose **[Q]**, with the reason "Headless runs queue every finding while '
             'health_check_autosubmit is off."') in flow
     assert ('when it is on, choose **[Y]**, which submits the bug findings, still deduped, and queues the friction and '
@@ -480,10 +538,8 @@ def test_a_headless_run_queues_or_submits_its_bug_findings_only():
     frontmatter = text.split("\n---\n", 1)[0]
     assert "healthCheckAutosubmit: '{health_check_autosubmit}'" in frontmatter
     assert "liveSubmitSeverities: ['bug']" in frontmatter
-    reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
-    for reason in ("Headless runs queue every finding while health_check_autosubmit is off.",
-                   "Headless runs never submit friction or gap findings."):
-        assert f'"{reason}"' in reasons, reason
+    module = helper()
+    assert module.config_values("health_check_autosubmit: true\n")["health_check_autosubmit"] == (module.PLAIN, "true")
 
 
 def test_a_refused_gh_call_stops_every_later_one_and_queues_what_is_left():
@@ -493,17 +549,17 @@ def test_a_refused_gh_call_stops_every_later_one_and_queues_what_is_left():
         "When the session refuses `gh auth status` or any later `gh` call of §5a, so that the command never ran",
         "make no further `gh` call in this check: a refused call is no failure, so it gets no retry and no other "
         "call after it.",
-        "Write this finding and every live-submit finding not yet submitted to the local queue (§5c)",
-        '"You declined a gh call; nothing was posted." in an interactive run',
-        "\"A gh call was refused in this session; allow the health check's gh commands, as health_check_autosubmit's "
-        'docs say, to submit headless." in a headless one',
+        "Write this finding and every live-submit finding not yet submitted to the local queue (§5c), with the "
+        "refused-gh reason.",
     ):
         assert needle in rule, needle
     # A `gh auth status` that ran and failed is no refusal: gh is unavailable.
-    assert ("If it runs and fails (no `gh`, or not logged in), fall through to step 5c (local fallback) with the "
-            "gh-unavailable reason.") in _flow(text)
+    assert ("If it runs and fails (no `gh`, or not logged in), fall through to step 5c with the gh-unavailable "
+            "reason.") in _flow(text)
     reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
-    assert '"You declined a gh call; nothing was posted."' in reasons
+    assert ('"You declined a gh call; nothing was posted." and "A gh call was refused in this session; allow the '
+            'health check\'s gh commands, as health_check_autosubmit\'s docs say, to submit headless." (the refused-gh '
+            'reason, interactive and headless)') in reasons
     # The headless reason points at the allow rules the docs give, each scoped or not: the four gh commands, the
     # helper and the writes to the queue folder. A headless run never reacts or comments, so it needs no rule for it.
     docs = _flow(_slice(_read(WORKFLOWS_DOC), "### Submitting from headless runs", "### Submitting a queued finding"))
@@ -518,22 +574,28 @@ def test_a_refused_gh_call_stops_every_later_one_and_queues_what_is_left():
 
 def test_a_refused_helper_call_or_write_is_no_missing_helper():
     """A refusal never ran the call: it is neither the missing-helper case ("re-install SKF") nor a failed Write that
-    drops the finding."""
+    drops the finding. One before the gate skips it (round 1, architecture-3): the gate would show drafts and offer
+    submissions that do not exist."""
     text = _read(SHARED_HEALTH_CHECK)
     rule = _flow(_slice(text, "**A refused call.**", "**Name the step file, the section and the defect.**"))
     for needle in (
         "so a refused helper call (any `uv run` of `{seenCacheHelper}`) is no missing helper and a refused Write no "
         "failed one.",
         "After the session refuses a helper call or a Write of this step, make no further helper call, Write or `gh` "
-        "call in this check, and send every finding not yet submitted to the local queue (§5c) with the refused reason",
-        '"You declined one of the health check\'s calls; nothing more was posted." in an interactive run',
-        "\"A call of the health check was refused in this session; allow its helper, its writes and its gh commands, as "
-        'health_check_autosubmit\'s docs say, to submit headless." in a headless one',
+        "call in this check, and send every finding not yet submitted to the local queue (§5c) with the refused "
+        "reason.",
+        "A refusal before the review gate skips §4 and §5: go straight to §5c.",
     ):
         assert needle in rule, needle
     queue = _flow(text[text.index("### 5c."):])
+    assert "or a refused call, which skips §4 before the gate (§3)" in queue
     assert ("or after a refused call (§3): list its draft (§3) in the queue file's place, or display the text of a "
             "finding that has no draft on disk") in queue
+    reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
+    assert ('"You declined one of the health check\'s calls; nothing more was posted." and "A call of the health check '
+            'was refused in this session; allow its helper, its writes and its gh commands, as '
+            'health_check_autosubmit\'s docs say, to submit headless." (the refused reason, interactive and '
+            'headless)') in reasons
 
 
 def test_a_finding_about_the_health_check_itself_is_only_ever_queued():
@@ -548,9 +610,9 @@ def test_a_finding_about_the_health_check_itself_is_only_ever_queued():
             "submitting.\", which replaces any reason its route would give; **\\[N]** discards it with the rest."
             ) in gate
     # Nor is a gate offered that nothing can answer with a post: N/A findings, or no repository, ask to queue too.
-    assert ("When no finding can be submitted, because each one is about the health check itself or has the "
-            "fingerprint `N/A` (§3), or `{healthCheckRepo}` is no repository (§0), ask instead \"**Queue these findings "
-            "locally?**\" with **\\[Q]**, **\\[N]** and **\\[E]** only.") in gate
+    assert ("When no finding can be submitted, because each one is about the health check itself or §3 sent it to "
+            "the local queue, ask instead \"**Queue these findings locally?**\" with **\\[Q]**, **\\[N]** and "
+            "**\\[E]** only.") in gate
     # An edit that removes every finding leaves nothing to ask about.
     assert "When the edit leaves no finding, handle it as **IF N**." in gate
     route = _flow(_section(text, "### 5. Route Each Finding by Severity"))
@@ -574,6 +636,41 @@ def test_the_evidence_cites_only_skfs_own_files():
             "instructions, and name no project, library, skill, file or path of yours and no secret, and the Evidence "
             "quotes only SKF's own files") in docs
     assert "Nothing else is sent" not in docs
+    assert "`skf-health-check-seen.py check-draft`" in docs
+
+
+def test_a_draft_that_names_the_users_folders_is_never_posted():
+    """Round 1, enhancement-1: the post that cannot be undone, with autosubmit nobody reads first, is checked by the
+    helper after each draft Write (test-skf-health-check-seen.py pins the check), its title included, and so is a
+    comment's body and a re-keyed draft."""
+    text = _read(SHARED_HEALTH_CHECK)
+    draft = _slice(text, WRITE_DRAFT, WRITING_RULES)
+    call = ('uv run {seenCacheHelper} check-draft --body-file "{draft_path}" --title "{title}" --project-dir '
+            '"{project-root}"\n')
+    assert call in draft
+    assert draft.index("**Write the draft.**") < draft.index(call)
+    flow = _flow(draft)
+    # Every draft when a helper exists, `N/A` included: the queue lists an N/A draft for the user to submit.
+    assert ("With a helper, then check every draft, `N/A` included, and its title for the user's folders, which a "
+            "public issue must never name:") in flow
+    # Only a message that names lines is rewritten: a bad argument exits 2 too, and that draft is unchecked.
+    assert ("When it exits 2 with a message that names lines or the title holding the project's folder or the home "
+            "folder, rewrite them, citing SKF's files by their module path "
+            "(`src/skf-test-skill/references/report.md:12`), and run the call once more. A draft refused twice, or one "
+            "the call could not check (any other exit 2, a failure or no JSON), goes to the local queue (§5c) with the "
+            "unchecked-draft reason and is never posted.") in flow
+    # An edit at the gate, a comment's body and a re-keyed draft are checked too.
+    assert "check each changed draft as §3 does" in _flow(_section(text, "### 4. User Review Gate"))
+    choice = _flow(_slice(text, SUB_STEP_5A_I, SUB_STEP_5A_II))
+    assert "check that file as §3 checks a draft" in choice
+    assert "write and check the draft anew under the new `{fp}`, as §3 does" in choice
+    reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
+    assert ('"These drafts may name a folder of yours; check them before submitting." (the unchecked-draft '
+            'reason)') in reasons
+    assert "an unchecked draft" in _flow(text[text.index("### 5c."):])
+    # [Q], at the gate or headless, keeps the reason §3 gave a finding it already sent to the queue.
+    assert ("or the GATE's own reason in a headless run; one that §3 sent there keeps its reason, as §5 says. STOP "
+            "after §5c") in _flow(_slice(text, "- **IF Q:**", "### 5."))
 
 
 def test_the_local_queue_is_written_by_the_helper_with_the_commands_that_submit_it():
@@ -605,7 +702,10 @@ def test_the_docs_cover_the_off_switch_what_is_sent_the_gate_autosubmit_and_the_
     for needle in ("health_check_repo: ''", "health_check_autosubmit: true", "**A defect in the health check itself.**",
                    "name no project, library, skill, file or path of yours and no secret",
                    "filed with your own GitHub account; on the default repository it is public",
-                   "a YAML null (`~`, `null`, `Null` or `NULL`) all count as empty"):
+                   "a YAML null (`~`, `null`, `Null` or `NULL`) all count as empty",
+                   # Round 1: a BMAD Method install or update rewrites the config, so a hand-set key is gone.
+                   "A BMAD Method install or update (`npx bmad-method install`) rewrites `_bmad/skf/config.yaml` and "
+                   "drops a `health_check_repo` or `health_check_autosubmit` you set by hand"):
         assert needle in flow, needle
     # A draft with no fingerprint takes the whole header the helper prints, not two filled-in lines.
     assert ("replace the draft's whole header, from `## Workflow` to the `## Defect Key` section, with the "

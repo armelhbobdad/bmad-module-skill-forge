@@ -1197,6 +1197,37 @@ class TestForgerMenu:
         assert "a goal it describes, such as `I want skills for my whole monorepo`, which goes to Dispatch's " \
                "described-goal bullet" in picks
 
+    def test_a_request_to_run_the_health_check_runs_it(self):
+        """#226 quality gate round 1, architecture-4 and enhancement-2: the docs' recovery request, `@Ferris please run
+        the workflow health check for this session`, loads the shared health check. A Dispatch bullet, never a menu
+        code, a capability row or an inline action: the health check has no command code and no menu entry."""
+        dispatch = _activation().split("**Dispatch**", 1)[1]
+        bullets = [line for line in dispatch.splitlines() if line.startswith("- **")]
+        (health,) = [line for line in bullets if line.startswith("- **A request to run the workflow health check**")]
+        # After KI/WS and ahead of the described goal, which would answer it with a menu code.
+        ki_ws = next(line for line in bullets if line.startswith("- **`KI` or `WS`**"))
+        goal = next(line for line in bullets if line.startswith("- **A described goal**"))
+        assert bullets.index(ki_ws) + 1 == bullets.index(health) == bullets.index(goal) - 1
+        assert "`please run the workflow health check for this session`" in health
+        assert ("→ load `shared/health-check.md`, read it fully, then execute it for the workflow this session last "
+                "ran, as if that workflow had reached its natural end.") in health
+        # A fresh session has no run to review: a clean run of nothing would say all was well.
+        assert "When no workflow ran in this session, say so in one line and load nothing." in health
+        # An invocation that carries the request is no described goal: step 6 sends it to this bullet.
+        picks = _step("Greet, then dispatch or wait.").split("When the invocation carries a pick", 1)[1]
+        picks = picks.split("greet in one line", 1)[0]
+        assert ("a request to run the workflow health check, which goes to Dispatch's health-check bullet, a goal it "
+                "describes") in picks
+        assert picks.index("Dispatch's health-check bullet") < picks.index("Dispatch's described-goal bullet")
+        # The path resolves from the SKF module root, as Conventions says, and the docs promise this route.
+        assert (REPO / "src" / "shared" / "health-check.md").is_file()
+        text = _read(FORGER_SKILL)
+        assert "health-check" not in _section(text, "## Capabilities")
+        assert "health check" not in _section(text, "## Inline Actions").lower()
+        docs = _read(REPO / "docs" / "workflows.md")
+        assert "@Ferris please run the workflow health check for this session" in docs
+        assert "Ferris will load `shared/health-check.md`" in docs
+
     def test_ki_offers_to_explain_a_fragment(self):
         """#1171 enhancement-9: KI ends with an offer, and a named fragment is
         explained with the codes whose workflows use it, from the Knowledge

@@ -21,10 +21,13 @@ sidecar_path:
   result: "{project-root}/{value}"
 
 # The repository the health check at the end of every workflow files its
-# findings on. An empty value in _bmad/skf/config.yaml ('', "" or ~) turns the
-# health check off; with no key, as in a BMAD Method install, it uses this
-# default. health_check_autosubmit: true, added to config.yaml by hand, lets a
-# headless run submit its bug findings.
+# findings on. An empty value in _bmad/skf/config.yaml turns the health check
+# off: '', "", nothing or only a comment after the colon, or a YAML null (~,
+# null, Null, NULL), as docs/workflows.md lists them. With no key, as in a
+# BMAD Method install, it uses this default. health_check_autosubmit: true,
+# added to config.yaml by hand, lets a headless run submit its bug findings.
+# A BMAD Method install or update rewrites config.yaml and drops either key
+# set by hand.
 health_check_repo:
   prompt: false
   default: "armelhbobdad/bmad-module-skill-forge"
