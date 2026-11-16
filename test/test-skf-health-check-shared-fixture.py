@@ -7,26 +7,37 @@ health_check_fp.py, so the two health-check helpers cannot drift apart
 unnoticed: the hash formula with both repositories' golden fingerprints, the
 defect-key and section-slug rules, the seen verdicts with their opening lines,
 and the record rules. A change to the fixture lands in one pull request per
-repository: the sha256 pin below fails on a one-sided edit, and the scheduled
-health-check-fixture-drift.yaml, which compares the two copies, is red between
-their merges.
+repository. The sha256 pin below catches an accidental edit; a deliberate one
+updates the pin here and makes the same change, pin included, in the other
+repository. The scheduled health-check-fixture-drift.yaml, which compares the
+two copies, is red between the two merges.
 
-Every row is written in terms both helpers share:
+Every row is written in terms both helpers share, and a row that only one
+helper can run is tagged with its `module`. Each section's rows hold exactly
+the keys below (the optional ones in brackets), so a misspelled key fails:
 
-  fingerprint   {module, severity, workflow, step_file, section_slug,
-                defect_key, tuple, fp, legacy_fp}: tuple is fp's sha1 input
-                and legacy_fp the hash without "|defect_key". Every row is
-                recomputed with the helper's _sha7; a "skf" row also runs
-                `fingerprint` (a "ucg" row is UltraCode Goal's to run).
+  fingerprint   {module, severity, workflow, step_file, [step_file_arg],
+                section_slug, defect_key, tuple, fp, legacy_fp}: tuple is fp's
+                sha1 input and legacy_fp the hash without "|defect_key". Every
+                row is recomputed with the helper's _sha7; a "skf" row also
+                runs `fingerprint` (a "ucg" row is UltraCode Goal's to run).
+                step_file_arg, on a "skf" row alone, is the --step-file this
+                helper's `fingerprint` is given in place of step_file, a bare
+                name or any path that it reads as step_file; UltraCode Goal's
+                takes a stage instead.
   defect_key    {name, key}: "" when the name yields no word.
   section_slug  {heading, slug}: "" when the heading yields no slug.
-  seen          {name, cache, fp, legacy_fp, repo, gh, expect: {status,
-                matched_on, opening_line}}. cache is {"raw": <the file's text,
-                as UTF-8, a byte order mark written as a \\ufeff escape>} or
-                null for no file; repo is null for no --repo;
-                gh is what `gh issue view` answers, null for a failed call,
-                and left out when no call may happen. The row's `seen` is this
-                helper's `lookup`, and its `status` this helper's `verdict`.
+  seen          {name, cache, fp, legacy_fp, repo, [gh, gh_url], expect:
+                {status, matched_on, opening_line, record}}. cache is
+                {"raw": <the file's text, as UTF-8, a byte order mark written
+                as a \\ufeff escape>}, {"base64": <the file's bytes, for bytes
+                that are not UTF-8>} or null for no file; repo is null for no
+                --repo; gh is what `gh issue view` answers (its `state` and
+                `stateReason` alone), null for a failed call, and gh_url the
+                issue URL it must be asked about, both left out when no call
+                may happen. record is the record the verdict was read from,
+                null for none. The row's `seen` is this helper's `lookup`,
+                and its `status` this helper's `verdict`.
   record        {name, cache_before, args, expect}. args follow `record`
                 (the adapter adds --cache), cache_before is as seen's cache,
                 and expect is {written, record, cache_after, set_aside}, with
@@ -40,6 +51,8 @@ No row carries a `defect_slug`, which only UltraCode Goal's helper carries over.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import importlib.util
 import json
@@ -58,11 +71,29 @@ DRIFT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "health-check-fixture-dri
 OTHER_REPO = "armelhbobdad/bmad-module-ultracode-goal"
 OTHER_REF = "main"
 
-# A change to the fixture lands in one pull request per repository: update this pin in each repository's adapter.
-FIXTURE_SHA256 = "883221532296af334b3772582c636106414789d1a03cfb4026246ffdfcc1c27f"
+# The pin catches an accidental edit of the fixture. A deliberate one lands in one pull request per repository, each
+# updating this pin in its adapter: the pin alone cannot tell a one-sided edit, which the drift check catches.
+FIXTURE_SHA256 = "b193cb6debc173bb7fcd86f692a703c24036df5895f800bba651055ae0e0c0a0"
 
 SECTIONS = ("about", "fingerprint", "defect_key", "section_slug", "seen", "record")
 STATUSES = ("unseen", "handled", "regression", "possible-regression", "unrecognized")
+
+# Each section's row keys: those every row holds, and those a row may hold besides.
+ROW_KEYS = {
+    "fingerprint": (("module", "severity", "workflow", "step_file", "section_slug", "defect_key", "tuple", "fp",
+                     "legacy_fp"), ("step_file_arg",)),
+    "defect_key": (("name", "key"), ()),
+    "section_slug": (("heading", "slug"), ()),
+    "seen": (("name", "cache", "fp", "legacy_fp", "repo", "expect"), ("gh", "gh_url")),
+    "record": (("name", "cache_before", "args", "expect"), ()),
+}
+SEEN_EXPECT = ("status", "matched_on", "opening_line", "record")
+# What a seen row's gh answer may hold: the fields `gh issue view --json state,stateReason` prints.
+GH_KEYS = ("state", "stateReason")
+RECORD_EXPECT = ("written", "record", "cache_after", "set_aside")
+# The options a record row's args may give `record` (the adapter adds --cache): a misspelled one would fail the call,
+# and pass as a refusal.
+RECORD_OPTIONS = ("--fp", "--issue-url", "--action", "--date", "--regression")
 
 
 def _fixture() -> dict:
@@ -73,9 +104,71 @@ def _rows(section: str) -> list[dict]:
     return _fixture()[section]
 
 
-def _ids(section: str) -> list[str]:
+def _row_id(section: str, row: dict) -> str:
     key = {"fingerprint": "fp", "defect_key": "name", "section_slug": "heading"}.get(section, "name")
-    return [repr(row[key]) if section in ("defect_key", "section_slug") else row[key] for row in _rows(section)]
+    return repr(row.get(key)) if section in ("defect_key", "section_slug") else str(row.get(key))
+
+
+def _ids(section: str) -> list[str]:
+    return [_row_id(section, row) for row in _rows(section)]
+
+
+def _cache_problems(field: str, cache) -> list[str]:
+    """What breaks a cache's form: null, {"raw": text} or {"base64": bytes that are not UTF-8}."""
+    if cache is None:
+        return []
+    if not isinstance(cache, dict) or len(cache) != 1 or not isinstance(next(iter(cache.values())), str):
+        return [f"{field} is not null, {{'raw': text}} or {{'base64': bytes}}"]
+    [(form, value)] = cache.items()
+    if form == "raw":
+        return []
+    if form != "base64":
+        return [f"unknown key {form!r} in {field}"]
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except binascii.Error:
+        return [f"{field} base64 does not decode"]
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return []
+    return [f"{field} base64 holds UTF-8, which is written as raw"]
+
+
+def _row_problems(section: str, row: dict) -> list[str]:
+    """Each key a row lacks or should not hold, by name, and each cache whose form is not one of the three."""
+    required, optional = ROW_KEYS[section]
+    problems = [f"no key {key!r}" for key in required if key not in row]
+    problems += [f"unknown key {key!r}" for key in row if key not in required + optional]
+    if section == "fingerprint" and "step_file_arg" in row and row.get("module") != "skf":
+        problems.append("key 'step_file_arg' on a row that is not skf's: UltraCode Goal's fingerprint takes a stage")
+    if section == "seen":
+        if ("gh" in row) != ("gh_url" in row):
+            problems.append("key 'gh' without 'gh_url', or 'gh_url' without 'gh'")
+        gh = row.get("gh")
+        if gh is not None and not isinstance(gh, dict):
+            problems.append("gh is not null or an object")
+        elif gh is not None:
+            problems += [f"unknown key {key!r} in gh" for key in gh if key not in GH_KEYS]
+        expect = row.get("expect") if isinstance(row.get("expect"), dict) else {}
+        problems += [f"no key {key!r} in expect" for key in SEEN_EXPECT if key not in expect]
+        problems += [f"unknown key {key!r} in expect" for key in expect if key not in SEEN_EXPECT]
+        problems += _cache_problems("cache", row.get("cache"))
+    if section == "record":
+        expect = row.get("expect") if isinstance(row.get("expect"), dict) else {}
+        if expect != {"refused": True}:
+            problems += [f"no key {key!r} in expect" for key in RECORD_EXPECT if key not in expect]
+            problems += [f"unknown key {key!r} in expect" for key in expect if key not in RECORD_EXPECT]
+        problems += _cache_problems("cache_before", row.get("cache_before"))
+        args = row.get("args") if isinstance(row.get("args"), list) else []
+        problems += [f"unknown option {arg!r} in args" for arg in args
+                     if isinstance(arg, str) and arg.startswith("--") and arg.split("=", 1)[0] not in RECORD_OPTIONS]
+    return problems
+
+
+def _check_row(section: str, row: dict) -> None:
+    problems = _row_problems(section, row)
+    assert not problems, f"{section} row {_row_id(section, row)}: {'; '.join(problems)}"
 
 
 def _load():
@@ -99,7 +192,7 @@ def _write_cache(path: Path, cache: dict | None) -> bytes | None:
     """Write a row's cache to path; its bytes, or None for a row with no cache file."""
     if cache is None:
         return None
-    data = cache["raw"].encode("utf-8")
+    data = base64.b64decode(cache["base64"]) if "base64" in cache else cache["raw"].encode("utf-8")
     path.write_bytes(data)
     return data
 
@@ -128,6 +221,38 @@ def test_the_fixture_holds_its_sections_and_no_defect_slug():
     assert "defect_slug" not in FIXTURE.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("section, row", [(section, row) for section in ROW_KEYS for row in _rows(section)],
+                         ids=[f"{section}-{row_id}" for section in ROW_KEYS for row_id in _ids(section)])
+def test_a_row_holds_its_sections_keys(section, row):
+    """A misspelled key (`ghh` for `gh`) would leave a rule unrun: each row holds its section's keys, and no other."""
+    _check_row(section, row)
+
+
+def test_a_misspelled_key_fails_naming_the_row_and_the_key():
+    [row] = [row for row in _rows("seen") if row["name"] == "an open issue"]
+    misspelled = {("ghh" if key == "gh" else key): value for key, value in row.items()}
+    with pytest.raises(AssertionError, match=r"seen row an open issue: .*unknown key 'ghh'"):
+        _check_row("seen", misspelled)
+    expect = {**row, "expect": {**row["expect"], "opening": None}}
+    with pytest.raises(AssertionError, match=r"seen row an open issue: .*unknown key 'opening' in expect"):
+        _check_row("seen", expect)
+    fp_row = next(row for row in _rows("fingerprint") if row["module"] == "ucg")
+    with pytest.raises(AssertionError, match=r"key 'step_file_arg' on a row that is not skf's"):
+        _check_row("fingerprint", {**fp_row, "step_file_arg": "gate.md"})
+    cache = {**row, "cache": {"base64": base64.b64encode(b"{}").decode("ascii")}}
+    with pytest.raises(AssertionError, match=r"cache base64 holds UTF-8"):
+        _check_row("seen", cache)
+    # A misspelled field of the gh answer would read as a close with no reason.
+    answer = {**row, "gh": {"state": "CLOSED", "stateReasn": "COMPLETED"}}
+    with pytest.raises(AssertionError, match=r"seen row an open issue: .*unknown key 'stateReasn' in gh"):
+        _check_row("seen", answer)
+    # A misspelled option makes the call fail, so a refused row would pass whatever the rule.
+    [refused] = [row for row in _rows("record") if row["name"] == "refused: no issue_url"]
+    for wrong in (["--isue-url", "https://github.com/o/r/issues/1"], ["--isue-url=https://github.com/o/r/issues/1"]):
+        with pytest.raises(AssertionError, match=r"record row refused: no issue_url: .*unknown option '--isue-url"):
+            _check_row("record", {**refused, "args": [*refused["args"], *wrong]})
+
+
 def test_each_byte_order_mark_is_an_escape_its_row_names():
     """A literal U+FEFF is invisible and an editor drops it silently: the file writes it as an escape."""
     text = FIXTURE.read_text(encoding="utf-8")
@@ -140,7 +265,8 @@ def test_each_byte_order_mark_is_an_escape_its_row_names():
     for name, cache in named:
         assert cache is not None and cache["raw"].startswith("\ufeff"), name
     # No other row's cache opens with one.
-    assert [name for name, cache in rows if cache and cache["raw"].startswith("\ufeff")] == [n for n, _ in named]
+    assert [name for name, cache in rows if cache and cache.get("raw", "").startswith("\ufeff")] == [
+        n for n, _ in named]
 
 
 # --- fingerprint -------------------------------------------------------------------------
@@ -156,7 +282,8 @@ def test_a_fingerprint_row(row, capsys):
     if row["module"] != "skf":
         return
     code, out = _main(mod, capsys, ["fingerprint", "--severity", row["severity"], "--workflow", row["workflow"],
-                                    "--step-file", row["step_file"], f"--section={row['section_slug']}",
+                                    "--step-file", row.get("step_file_arg", row["step_file"]),
+                                    f"--section={row['section_slug']}",
                                     f"--defect-key={row['defect_key']}"])
     assert code == 0, out
     payload = json.loads(out)
@@ -168,8 +295,14 @@ def test_both_repositories_goldens_are_rows():
     rows = _rows("fingerprint")
     assert {row["module"] for row in rows} == {"ucg", "skf"}
     hashes = {row["fp"] for row in rows} | {row["legacy_fp"] for row in rows}
-    # UCG's gate golden and its keyless twin; Skill Forge's two defects of one section and their shared section hash.
-    assert {"fp-4e6fb0f", "fp-3d74222", "fp-a54e7a6", "fp-ed2bb67", "fp-eb2d6f2"} <= hashes
+    # UCG's gate golden and its keyless twin; Skill Forge's two defects of one section and their shared section hash,
+    # and its own stage's golden.
+    assert {"fp-4e6fb0f", "fp-3d74222", "fp-a54e7a6", "fp-ed2bb67", "fp-eb2d6f2", "fp-9699f88"} <= hashes
+    # Skill Forge's fingerprint reads a bare name, an install path and a Windows path as the hashed step file.
+    args = [row["step_file_arg"] for row in rows if "step_file_arg" in row]
+    assert any("/" not in arg and "\\" not in arg for arg in args)
+    assert any(arg.startswith("_bmad/skf/") for arg in args)
+    assert any("\\" in arg for arg in args)
 
 
 # --- defect_key and section_slug -----------------------------------------------------------
@@ -181,6 +314,30 @@ def test_a_defect_key_row(row):
     assert mod.defect_key(row["name"]) == row["key"]
     if row["key"]:
         assert mod.DEFECT_KEY_RE.fullmatch(row["key"])
+
+
+def test_the_defect_key_rows_drop_every_known_extension():
+    mod = _load()
+    for ext in mod.KNOWN_EXTENSIONS:
+        assert any(row["name"].lower().endswith(ext) and row["key"] and not row["key"].endswith(ext[1:])
+                   for row in _rows("defect_key")), ext
+
+
+def _trailing_edges(name: str, edges: str) -> str:
+    """The run of whitespace and edge characters a name ends with."""
+    end = len(name)
+    while end and (name[end - 1].isspace() or name[end - 1] in edges):
+        end -= 1
+    return name[end:]
+
+
+def test_the_defect_key_rows_trim_every_edge_character():
+    """A leading edge character is dropped with the other characters that are not letters or digits whether trimmed
+    or not, so only a trailing one pins the trim: each ends a row whose name yields a key."""
+    mod = _load()
+    for edge in mod._NAME_EDGES:
+        assert any(edge in _trailing_edges(row["name"], mod._NAME_EDGES) and row["key"]
+                   for row in _rows("defect_key")), edge
 
 
 @pytest.mark.parametrize("row", _rows("section_slug"), ids=_ids("section_slug"))
@@ -216,13 +373,17 @@ def test_a_seen_row(row, tmp_path, capsys):
     payload = json.loads(out)
     # This helper names the status `verdict`.
     assert {"status": payload["verdict"], "matched_on": payload["matched_on"],
-            "opening_line": payload["opening_line"]} == row["expect"]
-    assert len(calls) == (1 if "gh" in row else 0), calls
+            "opening_line": payload["opening_line"], "record": payload["record"]} == row["expect"]
+    # gh is asked about the row's issue, once, or never.
+    assert calls == ([row["gh_url"]] if "gh" in row else [])
 
 
 def test_the_seen_rows_cover_every_verdict_and_opening_line():
     rows = _rows("seen")
     assert set(STATUSES) == {row["expect"]["status"] for row in rows}
+    # Bytes that are not UTF-8 are no cache: unseen, whatever records they spell.
+    not_utf8 = [row for row in rows if row["cache"] and "base64" in row["cache"]]
+    assert not_utf8 and {row["expect"]["status"] for row in not_utf8} == {"unseen"}
     assert {"fp", "legacy_fp", None} == {row["expect"]["matched_on"] for row in rows}
     lines = [row["expect"]["opening_line"] or "" for row in rows]
     for form in ("Regression of https://", "Regression of a previously resolved local finding (resolved ",
@@ -273,6 +434,8 @@ def test_the_record_rows_cover_every_rule():
     expects = [row["expect"] for row in rows]
     assert any(e.get("written") is False for e in expects), "a resolved record is never downgraded"
     assert any(e.get("set_aside") for e in expects), "a corrupt cache is set aside"
+    assert any(e.get("set_aside") and "base64" in (row["cache_before"] or {}) for row, e in zip(rows, expects)), (
+        "a cache that is not UTF-8 is set aside")
     assert any(row["cache_before"] is None and e.get("written") for row, e in zip(rows, expects))
     assert any("--regression" in row["args"] for row in rows)
     assert sum(e == {"refused": True} for e in expects) >= 5

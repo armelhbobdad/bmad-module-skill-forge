@@ -122,18 +122,33 @@ non-empty string.
   section_heading: a heading of the step file, outside its frontmatter and
     fenced code, as the file writes it or in any form that gives the same
     slug (another letter case, other punctuation). Its slug: drop the
-    leading `#`s and a leading numbering token (`1.`, `5a.`, `5a-ii.`,
-    `4-headless.`), lower-case, turn each run of characters that are not
-    ASCII letters or digits into `-`, and trim hyphens. A heading whose slug
-    is empty, or no heading of the step file gives, exits 2.
-  defect_name: drop surrounding whitespace, backticks and quotes, keep its
-    last path component (after `/` or `\\`), drop a trailing `:N`, `:N-M`
-    or `:N:M` line suffix, a known file extension (KNOWN_EXTENSIONS) and
-    then leading dashes and underscores; split at whitespace, `_`, `-`, `.`
-    and each lower-case letter followed by an upper-case one; drop each
-    character that is not an ASCII letter or digit; lower-case; keep the
-    last four words, joined by `-`. `scripts/gate_eval.py:42` gives
-    `gate-eval`, `composeStories` gives `compose-stories`.
+    leading `#`s, fold it (NFKD, the compatibility decomposition, then drop
+    the combining marks: an accented letter gives its base letter, and a
+    ligature, a superscript or a full-width form its plain characters; a
+    letter NFKD cannot split, such as `ß`, `ø`, `ł`, `æ`, `œ` or `ı`, stays,
+    so it becomes a hyphen below), drop a leading numbering token (`1.`, `5a.`,
+    `5a-ii.`, `4-headless.`), lower-case, turn each run of characters that
+    are not ASCII letters or digits into `-`, and trim hyphens. A heading
+    whose slug is empty, or no heading of the step file gives, exits 2.
+  defect_name: fold it as a heading is; drop whitespace and the edge
+    characters (_NAME_EDGES: backticks, straight and curly quotes, `*`,
+    `()[]{}<>`, `.`, `,`, `;`, `!` and `?`) from both ends, in any
+    layering; keep its last path component (after `/` or `\\`); drop a
+    trailing location (_NAME_LOCATION_RE): a `:N`, then up to two more
+    `-N` or `:N`, then an optional `:` or `-` (`:42`, `:42-50`, `:42:7:`,
+    `:42:7-12`, `:42-`); a lone `:`; or a GitHub anchor, an optional
+    `?plain=1`, then `#L42`, an optional column `C7` and an optional range
+    `-L50`, `-L50C3` or `-50` (`#L42`, `#L42-L50`, `#L42C7-L50C3`,
+    `?plain=1#L42`); drop whitespace and the edge characters from both ends
+    again, and repeat the location and the edges until the name stops
+    changing (`` `gate_eval.py:42`: `` gives `gate-eval`); drop a known
+    file extension (KNOWN_EXTENSIONS) and then leading dashes and
+    underscores; split at whitespace, `_`, `-`, `.` and each lower-case
+    letter followed by an upper-case one; drop each character that is not
+    an ASCII letter or digit; lower-case; keep the last four words, joined
+    by `-`. `scripts/gate_eval.py:42` gives `gate-eval`, `composeStories`
+    gives `compose-stories`. A name that yields no word (one written in
+    another alphabet included) exits 2.
   short_description: the issue title's description, its surrounding
     whitespace dropped. It may hold no backtick, `$`, double quote,
     backslash, `!` or character that is not printable (a tab, a line break,
@@ -372,6 +387,7 @@ import secrets
 import shlex
 import sys
 import time
+import unicodedata
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -439,9 +455,21 @@ KNOWN_EXTENSIONS = (
     ".py", ".md", ".json", ".yaml", ".yml", ".toml", ".js", ".cjs", ".mjs", ".ts", ".sh", ".csv", ".txt",
 )
 _PATH_SEP_RE = re.compile(r"[/\\]")
-_LINE_SUFFIX_RE = re.compile(r":[0-9]+(?:[-:][0-9]+)?$")
-# What a name copied from Markdown or a log may be wrapped in.
-_NAME_WRAPPERS = "`'\""
+# What a name copied from Markdown, a log or a compiler may be wrapped in or end with, besides whitespace: backticks,
+# straight and curly quotes, emphasis, brackets and sentence punctuation.
+_NAME_EDGES = "`'\"\u2018\u2019\u201c\u201d*()[]{}<>.,;!?"
+# A location after the name: `:42`, then up to two more `-N` or `:N`, then an optional `:` or `-` (`:42-50`, `:42:7`,
+# `:42:7:`, `:42:7-12`, `:42-`); a lone `:`; or a GitHub anchor, an optional `?plain=1` then `#L42`, an optional
+# column `C7` and an optional range `-L50`, `-L50C3` or `-50`. Its repetition is bounded, so a try at one position
+# reads no more than three numbers.
+_NAME_LOCATION_RE = re.compile(
+    r"(?::(?:[0-9]+(?:[-:][0-9]+){0,2}[:-]?)?"
+    r"|(?:\?plain=1)?#L[0-9]+(?:C[0-9]+)?(?:-(?:L[0-9]+(?:C[0-9]+)?|[0-9]+))?)\Z"
+)
+# The most characters that are not digits a location holds (`?plain=1#L42C7-L50C3`), so the one a name ends with
+# starts no further back than its last this many: the search for it starts there, whatever the name's length.
+_NAME_LOCATION_NON_DIGITS = 13
+_DIGITS = "0123456789"
 _NAME_SPLIT_RE = re.compile(r"[\s_.-]+")
 _CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
 _NOT_ALNUM_RE = re.compile(r"[^A-Za-z0-9]")
@@ -628,20 +656,55 @@ def _stage_headings(step_file: Path) -> list[str]:
     return headings
 
 
+def _fold(text: str) -> str:
+    """NFKD, then no combining mark: an accented letter gives its base letter, a ligature or a superscript its plain
+    characters. A letter NFKD cannot split (`ß`, `ø`, `ł`, `æ`, `œ`, `ı`) stays as it is."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
+
+
 def section_slug(heading: str) -> str:
-    """The slug rule: no leading `#`s or numbering token, lower-case, one `-` per run of other characters."""
-    text = _heading_text(heading)
+    """The slug rule: no leading `#`s, folded, no numbering token, lower-case, one `-` per run of others."""
+    text = _fold(_heading_text(heading))  # folded first, as a name is, so `１.` is the numbering `1.`
     numbering = _NUMBERING_RE.match(text)
     if numbering:
         text = text[numbering.end():]
     return _NOT_SLUG_RE.sub("-", text.lower()).strip("-")
 
 
+def _edge_bounds(text: str, begin: int, end: int) -> tuple[int, int]:
+    """text[begin:end]'s bounds once the whitespace and _NAME_EDGES at either end are gone, in any layering."""
+    while begin < end and (text[begin].isspace() or text[begin] in _NAME_EDGES):
+        begin += 1
+    while end > begin and (text[end - 1].isspace() or text[end - 1] in _NAME_EDGES):
+        end -= 1
+    return begin, end
+
+
+def _location_start(text: str, begin: int, end: int) -> int:
+    """Where the location text[begin:end] ends with starts (_NAME_LOCATION_RE); end when it ends with none."""
+    start, non_digits = end, 0
+    while start > begin and (text[start - 1] in _DIGITS or non_digits < _NAME_LOCATION_NON_DIGITS):
+        non_digits += text[start - 1] not in _DIGITS
+        start -= 1
+    location = _NAME_LOCATION_RE.search(text, start, end)
+    return location.start() if location else end
+
+
 def defect_key(name: str) -> str:
     """The defect-key rule; an empty string when the name yields no word."""
-    text = name.strip().strip(_NAME_WRAPPERS).strip()  # `gate_eval.py`, in backticks or quotes
-    text = _PATH_SEP_RE.split(text)[-1]  # `scripts/gate_eval.py` names `gate_eval.py`
-    text = _LINE_SUFFIX_RE.sub("", text)  # `gate_eval.py:42`, `:42-50` and `:42:7` name it too
+    text = _fold(name)
+    begin, end = _edge_bounds(text, 0, len(text))  # `gate_eval.py` in backticks, quotes, `**`, brackets or a sentence
+    text = _PATH_SEP_RE.split(text[begin:end])[-1]  # `scripts/gate_eval.py` names `gate_eval.py`
+    # `gate_eval.py:42:7:` and `gate_eval.py#L42` name it too, and `` `gate_eval.py:42`: `` sheds its `:`, its backtick,
+    # then its `:42`: drop a location, then the edges, until neither drops anything. Each round looks back no further
+    # than a location reaches and moves bounds instead of copying, so the whole takes time linear in the name's length.
+    begin, end = 0, len(text)
+    while True:
+        bounds = _edge_bounds(text, begin, _location_start(text, begin, end))
+        if bounds == (begin, end):
+            break
+        begin, end = bounds
+    text = text[begin:end]
     for ext in KNOWN_EXTENSIONS:
         if text.lower().endswith(ext) and len(text) > len(ext):
             text = text[: -len(ext)]

@@ -55,6 +55,53 @@
       "tuple": "gap|skf-test-skill|src/skf-test-skill/references/inventory-contract.md|documented-inventory-contract|shared-text",
       "fp": "fp-ed2bb67",
       "legacy_fp": "fp-eb2d6f2"
+    },
+    {
+      "module": "skf",
+      "severity": "gap",
+      "workflow": "health-check",
+      "step_file": "src/shared/health-check.md",
+      "section_slug": "local-queue",
+      "defect_key": "queue",
+      "tuple": "gap|health-check|src/shared/health-check.md|local-queue|queue",
+      "fp": "fp-9699f88",
+      "legacy_fp": "fp-ebc0f59"
+    },
+    {
+      "module": "skf",
+      "severity": "friction",
+      "workflow": "skf-create-skill",
+      "step_file": "src/skf-create-skill/references/compile.md",
+      "step_file_arg": "compile.md",
+      "section_slug": "signature-fidelity-rule",
+      "defect_key": "signature-fidelity",
+      "tuple": "friction|skf-create-skill|src/skf-create-skill/references/compile.md|signature-fidelity-rule|signature-fidelity",
+      "fp": "fp-d50237e",
+      "legacy_fp": "fp-75eabd4"
+    },
+    {
+      "module": "skf",
+      "severity": "bug",
+      "workflow": "skf-audit-skill",
+      "step_file": "src/skf-audit-skill/references/severity-rules.md",
+      "step_file_arg": "_bmad/skf/skf-audit-skill/references/severity-rules.md",
+      "section_slug": "overall-drift-score",
+      "defect_key": "drift-score",
+      "tuple": "bug|skf-audit-skill|src/skf-audit-skill/references/severity-rules.md|overall-drift-score|drift-score",
+      "fp": "fp-fd4336f",
+      "legacy_fp": "fp-2af4caa"
+    },
+    {
+      "module": "skf",
+      "severity": "gap",
+      "workflow": "skf-test-skill",
+      "step_file": "src/skf-test-skill/references/coverage-check.md",
+      "step_file_arg": "C:\\Users\\dev\\project\\_bmad\\skf\\skf-test-skill\\references\\coverage-check.md",
+      "section_slug": "extract-documented-exports-from-skill-md",
+      "defect_key": "documented-exports",
+      "tuple": "gap|skf-test-skill|src/skf-test-skill/references/coverage-check.md|extract-documented-exports-from-skill-md|documented-exports",
+      "fp": "fp-9e38c37",
+      "legacy_fp": "fp-3cde3f5"
     }
   ],
   "defect_key": [
@@ -92,7 +139,55 @@
     },
     {
       "name": "gate_eval.py:",
-      "key": "gate-eval-py"
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42:7:",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42:7-12",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42-",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py#L42",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py#L42-L50",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py#L42-50",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py#L42C7",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py#L42-L50C3",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py#L42C7-L50C3",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate.md?plain=1#L42",
+      "key": "gate"
+    },
+    {
+      "name": "gate.md?plain=1#L42-L50",
+      "key": "gate"
+    },
+    {
+      "name": "gate.md?plain=1#L42C7-L50C3",
+      "key": "gate"
     },
     {
       "name": "`gate_eval.py`",
@@ -111,8 +206,148 @@
       "key": "gate-eval"
     },
     {
+      "name": "`gate_eval.py`:42",
+      "key": "gate-eval"
+    },
+    {
+      "name": "\"scripts/gate_eval.py\":42:7",
+      "key": "gate-eval"
+    },
+    {
+      "name": "` 'gate_eval.py' `",
+      "key": "gate-eval"
+    },
+    {
+      "name": "**`gate_eval.py`**",
+      "key": "gate-eval"
+    },
+    {
+      "name": "“gate_eval.py”",
+      "key": "gate-eval"
+    },
+    {
+      "name": "‘gate_eval.py’",
+      "key": "gate-eval"
+    },
+    {
+      "name": "(gate_eval.py)",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py.",
+      "key": "gate-eval"
+    },
+    {
+      "name": "[gate_eval.py]",
+      "key": "gate-eval"
+    },
+    {
+      "name": "{gate_eval.py}",
+      "key": "gate-eval"
+    },
+    {
+      "name": "<gate_eval.py>",
+      "key": "gate-eval"
+    },
+    {
+      "name": "*gate_eval.py*",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py,",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py;",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py?!",
+      "key": "gate-eval"
+    },
+    {
+      "name": "composeStories()",
+      "key": "compose-stories"
+    },
+    {
+      "name": "gate_eval.py ([{<‘“",
+      "key": "gate-eval"
+    },
+    {
+      "name": "`gate_eval.py:42`:",
+      "key": "gate-eval"
+    },
+    {
+      "name": "(gate_eval.py:42):",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:1:2:3:4",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42-50-60",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42-50-60-70",
+      "key": "py42-50-60-70"
+    },
+    {
       "name": "README.MD",
       "key": "readme"
+    },
+    {
+      "name": "health_check_fp.py",
+      "key": "health-check-fp"
+    },
+    {
+      "name": "health-check.md",
+      "key": "health-check"
+    },
+    {
+      "name": "marketplace.json",
+      "key": "marketplace"
+    },
+    {
+      "name": "sprint-status.yaml",
+      "key": "sprint-status"
+    },
+    {
+      "name": "quality.yml",
+      "key": "quality"
+    },
+    {
+      "name": "customize.toml",
+      "key": "customize"
+    },
+    {
+      "name": "changes.js",
+      "key": "changes"
+    },
+    {
+      "name": "tea-enforce.cjs",
+      "key": "tea-enforce"
+    },
+    {
+      "name": "rehype-links.mjs",
+      "key": "rehype-links"
+    },
+    {
+      "name": "skillLoader.ts",
+      "key": "skill-loader"
+    },
+    {
+      "name": "install-smoke.sh",
+      "key": "install-smoke"
+    },
+    {
+      "name": "skill-manifest.csv",
+      "key": "skill-manifest"
+    },
+    {
+      "name": "requirements.txt",
+      "key": "requirements"
     },
     {
       "name": "data.yaml.bak",
@@ -139,6 +374,10 @@
       "key": "get-httpresponse"
     },
     {
+      "name": "HTTP2Client",
+      "key": "http2client"
+    },
+    {
       "name": "gate\tstatus",
       "key": "gate-status"
     },
@@ -163,6 +402,30 @@
       "key": "long-helper-function-name"
     },
     {
+      "name": "ÉtatMachine",
+      "key": "etat-machine"
+    },
+    {
+      "name": "caféMachine",
+      "key": "cafe-machine"
+    },
+    {
+      "name": "Ünïcode",
+      "key": "unicode"
+    },
+    {
+      "name": "ﬁleLoader",
+      "key": "file-loader"
+    },
+    {
+      "name": "Øresund",
+      "key": "resund"
+    },
+    {
+      "name": "Straße",
+      "key": "strae"
+    },
+    {
       "name": "story moved criteria",
       "key": "story-moved-criteria"
     },
@@ -184,6 +447,26 @@
     },
     {
       "name": "\"\"",
+      "key": ""
+    },
+    {
+      "name": "**",
+      "key": ""
+    },
+    {
+      "name": "(“”)",
+      "key": ""
+    },
+    {
+      "name": "#L42",
+      "key": ""
+    },
+    {
+      "name": ":42:7",
+      "key": ""
+    },
+    {
+      "name": "Проверка",
       "key": ""
     }
   ],
@@ -262,7 +545,19 @@
     },
     {
       "heading": "Résumé du run",
-      "slug": "r-sum-du-run"
+      "slug": "resume-du-run"
+    },
+    {
+      "heading": "Phase ² ﬁnal",
+      "slug": "phase-2-final"
+    },
+    {
+      "heading": "Straße",
+      "slug": "stra-e"
+    },
+    {
+      "heading": "１. Run the gate",
+      "slug": "run-the-gate"
     },
     {
       "heading": "###",
@@ -287,7 +582,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -301,7 +597,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -315,7 +612,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -329,7 +627,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -343,7 +642,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -357,7 +657,38 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
+      }
+    },
+    {
+      "name": "cache that is not UTF-8",
+      "cache": {
+        "base64": "eyJmcC1hYmMxMjM0IjogeyJhY3Rpb24iOiAiY3JlYXRlZCIsICJpc3N1ZV91cmwiOiAiIiwgImRhdGUiOiAiMjAyNi0xMC0wMSIsICJub3RlIjogImNhZukifX0K"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null,
+        "record": null
+      }
+    },
+    {
+      "name": "cache in UTF-16",
+      "cache": {
+        "base64": "//57ACIAZgBwAC0AYQBiAGMAMQAyADMANAAiADoAIAB7ACIAYQBjAHQAaQBvAG4AIgA6ACAAIgBjAHIAZQBhAHQAZQBkACIALAAgACIAaQBzAHMAdQBlAF8AdQByAGwAIgA6ACAAIgAiACwAIAAiAGQAYQB0AGUAIgA6ACAAIgAyADAAMgA2AC0AMQAwAC0AMAAxACIAfQB9AAoA"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -371,7 +702,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -385,7 +717,11 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -399,7 +735,11 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -413,7 +753,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "reacted",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -427,7 +772,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "commented",
+          "date": "2026-10-01",
+          "issue_url": null
+        }
       }
     },
     {
@@ -442,10 +792,16 @@
         "state": "OPEN",
         "stateReason": ""
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -460,10 +816,16 @@
         "state": "CLOSED",
         "stateReason": "NOT_PLANNED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "reacted",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -478,10 +840,16 @@
         "state": "CLOSED",
         "stateReason": "DUPLICATE"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "commented",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -495,10 +863,16 @@
       "gh": {
         "state": "CLOSED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -510,10 +884,16 @@
       "legacy_fp": "fp-1234abc",
       "repo": null,
       "gh": null,
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -528,10 +908,16 @@
         "state": "CLOSED",
         "stateReason": "COMPLETED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01."
+        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01.",
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -545,10 +931,16 @@
       "gh": {
         "state": "MERGED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1, merged since its report on 2026-10-01."
+        "opening_line": "Regression of https://github.com/o/r/issues/1, merged since its report on 2026-10-01.",
+        "record": {
+          "action": "reacted",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -563,10 +955,16 @@
         "state": "closed",
         "stateReason": "completed"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01."
+        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01.",
+        "record": {
+          "action": "commented",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -581,10 +979,15 @@
         "state": "CLOSED",
         "stateReason": "COMPLETED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on an unrecorded date."
+        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on an unrecorded date.",
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1"
+        }
       }
     },
     {
@@ -598,7 +1001,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "http://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -612,7 +1020,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1 --repo x/y",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -626,7 +1039,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "date": "2026-10-01",
+          "issue_url": 7
+        }
       }
     },
     {
@@ -640,7 +1058,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19)."
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -654,7 +1077,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -668,7 +1096,11 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -682,7 +1114,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "http://example.invalid/1",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -696,7 +1133,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://x/1\n## Fingerprint",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -710,7 +1152,11 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved on an unrecorded date)."
+        "opening_line": "Regression of a previously resolved local finding (resolved on an unrecorded date).",
+        "record": {
+          "action": "resolved",
+          "issue_url": ""
+        }
       }
     },
     {
@@ -724,7 +1170,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved on an unrecorded date)."
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved on an unrecorded date).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "yesterday"
+        }
       }
     },
     {
@@ -738,7 +1189,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved on an unrecorded date)."
+        "opening_line": "Regression of a previously resolved local finding (resolved on an unrecorded date).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "",
+          "date": 20260719
+        }
       }
     },
     {
@@ -752,7 +1208,12 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "queued",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -766,7 +1227,12 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "teleported",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -780,7 +1246,11 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -794,7 +1264,8 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": ["not", "an", "object"]
       }
     },
     {
@@ -808,7 +1279,8 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": "created"
       }
     },
     {
@@ -822,7 +1294,8 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -836,7 +1309,12 @@
       "expect": {
         "status": "unseen",
         "matched_on": "legacy_fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -851,10 +1329,16 @@
         "state": "OPEN",
         "stateReason": ""
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "unseen",
         "matched_on": "legacy_fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -868,7 +1352,12 @@
       "expect": {
         "status": "possible-regression",
         "matched_on": "legacy_fp",
-        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1 (resolved 2026-07-19): that report's fingerprint has no defect key, so it may be another defect in this section."
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1 (resolved 2026-07-19): that report's fingerprint has no defect key, so it may be another defect in this section.",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -882,7 +1371,12 @@
       "expect": {
         "status": "possible-regression",
         "matched_on": "legacy_fp",
-        "opening_line": "Possibly a regression of a previously resolved local finding in this section (resolved 2026-07-19)."
+        "opening_line": "Possibly a regression of a previously resolved local finding in this section (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -897,10 +1391,16 @@
         "state": "CLOSED",
         "stateReason": "COMPLETED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "possible-regression",
         "matched_on": "legacy_fp",
-        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01: that report's fingerprint has no defect key, so it may be another defect in this section."
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01: that report's fingerprint has no defect key, so it may be another defect in this section.",
+        "record": {
+          "action": "created",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -914,10 +1414,16 @@
       "gh": {
         "state": "MERGED"
       },
+      "gh_url": "https://github.com/o/r/issues/1",
       "expect": {
         "status": "possible-regression",
         "matched_on": "legacy_fp",
-        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1, merged since its report on 2026-10-01: that report's fingerprint has no defect key, so it may be another defect in this section."
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1, merged since its report on 2026-10-01: that report's fingerprint has no defect key, so it may be another defect in this section.",
+        "record": {
+          "action": "commented",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -931,7 +1437,12 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "legacy_fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "queued",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -945,7 +1456,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -959,7 +1475,12 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "queued",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -973,7 +1494,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19)."
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -987,7 +1513,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -1001,7 +1528,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -1015,7 +1543,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -1029,7 +1558,12 @@
       "expect": {
         "status": "possible-regression",
         "matched_on": "legacy_fp",
-        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1 (resolved 2026-07-19): that report's fingerprint has no defect key, so it may be another defect in this section."
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1 (resolved 2026-07-19): that report's fingerprint has no defect key, so it may be another defect in this section.",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -1044,10 +1578,16 @@
         "state": "OPEN",
         "stateReason": ""
       },
+      "gh_url": "https://GitHub.com/O/R/issues/1",
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "https://GitHub.com/O/R/issues/1",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -1061,7 +1601,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19)."
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -1075,7 +1620,12 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of https://ghe.example.com/o/r/issues/3 (resolved 2026-07-19)."
+        "opening_line": "Regression of https://ghe.example.com/o/r/issues/3 (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://ghe.example.com/o/r/issues/3",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -1089,7 +1639,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -1103,7 +1654,12 @@
       "expect": {
         "status": "handled",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": {
+          "action": "created",
+          "issue_url": "",
+          "date": "2026-10-01"
+        }
       }
     },
     {
@@ -1117,7 +1673,11 @@
       "expect": {
         "status": "regression",
         "matched_on": "fp",
-        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19).",
+        "record": {
+          "action": "resolved",
+          "date": "2026-07-19"
+        }
       }
     },
     {
@@ -1131,7 +1691,8 @@
       "expect": {
         "status": "unrecognized",
         "matched_on": "fp",
-        "opening_line": null
+        "opening_line": null,
+        "record": ["x"]
       }
     },
     {
@@ -1145,7 +1706,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     },
     {
@@ -1159,7 +1721,8 @@
       "expect": {
         "status": "unseen",
         "matched_on": null,
-        "opening_line": null
+        "opening_line": null,
+        "record": null
       }
     }
   ],
@@ -1529,6 +2092,52 @@
       }
     },
     {
+      "name": "a cache that is not UTF-8 is set aside",
+      "cache_before": {
+        "base64": "eyJmcC03NjU0MzIxIjogeyJhY3Rpb24iOiAiY3JlYXRlZCIsICJpc3N1ZV91cmwiOiAiaHR0cHM6Ly9naXRodWIuY29tL28vci9pc3N1ZXMvMSIsICJkYXRlIjogIjIwMjYtMTAtMDEiLCAibm90ZSI6ICJjYWbpIn19Cg=="
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": true
+      }
+    },
+    {
+      "name": "a cache in UTF-16 is set aside",
+      "cache_before": {
+        "base64": "//57ACIAZgBwAC0ANwA2ADUANAAzADIAMQAiADoAIAB7ACIAYQBjAHQAaQBvAG4AIgA6ACAAIgBjAHIAZQBhAHQAZQBkACIALAAgACIAaQBzAHMAdQBlAF8AdQByAGwAIgA6ACAAIgBoAHQAdABwAHMAOgAvAC8AZwBpAHQAaAB1AGIALgBjAG8AbQAvAG8ALwByAC8AaQBzAHMAdQBlAHMALwAxACIALAAgACIAZABhAHQAZQAiADoAIAAiADIAMAAyADYALQAxADAALQAwADEAIgB9AH0ACgA="
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": true
+      }
+    },
+    {
       "name": "a cache with a UTF-8 byte order mark is read",
       "cache_before": {
         "raw": "\ufeff{\"fp-7654321\": {\"action\": \"created\", \"issue_url\": \"https://github.com/o/r/issues/1\", \"date\": \"2026-10-01\"}}\n"
@@ -1605,6 +2214,24 @@
       }
     },
     {
+      "name": "refused: reacted with an empty issue_url",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "reacted", "--issue-url", "", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: commented with an empty issue_url",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "commented", "--issue-url", "", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
       "name": "refused: an issue_url that is not https",
       "cache_before": null,
       "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "http://github.com/o/r/issues/1", "--date", "2026-11-14"],
@@ -1658,6 +2285,24 @@
       "name": "refused: no date",
       "cache_before": null,
       "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: no issue_url",
+      "cache_before": {
+        "raw": "{\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: no action",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
       "expect": {
         "refused": true
       }

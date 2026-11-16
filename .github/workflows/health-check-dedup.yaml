@@ -47,6 +47,11 @@ name: Health-Check Dedup
 #      different keys, and two different defects in one section share the
 #      section fingerprint, so a maintainer decides.
 #
+# Label names, the title, the body's fingerprint and its `Section fingerprint:`
+# line are read in any letter case, as GitHub matches a label name, and a
+# fingerprint is always used in lower case: an issue labeled `FP-ABC1234` is
+# deduped as one labeled `fp-abc1234`.
+#
 # GitHub sends `opened` and one `labeled` event per label for a new issue, so the
 # job runs several times for one issue: runs for one issue share a concurrency
 # group so they never overlap (a newer pending run may replace an older pending
@@ -76,10 +81,11 @@ jobs:
         with:
           script: |
             // Act on `opened`, and on `labeled` only for a label this Action reads: a maintainer's triage
-            // label must not re-flag an issue they un-flagged or re-close a duplicate they reopened.
+            // label must not re-flag an issue they un-flagged or re-close a duplicate they reopened. A label
+            // name is read in any letter case, as GitHub matches one.
             const event = context.payload.action;
             const added = context.payload.label ? context.payload.label.name : '';
-            if (event !== 'opened' && !(event === 'labeled' && (added === 'health-check' || /^fp-[0-9a-f]{7}$/.test(added)))) {
+            if (event !== 'opened' && !(event === 'labeled' && (added.toLowerCase() === 'health-check' || /^fp-[0-9a-f]{7}$/i.test(added)))) {
               core.info(`Event ${event} (label ${added || 'none'}) is not one this Action acts on; skipping.`);
               return;
             }
@@ -94,8 +100,10 @@ jobs:
               core.info(`Issue #${issue.number} is ${issue.state}; skipping dedup.`);
               return;
             }
-            const labelsOf = i => (i.labels || []).map(l => (typeof l === 'string' ? l : l.name));
-            let fpLabel = labelsOf(issue).find(n => /^fp-[0-9a-f]{7}$/.test(n));
+            // Label names in lower case, so every test below reads one in any letter case, as GitHub matches
+            // a label name and as the title and the body are read: the fingerprint is used in lower case.
+            const labelsOf = i => (i.labels || []).map(l => (typeof l === 'string' ? l : l.name).toLowerCase());
+            let fpLabel = labelsOf(issue).find(n => /^fp-[0-9a-f]{7}$/i.test(n));
 
             // A reporter without push access can set no label, so their report arrives bare: read its
             // fingerprint and severity from what it says and label it here, then dedup it as any other.
@@ -220,10 +228,11 @@ jobs:
                 core.info(`#${issue.number} is already flagged as a possible duplicate.`);
                 return;
               }
-              const SECTION_RE = /^Section fingerprint: `(fp-[0-9a-f]{7})`/m;
+              // Case-blind, as the body's `## Fingerprint` line is read; both captures are used in lower case.
+              const SECTION_RE = /^Section fingerprint: `(fp-[0-9a-f]{7})`/mi;
               const own = SECTION_RE.exec(issue.body || '');
               // An issue filed without a defect key has no such line: its fingerprint is its section's.
-              const sectionFp = own ? own[1] : fpLabel;
+              const sectionFp = own ? own[1].toLowerCase() : fpLabel;
               const open = await github.paginate(github.rest.issues.listForRepo, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -240,7 +249,7 @@ jobs:
                   if (labels.includes(fpLabel)) return false;
                   if (labels.includes(sectionFp)) return true;
                   const theirs = SECTION_RE.exec(m.body || '');
-                  return Boolean(theirs) && theirs[1] === sectionFp;
+                  return Boolean(theirs) && theirs[1].toLowerCase() === sectionFp;
                 })
                 .sort((a, b) => a.number - b.number);
               if (related.length === 0) {
