@@ -1,0 +1,1666 @@
+{
+  "about": "This file is byte-identical in armelhbobdad/bmad-module-ultracode-goal and armelhbobdad/bmad-module-skill-forge (test/fixtures/health-check-shared.json in both), whose adapter tests run every row through their own health-check helper; a change to it lands in one pull request per repository, and the scheduled drift check is red between their merges.",
+  "fingerprint": [
+    {
+      "module": "ucg",
+      "severity": "bug",
+      "workflow": "ultracode-goal/gate",
+      "step_file": "skills/ultracode-goal/references/gate.md",
+      "section_slug": "verdict-mapping",
+      "defect_key": "gate-status",
+      "tuple": "bug|ultracode-goal/gate|skills/ultracode-goal/references/gate.md|verdict-mapping|gate-status",
+      "fp": "fp-4e6fb0f",
+      "legacy_fp": "fp-3d74222"
+    },
+    {
+      "module": "ucg",
+      "severity": "bug",
+      "workflow": "ultracode-goal/preflight",
+      "step_file": "skills/ultracode-goal/references/preflight.md",
+      "section_slug": "missing-staging-path",
+      "defect_key": "staging-path",
+      "tuple": "bug|ultracode-goal/preflight|skills/ultracode-goal/references/preflight.md|missing-staging-path|staging-path",
+      "fp": "fp-d151155",
+      "legacy_fp": "fp-4b1bdda"
+    },
+    {
+      "module": "ucg",
+      "severity": "friction",
+      "workflow": "ultracode-goal/health-check",
+      "step_file": "skills/ultracode-goal/references/health-check.md",
+      "section_slug": "local-queue-every-finding-that-stays-local",
+      "defect_key": "queue",
+      "tuple": "friction|ultracode-goal/health-check|skills/ultracode-goal/references/health-check.md|local-queue-every-finding-that-stays-local|queue",
+      "fp": "fp-4bbf0f4",
+      "legacy_fp": "fp-6efc7b6"
+    },
+    {
+      "module": "skf",
+      "severity": "gap",
+      "workflow": "skf-test-skill",
+      "step_file": "src/skf-test-skill/references/inventory-contract.md",
+      "section_slug": "documented-inventory-contract",
+      "defect_key": "const-holding-function",
+      "tuple": "gap|skf-test-skill|src/skf-test-skill/references/inventory-contract.md|documented-inventory-contract|const-holding-function",
+      "fp": "fp-a54e7a6",
+      "legacy_fp": "fp-eb2d6f2"
+    },
+    {
+      "module": "skf",
+      "severity": "gap",
+      "workflow": "skf-test-skill",
+      "step_file": "src/skf-test-skill/references/inventory-contract.md",
+      "section_slug": "documented-inventory-contract",
+      "defect_key": "shared-text",
+      "tuple": "gap|skf-test-skill|src/skf-test-skill/references/inventory-contract.md|documented-inventory-contract|shared-text",
+      "fp": "fp-ed2bb67",
+      "legacy_fp": "fp-eb2d6f2"
+    }
+  ],
+  "defect_key": [
+    {
+      "name": "gate_status",
+      "key": "gate-status"
+    },
+    {
+      "name": "gate_eval.py",
+      "key": "gate-eval"
+    },
+    {
+      "name": "scripts/gate_eval.py",
+      "key": "gate-eval"
+    },
+    {
+      "name": "skills\\ultracode-goal\\scripts\\gate_eval.py",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42",
+      "key": "gate-eval"
+    },
+    {
+      "name": "scripts/gate_eval.py:42-50",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:42:7",
+      "key": "gate-eval"
+    },
+    {
+      "name": "C:\\work\\gate_eval.py:10:2",
+      "key": "gate-eval"
+    },
+    {
+      "name": "gate_eval.py:",
+      "key": "gate-eval-py"
+    },
+    {
+      "name": "`gate_eval.py`",
+      "key": "gate-eval"
+    },
+    {
+      "name": "'gate_eval.py'",
+      "key": "gate-eval"
+    },
+    {
+      "name": "\"gate_eval.py\"",
+      "key": "gate-eval"
+    },
+    {
+      "name": "  `scripts/gate_eval.py:42:7`  ",
+      "key": "gate-eval"
+    },
+    {
+      "name": "README.MD",
+      "key": "readme"
+    },
+    {
+      "name": "data.yaml.bak",
+      "key": "data-yaml-bak"
+    },
+    {
+      "name": "formalize_check.py ready",
+      "key": "formalize-check-py-ready"
+    },
+    {
+      "name": ".py",
+      "key": "py"
+    },
+    {
+      "name": "composeStories",
+      "key": "compose-stories"
+    },
+    {
+      "name": "buildHeadlessEnvelope",
+      "key": "build-headless-envelope"
+    },
+    {
+      "name": "getHTTPResponse",
+      "key": "get-httpresponse"
+    },
+    {
+      "name": "gate\tstatus",
+      "key": "gate-status"
+    },
+    {
+      "name": "--cycle-profile",
+      "key": "cycle-profile"
+    },
+    {
+      "name": "_private_helper",
+      "key": "private-helper"
+    },
+    {
+      "name": "operator's own evidence",
+      "key": "operators-own-evidence"
+    },
+    {
+      "name": "one two three four five",
+      "key": "two-three-four-five"
+    },
+    {
+      "name": "theVeryLongHelperFunctionName",
+      "key": "long-helper-function-name"
+    },
+    {
+      "name": "story moved criteria",
+      "key": "story-moved-criteria"
+    },
+    {
+      "name": "--__",
+      "key": ""
+    },
+    {
+      "name": "...",
+      "key": ""
+    },
+    {
+      "name": "'",
+      "key": ""
+    },
+    {
+      "name": "`",
+      "key": ""
+    },
+    {
+      "name": "\"\"",
+      "key": ""
+    }
+  ],
+  "section_slug": [
+    {
+      "heading": "1b. Run the formalize readiness check",
+      "slug": "run-the-formalize-readiness-check"
+    },
+    {
+      "heading": "### 5a-ii. If no matching open issue exists",
+      "slug": "if-no-matching-open-issue-exists"
+    },
+    {
+      "heading": "### 4-headless. Unattended routing (no human at the gate)",
+      "slug": "unattended-routing-no-human-at-the-gate"
+    },
+    {
+      "heading": "## 0.5. Enabled gate",
+      "slug": "enabled-gate"
+    },
+    {
+      "heading": "5. 6. Only one numbering token",
+      "slug": "6-only-one-numbering-token"
+    },
+    {
+      "heading": "1.Run without a space",
+      "slug": "1-run-without-a-space"
+    },
+    {
+      "heading": "## Step 2.5 is not numbering",
+      "slug": "step-2-5-is-not-numbering"
+    },
+    {
+      "heading": "## 3.5 GHz is not numbering",
+      "slug": "3-5-ghz-is-not-numbering"
+    },
+    {
+      "heading": "## Closing hashes ##",
+      "slug": "closing-hashes"
+    },
+    {
+      "heading": "## Inner ### hashes stay",
+      "slug": "inner-hashes-stay"
+    },
+    {
+      "heading": "## C#",
+      "slug": "c"
+    },
+    {
+      "heading": "  ##   Spaced   out   ##  ",
+      "slug": "spaced-out"
+    },
+    {
+      "heading": "# Documented Inventory Contract",
+      "slug": "documented-inventory-contract"
+    },
+    {
+      "heading": "Route on the verdict",
+      "slug": "route-on-the-verdict"
+    },
+    {
+      "heading": "## 5. Severity routing (attended [Y] and [A])",
+      "slug": "severity-routing-attended-y-and-a"
+    },
+    {
+      "heading": "The per-invocation work bound (`--max-stories N`)",
+      "slug": "the-per-invocation-work-bound-max-stories-n"
+    },
+    {
+      "heading": "C++ & Rust: notes!",
+      "slug": "c-rust-notes"
+    },
+    {
+      "heading": "## UPPER Case",
+      "slug": "upper-case"
+    },
+    {
+      "heading": "Résumé du run",
+      "slug": "r-sum-du-run"
+    },
+    {
+      "heading": "###",
+      "slug": ""
+    },
+    {
+      "heading": "1. ...",
+      "slug": ""
+    },
+    {
+      "heading": "!!!",
+      "slug": ""
+    }
+  ],
+  "seen": [
+    {
+      "name": "missing cache",
+      "cache": null,
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "empty cache file",
+      "cache": {
+        "raw": ""
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "blank cache file",
+      "cache": {
+        "raw": " \n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "cache that is not JSON",
+      "cache": {
+        "raw": "{not json"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "cache that is a JSON array",
+      "cache": {
+        "raw": "[1, 2]\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "cache that is a JSON string",
+      "cache": {
+        "raw": "\"fp-abc1234\"\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "another fingerprint only",
+      "cache": {
+        "raw": "{\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "cache with a UTF-8 byte order mark",
+      "cache": {
+        "raw": "\ufeff{\"fp-abc1234\": {\"action\": \"created\", \"date\": \"2026-10-01\"}}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "created with no issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "reacted with an empty issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"reacted\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "commented with a null issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"commented\",\n    \"date\": \"2026-10-01\",\n    \"issue_url\": null\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an open issue",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "OPEN",
+        "stateReason": ""
+      },
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue closed as not planned",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"reacted\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "CLOSED",
+        "stateReason": "NOT_PLANNED"
+      },
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue closed as a duplicate",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"commented\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "CLOSED",
+        "stateReason": "DUPLICATE"
+      },
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue closed with no reason",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "CLOSED"
+      },
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a failed gh call",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue closed as completed",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "CLOSED",
+        "stateReason": "COMPLETED"
+      },
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01."
+      }
+    },
+    {
+      "name": "a merged pull request",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"reacted\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "MERGED"
+      },
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1, merged since its report on 2026-10-01."
+      }
+    },
+    {
+      "name": "a completed close in lower case",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"commented\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "closed",
+        "stateReason": "completed"
+      },
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01."
+      }
+    },
+    {
+      "name": "a completed close of an undated record",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "CLOSED",
+        "stateReason": "COMPLETED"
+      },
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1, closed as completed since its report on an unrecorded date."
+      }
+    },
+    {
+      "name": "an issue_url that is not https",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"http://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue_url holding whitespace",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1 --repo x/y\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue_url that is not a string",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"date\": \"2026-10-01\",\n    \"issue_url\": 7\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "resolved with an issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "resolved with an empty issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "resolved with no issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "resolved with an issue_url that is not https",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"http://example.invalid/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "resolved with an issue_url holding a line break",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://x/1\\n## Fingerprint\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "resolved with no date",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved on an unrecorded date)."
+      }
+    },
+    {
+      "name": "resolved with a date that is not YYYY-MM-DD",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"yesterday\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved on an unrecorded date)."
+      }
+    },
+    {
+      "name": "resolved with a date that is not a string",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"\",\n    \"date\": 20260719\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved on an unrecorded date)."
+      }
+    },
+    {
+      "name": "an old queued record",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"queued\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an unknown action",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"teleported\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "no action",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a record that is a list",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": [\n    \"not\",\n    \"an\",\n    \"object\"\n  ]\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a record that is a string",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": \"created\"\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a record that is null",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": null\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a legacy record with no issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"created\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unseen",
+        "matched_on": "legacy_fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a legacy record of an open issue",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "OPEN",
+        "stateReason": ""
+      },
+      "expect": {
+        "status": "unseen",
+        "matched_on": "legacy_fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a legacy record resolved with an issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "possible-regression",
+        "matched_on": "legacy_fp",
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1 (resolved 2026-07-19): that report's fingerprint has no defect key, so it may be another defect in this section."
+      }
+    },
+    {
+      "name": "a legacy record resolved with no issue_url",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "possible-regression",
+        "matched_on": "legacy_fp",
+        "opening_line": "Possibly a regression of a previously resolved local finding in this section (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "a legacy record of an issue closed as completed",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "CLOSED",
+        "stateReason": "COMPLETED"
+      },
+      "expect": {
+        "status": "possible-regression",
+        "matched_on": "legacy_fp",
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1, closed as completed since its report on 2026-10-01: that report's fingerprint has no defect key, so it may be another defect in this section."
+      }
+    },
+    {
+      "name": "a legacy record of a merged pull request",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"commented\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "gh": {
+        "state": "MERGED"
+      },
+      "expect": {
+        "status": "possible-regression",
+        "matched_on": "legacy_fp",
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1, merged since its report on 2026-10-01: that report's fingerprint has no defect key, so it may be another defect in this section."
+      }
+    },
+    {
+      "name": "an unrecognized legacy record",
+      "cache": {
+        "raw": "{\n  \"fp-1234abc\": {\n    \"action\": \"queued\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "legacy_fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "fp handled over a resolved legacy record",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  },\n  \"fp-1234abc\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "fp unrecognized over a resolved legacy record",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"queued\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  },\n  \"fp-1234abc\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "fp resolved over a handled legacy record",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  },\n  \"fp-1234abc\": {\n    \"action\": \"created\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": null,
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "another repository's open issue",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/x/y/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "another repository's resolved issue",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/x/y/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a repository whose name only starts the same",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r2/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "another repository's fp record, this one's legacy record",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/x/y/issues/1\",\n    \"date\": \"2026-10-01\"\n  },\n  \"fp-1234abc\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "possible-regression",
+        "matched_on": "legacy_fp",
+        "opening_line": "Possibly a regression of https://github.com/o/r/issues/1 (resolved 2026-07-19): that report's fingerprint has no defect key, so it may be another defect in this section."
+      }
+    },
+    {
+      "name": "this repository in another letter case",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://GitHub.com/O/R/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "gh": {
+        "state": "OPEN",
+        "stateReason": ""
+      },
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "this repository's resolved issue",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://github.com/o/r/issues/1 (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "a host repository's issue",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://ghe.example.com/o/r/issues/3\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "ghe.example.com/o/r",
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of https://ghe.example.com/o/r/issues/3 (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "a github.com issue under a host repository",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "ghe.example.com/o/r",
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a record with an empty issue_url under --repo",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "handled",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "a resolved record with no issue_url under --repo",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "regression",
+        "matched_on": "fp",
+        "opening_line": "Regression of a previously resolved local finding (resolved 2026-07-19)."
+      }
+    },
+    {
+      "name": "a record that is not an object under --repo",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": [\n    \"x\"\n  ]\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "unrecognized",
+        "matched_on": "fp",
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue_url that is not https under --repo",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"http://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    },
+    {
+      "name": "an issue_url that is not a string under --repo",
+      "cache": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"date\": \"2026-10-01\",\n    \"issue_url\": 7\n  }\n}\n"
+      },
+      "fp": "fp-abc1234",
+      "legacy_fp": "fp-1234abc",
+      "repo": "o/r",
+      "expect": {
+        "status": "unseen",
+        "matched_on": null,
+        "opening_line": null
+      }
+    }
+  ],
+  "record": [
+    {
+      "name": "a new record into a missing cache",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "a new record into an empty cache file",
+      "cache_before": {
+        "raw": ""
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "reacted", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "reacted",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "reacted",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "a new record keeps every other key",
+      "cache_before": {
+        "raw": "{\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/2\",\n    \"date\": \"2026-10-01\"\n  },\n  \"fp-1234abc\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-07-19\"\n  },\n  \"a-hand-written-key\": [\n    1,\n    \"two\",\n    null\n  ]\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "commented", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "commented",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-7654321": {
+            "action": "created",
+            "issue_url": "https://github.com/o/r/issues/2",
+            "date": "2026-10-01"
+          },
+          "fp-1234abc": {
+            "action": "resolved",
+            "issue_url": "",
+            "date": "2026-07-19"
+          },
+          "a-hand-written-key": [1, "two", null],
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "commented",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "a record replaces the one under its fingerprint",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  },\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "reacted", "--issue-url", "https://github.com/o/r/issues/2", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/2",
+          "action": "reacted",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/2",
+            "action": "reacted",
+            "date": "2026-11-14"
+          },
+          "fp-7654321": {
+            "action": "created",
+            "issue_url": "https://github.com/o/r/issues/1",
+            "date": "2026-10-01"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "a record replaces one that is not an object",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": \"junk\"\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "resolved is never downgraded by created",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"\",\n    \"date\": \"2026-07-19\"\n  },\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": false,
+        "record": {
+          "action": "resolved",
+          "issue_url": "",
+          "date": "2026-07-19"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "action": "resolved",
+            "issue_url": "",
+            "date": "2026-07-19"
+          },
+          "fp-7654321": {
+            "action": "created",
+            "issue_url": "https://github.com/o/r/issues/1",
+            "date": "2026-10-01"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "resolved is never downgraded by commented",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "commented", "--issue-url", "https://github.com/o/r/issues/2", "--date", "2026-11-14"],
+      "expect": {
+        "written": false,
+        "record": {
+          "action": "resolved",
+          "issue_url": "https://github.com/o/r/issues/1",
+          "date": "2026-07-19"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "action": "resolved",
+            "issue_url": "https://github.com/o/r/issues/1",
+            "date": "2026-07-19"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "--regression replaces a resolved record",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  },\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": [
+        "--fp",
+        "fp-abc1234",
+        "--action",
+        "created",
+        "--issue-url",
+        "https://github.com/o/r/issues/2",
+        "--date",
+        "2026-11-14",
+        "--regression"
+      ],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/2",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/2",
+            "action": "created",
+            "date": "2026-11-14"
+          },
+          "fp-7654321": {
+            "action": "created",
+            "issue_url": "https://github.com/o/r/issues/1",
+            "date": "2026-10-01"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "--regression sets a record that is not resolved",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": [
+        "--fp",
+        "fp-abc1234",
+        "--action",
+        "reacted",
+        "--issue-url",
+        "https://github.com/o/r/issues/2",
+        "--date",
+        "2026-11-14",
+        "--regression"
+      ],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/2",
+          "action": "reacted",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/2",
+            "action": "reacted",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "resolved replaces a created record",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "resolved", "--issue-url", "https://github.com/o/r/issues/2", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/2",
+          "action": "resolved",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/2",
+            "action": "resolved",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "resolved replaces a resolved record",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "resolved", "--issue-url", "", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "",
+          "action": "resolved",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "",
+            "action": "resolved",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "resolved with an empty issue_url",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "resolved", "--issue-url", "", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "",
+          "action": "resolved",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "",
+            "action": "resolved",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "a corrupt cache is set aside",
+      "cache_before": {
+        "raw": "{not json"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": true
+      }
+    },
+    {
+      "name": "a cache that is a JSON array is set aside",
+      "cache_before": {
+        "raw": "[1]\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": true
+      }
+    },
+    {
+      "name": "a cache with a UTF-8 byte order mark is read",
+      "cache_before": {
+        "raw": "\ufeff{\"fp-7654321\": {\"action\": \"created\", \"issue_url\": \"https://github.com/o/r/issues/1\", \"date\": \"2026-10-01\"}}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "written": true,
+        "record": {
+          "issue_url": "https://github.com/o/r/issues/1",
+          "action": "created",
+          "date": "2026-11-14"
+        },
+        "cache_after": {
+          "fp-7654321": {
+            "action": "created",
+            "issue_url": "https://github.com/o/r/issues/1",
+            "date": "2026-10-01"
+          },
+          "fp-abc1234": {
+            "issue_url": "https://github.com/o/r/issues/1",
+            "action": "created",
+            "date": "2026-11-14"
+          }
+        },
+        "set_aside": false
+      }
+    },
+    {
+      "name": "refused: a fingerprint in upper case",
+      "cache_before": {
+        "raw": "{\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "FP-ABC1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: a fingerprint too short",
+      "cache_before": null,
+      "args": ["--fp", "fp-123", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: the old queued action",
+      "cache_before": {
+        "raw": "{not json"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "queued", "--issue-url", "", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: an unknown action",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "teleported", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: created with an empty issue_url",
+      "cache_before": {
+        "raw": "{\n  \"fp-abc1234\": {\n    \"action\": \"resolved\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-07-19\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: an issue_url that is not https",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "http://github.com/o/r/issues/1", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: an issue_url holding whitespace",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1 x", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: resolved with an issue_url that is not https",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "resolved", "--issue-url", "http://example.invalid/1", "--date", "2026-11-14"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: a date that does not exist",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-02-30"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: a date without leading zeros",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "2026-1-2"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: a date without hyphens",
+      "cache_before": {
+        "raw": "{\n  \"fp-7654321\": {\n    \"action\": \"created\",\n    \"issue_url\": \"https://github.com/o/r/issues/1\",\n    \"date\": \"2026-10-01\"\n  }\n}\n"
+      },
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1", "--date", "20261114"],
+      "expect": {
+        "refused": true
+      }
+    },
+    {
+      "name": "refused: no date",
+      "cache_before": null,
+      "args": ["--fp", "fp-abc1234", "--action", "created", "--issue-url", "https://github.com/o/r/issues/1"],
+      "expect": {
+        "refused": true
+      }
+    }
+  ]
+}
