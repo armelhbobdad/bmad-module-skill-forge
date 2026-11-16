@@ -1,0 +1,72 @@
+name: Health-Check Fixture Drift
+
+# An alarm, not a pull-request gate. test/fixtures/health-check-shared.json pins
+# what the two health-check helpers share (the golden fingerprints, the
+# defect-key and section-slug rules, the seen verdicts with their opening lines,
+# and the record rules), and UltraCode Goal
+# (armelhbobdad/bmad-module-ultracode-goal) keeps a byte-identical copy that its
+# own adapter test runs through health_check_fp.py. Each repository's adapter
+# test (test/test-skf-health-check-shared-fixture.py here) pins its copy's
+# sha256, so a one-sided edit fails there; this job catches the copies drifting
+# apart all the same, by comparing this repository's copy with the one on
+# UltraCode Goal's main every day and on a manual dispatch:
+#
+#   gh workflow run health-check-fixture-drift.yaml
+#
+# It fails when the bytes differ or UltraCode Goal has no copy, and its error
+# says how to bring the two back in step. A fixture change lands in two pull
+# requests, one per repository, so the job is red between their merges: that is
+# expected, and it turns green once both are merged.
+
+"on":
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out this repository
+        # Held on v5: v6 changes how it stores the git credentials, and release.yaml pushes with them.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      # The other copy comes from raw.githubusercontent.com, which serves a
+      # public repository's files without a token. A fetch that fails, or an
+      # answer other than 200 or 404, compares nothing and says so.
+      - name: Compare the fixture with UltraCode Goal's copy
+        shell: bash
+        env:
+          OTHER_REPO: armelhbobdad/bmad-module-ultracode-goal
+          OTHER_REF: main
+          FIXTURE: test/fixtures/health-check-shared.json
+        run: |
+          URL="https://raw.githubusercontent.com/$OTHER_REPO/$OTHER_REF/$FIXTURE"
+          OTHER=$(mktemp)
+          digest() {
+            if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d ' ' -f 1
+          }
+          if ! STATUS=$(curl --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 60 --output "$OTHER" --write-out '%{http_code}' "$URL"); then
+            echo "::error::Could not fetch $URL, so the two copies of $FIXTURE were not compared. Run this workflow again."
+            exit 1
+          fi
+          if [ "$STATUS" = "404" ]; then
+            echo "::error::$OTHER_REPO has no $FIXTURE on $OTHER_REF. To bring the two in step, merge the UltraCode Goal pull request that adds it: a copy of this repository's file, byte for byte (sha256 $(digest "$FIXTURE")), with the adapter test that runs every row and pins that sha256 in its FIXTURE_SHA256."
+            exit 1
+          fi
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::$URL answered HTTP $STATUS, so the two copies of $FIXTURE were not compared. Run this workflow again."
+            exit 1
+          fi
+          if cmp -s "$FIXTURE" "$OTHER"; then
+            echo "$FIXTURE is byte-identical to $OTHER_REPO's copy on $OTHER_REF (sha256 $(digest "$FIXTURE"))."
+            exit 0
+          fi
+          echo "::error::$FIXTURE differs from $OTHER_REPO's copy on $OTHER_REF (sha256 $(digest "$FIXTURE") here, $(digest "$OTHER") there). To bring the two in step, merge the pull request that changes it in the other repository, or open one: copy the newer file there byte for byte and set FIXTURE_SHA256 in that repository's adapter test to its sha256, so both adapters run the same rows."
+          exit 1
