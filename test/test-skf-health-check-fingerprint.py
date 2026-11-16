@@ -475,7 +475,7 @@ def test_the_issue_body_records_every_fingerprint_input():
     assert "\nSection fingerprint: `{legacy_fp}`\n" in fingerprint
     assert "body text only, never a label, since the dedup Action reads it to flag possible duplicates." in _flow(body)
     # The Action finds that line by the pattern the body writes it in, at the start of a line.
-    assert "const SECTION_RE = /^Section fingerprint: `(fp-[0-9a-f]{7})`/m;" in _read(DEDUP_WORKFLOW)
+    assert "const SECTION_RE = /^Section fingerprint: `(fp-[0-9a-f]{7})`/mi;" in _read(DEDUP_WORKFLOW)
     create = _slice(text, "**Then create the issue:**", "When sub-step 1 returned `regression`, put")
     assert '--label "health-check,workflow-improvement,{severity},{fp}"' in create
     assert "legacy_fp" not in create
@@ -581,9 +581,10 @@ const scenario = JSON.parse(fs.readFileSync(scenarioPath, 'utf8'));
 const calls = [];
 const withLabels = i => ({ ...i, labels: (i.labels || []).map(name => ({ name })) });
 const open = scenario.open.map(withLabels);
+// GitHub matches a label name in any letter case, as it holds one label per name in any case.
 const listForRepo = async ({ labels }) => {
-  const want = labels.split(',');
-  return { data: open.filter(i => want.every(w => i.labels.some(l => l.name === w))) };
+  const want = labels.split(',').map(w => w.toLowerCase());
+  return { data: open.filter(i => want.every(w => i.labels.some(l => l.name.toLowerCase() === w))) };
 };
 const current = { state: 'open', ...withLabels(scenario.issue), ...(scenario.issue.state ? { state: scenario.issue.state } : {}) };
 const github = {
@@ -615,6 +616,8 @@ new AsyncFunction('github', 'context', 'core', script)(github, context, core)
 """
 
 NEW_FP, OTHER_FP, SECTION_FP = "fp-1111111", "fp-2222222", "fp-3333333"
+# A section fingerprint whose hex has letters, so upper-casing it changes more than its `fp-`.
+UPPER_FP = "fp-5e5a5b5"
 
 
 def _body(section_fp: str | None) -> str:
@@ -687,10 +690,35 @@ def test_the_action_flags_a_keyed_issue_for_a_new_keyless_one(tmp_path):
 
 
 @needs_node
-def test_the_action_does_nothing_without_a_shared_section_or_once_flagged(tmp_path):
+@pytest.mark.parametrize("label", ["possible-duplicate", "Possible-Duplicate"])
+def test_the_action_does_nothing_without_a_shared_section_or_once_flagged(tmp_path, label):
     assert _run_dedup(tmp_path, _issue(20, NEW_FP, SECTION_FP), [_issue(10, OTHER_FP, "fp-5555555")]) == []
-    flagged = _issue(20, NEW_FP, SECTION_FP, "possible-duplicate")
+    # A re-run must not post a second comment, whatever case the repository's label is spelled in.
+    flagged = _issue(20, NEW_FP, SECTION_FP, label)
     assert _run_dedup(tmp_path, flagged, [_issue(10, OTHER_FP, SECTION_FP)]) == []
+
+
+def _upper_body(section_fp: str) -> str:
+    """A body whose section line was retyped in upper case."""
+    return _body(None).replace("## Finding", f"SECTION FINGERPRINT: `{section_fp.upper()}`\n\n## Finding")
+
+
+@needs_node
+@pytest.mark.parametrize("newer, older", [
+    # The new issue's section line in upper case, against a keyless issue's label.
+    ({**_issue(20, NEW_FP, None), "body": _upper_body(UPPER_FP)}, _issue(9, UPPER_FP, None)),
+    # An earlier keyed issue's section line in upper case.
+    (_issue(20, NEW_FP, UPPER_FP), {**_issue(9, OTHER_FP, None), "body": _upper_body(UPPER_FP)}),
+    # A keyless issue's label in upper case, and a new keyless one under it.
+    (_issue(20, NEW_FP, UPPER_FP), _issue(9, UPPER_FP.upper(), None)),
+    (_issue(20, UPPER_FP.upper(), None), _issue(9, OTHER_FP, UPPER_FP)),
+], ids=["own-line", "their-line", "their-label", "own-label"])
+def test_an_upper_case_section_fingerprint_is_flagged(tmp_path, newer, older):
+    """Read in any letter case, as the body's Fingerprint line is, and named in lower case."""
+    calls = _run_dedup(tmp_path, newer, [older])
+    assert [c[0] for c in calls] == ["createLabel", "label", "comment"]
+    assert calls[1] == ["label", 20, ["possible-duplicate"]]
+    assert calls[2][2].startswith(f"Possible duplicate of #9: same section fingerprint `{UPPER_FP}`")
 
 
 @needs_node
@@ -729,11 +757,25 @@ def test_a_labeled_event_for_any_other_label_does_nothing(tmp_path, label):
 
 
 @needs_node
-@pytest.mark.parametrize("label", ["health-check", NEW_FP])
+@pytest.mark.parametrize("label", ["health-check", NEW_FP, "Health-Check", NEW_FP.upper()])
 def test_a_labeled_event_for_health_check_or_a_fingerprint_acts(tmp_path, label):
     calls = _run_dedup(tmp_path, _issue(12, NEW_FP, SECTION_FP), [_issue(10, NEW_FP, SECTION_FP)], event="labeled",
                        label=label)
     assert ["update", 12, "closed", "not_planned"] in calls and ["react", 10, "+1"] in calls
+
+
+@needs_node
+@pytest.mark.parametrize("event, label", [("opened", None), ("labeled", "FP-ABC1234")], ids=["opened", "labeled"])
+def test_an_upper_case_fingerprint_label_is_deduped_as_one(tmp_path, event, label):
+    """A label created as `FP-ABC1234` is that fingerprint's: it is read, searched and named in lower case."""
+    calls = _run_dedup(tmp_path, _issue(12, "FP-ABC1234", SECTION_FP), [_issue(10, "FP-ABC1234", SECTION_FP)],
+                       event=event, label=label)
+    assert calls == [["comment", 12, calls[0][2]], ["label", 12, ["duplicate"]],
+                     ["update", 12, "closed", "not_planned"], ["react", 10, "+1"]]
+    assert calls[0][2].startswith("Auto-deduped: same fingerprint `fp-abc1234` as #10.")
+    # The earlier issue's own run still closes nothing.
+    assert _run_dedup(tmp_path, _issue(10, "FP-ABC1234", SECTION_FP), [_issue(12, "FP-ABC1234", SECTION_FP)],
+                      event=event, label=label) == []
 
 
 @needs_node
@@ -854,12 +896,15 @@ def test_a_template_filing_whose_labels_were_dropped_is_labeled_from_its_body(tm
     "## Fingerprint\n`fp-XXXXXXX`\n\n## Finding\nSee `fp-1234abc`.\n",
     "SPLIT-TEMPLATE-SECTION-ONLY",
     "SPLIT-TEMPLATE-UNFILLED",
-], ids=["section-line", "bold-section-line", "fp-elsewhere", "template-section-only", "template-unfilled"])
+    f"## Fingerprint\n`fp-XXXXXXX`\nSECTION FINGERPRINT: `{UPPER_FP.upper()}`\n",
+], ids=["section-line", "bold-section-line", "fp-elsewhere", "template-section-only", "template-unfilled",
+        "upper-case-section-line"])
 @pytest.mark.parametrize("labels", [(), ("health-check", "workflow-improvement")], ids=["bare", "template-labels"])
 def test_neither_the_section_line_nor_the_placeholder_is_ever_taken(tmp_path, body, labels):
     body = {"SPLIT-TEMPLATE-SECTION-ONLY": _template(severity="bug", section_fp=SECTION_FP),
             "SPLIT-TEMPLATE-UNFILLED": _template()}.get(body, body)
     assert _run_dedup(tmp_path, _bare(12, "[health-check] x", body, *labels), [_issue(9, SECTION_FP, None)]) == []
+    assert _run_dedup(tmp_path, _bare(12, "[health-check] x", body, *labels), [_issue(9, UPPER_FP, None)]) == []
 
 
 @needs_node
@@ -904,8 +949,10 @@ def test_a_report_labeled_from_its_title_is_then_flagged(tmp_path):
 
 
 @needs_node
-def test_only_the_missing_labels_are_added(tmp_path):
-    issue = _bare(12, _skf_title("bug", BARE_FP), "", "health-check", "bug")
+# A label the repository spells in another letter case is the same label.
+@pytest.mark.parametrize("labels", [("health-check", "bug"), ("Health-Check", "BUG")], ids=["lower", "another-case"])
+def test_only_the_missing_labels_are_added(tmp_path, labels):
+    issue = _bare(12, _skf_title("bug", BARE_FP), "", *labels)
     assert _run_dedup(tmp_path, issue, []) == [["createLabel", BARE_FP], _labeled(12, "workflow-improvement", BARE_FP)]
 
 
@@ -946,3 +993,10 @@ def test_the_action_header_says_a_report_without_labels_is_labeled():
             "`fp-XXXXXXX` fingerprint") in header
     assert "`[health-check][{severity}][{fp}] ...`, or else from the body's `## Fingerprint` and `## Severity`" in header
     assert "never from a `Section fingerprint:` line or the template's `fp-XXXXXXX` placeholder" in header
+
+
+def test_the_action_header_says_it_reads_labels_and_fingerprints_in_any_case():
+    header = _flow(re.sub(r"^#\s?", "", _read(DEDUP_WORKFLOW).split('"on":', 1)[0], flags=re.MULTILINE))
+    assert ("Label names, the title, the body's fingerprint and its `Section fingerprint:` line are read in any letter "
+            "case, as GitHub matches a label name, and a fingerprint is always used in lower case: an issue labeled "
+            "`FP-ABC1234` is deduped as one labeled `fp-abc1234`.") in header

@@ -7,9 +7,10 @@ name: Health-Check Fixture Drift
 # (armelhbobdad/bmad-module-ultracode-goal) keeps a byte-identical copy that its
 # own adapter test runs through health_check_fp.py. Each repository's adapter
 # test (test/test-skf-health-check-shared-fixture.py here) pins its copy's
-# sha256, so a one-sided edit fails there; this job catches the copies drifting
-# apart all the same, by comparing this repository's copy with the one on
-# UltraCode Goal's main every day and on a manual dispatch:
+# sha256, which catches an accidental edit. A deliberate edit updates that pin
+# and must make the same change in the other repository, so only this job
+# catches the copies drifting apart, by comparing this repository's copy with
+# the one on UltraCode Goal's main every day and on a manual dispatch:
 #
 #   gh workflow run health-check-fixture-drift.yaml
 #

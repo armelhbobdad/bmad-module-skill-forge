@@ -219,6 +219,8 @@ Forger-sidecar (`src/forger/`) is Ferris's own memory: `preferences.yaml` and `f
 
     It takes the cache's lock and replaces any record under that fingerprint; `--date` is the fix's date, which the regression's opening line names. This is machine-local, so it clears the suppression for you and nobody else. Prefer deleting nothing: `resolved` keeps the record that the defect was once seen, which is what lets the next sighting be reported as a regression rather than as a first sighting.
 
+- **The fixture shared with UltraCode Goal.** `test/fixtures/health-check-shared.json` pins what `skf-health-check-seen.py` shares with UltraCode Goal's `health_check_fp.py`: the golden fingerprints, the defect-key and section-slug rules, the seen verdicts with their opening lines, and the record rules. It is byte-identical in both repositories, and each runs every row through its own helper (`test/test-skf-health-check-shared-fixture.py` here). A change to it, or to a rule it pins, is one pull request per repository: make the same edit, byte for byte, in both copies, and set `FIXTURE_SHA256` in both adapters to the new file's sha256. The pin catches an accidental edit only, since a deliberate one updates it. The [drift job](.github/workflows/health-check-fixture-drift.yaml) compares this copy with the one on UltraCode Goal's `main` every day; run it on demand with `gh workflow run health-check-fixture-drift.yaml`. It is red between the merges of the two pull requests, as expected, and turns green once both are merged.
+
 - **Provenance failures are always bugs.** If an AST citation in a SKF-compiled skill doesn't resolve to the claimed line at the claimed commit, that's the whole deal breaking — please file it.
 
 ## What We Don't Accept
