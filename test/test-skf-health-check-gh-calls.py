@@ -569,7 +569,9 @@ def test_a_refused_gh_call_stops_every_later_one_and_queues_what_is_left():
         assert allow in docs, allow
     for unneeded in ("Bash(gh api", "Bash(gh issue comment"):
         assert unneeded not in docs, unneeded
-    assert "every `gh` command the health check runs puts `--repo` right after its subcommand" in docs
+    # `gh auth status` takes no --repo, so the docs scope only the three commands that do.
+    assert ("the health check puts `--repo` right after the subcommand of every `gh search issues`, "
+            "`gh label create` and `gh issue create` it runs") in docs
 
 
 def test_a_refused_helper_call_or_write_is_no_missing_helper():
