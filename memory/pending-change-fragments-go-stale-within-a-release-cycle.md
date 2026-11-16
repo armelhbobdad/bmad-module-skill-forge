@@ -1,0 +1,8 @@
+---
+created: "2026-11-16 18:58"
+session: "bce82850-9e1d-49f1-8cc0-2c574425403a"
+---
+
+# Pending change fragments go stale within a release cycle
+
+A fragment in `changes/` is checked only when its own pull request merges, so a later pull request of the same cycle can make it false, and nothing before the cut notices: `npm run changes:preview`, the release gate in `tools/changes.js` and `tools/covered-surfaces.js` check types, bumps and covered surfaces, never what a fragment's prose claims. On the 11.1.0 cut (2026-11-16) a pre-release review of `v11.0.0..HEAD` found three: `health-check-dedup-action-race-outside-reporters.yaml` said the queue's printed command "sets no label" (true at #1230, false once #1231 made `submit_commands` print three commands, two with `--label`), `health-check-relay-findings.yaml` described a refusal no release ever had (written against an unreleased intermediate state, not v11.0.0), and `health-check-autosubmit.yaml` listed only the `gh` allow rules, though a headless run also needs `Bash(uv run *skf-health-check-seen.py *)` and the `improvement-queue/` write rule. PR #1236 fixed them before dispatching, because a released fragment is never edited again. Before each cut, check every pending fragment's claims against the code at HEAD and against the last stable tag (`git show vX.Y.Z:<path>`), never against an intermediate state, and expect a test such as `test/test-skf-health-check-gh-calls.py` to pin docs wording verbatim, so a docs correction may need its assertion updated (related: [Release scoping must inspect alias and contract removals](release-scoping-inspect-alias-tables.md), [README/docs drift check before cutting a release](readme-docs-drift-check-before-release.md)).
