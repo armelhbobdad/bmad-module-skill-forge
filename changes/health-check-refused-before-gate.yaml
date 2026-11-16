@@ -1,5 +1,5 @@
 type: fixed
 scope: all workflows
 summary: |
-  When the session refuses one of the health check's helper calls or file writes before its review gate (a permission prompt answered no, or a headless run with no rule that allows it), the health check now skips the gate and saves the findings straight to the local queue with the reason that a call was refused, instead of showing a gate that offered to submit findings it had no draft or fingerprint for.
+  When the session refuses one of the health check's helper calls or file writes (a permission prompt answered no, or a headless run with no rule that allows it), the health check now makes no further call of any kind, and skips the review gate when the refusal comes before it. It lists each finding it has not filed under a reason that says a call was refused, by the draft it already wrote under `{forge_data_folder}/improvement-queue/bodies/` or, without one, by its text, with a link to the docs on submitting it. It used to take a refused helper call for a missing helper, which gave the finding the fingerprint `N/A` and the reason that said to re-install SKF.
 prs: [1233]

@@ -1,5 +1,5 @@
-type: fixed
-scope: skf-update-skill, skf-quick-skill, skf-verify-stack
+type: changed
+scope: all workflows
 summary: |
-  A health-check finding about what Update Skill's, Quick Skill's or Verify Stack's last step does besides loading the shared health check (Update Skill's lock release, source-tree close and run-folder removal, Quick Skill's headless `done` event, Verify Stack's line when the health check cannot load) is now filed against that step, `references/health-check.md`. `skf-health-check-seen.py fingerprint` and `queue` refused that file for every workflow, so such a defect was filed under another step or saved to the local queue with the fingerprint `N/A`. The other workflows' last steps, which only load the shared health check, are still refused.
+  `skf-health-check-seen.py fingerprint` now exits 2 when a finding's step file is a workflow's last step, `references/health-check.md`, that only loads the shared health check, and the new `queue` refuses a draft that names one. That step holds no instruction of its own, so a defect that bites there is reported against the step file that was running when it bit, or against `shared/health-check.md` when it is in the shared health check itself. Update Skill's, Quick Skill's and Verify Stack's last steps do more than load it (Update Skill's lock release, source-tree close and run-folder removal, Quick Skill's headless `done` event, Verify Stack's line when the health check cannot load), so the helper still takes them, and the health check now reports a finding about what they do against that step.
 prs: [1233]

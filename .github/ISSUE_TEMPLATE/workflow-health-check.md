@@ -8,13 +8,14 @@ assignees: ''
 
 ## Workflow
 <!-- The folder name of the workflow whose references/ folder holds the step file below, e.g. skf-create-skill
-     or skf-test-skill: never a display name. -->
+     or skf-test-skill: never a display name. For a defect in the shared health check itself, its helper or a gh
+     command it runs: health-check. -->
 
 
 ## Step File
 <!-- The step file whose instruction bit, as its checkout path whatever install you ran: src/<workflow>/references/
      and the file's name. For a defect in a workflow's SKILL.md, a script or a shared file, the step file that was
-     running. -->
+     running. For a defect in the shared health check itself: src/shared/health-check.md. -->
 `src/skf-<name>/references/<file>.md`
 
 ## Section
