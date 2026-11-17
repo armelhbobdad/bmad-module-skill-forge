@@ -38,7 +38,7 @@ Zero findings is the expected outcome of a good run. Report only a bug, friction
 
 ### 0. Announce Arrival
 
-**Result envelope line.** A workflow may bind `{result_envelope_line}` before it loads this step, in a headless run, to the result envelope line its run printed. When it is bound and not empty, wherever this step stops (the off switch below, the clean-run stop in §2, the stop when no finding survives §3, **\[N]** at the review gate in §4, the closing line of §5a-ii, or the end of §5c) it displays that line verbatim as its very last line, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, which prints only the final message, that line is then the final message a pipeline reads.
+**Result envelope line.** A workflow may bind `{result_envelope_line}` before it loads this step, in a headless run, to the result envelope line its run printed. When it is bound and not empty, wherever this step stops (the off switch below, the clean-run stop in §2, the stop when no finding survives §3, **\[N]** at the review gate in §4, the closing line of §5a-ii, or the end of §5c) it displays that line verbatim as its very last line, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, that line is then the final message a pipeline reads.
 
 **Off switch.** Before anything else, read `health_check_repo` in `{project-root}/_bmad/skf/config.yaml` yourself: a workflow binds only its own config keys. When the key is there and empty (`''`, `""`, nothing or only a comment after its colon, or a YAML null such as `~` or `null`), the health check is off: display the two lines below, then, when `{result_envelope_line}` is bound, that line verbatim, as the last line, and STOP: announce nothing and reflect on nothing.
 
@@ -54,7 +54,7 @@ Otherwise `{healthCheckRepo}` is that value, or `armelhbobdad/bmad-module-skill-
 
 **GATE [default: skip]**: if `{headless_mode}`, skip the display entirely, log: "headless: skipped health-check arrival announcement".
 
-**If interactive:** display the line above, then go on to §1 without waiting: it only tells the user what is about to happen.
+**If interactive:** display the line above, then go on to §1 without waiting.
 
 ### 1. Reflect on the Run
 
@@ -84,7 +84,7 @@ Every finding, whatever its route, gets its fingerprints, its title and its issu
 uv run {seenCacheHelper} settings --config "{project-root}/_bmad/skf/config.yaml"
 ```
 
-It prints `{"repo_state", "repo", "is_default", "autosubmit"}`. From here on `{healthCheckRepo}` is its `repo` and `{healthCheckAutosubmit}` its `autosubmit`, which is off without a helper. On `off`, display §0's two off lines, then the bound `{result_envelope_line}`, and STOP, drafting nothing. On `invalid`, `{healthCheckRepo}` is no repository: display "**Health Check:** `health_check_repo` is `{repo}` in `_bmad/skf/config.yaml`, which is not OWNER/REPO or HOST/OWNER/REPO, so no finding will be submitted.", run no `gh` call, and send every finding to the local queue (§5c) with the no-repository reason. A call that fails or prints no JSON leaves the helper missing.
+It prints `{"repo_state", "repo", "host", "owner_repo", "is_default", "autosubmit"}`. From here on `{healthCheckRepo}` is its `repo`, `{healthCheckHost}` its `host`, `{healthCheckOwnerRepo}` its `owner_repo` and `{healthCheckAutosubmit}` its `autosubmit`, which is off without a helper. On `off`, display §0's two off lines, then the bound `{result_envelope_line}`, and STOP, drafting nothing. On `invalid`, `{healthCheckRepo}` is no repository: display "**Health Check:** `health_check_repo` is `{repo}` in `_bmad/skf/config.yaml`, which is not OWNER/REPO or HOST/OWNER/REPO, so no finding will be submitted.", run no `gh` call, and send every finding to the local queue (§5c) with the no-repository reason. A call that fails or prints no JSON leaves the helper missing.
 
 **A refused call.** A call the session refuses never ran (a permission prompt answered no, or a headless run with no rule that allows it), so a refused helper call (any `uv run` of `{seenCacheHelper}`) is no missing helper and a refused Write no failed one. After the session refuses a helper call or a Write of this step, make no further helper call, Write or `gh` call in this check, and send every finding not yet submitted to the local queue (§5c) with the refused reason. A refusal before the review gate skips §4 and §5: go straight to §5c. A refused `gh` call is §5a sub-step 2's.
 
@@ -280,7 +280,7 @@ Present to user:
 
 Execute the chosen action:
 
-- **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`
+- **R:** `gh api --hostname {healthCheckHost} -X POST repos/{healthCheckOwnerRepo}/issues/{N}/reactions -f content='+1'`
 - **C:** Write the delta body, the Environment table plus one sentence on what differs from the original, with no session narrative, with the Write tool to `{localFallbackFolder}/bodies/{fp}-comment-{timestamp}.md`, check that file as §3 checks a draft, and show the user its text. Then run the same reaction call, then `gh issue comment --repo {healthCheckRepo} {N} --body-file "{localFallbackFolder}/bodies/{fp}-comment-{timestamp}.md"`. If the Write fails, make no call for this finding: log the error and write the finding to the local queue (§5c) with the failed-submission reason; a comment the check refused twice or could not check posts nothing either, and the finding goes there with the unchecked-draft reason.
 - **N:** After a match found by `{fp}`, a new issue under that fingerprint would be closed as its duplicate: choose a more specific defect name that sets this defect apart, still in the source's words, write the names file anew, run §3's fingerprint call again and write and check the draft anew under the new `{fp}`, as §3 does, without a section the old verdict added, then run sub-steps 1 to 3 again for it. When the new `{fp}` is the old one, take **S** instead. After a possible match, go on to 5a-ii as is: that issue's `fp-*` label differs from `{fp}`.
 - **S:** Record nothing, and write the finding to the local queue (§5c) with the reason "You skipped these at the dedup gate."; a headless run's **\[S]** takes the match or the possible-match reason instead (**Headless default** above).
@@ -351,7 +351,7 @@ uv run {seenCacheHelper} record --fp "{fp}" --action created --issue-url "{new_i
 
 It prints `{"written", "fp", "record", "set_aside"}`. `"written": false` is no error: the helper kept a `resolved` record, which only `--regression` replaces. If the call fails, log its stderr message and go on: a lost record costs at most a duplicate report, which the dedup Action closes. When `set_aside` is not null, after this call or §5a-i's, tell the user that `{seenCachePath}` did not parse, so it was renamed to that path and a new cache was started, and that they keep its records by fixing that file and copying its entries into `{seenCachePath}`.
 
-**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow; `resolved` is recorded once the defect is fixed, with the helper's `record --action resolved` (see the health-check section of `CONTRIBUTING.md`). Nothing else is recorded: not a queued finding, not **\[S]**, not a failed or refused call. A queued finding is not an issue, and a record for it would suppress the same defect when a later run approves it.
+**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow; `resolved` is recorded once the defect is fixed, with the helper's `record --action resolved`. Nothing else is recorded: not a queued finding, not **\[S]**, not a failed or refused call. A queued finding is not an issue, and a record for it would suppress the same defect when a later run approves it.
 
 ### 5c. Local-Queue Path (Every Finding That Stays Local)
 
@@ -363,14 +363,14 @@ Write each such finding into `{localFallbackFolder}` with the helper, `{title}` 
 uv run {seenCacheHelper} queue --queue-dir "{localFallbackFolder}" --body-file "{draft_path}" --title "{title}" --repo "{healthCheckRepo}"
 ```
 
-It copies the draft, unchanged and with no frontmatter, to `{localFallbackFolder}/hc-{workflow}-{YYYYMMDD-HHmmss}.md` (UTC) and prints `{"path", "commands"}`: the file it wrote and the three commands that submit it. A finding with the fingerprint `N/A` gets no queue call, and nor does any finding when `{healthCheckRepo}` is no repository (§3) or after a refused call (§3): list its draft (§3) in the queue file's place, or display the text of a finding that has no draft on disk, as when the call fails or prints no JSON (log its error then), followed, in place of commands, by "Submit it as <https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#submitting-a-queued-finding> says."
+It copies the draft, unchanged and with no frontmatter, to `{localFallbackFolder}/hc-{workflow}-{YYYYMMDD-HHmmss}.md` (UTC) and prints `{"path", "commands"}`: the file it wrote and the three commands that submit it. A finding with the fingerprint `N/A` gets no queue call, and nor does any finding when `{healthCheckRepo}` is no repository (§3) or after a refused call (§3): list its draft (§3) in the queue file's place, or display the text of a finding that has no draft on disk, as when the call fails or prints no JSON (log its error then), followed, in place of commands, by "Submit it as <https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#submitting-a-queued-finding> says." A block that lists no queue file ends with `{reason}` alone.
 
 After writing the files, display one block per reason, each listing its own files, the first block alone when every finding has the same reason, then "Workflow complete." after the last block:
 
 "**{N} finding(s) saved locally:**
 {each path written, each followed by its three `commands`, exactly as printed, and, for a finding queued at a match (§5a-i), the URL of each issue it matched}
 
-{reason} Run a finding's first two commands to submit it as an issue (the first fails, harmlessly, when its label exists), or open one at <https://github.com/{healthCheckRepo}/issues/new/choose>. Without push access to {healthCheckRepo}, run its third command alone instead: you can neither create a label nor set one, and the dedup Action labels the issue from its title."
+{reason} Run a finding's first two commands to submit it as an issue (the first fails, harmlessly, when its label exists), or open one at <https://{healthCheckHost}/{healthCheckOwnerRepo}/issues/new/choose>. Without push access to {healthCheckRepo}, run its third command alone instead: you can neither create a label nor set one, and the dedup Action labels the issue from its title."
 
 `{reason}` is the sentence that says why the findings stayed local: the one its route quotes, or the one named here: "SKF's health-check helper is missing; re-install SKF to submit these." (the missing-helper reason), "SKF's health-check helper could not fingerprint these findings, so they carry the fingerprint N/A; compute it with its fingerprint call before submitting." (the could-not-fingerprint reason), "GitHub CLI is not available." (the gh-unavailable reason), "You declined one of the health check's calls; nothing more was posted." and "A call of the health check was refused in this session; allow its helper, its writes and its gh commands, as health_check_autosubmit's docs say, to submit headless." (the refused reason, interactive and headless), "health_check_repo in _bmad/skf/config.yaml is not a repository; fix it, then submit these." (the no-repository reason), "These drafts may name a folder of yours; check them before submitting." (the unchecked-draft reason), "You declined a gh call; nothing was posted." and "A gh call was refused in this session; allow the health check's gh commands, as health_check_autosubmit's docs say, to submit headless." (the refused-gh reason, interactive and headless), "These match an open issue with the same fingerprint; react or comment there, or file them anyway, after review." (the match reason), "These may match an open issue from the same section; review them before submitting." (the possible-match reason) or "Posting these to GitHub failed." (the failed-submission reason).
 
