@@ -1,0 +1,5 @@
+type: fixed
+scope: all workflows
+summary: |
+  When the health check's search for an open issue that matches a finding fails, it now saves the finding to the local queue. The step had no rule for that case, so an agent could file the finding without its duplicate check. Its reason is the one a failed post gives, "Posting these to GitHub failed."
+issues: [1237]

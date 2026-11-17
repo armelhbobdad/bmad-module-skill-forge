@@ -2116,20 +2116,23 @@ def _settings(tmp_path: Path, text: str | bytes | None) -> dict:
 
 
 DEFAULT = {"repo_state": "default", "repo": HEALTH_CHECK_REPO, "host": "github.com", "owner_repo": HEALTH_CHECK_REPO,
-           "is_default": True, "autosubmit": False}
-OFF = {"repo_state": "off", "repo": None, "host": None, "owner_repo": None, "is_default": False, "autosubmit": False}
+           "host_flag": "", "is_default": True, "autosubmit": False}
+OFF = {"repo_state": "off", "repo": None, "host": None, "owner_repo": None, "host_flag": None, "is_default": False,
+       "autosubmit": False}
 
 
 def _set(repo: str, host: str = "github.com", owner_repo: str | None = None, *, is_default: bool = False,
          autosubmit: bool = False) -> dict:
-    """What settings prints for a repository set by hand: its host is github.com unless it names one (#1237)."""
+    """What settings prints for a repository set by hand: its host is github.com unless it names one, and only a
+    value that names one gets a --hostname flag (#1237)."""
     return {"repo_state": "set", "repo": repo, "host": host, "owner_repo": owner_repo or repo,
-            "is_default": is_default, "autosubmit": autosubmit}
+            "host_flag": f"--hostname {host}" if repo.count("/") == 2 else "", "is_default": is_default,
+            "autosubmit": autosubmit}
 
 
 def _invalid(repo: str | None) -> dict:
-    return {"repo_state": "invalid", "repo": repo, "host": None, "owner_repo": None, "is_default": False,
-            "autosubmit": False}
+    return {"repo_state": "invalid", "repo": repo, "host": None, "owner_repo": None, "host_flag": None,
+            "is_default": False, "autosubmit": False}
 
 
 class TestSettings:
@@ -2150,7 +2153,9 @@ class TestSettings:
         ("'github.example.com/acme/skills'", "github.example.com", "acme/skills"),
         ("GHE.Example.com/Acme/Skills", "ghe.example.com", "Acme/Skills"),
         ("github.com/acme/skills", "github.com", "acme/skills"),
-    ], ids=["host", "quoted", "host-letter-case", "github-com-named"])
+        ("WWW.GitHub.com/acme/skills", "github.com", "acme/skills"),
+        ("api.octo.ghe.com/acme/skills", "octo.ghe.com", "acme/skills"),
+    ], ids=["host", "quoted", "host-letter-case", "github-com-named", "github-com-subdomain", "ghe-com-api-host"])
     def test_a_repository_that_names_a_host_prints_it_apart_from_owner_repo(self, tmp_path, value, host, owner_repo):
         """#1237: `gh api` takes no --repo, so the step passes it --hostname {host} and repos/{owner_repo}/..., and
         links the issue form at https://{host}/{owner_repo}/: neither is the value pasted after github.com."""
@@ -2212,6 +2217,16 @@ class TestSettings:
         out = _settings(tmp_path, f"health_check_repo: {value}\n")
         assert out["repo_state"] == "set" and out["is_default"] is True
 
+    @pytest.mark.parametrize("value, flag", [("owner/repo", ""), (HEALTH_CHECK_REPO, ""),
+                                             ("github.com/owner/repo", "--hostname github.com"),
+                                             ("GHE.example.com/acme/skills", "--hostname ghe.example.com")],
+                             ids=["owner-repo", "default", "github-com-named", "host"])
+    def test_only_a_value_that_names_a_host_gets_a_hostname_flag(self, tmp_path, value, flag):
+        """`gh auth status` and `gh api` take no --repo. A --hostname on them for an OWNER/REPO value would pin
+        github.com while every --repo call follows gh's default host (GH_HOST, or the one host gh is logged in to),
+        splitting one run across two hosts (#1237 review): only a named host is passed."""
+        assert _settings(tmp_path, f"health_check_repo: {value}\n")["host_flag"] == flag
+
     def test_the_defaults_owner_repo_on_another_host_is_no_default(self, tmp_path):
         """Its issues are not public on github.com, so the gate does not call them public issues (#1237)."""
         out = _settings(tmp_path, f"health_check_repo: ghe.example.com/{HEALTH_CHECK_REPO}\n")
@@ -2224,9 +2239,16 @@ class TestSettings:
         ("GHE.Example.COM/Acme/Skills", ("ghe.example.com", "Acme/Skills")),
         ("github.com/acme/skills", ("github.com", "acme/skills")),
         ("octo.ghe.com/acme/my.repo_x", ("octo.ghe.com", "acme/my.repo_x")),
-    ], ids=["owner-repo", "owner-repo-case-kept", "host", "host-lower-cased", "github-com-named", "ghe-com-tenant"])
+        ("www.github.com/acme/skills", ("github.com", "acme/skills")),
+        ("API.GitHub.com/acme/skills", ("github.com", "acme/skills")),
+        ("api.octo.ghe.com/acme/skills", ("octo.ghe.com", "acme/skills")),
+        ("ghe.com/acme/skills", ("ghe.com", "acme/skills")),
+        ("API.GitHub.localhost/acme/skills", ("github.localhost", "acme/skills")),
+    ], ids=["owner-repo", "owner-repo-case-kept", "host", "host-lower-cased", "github-com-named", "ghe-com-tenant",
+            "www-github-com", "api-github-com", "ghe-com-api-host", "ghe-com-bare", "github-localhost"])
     def test_split_repo_gives_the_host_gh_files_on_and_the_owner_repo(self, repo, split):
-        """The one split `settings` prints and the lookup's issue prefix compares with (#1237)."""
+        """The one split `settings` prints and the lookup's issue prefix compares with (#1237). The host is the one gh
+        files on: `--repo` normalises a *.github.com or *.ghe.com host, `--hostname` does not, so the helper does."""
         module = _mod()
         assert module.REPO_RE.fullmatch(repo)
         assert module.split_repo(repo) == split

@@ -343,9 +343,9 @@ def test_a_legacy_regression_is_only_a_possible_one():
 def test_the_remote_search_falls_back_to_the_legacy_fingerprint():
     text = _read(SHARED_HEALTH_CHECK)
     search = _slice(text, SUB_STEP_4, "**5a-i. If a matching open issue exists:**")
-    command = ('gh search issues --repo {healthCheckRepo} --state open "{fp} in:title" '
+    command = ('gh issue list --repo {healthCheckRepo} --state open --search "{fp} in:title" '
                '--json number,url,title --limit 1')
-    fallback = ('gh search issues --repo {healthCheckRepo} --state open "{legacy_fp} in:title,body" '
+    fallback = ('gh issue list --repo {healthCheckRepo} --state open --search "{legacy_fp} in:title,body" '
                 '--json number,url,title --limit 5')
     assert command in search and fallback in search
     assert search.index(command) < search.index(fallback)
@@ -353,6 +353,9 @@ def test_the_remote_search_falls_back_to_the_legacy_fingerprint():
     assert "When it finds none, search once more, for the section fingerprint in titles and bodies" in flow
     # Bodies too: a keyed issue from the same section under another key carries the section fingerprint only there.
     assert "Each issue this second search finds is only a possible match: the user decides at 5a-i." in flow
+    # A search that fails decides nothing: no match is known, so the finding is neither filed nor dropped (#1237).
+    assert ("A search that exits non-zero sends the finding to the local queue (§5c) with the failed-submission "
+            "reason.") in flow
 
 
 def test_a_keyless_fingerprint_is_not_dated_to_this_change():
@@ -386,8 +389,7 @@ def test_a_legacy_match_goes_to_the_users_choice():
     assert f"{reaction}\n" in raw and f"{reaction} --regression\n" in raw
     # After a regression verdict, a plain call leaves the hand-written `resolved` record in place, so every later
     # session would get `regression` again and ask about the same open issue (#1122, review loop 1).
-    assert ("When sub-step 1 returned `regression`, run this one instead, since this open issue now tracks the "
-            "recurrence:") in choice
+    assert "When sub-step 1 returned `regression`, run this one instead:" in choice
     assert "- **S:** Record nothing" in choice
     assert "Read what the call prints as §5b says; if it fails, log its stderr message and go on." in choice
 

@@ -1,5 +1,5 @@
 type: fixed
 scope: all workflows
 summary: |
-  When the health check lists findings by their drafts instead of queue files, as it does when its helper is missing or could not fingerprint them, when `health_check_repo` is not a repository, or after one of its calls was refused, it no longer closes by telling you to run commands it did not print, or by linking an issue form. Each draft still points to the docs on submitting a queued finding.
+  When the health check lists findings by their drafts instead of queue files, as it does when its helper is missing or could not fingerprint them, when `health_check_repo` is not a repository, or after one of its helper calls or file writes was refused, it no longer closes by telling you to run commands it did not print, or by linking an issue form. Each draft still points to the docs on submitting a queued finding.
 issues: [1237]

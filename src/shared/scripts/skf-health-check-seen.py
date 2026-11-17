@@ -68,18 +68,28 @@ repository invalid.
               invalid  anything else: repo is the value as written, or
                        null for a file that cannot be read
   host        repo_state is default or set: the HOST a HOST/OWNER/REPO
-              value names, lower-cased, else github.com (DEFAULT_HOST);
-              null otherwise. `gh api` takes no --repo, so the step passes
-              it --hostname with this host
+              value names, normalised as gh normalises a hostname (lower
+              case, any *.github.com is github.com, any *.github.localhost
+              is github.localhost, a *.ghe.com name is its tenant's), else
+              github.com (DEFAULT_HOST); null otherwise. The step links the
+              issue form on it
   owner_repo  repo_state is default or set: repo without its host, the
               OWNER/REPO of a `gh api` path; null otherwise
+  host_flag   repo_state is default or set: `--hostname HOST` when the value
+              names a host, else ""; null otherwise. `gh api` takes no
+              --repo: with it, it reaches the host every --repo call
+              reaches, the named one, or gh's default (GH_HOST, or the host
+              gh is logged in to) for OWNER/REPO. `gh auth status` checks
+              the named host alone with it, and every host gh knows without
+              it
   is_default  repo_state is default or set, and host and owner_repo are
               DEFAULT_HOST and DEFAULT_REPO, owner_repo in any letter case
   autosubmit  true only for a plain `true`; True, "true", yes and an
               absent key are false
 
   Output: {"repo_state": ..., "repo": ... | null, "host": ... | null,
-           "owner_repo": ... | null, "is_default": ..., "autosubmit": ...}.
+           "owner_repo": ... | null, "host_flag": ... | null,
+           "is_default": ..., "autosubmit": ...}.
   Always exit 0 (2 for a bad argument).
 
 fingerprint
@@ -444,8 +454,12 @@ DEFECT_KEY_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+){0,3}")
 FP_RE = re.compile(r"fp-[0-9a-f]{7}")
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 URL_PREFIX = "https://"
-# The host gh files on for a repository that names none (its OWNER/REPO form).
+# The host the helper reads an OWNER/REPO value as on, for the issue-form link and the seen cache's issue URLs.
 DEFAULT_HOST = "github.com"
+# The domain of GitHub Enterprise Cloud tenants with data residency (TENANT.ghe.com), which gh normalises to the tenant.
+GHE_COM = "ghe.com"
+# The host of a GitHub development instance, which gh normalises any *.github.localhost to.
+GITHUB_LOCALHOST = "github.localhost"
 # A repository as gh takes it: [HOST/]OWNER/REPO.
 REPO_RE = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+")
 
@@ -955,12 +969,26 @@ def _verdict(record) -> tuple[str, str | None]:
     return "unrecognized", None
 
 
+def _normalize_host(host: str) -> str:
+    """host as gh normalises a hostname before it uses one: lower case, any *.github.com is github.com, any
+    *.github.localhost is github.localhost, and a *.ghe.com name is its tenant's (api.octo.ghe.com is octo.ghe.com).
+    `--repo` normalises its host this way; `--hostname` does not, so the step is given the normalised one."""
+    host = host.lower()
+    if host.endswith("." + DEFAULT_HOST):
+        return DEFAULT_HOST
+    if host.endswith("." + GITHUB_LOCALHOST):
+        return GITHUB_LOCALHOST
+    if host.endswith("." + GHE_COM):
+        return ".".join(host.split(".")[-3:])
+    return host
+
+
 def split_repo(repo: str) -> tuple[str, str]:
-    """(HOST, OWNER/REPO) of repo, which REPO_RE has accepted: the host it names, lower-cased as gh writes it, else
+    """(HOST, OWNER/REPO) of repo, which REPO_RE has accepted: the host it names, normalised as gh does, else
     DEFAULT_HOST."""
     if repo.count("/") == 2:
         host, owner_repo = repo.split("/", 1)
-        return host.lower(), owner_repo
+        return _normalize_host(host), owner_repo
     return DEFAULT_HOST, repo
 
 
@@ -1383,8 +1411,8 @@ def config_values(text: str) -> dict:
 
 
 def settings(config: Path) -> dict:
-    """The health check's two settings in config, as {"repo_state", "repo", "host", "owner_repo", "is_default",
-    "autosubmit"}."""
+    """The health check's two settings in config, as {"repo_state", "repo", "host", "owner_repo", "host_flag",
+    "is_default", "autosubmit"}."""
     try:
         values = config_values(config.read_bytes().decode("utf-8-sig"))
     except FileNotFoundError:
@@ -1401,7 +1429,8 @@ def settings(config: Path) -> dict:
     else:
         state = "set"
     host, owner_repo = split_repo(repo) if state in ("default", "set") else (None, None)
-    return {"repo_state": state, "repo": repo, "host": host, "owner_repo": owner_repo,
+    host_flag = None if host is None else f"--hostname {host}" if repo.count("/") == 2 else ""
+    return {"repo_state": state, "repo": repo, "host": host, "owner_repo": owner_repo, "host_flag": host_flag,
             "is_default": host == DEFAULT_HOST and owner_repo.lower() == DEFAULT_REPO.lower(),
             "autosubmit": values.get(AUTOSUBMIT_KEY) == (PLAIN, "true")}
 
