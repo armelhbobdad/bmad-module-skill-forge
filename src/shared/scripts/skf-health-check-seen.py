@@ -68,20 +68,24 @@ repository invalid.
               invalid  anything else: repo is the value as written, or
                        null for a file that cannot be read
   host        repo_state is default or set: the HOST a HOST/OWNER/REPO
-              value names, normalised as gh normalises a hostname (lower
-              case, any *.github.com is github.com, any *.github.localhost
-              is github.localhost, a *.ghe.com name is its tenant's), else
-              github.com (DEFAULT_HOST); null otherwise. The step links the
-              issue form on it
+              value names, normalised as gh normalises the host of a --repo
+              value (one leading lower-case `www.` dropped, so
+              www.WWW.example.com is www.example.com while WWW.example.com
+              keeps its `www.`; then lower case, any *.github.com is
+              github.com, any *.github.localhost is github.localhost, a
+              *.ghe.com name is its tenant's), else github.com
+              (DEFAULT_HOST); null otherwise. A HOST the trim leaves empty
+              (www./OWNER/REPO) names no host, as gh reads it. The step
+              links the issue form on it
   owner_repo  repo_state is default or set: repo without its host, the
               OWNER/REPO of a `gh api` path; null otherwise
   host_flag   repo_state is default or set: `--hostname HOST` when the value
-              names a host, else ""; null otherwise. `gh api` takes no
-              --repo: with it, it reaches the host every --repo call
-              reaches, the named one, or gh's default (GH_HOST, or the host
-              gh is logged in to) for OWNER/REPO. `gh auth status` checks
-              the named host alone with it, and every host gh knows without
-              it
+              names a host (not www./OWNER/REPO), else ""; null otherwise.
+              `gh api` takes no --repo: with it, it reaches the host every
+              --repo call reaches, the named one, or gh's default (GH_HOST,
+              or the host gh is logged in to) for OWNER/REPO. `gh auth
+              status` checks the named host alone with it, and every host gh
+              knows without it
   is_default  repo_state is default or set, and host and owner_repo are
               DEFAULT_HOST and DEFAULT_REPO, owner_repo in any letter case
   autosubmit  true only for a plain `true`; True, "true", yes and an
@@ -202,8 +206,10 @@ lookup
 Reads the cache. A file that is missing, empty, unreadable, not UTF-8, not
 JSON or not a JSON object is an empty cache, never an error. With --repo, a
 record whose issue_url is not a string under https://github.com/OWNER/REPO/
-(https://HOST/OWNER/REPO/ for a --repo that names a host), compared in any
-letter case, counts as no record under either fingerprint, before gh runs:
+(https://HOST/OWNER/REPO/ for a --repo that names a host, HOST normalised as
+settings prints it, so www.ghe.example.com/OWNER/REPO reads
+https://ghe.example.com/OWNER/REPO/), compared in any letter case, counts as
+no record under either fingerprint, before gh runs:
 another repository's issue, a URL that is not https:// or one that is not a
 string alike. A record that is not an object, or whose issue_url is empty or
 missing, names no repository and decides as without --repo. --repo must be
@@ -970,10 +976,12 @@ def _verdict(record) -> tuple[str, str | None]:
 
 
 def _normalize_host(host: str) -> str:
-    """host as gh normalises a hostname before it uses one: lower case, any *.github.com is github.com, any
-    *.github.localhost is github.localhost, and a *.ghe.com name is its tenant's (api.octo.ghe.com is octo.ghe.com).
-    `--repo` normalises its host this way; `--hostname` does not, so the step is given the normalised one."""
-    host = host.lower()
+    """host as gh normalises the host of a `--repo` value before it uses one: one leading lower-case `www.` dropped
+    (www.WWW.example.com is www.example.com, while WWW.example.com keeps its `www.`), then lower case, any *.github.com
+    is github.com, any *.github.localhost is github.localhost, and a *.ghe.com name is its tenant's (api.octo.ghe.com is
+    octo.ghe.com). `--hostname` takes its host as written, so the step is given the normalised one. A host the trim
+    leaves empty (`www.`) gives "", which names no host."""
+    host = host.removeprefix("www.").lower()
     if host.endswith("." + DEFAULT_HOST):
         return DEFAULT_HOST
     if host.endswith("." + GITHUB_LOCALHOST):
@@ -983,17 +991,24 @@ def _normalize_host(host: str) -> str:
     return host
 
 
+def _named_host(repo: str) -> str | None:
+    """The host repo names, normalised as gh does, or None when it names none: an OWNER/REPO value, or one whose host
+    the `www.` trim leaves empty (`www./OWNER/REPO`), which gh reads as OWNER/REPO on its default host."""
+    if repo.count("/") != 2:
+        return None
+    return _normalize_host(repo.split("/", 1)[0]) or None
+
+
 def split_repo(repo: str) -> tuple[str, str]:
     """(HOST, OWNER/REPO) of repo, which REPO_RE has accepted: the host it names, normalised as gh does, else
     DEFAULT_HOST."""
-    if repo.count("/") == 2:
-        host, owner_repo = repo.split("/", 1)
-        return _normalize_host(host), owner_repo
-    return DEFAULT_HOST, repo
+    owner_repo = repo.split("/", 1)[1] if repo.count("/") == 2 else repo
+    return _named_host(repo) or DEFAULT_HOST, owner_repo
 
 
 def _issue_prefix(repo: str) -> str:
-    """The start of every issue URL of repo: github.com's, or the host's when repo names one."""
+    """The start of every issue URL of repo: github.com's, or the host's when repo names one, normalised as `settings`
+    prints it (split_repo), so www.ghe.example.com/OWNER/REPO reads https://ghe.example.com/OWNER/REPO/ URLs."""
     host, owner_repo = split_repo(repo)
     return f"{URL_PREFIX}{host}/{owner_repo}/"
 
@@ -1429,7 +1444,9 @@ def settings(config: Path) -> dict:
     else:
         state = "set"
     host, owner_repo = split_repo(repo) if state in ("default", "set") else (None, None)
-    host_flag = None if host is None else f"--hostname {host}" if repo.count("/") == 2 else ""
+    # split_repo's host, and only for a value that names one, by the rule split_repo reads it with: for OWNER/REPO and
+    # www./OWNER/REPO, --hostname github.com would pin github.com while every --repo call follows gh's default host.
+    host_flag = None if host is None else f"--hostname {host}" if _named_host(repo) else ""
     return {"repo_state": state, "repo": repo, "host": host, "owner_repo": owner_repo, "host_flag": host_flag,
             "is_default": host == DEFAULT_HOST and owner_repo.lower() == DEFAULT_REPO.lower(),
             "autosubmit": values.get(AUTOSUBMIT_KEY) == (PLAIN, "true")}

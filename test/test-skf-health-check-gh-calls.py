@@ -609,16 +609,35 @@ def test_a_refused_gh_call_stops_every_later_one_and_queues_what_is_left():
             "rule with `Bash(gh issue list *)` or its scoped form.") in docs
     for sub in ("gh issue list", "gh label create", "gh issue create"):
         assert f"`Bash({sub} --repo {DEFAULT_REPO} *)`" in docs, sub
-    # `gh auth status` takes no --repo, and gets a --hostname only for a value that names a host.
+    # `gh auth status` takes no --repo, and gets a --hostname only for a value that names a host. The rule is exact,
+    # and the step passes the host as `--repo` reads it, one leading lower-case `www.` dropped (#1242), so HOST is
+    # written so too: in that order, since a `WWW.` value keeps its `www.` and a `www.www.` one keeps one.
     assert ("For a `HOST/OWNER/REPO` value, write it in these rules, and allow "
-            "`Bash(gh auth status --hostname HOST)` in place of the bare `gh auth status`, with HOST as "
-            "`gh auth status` lists it: in lower case, `github.com` for any `*.github.com` name and `TENANT.ghe.com` "
-            "for `api.TENANT.ghe.com`.") in docs
-    setup = _flow(_slice(_read(WORKFLOWS_DOC), "### Turning it off", "### What gets sent"))
-    assert ("set the key to `OWNER/REPO`, or to `HOST/OWNER/REPO` for one on a GitHub Enterprise Server host (log in to "
-            "that host first, with `gh auth login --hostname HOST`)") in setup
+            "`Bash(gh auth status --hostname HOST)` in place of the bare `gh auth status`, with HOST as `gh` reads "
+            "the host of a repository: one leading lower-case `www.` dropped, then in lower case, `github.com` for any "
+            "`*.github.com` name and `TENANT.ghe.com` for `api.TENANT.ghe.com`.") in docs
     assert ("the health check puts `--repo` right after the subcommand of every `gh issue list`, "
             "`gh label create` and `gh issue create` it runs") in docs
+
+
+def test_the_setup_docs_name_the_host_gh_reads_and_the_actions_runtime():
+    """A HOST/OWNER/REPO value needs a gh login to the host every `--repo` call reaches, and the dedup Action copied to
+    that host needs runners that can run it (#1237, #1242)."""
+    setup = _flow(_slice(_read(WORKFLOWS_DOC), "### Turning it off", "### What gets sent"))
+    # `gh auth login --hostname` takes HOST verbatim (gh 2.104.0 checks `www.HOST` at https://www.HOST/api/v3/),
+    # while every `--repo` call drops one leading lower-case `www.`: a login under the `www.` name is one no call uses.
+    assert ("set the key to `OWNER/REPO`, or to `HOST/OWNER/REPO` for one on a GitHub Enterprise Server host (log in to "
+            "that host first, with `gh auth login --hostname HOST`, writing HOST as `gh` reads the host of a "
+            "repository: one leading lower-case `www.` dropped, then in lower case)") in setup
+    # The Action runs only where its runners can run the pinned commit's runtime. Dependabot moves the pin, so the
+    # docs name the commit's `runs.using`, never a Node version.
+    assert ("On a GitHub Enterprise Server host, the Action runs only once GitHub Actions is on there, its `runs-on` "
+            "names one of the host's runners, the host can reach `actions/github-script` at the commit the Action "
+            "pins, and those runners can run the Node version that commit's `action.yml` names in "
+            "`runs.using`.") in setup
+    assert not re.search(r"\bnode(?:\.?js)?[\s-]*v?\d", setup, re.IGNORECASE)
+    action = (REPO / ".github" / "workflows" / "health-check-dedup.yaml").read_text(encoding="utf-8")
+    assert "runs-on:" in action and re.search(r"uses: actions/github-script@[0-9a-f]{40}\b", action)
 
 
 def test_a_refused_helper_call_or_write_is_no_missing_helper():

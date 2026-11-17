@@ -839,7 +839,28 @@ class TestRepo:
         ("me/repo", "https://github.com/me/repo", False),
         ("ghe.example.com/team/repo", "https://ghe.example.com/team/repo/issues/1", True),
         ("ghe.example.com/team/repo", "https://github.com/team/repo/issues/1", False),
-    ], ids=["longer-name", "pull-request", "http", "repository-page", "host-form", "host-form-on-github"])
+        # The host gh files on, the one its issue URLs carry: `--repo` reads a *.github.com, *.github.localhost or
+        # api.TENANT.ghe.com host as github.com, github.localhost or TENANT.ghe.com (#1237), and drops one leading
+        # lower-case `www.`, keeping an upper-case one, lower-cased (#1242).
+        ("GitHub.com/O/R", "https://github.com/o/r/issues/1", True),
+        ("API.GitHub.com/o/r", "https://github.com/o/r/issues/1", True),
+        ("api.octo.ghe.com/team/repo", "https://octo.ghe.com/team/repo/issues/1", True),
+        ("API.GitHub.localhost/team/repo", "https://github.localhost/team/repo/issues/1", True),
+        ("www.github.com/o/r", "https://github.com/o/r/issues/1", True),
+        ("www.ghe.example.com/o/r", "https://ghe.example.com/o/r/issues/1", True),
+        ("www.ghe.example.com/o/r", "https://www.ghe.example.com/o/r/issues/1", False),
+        ("www.WWW.ghe.example.com/o/r", "https://www.ghe.example.com/o/r/issues/1", True),
+        ("www.www.ghe.example.com/o/r", "https://www.ghe.example.com/o/r/issues/1", True),
+        ("www.www.ghe.example.com/o/r", "https://ghe.example.com/o/r/issues/1", False),
+        ("WWW.ghe.example.com/o/r", "https://www.ghe.example.com/o/r/issues/1", True),
+        ("WWW.ghe.example.com/o/r", "https://ghe.example.com/o/r/issues/1", False),
+        ("www.API.Octo.ghe.com/o/r", "https://octo.ghe.com/o/r/issues/1", True),
+        ("www./o/r", "https://github.com/o/r/issues/1", True),
+    ], ids=["longer-name", "pull-request", "http", "repository-page", "host-form", "host-form-on-github",
+            "github-com-named", "api-github-com", "ghe-com-api-host", "github-localhost",
+            "www-github-com", "www-trimmed", "www-trimmed-not-kept", "www-trimmed-once", "www-www-trimmed-once",
+            "www-www-not-trimmed-twice", "upper-case-www-kept", "upper-case-www-not-trimmed",
+            "www-then-ghe-com-api-host", "www-alone-names-no-host"])
     def test_a_record_counts_only_under_the_repositorys_own_url(self, tmp_path, no_gh, repo, url, counts):
         cache = _write_cache(tmp_path / "seen.json", {FP_A: {"action": "resolved", "issue_url": url,
                                                              "date": "2026-07-19"}})
@@ -859,6 +880,18 @@ class TestRepo:
         assert code == 0, err
         assert json.loads(out) == UNSEEN
         assert _logged(fake_gh) == []
+
+    def test_the_cli_counts_a_record_under_the_host_a_www_value_files_on(self, tmp_path, fake_gh, monkeypatch):
+        """`gh issue create --repo www.ghe.example.com/o/r` files on ghe.example.com and records that host's URL
+        (#1242): the step's lookup must count that record as the repository's and ask gh about it."""
+        filed = "https://ghe.example.com/o/r/issues/5"
+        cache = _write_cache(tmp_path / "seen.json", {FP_A: _live("created", filed)})
+        monkeypatch.setenv("FAKE_GH_MODE", json.dumps({"state": "CLOSED", "stateReason": "COMPLETED"}))
+        code, out, err = _cli("lookup", "--fp", FP_A, "--legacy-fp", LEGACY, "--cache", str(cache),
+                              "--repo", "www.ghe.example.com/o/r")
+        assert code == 0, err
+        assert json.loads(out)["verdict"] == "regression"
+        assert _logged(fake_gh) == [["issue", "view", filed, "--json", "state,stateReason"]]
 
 
 # --------------------------------------------------------------------------
@@ -2124,9 +2157,11 @@ OFF = {"repo_state": "off", "repo": None, "host": None, "owner_repo": None, "hos
 def _set(repo: str, host: str = "github.com", owner_repo: str | None = None, *, is_default: bool = False,
          autosubmit: bool = False) -> dict:
     """What settings prints for a repository set by hand: its host is github.com unless it names one, and only a
-    value that names one gets a --hostname flag (#1237)."""
+    value that names one gets a --hostname flag (#1237), one with a HOST part the `www.` trim does not leave empty
+    (`www./o/r` names none, #1242)."""
+    head = repo.split("/", 1)[0] if repo.count("/") == 2 else ""
     return {"repo_state": "set", "repo": repo, "host": host, "owner_repo": owner_repo or repo,
-            "host_flag": f"--hostname {host}" if repo.count("/") == 2 else "", "is_default": is_default,
+            "host_flag": f"--hostname {host}" if head.removeprefix("www.") else "", "is_default": is_default,
             "autosubmit": autosubmit}
 
 
@@ -2155,7 +2190,15 @@ class TestSettings:
         ("github.com/acme/skills", "github.com", "acme/skills"),
         ("WWW.GitHub.com/acme/skills", "github.com", "acme/skills"),
         ("api.octo.ghe.com/acme/skills", "octo.ghe.com", "acme/skills"),
-    ], ids=["host", "quoted", "host-letter-case", "github-com-named", "github-com-subdomain", "ghe-com-api-host"])
+        # gh drops one leading lower-case `www.` from a --repo host before it lower-cases it (gh 2.104.0, #1242).
+        ("www.ghe.example.com/o/r", "ghe.example.com", "o/r"),
+        ("www.WWW.ghe.example.com/o/r", "www.ghe.example.com", "o/r"),
+        ("www.www.ghe.example.com/o/r", "www.ghe.example.com", "o/r"),
+        ("WWW.ghe.example.com/o/r", "www.ghe.example.com", "o/r"),
+        ("www.API.Octo.ghe.com/o/r", "octo.ghe.com", "o/r"),
+    ], ids=["host", "quoted", "host-letter-case", "github-com-named", "github-com-subdomain", "ghe-com-api-host",
+            "www-trimmed", "www-trimmed-once", "www-www-trimmed-once", "upper-case-www-kept",
+            "www-then-ghe-com-api-host"])
     def test_a_repository_that_names_a_host_prints_it_apart_from_owner_repo(self, tmp_path, value, host, owner_repo):
         """#1237: `gh api` takes no --repo, so the step passes it --hostname {host} and repos/{owner_repo}/..., and
         links the issue form at https://{host}/{owner_repo}/: neither is the value pasted after github.com."""
@@ -2212,15 +2255,25 @@ class TestSettings:
         assert _mod().settings(folder)["repo_state"] == "invalid"
 
     @pytest.mark.parametrize("value", [HEALTH_CHECK_REPO, HEALTH_CHECK_REPO.upper(), f'"{HEALTH_CHECK_REPO}"',
-                                       f"github.com/{HEALTH_CHECK_REPO}", f"GitHub.com/{HEALTH_CHECK_REPO.upper()}"])
+                                       f"github.com/{HEALTH_CHECK_REPO}", f"GitHub.com/{HEALTH_CHECK_REPO.upper()}",
+                                       f"www.GitHub.com/{HEALTH_CHECK_REPO.upper()}", f"www./{HEALTH_CHECK_REPO}"])
     def test_the_default_set_by_hand_is_the_default_in_any_letter_case(self, tmp_path, value):
         out = _settings(tmp_path, f"health_check_repo: {value}\n")
         assert out["repo_state"] == "set" and out["is_default"] is True
 
     @pytest.mark.parametrize("value, flag", [("owner/repo", ""), (HEALTH_CHECK_REPO, ""),
                                              ("github.com/owner/repo", "--hostname github.com"),
-                                             ("GHE.example.com/acme/skills", "--hostname ghe.example.com")],
-                             ids=["owner-repo", "default", "github-com-named", "host"])
+                                             ("WWW.GitHub.com/owner/repo", "--hostname github.com"),
+                                             ("GHE.example.com/acme/skills", "--hostname ghe.example.com"),
+                                             ("www.ghe.example.com/o/r", "--hostname ghe.example.com"),
+                                             ("www.WWW.ghe.example.com/o/r", "--hostname www.ghe.example.com"),
+                                             ("www.www.ghe.example.com/o/r", "--hostname www.ghe.example.com"),
+                                             ("WWW.ghe.example.com/o/r", "--hostname www.ghe.example.com"),
+                                             ("www.API.Octo.ghe.com/o/r", "--hostname octo.ghe.com"),
+                                             ("www./o/r", "")],
+                             ids=["owner-repo", "default", "github-com-named", "github-com-subdomain", "host",
+                                  "www-trimmed", "www-trimmed-once", "www-www-trimmed-once", "upper-case-www-kept",
+                                  "www-then-ghe-com-api-host", "www-alone-names-no-host"])
     def test_only_a_value_that_names_a_host_gets_a_hostname_flag(self, tmp_path, value, flag):
         """`gh auth status` and `gh api` take no --repo. A --hostname on them for an OWNER/REPO value would pin
         github.com while every --repo call follows gh's default host (GH_HOST, or the one host gh is logged in to),
@@ -2231,6 +2284,13 @@ class TestSettings:
         """Its issues are not public on github.com, so the gate does not call them public issues (#1237)."""
         out = _settings(tmp_path, f"health_check_repo: ghe.example.com/{HEALTH_CHECK_REPO}\n")
         assert out == _set(f"ghe.example.com/{HEALTH_CHECK_REPO}", "ghe.example.com", HEALTH_CHECK_REPO)
+
+    def test_a_host_the_www_trim_leaves_empty_names_none(self, tmp_path):
+        """gh reads `www./o/r` as o/r on its default host, so neither `host` nor `--hostname` names a host gh never
+        reaches (#1242): a `--hostname www.` would fail every check of the gh login."""
+        assert _settings(tmp_path, "health_check_repo: www./o/r\n") == {
+            "repo_state": "set", "repo": "www./o/r", "host": "github.com", "owner_repo": "o/r", "host_flag": "",
+            "is_default": False, "autosubmit": False}
 
     @pytest.mark.parametrize("repo, split", [
         ("owner/repo", ("github.com", "owner/repo")),
@@ -2244,11 +2304,23 @@ class TestSettings:
         ("api.octo.ghe.com/acme/skills", ("octo.ghe.com", "acme/skills")),
         ("ghe.com/acme/skills", ("ghe.com", "acme/skills")),
         ("API.GitHub.localhost/acme/skills", ("github.localhost", "acme/skills")),
+        # One leading lower-case `www.` goes, then the host is lower-cased (#1242): a loop that dropped every `www.`
+        # would give ghe.example.com for the second and third, and an upper-case `WWW.` is kept.
+        ("www.ghe.example.com/o/r", ("ghe.example.com", "o/r")),
+        ("www.WWW.ghe.example.com/o/r", ("www.ghe.example.com", "o/r")),
+        ("www.www.ghe.example.com/o/r", ("www.ghe.example.com", "o/r")),
+        ("WWW.ghe.example.com/o/r", ("www.ghe.example.com", "o/r")),
+        ("Www.GHE.example.com/o/r", ("www.ghe.example.com", "o/r")),
+        ("www.API.Octo.ghe.com/o/r", ("octo.ghe.com", "o/r")),
+        ("www./o/r", ("github.com", "o/r")),
     ], ids=["owner-repo", "owner-repo-case-kept", "host", "host-lower-cased", "github-com-named", "ghe-com-tenant",
-            "www-github-com", "api-github-com", "ghe-com-api-host", "ghe-com-bare", "github-localhost"])
+            "www-github-com", "api-github-com", "ghe-com-api-host", "ghe-com-bare", "github-localhost",
+            "www-trimmed", "www-trimmed-once", "www-www-trimmed-once", "upper-case-www-kept",
+            "mixed-case-www-kept", "www-then-ghe-com-api-host", "www-alone-names-no-host"])
     def test_split_repo_gives_the_host_gh_files_on_and_the_owner_repo(self, repo, split):
         """The one split `settings` prints and the lookup's issue prefix compares with (#1237). The host is the one gh
-        files on: `--repo` normalises a *.github.com or *.ghe.com host, `--hostname` does not, so the helper does."""
+        files on: `--repo` normalises a *.github.com or *.ghe.com host and drops a leading `www.`, `--hostname` does
+        not, so the helper does."""
         module = _mod()
         assert module.REPO_RE.fullmatch(repo)
         assert module.split_repo(repo) == split

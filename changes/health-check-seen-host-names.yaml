@@ -1,0 +1,5 @@
+type: fixed
+scope: all workflows
+summary: |
+  The health check now reads the host of a `health_check_repo` written `HOST/OWNER/REPO` as `gh` does before it compares the issue a seen-cache record links with that repository: one leading lower-case `www.` dropped, then in lower case, `github.com` for any `*.github.com` name and `TENANT.ghe.com` for `api.TENANT.ghe.com`. A value such as `www.ghe.example.com/acme/skills` used to read the record of every issue `gh` filed there, under `https://ghe.example.com/acme/skills/`, as another repository's, so that record neither kept the same finding from being filed again nor linked a regression to the fixed issue.
+issues: [1242]
