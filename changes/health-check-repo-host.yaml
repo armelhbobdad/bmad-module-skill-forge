@@ -3,3 +3,4 @@ scope: all workflows
 summary: |
   The health check now files on a `health_check_repo` written `HOST/OWNER/REPO`, a repository on a GitHub Enterprise Server host. Its search for a matching issue, and its upvote and comment on one, now reach that host instead of failing, its check of the `gh` login looks at that host alone, and a finding saved to the local queue links the issue form there instead of a github.com page that does not exist. Log in to the host first with `gh auth login --hostname HOST`.
 issues: [1237]
+prs: [1240]

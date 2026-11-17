@@ -5,3 +5,4 @@ summary: |
 migration: |
   In `permissions.allow`, replace `Bash(gh search issues *)` with `Bash(gh issue list *)`, or a scoped `Bash(gh search issues --repo OWNER/REPO *)` with `Bash(gh issue list --repo OWNER/REPO *)`. For a `health_check_repo` written `HOST/OWNER/REPO`, also replace `Bash(gh auth status)` with `Bash(gh auth status --hostname HOST)`, with HOST as `gh auth status` lists it: in lower case, `github.com` for any `*.github.com` name and `TENANT.ghe.com` for `api.TENANT.ghe.com`.
 issues: [1237]
+prs: [1240]
