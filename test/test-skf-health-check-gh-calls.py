@@ -33,6 +33,24 @@ The round-1 quality gate of that change (#226) moved the rest of the determinist
 reads the two config keys, `check-draft` refuses a draft that names the user's folders before anything is posted,
 and the step, held to its token budget, keeps only what the model judges or acts on. A call refused before the gate
 skips it and goes to the local queue.
+
+`health_check_repo` may name a host (`HOST/OWNER/REPO`), which `--repo` takes but `gh api` does not (#1237): [R]
+posted its reaction to `repos/HOST/OWNER/REPO/...` on github.com and failed, so [C] posted no comment, and the local
+queue linked `https://github.com/HOST/OWNER/REPO/issues/new/choose`. `settings` now prints the `host` and the
+`owner_repo`, which the step names `{healthCheckHost}` and `{healthCheckOwnerRepo}` (a bare `{host}` is the source's
+in Create Skill's and Quick Skill's steps, earlier in the same session), the reaction takes `repos/` with the second,
+and the link is built from both. The reaction and the gh check take `{healthCheckHostFlag}`, settings' `host_flag`:
+`--hostname HOST` for a value that names a host and nothing for OWNER/REPO, so they reach the host each `--repo` call
+reaches; pinning github.com for OWNER/REPO split one run across two hosts under GH_HOST or a login to an Enterprise
+host alone. A block of the local queue that lists only drafts, as
+for a value that is no repository, printed no commands, so it ends with its reason alone.
+
+The review of that fix found that `gh search issues` does not take a host either: its `--repo` is an OWNER/REPO filter
+on gh's default host, so `gh search issues --repo ghe.example.com/acme/skills ...` exits 1 with "Invalid search query"
+and a GitHub Enterprise Server run never reached the reaction. The dedup searches are now `gh issue list --repo
+{healthCheckRepo} --search ...`, which takes the host as every other `--repo` does, a search that exits non-zero
+queues the finding, and for a value that names a host the gh check names it too, so a stale login on another host
+does not stop it and a host never logged in to does (with no host named it checks every host, as in 11.1.0).
 """
 
 from __future__ import annotations
@@ -63,10 +81,12 @@ COMMENT_FILE = '--body-file "{localFallbackFolder}/bodies/{fp}-comment-{timestam
 # The calls the step must hold, each as the start of one call found, so an extractor that misses fenced lines,
 # continuation lines or inline code spans fails here instead of passing on too few calls.
 REQUIRED_CALLS = {
-    "the search by fingerprint": 'gh search issues --repo {healthCheckRepo} --state open "{fp} in:title" ',
+    "the gh check": "gh auth status {healthCheckHostFlag}",
+    "the search by fingerprint": 'gh issue list --repo {healthCheckRepo} --state open --search "{fp} in:title" ',
     "the search by section fingerprint":
-        'gh search issues --repo {healthCheckRepo} --state open "{legacy_fp} in:title,body" ',
-    "the reaction": "gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'",
+        'gh issue list --repo {healthCheckRepo} --state open --search "{legacy_fp} in:title,body" ',
+    "the reaction":
+        "gh api {healthCheckHostFlag} -X POST repos/{healthCheckOwnerRepo}/issues/{N}/reactions -f content='+1'",
     "the comment": "gh issue comment --repo {healthCheckRepo} {N} ",
     "the label": 'gh label create --repo {healthCheckRepo} "{fp}" ',
     "the new issue": 'gh issue create --repo {healthCheckRepo} --title "{title}" ',
@@ -161,7 +181,20 @@ def test_every_gh_call_with_a_placeholder_names_the_health_check_repository():
         for wrong in ("{repo}", "{owner}", "/repos/"):
             assert wrong not in call, f"{wrong} in {call!r}"
         if PLACEHOLDER.search(call):
-            assert "--repo {healthCheckRepo}" in call or "repos/{healthCheckRepo}/" in call, call
+            # `gh api` and `gh auth status` take no --repo: the host goes to --hostname, and an API path names
+            # OWNER/REPO alone (#1237).
+            if call.startswith("gh api "):
+                assert call.startswith("gh api {healthCheckHostFlag} "), call
+                assert " repos/{healthCheckOwnerRepo}/" in call, call
+            elif call.startswith("gh auth status"):
+                assert call == "gh auth status {healthCheckHostFlag}", call
+            else:
+                assert "--repo {healthCheckRepo}" in call, call
+            assert "repos/{healthCheckRepo}" not in call, call
+        # `gh search`'s --repo is an OWNER/REPO filter on gh's default host: it cannot search another host (#1237).
+        assert not call.startswith("gh search "), call
+    # A --hostname of the step's own would pin github.com for OWNER/REPO while --repo follows gh's default host.
+    assert "--hostname {" not in _read(SHARED_HEALTH_CHECK)
     # A call with no placeholder can only be one the step mentions, never one it runs on an issue.
     plain = {call for call in calls if not PLACEHOLDER.search(call)}
     assert plain <= MENTIONS, plain - MENTIONS
@@ -186,8 +219,10 @@ def test_every_gh_call_names_the_repository_right_after_its_subcommand():
 
 def test_r_and_c_react_and_comment_on_the_health_check_issue():
     actions = _slice(_read(SHARED_HEALTH_CHECK), "Execute the chosen action:", SUB_STEP_5A_II)
-    # No leading slash, as the repository's other `gh api` calls write the path.
-    assert "- **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`\n" in actions
+    # No leading slash, as the repository's other `gh api` calls write the path; a named host goes to --hostname
+    # through `{healthCheckHostFlag}` (#1237).
+    assert ("- **R:** `gh api {healthCheckHostFlag} -X POST repos/{healthCheckOwnerRepo}/issues/{N}/reactions "
+            "-f content='+1'`\n") in actions
     # The comment's body goes in a file, written and shown to the user before either call, so a Write that fails
     # posts nothing and what is posted is what was shown.
     assert ("- **C:** Write the delta body, the Environment table plus one sentence on what differs from the "
@@ -223,7 +258,7 @@ def test_only_a_reaction_or_comment_that_posted_is_recorded():
     assert choice.index(rule) < choice.index(success) < plain < instead < regression
     # The queue takes the finding, with a reason of its own.
     queue = _flow(text[text.index("### 5c."):])
-    assert "or a reaction, comment or new issue that failed to post (§5a-i, §5a-ii)." in queue
+    assert "or a search, reaction, comment or new issue that failed (§5a)." in queue
     reasons = _flow(_slice(text, "`{reason}` is the sentence", "When `{result_envelope_line}` is bound"))
     assert '"Posting these to GitHub failed." (the failed-submission reason).' in reasons
     assert ('"SKF\'s health-check helper could not fingerprint these findings, so they carry the fingerprint N/A; '
@@ -394,9 +429,8 @@ def test_an_empty_repository_turns_the_check_off_before_anything_else():
     # The helper's settings call decides the rest, and an off state it finds stops the check as §0's does.
     settings = _flow(_slice(text, "**Read the settings.**", "**A refused call.**"))
     assert 'uv run {seenCacheHelper} settings --config "{project-root}/_bmad/skf/config.yaml"' in settings
-    assert ("From here on `{healthCheckRepo}` is its `repo` and `{healthCheckAutosubmit}` its `autosubmit`, which is "
-            "off without a helper. On `off`, display §0's two off lines, then the bound `{result_envelope_line}`, and "
-            "STOP, drafting nothing.") in settings
+    assert ("and `{healthCheckAutosubmit}` its `autosubmit`, which is off without a helper. On `off`, display §0's two "
+            "off lines, then the bound `{result_envelope_line}`, and STOP, drafting nothing.") in settings
     assert helper().DEFAULT_REPO == DEFAULT_REPO
 
 
@@ -563,14 +597,27 @@ def test_a_refused_gh_call_stops_every_later_one_and_queues_what_is_left():
     # The headless reason points at the allow rules the docs give, each scoped or not: the four gh commands, the
     # helper and the writes to the queue folder. A headless run never reacts or comments, so it needs no rule for it.
     docs = _flow(_slice(_read(WORKFLOWS_DOC), "### Submitting from headless runs", "### Submitting a queued finding"))
-    for allow in ('"Bash(gh auth status)"', '"Bash(gh search issues *)"', '"Bash(gh label create *)"',
+    for allow in ('"Bash(gh auth status)"', '"Bash(gh issue list *)"', '"Bash(gh label create *)"',
                   '"Bash(gh issue create *)"', '"Bash(uv run *skf-health-check-seen.py *)"',
                   '"Edit(./forge-data/improvement-queue/**)"', f"Bash(gh issue create --repo {DEFAULT_REPO} *)"):
         assert allow in docs, allow
     for unneeded in ("Bash(gh api", "Bash(gh issue comment"):
         assert unneeded not in docs, unneeded
-    # `gh auth status` takes no --repo, so the docs scope only the three commands that do.
-    assert ("the health check puts `--repo` right after the subcommand of every `gh search issues`, "
+    # The search rule the 11.1.0 docs gave matches no call the step makes now (#1237), and the docs say to replace it.
+    assert "Bash(gh search issues" not in docs
+    assert ("Rules written for SKF 11.1.0 allow `gh search issues`, which the health check no longer runs: replace that "
+            "rule with `Bash(gh issue list *)` or its scoped form.") in docs
+    for sub in ("gh issue list", "gh label create", "gh issue create"):
+        assert f"`Bash({sub} --repo {DEFAULT_REPO} *)`" in docs, sub
+    # `gh auth status` takes no --repo, and gets a --hostname only for a value that names a host.
+    assert ("For a `HOST/OWNER/REPO` value, write it in these rules, and allow "
+            "`Bash(gh auth status --hostname HOST)` in place of the bare `gh auth status`, with HOST as "
+            "`gh auth status` lists it: in lower case, `github.com` for any `*.github.com` name and `TENANT.ghe.com` "
+            "for `api.TENANT.ghe.com`.") in docs
+    setup = _flow(_slice(_read(WORKFLOWS_DOC), "### Turning it off", "### What gets sent"))
+    assert ("set the key to `OWNER/REPO`, or to `HOST/OWNER/REPO` for one on a GitHub Enterprise Server host (log in to "
+            "that host first, with `gh auth login --hostname HOST`)") in setup
+    assert ("the health check puts `--repo` right after the subcommand of every `gh issue list`, "
             "`gh label create` and `gh issue create` it runs") in docs
 
 
@@ -684,6 +731,34 @@ def test_the_local_queue_is_written_by_the_helper_with_the_commands_that_submit_
     # A finding queued at a match names the issue it matched, so whoever submits it can react there instead.
     assert ("{each path written, each followed by its three `commands`, exactly as printed, and, for a finding queued "
             "at a match (§5a-i), the URL of each issue it matched}") in queue
+
+
+def test_the_queue_links_the_issue_form_on_the_repositorys_host_and_a_block_of_drafts_names_no_command():
+    """#1237: the queue's link pasted `{healthCheckRepo}` after github.com, a 404 for a HOST/OWNER/REPO value and
+    meaningless for one that is no repository, and a block that listed drafts, printing no command, still said to run
+    a finding's first two commands."""
+    text = _read(SHARED_HEALTH_CHECK)
+    settings = _flow(_slice(text, "**Read the settings.**", "**A refused call.**"))
+    assert ('It prints `{"repo_state", "repo", "host", "owner_repo", "host_flag", "is_default", "autosubmit"}`. From '
+            "here on `{healthCheckRepo}` is its `repo`, `{healthCheckHost}` its `host`, `{healthCheckOwnerRepo}` its "
+            "`owner_repo`, `{healthCheckHostFlag}` its `host_flag` (empty for OWNER/REPO) and `{healthCheckAutosubmit}` "
+            "its `autosubmit`, which is off without a helper.") in settings
+    # Named apart from another step's `{host}` or `{owner}`, and only ever as the helper printed them.
+    for bare in ("{host}", "{owner_repo}", "{owner}"):
+        assert bare not in text, bare
+    # No github.com path is built from the setting anywhere in the step.
+    assert "github.com/{" not in text
+    hint = _flow(_slice(text, "{reason} Run a finding's first two commands", "`{reason}` is the sentence"))
+    assert "or open one at <https://{healthCheckHost}/{healthCheckOwnerRepo}/issues/new/choose>." in hint
+    # A value that is no repository, a missing helper, no fingerprint or a refused call lists drafts only.
+    queue = _flow(text[text.index("### 5c."):])
+    assert ('followed, in place of commands, by "Submit it as '
+            '<https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#submitting-a-queued-finding> says." '
+            "A block that lists no queue file ends with `{reason}` alone.") in queue
+    # The helper's split, pinned with every form in test-skf-health-check-seen.py.
+    module = helper()
+    assert module.split_repo("GHE.example.com/acme/skills") == ("ghe.example.com", "acme/skills")
+    assert module.split_repo(DEFAULT_REPO) == ("github.com", DEFAULT_REPO)
 
 
 def test_every_stop_of_the_step_ends_on_the_envelope_line():

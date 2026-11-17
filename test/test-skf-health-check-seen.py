@@ -2115,8 +2115,24 @@ def _settings(tmp_path: Path, text: str | bytes | None) -> dict:
     return json.loads(out)
 
 
-DEFAULT = {"repo_state": "default", "repo": HEALTH_CHECK_REPO, "is_default": True, "autosubmit": False}
-OFF = {"repo_state": "off", "repo": None, "is_default": False, "autosubmit": False}
+DEFAULT = {"repo_state": "default", "repo": HEALTH_CHECK_REPO, "host": "github.com", "owner_repo": HEALTH_CHECK_REPO,
+           "host_flag": "", "is_default": True, "autosubmit": False}
+OFF = {"repo_state": "off", "repo": None, "host": None, "owner_repo": None, "host_flag": None, "is_default": False,
+       "autosubmit": False}
+
+
+def _set(repo: str, host: str = "github.com", owner_repo: str | None = None, *, is_default: bool = False,
+         autosubmit: bool = False) -> dict:
+    """What settings prints for a repository set by hand: its host is github.com unless it names one, and only a
+    value that names one gets a --hostname flag (#1237)."""
+    return {"repo_state": "set", "repo": repo, "host": host, "owner_repo": owner_repo or repo,
+            "host_flag": f"--hostname {host}" if repo.count("/") == 2 else "", "is_default": is_default,
+            "autosubmit": autosubmit}
+
+
+def _invalid(repo: str | None) -> dict:
+    return {"repo_state": "invalid", "repo": repo, "host": None, "owner_repo": None, "host_flag": None,
+            "is_default": False, "autosubmit": False}
 
 
 class TestSettings:
@@ -2124,15 +2140,29 @@ class TestSettings:
         ("health_check_repo: owner/repo  # fork", "owner/repo"),
         ('health_check_repo: "owner/repo"', "owner/repo"),
         ("health_check_repo: 'owner/repo'  # a comment", "owner/repo"),
-        ("health_check_repo: ghe.example.com/my-org/my.repo_x", "ghe.example.com/my-org/my.repo_x"),
         ("health_check_repo :   owner/repo", "owner/repo"),
         ('"health_check_repo": me/fork', "me/fork"),
         ("'health_check_repo': 'me/fork'", "me/fork"),
-    ], ids=["comment", "double-quoted", "single-quoted-comment", "host", "space-before-colon", "double-quoted-key",
+    ], ids=["comment", "double-quoted", "single-quoted-comment", "space-before-colon", "double-quoted-key",
             "single-quoted-key"])
     def test_a_repository_is_set(self, tmp_path, line, repo):
-        assert _settings(tmp_path, line + "\n") == {"repo_state": "set", "repo": repo, "is_default": False,
-                                                    "autosubmit": False}
+        assert _settings(tmp_path, line + "\n") == _set(repo)
+
+    @pytest.mark.parametrize("value, host, owner_repo", [
+        ("ghe.example.com/my-org/my.repo_x", "ghe.example.com", "my-org/my.repo_x"),
+        ("'github.example.com/acme/skills'", "github.example.com", "acme/skills"),
+        ("GHE.Example.com/Acme/Skills", "ghe.example.com", "Acme/Skills"),
+        ("github.com/acme/skills", "github.com", "acme/skills"),
+        ("WWW.GitHub.com/acme/skills", "github.com", "acme/skills"),
+        ("api.octo.ghe.com/acme/skills", "octo.ghe.com", "acme/skills"),
+    ], ids=["host", "quoted", "host-letter-case", "github-com-named", "github-com-subdomain", "ghe-com-api-host"])
+    def test_a_repository_that_names_a_host_prints_it_apart_from_owner_repo(self, tmp_path, value, host, owner_repo):
+        """#1237: `gh api` takes no --repo, so the step passes it --hostname {host} and repos/{owner_repo}/..., and
+        links the issue form at https://{host}/{owner_repo}/: neither is the value pasted after github.com."""
+        out = _settings(tmp_path, f"health_check_repo: {value}\n")
+        assert out == _set(value.strip("'"), host, owner_repo)
+        # The issue prefix the lookup compares recorded URLs with is the same split.
+        assert _mod()._issue_prefix(out["repo"]).lower() == f"https://{host}/{owner_repo}/".lower()
 
     @pytest.mark.parametrize("line", ["health_check_repo: ''", 'health_check_repo: ""', "health_check_repo: ~",
                                       "health_check_repo: null", "health_check_repo: Null", "health_check_repo: NULL",
@@ -2171,21 +2201,58 @@ class TestSettings:
             "flow-list", "flow-map", "multi-line", "unclosed-quote", "after-the-quote", "glued-comment",
             "glued-comment-double", "anchor", "unresolved"])
     def test_a_value_that_is_no_repository_is_invalid(self, tmp_path, text, repo):
-        assert _settings(tmp_path, text) == {"repo_state": "invalid", "repo": repo, "is_default": False,
-                                             "autosubmit": False}
+        # No host and no OWNER/REPO either: the step links no issue form and runs no gh call for it (#1237).
+        assert _settings(tmp_path, text) == _invalid(repo)
 
     @pytest.mark.parametrize("raw", [b"health_check_repo: \xff\xfe owner/repo\n"], ids=["not-utf8"])
     def test_a_file_that_cannot_be_read_makes_the_repository_invalid(self, tmp_path, raw):
-        assert _settings(tmp_path, raw) == {"repo_state": "invalid", "repo": None, "is_default": False,
-                                            "autosubmit": False}
+        assert _settings(tmp_path, raw) == _invalid(None)
         folder = tmp_path / "a folder"
         folder.mkdir()
         assert _mod().settings(folder)["repo_state"] == "invalid"
 
-    @pytest.mark.parametrize("value", [HEALTH_CHECK_REPO, HEALTH_CHECK_REPO.upper(), f'"{HEALTH_CHECK_REPO}"'])
+    @pytest.mark.parametrize("value", [HEALTH_CHECK_REPO, HEALTH_CHECK_REPO.upper(), f'"{HEALTH_CHECK_REPO}"',
+                                       f"github.com/{HEALTH_CHECK_REPO}", f"GitHub.com/{HEALTH_CHECK_REPO.upper()}"])
     def test_the_default_set_by_hand_is_the_default_in_any_letter_case(self, tmp_path, value):
         out = _settings(tmp_path, f"health_check_repo: {value}\n")
         assert out["repo_state"] == "set" and out["is_default"] is True
+
+    @pytest.mark.parametrize("value, flag", [("owner/repo", ""), (HEALTH_CHECK_REPO, ""),
+                                             ("github.com/owner/repo", "--hostname github.com"),
+                                             ("GHE.example.com/acme/skills", "--hostname ghe.example.com")],
+                             ids=["owner-repo", "default", "github-com-named", "host"])
+    def test_only_a_value_that_names_a_host_gets_a_hostname_flag(self, tmp_path, value, flag):
+        """`gh auth status` and `gh api` take no --repo. A --hostname on them for an OWNER/REPO value would pin
+        github.com while every --repo call follows gh's default host (GH_HOST, or the one host gh is logged in to),
+        splitting one run across two hosts (#1237 review): only a named host is passed."""
+        assert _settings(tmp_path, f"health_check_repo: {value}\n")["host_flag"] == flag
+
+    def test_the_defaults_owner_repo_on_another_host_is_no_default(self, tmp_path):
+        """Its issues are not public on github.com, so the gate does not call them public issues (#1237)."""
+        out = _settings(tmp_path, f"health_check_repo: ghe.example.com/{HEALTH_CHECK_REPO}\n")
+        assert out == _set(f"ghe.example.com/{HEALTH_CHECK_REPO}", "ghe.example.com", HEALTH_CHECK_REPO)
+
+    @pytest.mark.parametrize("repo, split", [
+        ("owner/repo", ("github.com", "owner/repo")),
+        ("Owner/Repo", ("github.com", "Owner/Repo")),
+        ("ghe.example.com/acme/skills", ("ghe.example.com", "acme/skills")),
+        ("GHE.Example.COM/Acme/Skills", ("ghe.example.com", "Acme/Skills")),
+        ("github.com/acme/skills", ("github.com", "acme/skills")),
+        ("octo.ghe.com/acme/my.repo_x", ("octo.ghe.com", "acme/my.repo_x")),
+        ("www.github.com/acme/skills", ("github.com", "acme/skills")),
+        ("API.GitHub.com/acme/skills", ("github.com", "acme/skills")),
+        ("api.octo.ghe.com/acme/skills", ("octo.ghe.com", "acme/skills")),
+        ("ghe.com/acme/skills", ("ghe.com", "acme/skills")),
+        ("API.GitHub.localhost/acme/skills", ("github.localhost", "acme/skills")),
+    ], ids=["owner-repo", "owner-repo-case-kept", "host", "host-lower-cased", "github-com-named", "ghe-com-tenant",
+            "www-github-com", "api-github-com", "ghe-com-api-host", "ghe-com-bare", "github-localhost"])
+    def test_split_repo_gives_the_host_gh_files_on_and_the_owner_repo(self, repo, split):
+        """The one split `settings` prints and the lookup's issue prefix compares with (#1237). The host is the one gh
+        files on: `--repo` normalises a *.github.com or *.ghe.com host, `--hostname` does not, so the helper does."""
+        module = _mod()
+        assert module.REPO_RE.fullmatch(repo)
+        assert module.split_repo(repo) == split
+        assert module._issue_prefix(repo) == f"https://{split[0]}/{split[1]}/"
 
     @pytest.mark.parametrize("value, on", [("true", True), ("true # on", True), ("true   ", True), ("True", False),
                                            ("TRUE", False), ('"true"', False), ("'true'", False), ("yes", False),
@@ -2201,8 +2268,7 @@ class TestSettings:
 
     def test_the_last_line_of_a_key_wins_and_crlf_and_a_bom_are_read(self, tmp_path):
         text = "health_check_repo: first/repo\r\nhealth_check_repo: second/repo\r\nhealth_check_autosubmit: true\r\n"
-        assert _settings(tmp_path, b"\xef\xbb\xbf" + text.encode("utf-8")) == {
-            "repo_state": "set", "repo": "second/repo", "is_default": False, "autosubmit": True}
+        assert _settings(tmp_path, b"\xef\xbb\xbf" + text.encode("utf-8")) == _set("second/repo", autosubmit=True)
 
     def test_a_bmad_method_config_reads_as_the_default(self, tmp_path):
         """A BMAD Method install writes no health_check key: header comments, quoted values and an indented list."""
@@ -2214,7 +2280,7 @@ class TestSettings:
         text = ("# SKF Configuration - Generated by installer\nskills_output_folder: skills\n"
                 "forge_data_folder: forge-data\nhealth_check_repo: armelhbobdad/bmad-module-skill-forge\n")
         out = _settings(tmp_path, text)
-        assert out == {"repo_state": "set", "repo": HEALTH_CHECK_REPO, "is_default": True, "autosubmit": False}
+        assert out == _set(HEALTH_CHECK_REPO, is_default=True)
 
     def test_settings_reads_no_yaml_library_and_runs_no_gh(self, tmp_path, no_gh):
         _mod().settings(tmp_path / "config.yaml")
@@ -2228,7 +2294,7 @@ class TestSettings:
         (project / "_bmad" / "skf" / "config.yaml").write_text("health_check_repo: me/fork  # mine\n"
                                                                 "health_check_autosubmit: true\n", encoding="utf-8")
         out = _run_step_call(line, {"{project-root}": str(project)}, dict(os.environ))
-        assert out == {"repo_state": "set", "repo": "me/fork", "is_default": False, "autosubmit": True}
+        assert out == _set("me/fork", autosubmit=True)
 
 
 # --------------------------------------------------------------------------
