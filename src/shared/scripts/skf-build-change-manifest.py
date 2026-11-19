@@ -215,7 +215,10 @@ Docs-only (update-skill detect-changes §1): build --doc-hashes reads the
 compare-hashes output and prints {"mode": "docs-only", "no_changes":
 <changed[] is empty>, "changed_urls": [each changed[].url],
 "fetch_failed": [each fetch_failed[].url], "counts": {"docs_changed",
-"docs_fetch_failed"}}. It takes no other input.
+"docs_fetch_failed", "docs_tracked" (the entries of all four lists),
+"docs_unchanged", "docs_not_checked" (fetch_failed plus
+skipped_null_hash: the documents it could not compare)}}. It takes no
+other input.
 
 Rename candidates (update-skill detect-changes Category C):
 
@@ -3688,13 +3691,21 @@ def _payload(args: argparse.Namespace) -> dict:
 
 
 def docs_only_manifest(doc_hashes: dict) -> dict:
-    """A docs-only skill's change manifest from compare-hashes' output."""
+    """A docs-only skill's change manifest from compare-hashes' output.
+
+    Its counts also give the documents tracked (all four lists), unchanged and
+    not checked (fetch_failed plus skipped_null_hash), so a no-change report
+    says how many it compared (#1267).
+    """
     def urls(key: str) -> list[str]:
         return [e["url"] for e in _get_list(doc_hashes, key) if isinstance(e, dict) and isinstance(e.get("url"), str)]
 
     changed, failed = urls("changed"), urls("fetch_failed")
+    unchanged, skipped = urls("unchanged"), urls("skipped_null_hash")
     return {"mode": "docs-only", "no_changes": not changed, "changed_urls": changed, "fetch_failed": failed,
-            "counts": {"docs_changed": len(changed), "docs_fetch_failed": len(failed)}}
+            "counts": {"docs_changed": len(changed), "docs_fetch_failed": len(failed),
+                       "docs_tracked": len(changed) + len(unchanged) + len(failed) + len(skipped),
+                       "docs_unchanged": len(unchanged), "docs_not_checked": len(failed) + len(skipped)}}
 
 
 def _category_d(args: argparse.Namespace) -> dict | None:

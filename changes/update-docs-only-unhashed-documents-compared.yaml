@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  A docs-only update now compares a document whose recorded content hash is null, one that Create Skill or an earlier update could not fetch. Once the document can be fetched, the update counts it as changed, re-reads it and records its hash, so later updates check it for drift; before, no update fetched it again and each run only warned `doc-not-hashed`. One that still cannot be fetched now warns `doc-fetch-failed`. The first update after such a page becomes reachable writes a new version, even when the skill already holds its content. Audit Skill still leaves such a document out of its comparison.
+issues: [1267]

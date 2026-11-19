@@ -5927,12 +5927,12 @@ def test_a_docs_only_skill_compares_its_document_hashes(tmp_path):
                  "change",):
         assert gone not in one
     call = _fence(one, "uv run {compareDocHashesHelper} compare-hashes")
-    assert 'compare-hashes "{skill_package}/metadata.json" > "{run_dir}/doc-hashes.json"' in call
+    assert 'compare-hashes "{skill_package}/metadata.json" --fetch-null > "{run_dir}/doc-hashes.json"' in call
     # the helper writes the manifest from the comparison: no URL retyped into a heredoc
     assert 'cat > "{run_dir}/change-manifest.json"' not in one
     build = _fence(one, "uv run {buildChangeManifestHelper} build --doc-hashes")
     assert 'build --doc-hashes "{run_dir}/doc-hashes.json" > "{run_dir}/change-manifest.json"' in build
-    assert "§4 then reports no change only when every hashed document matches" in one
+    assert "§4 then reports no change only when every document it compared matches" in one
     # #1196: the docs-only branch skips detect-changes.md's own §2 to §2.2; reconcile-scope.md skips §1b and §1c
     # itself, by its own skip lists, before step 2 starts
     assert "Then skip §2 to §2.2 and §3's build" in one and "§1b" not in one
@@ -5946,7 +5946,8 @@ def test_a_docs_only_skill_compares_its_document_hashes(tmp_path):
     argv = _cmd_args(call, "compareDocHashesHelper", {"skill_package": str(package)})
     code, out = _run_script(DETECT_DOCS, argv)
     assert code == 0 and out["changed"] == [] and out["stats"]["total_tracked"] == 0
-    assert "`doc-drift-not-checked: metadata.json records no doc_sources`" in one
+    # #1267: a run that compared no document HALTs `blocked` (detect-changes.md §1), so no warning stands in
+    assert "`metadata.json records no doc_sources`" in one and "doc-drift-not-checked" not in one
     # one changed document: the manifest routes it to step 3, and write §3b records its new hash, so the next
     # comparison finds nothing changed and §4's no-change shortcut fires again
     doc = tmp_path / "guide.md"

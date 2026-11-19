@@ -1633,11 +1633,21 @@ class TestDocsOnlyManifest:
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout) == {
             "mode": "docs-only", "no_changes": False, "changed_urls": ["https://d/b", "https://d/a"],
-            "fetch_failed": ["https://d/e"], "counts": {"docs_changed": 2, "docs_fetch_failed": 1}}
+            "fetch_failed": ["https://d/e"], "counts": {"docs_changed": 2, "docs_fetch_failed": 1, "docs_tracked": 4,
+                                                        "docs_unchanged": 1, "docs_not_checked": 1}}
 
     def test_no_changed_document_is_no_change(self) -> None:
         manifest = mod.docs_only_manifest({**self.COMPARISON, "changed": []})
         assert manifest["no_changes"] is True and manifest["changed_urls"] == []
+
+    def test_the_counts_name_the_documents_not_compared(self) -> None:
+        # #1267: a no-change report says how many tracked documents matched and how many it could not check
+        counts = mod.docs_only_manifest({**self.COMPARISON, "skipped_null_hash": [{"url": "https://d/f"}]})["counts"]
+        assert (counts["docs_tracked"], counts["docs_unchanged"], counts["docs_not_checked"]) == (5, 1, 2)
+        empty = mod.docs_only_manifest({"changed": []})
+        assert empty["no_changes"] is True
+        assert empty["counts"] == {"docs_changed": 0, "docs_fetch_failed": 0, "docs_tracked": 0,
+                                   "docs_unchanged": 0, "docs_not_checked": 0}
 
     def test_doc_hashes_takes_no_other_input(self, tmp_path: Path) -> None:
         path = tmp_path / "doc-hashes.json"

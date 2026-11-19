@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-update-skill
+summary: |
+  A docs-only update that could compare none of the skill's documents, because every one failed to fetch or `metadata.json` tracks none in `doc_sources`, now stops `blocked` (`error.phase` `detect-changes:doc-hashes`) in every mode, `--detect-only` and `--dry-run` included, and names each document with the reason it could not be read, instead of ending `no-changes` and calling the skill current. The `doc-drift-not-checked` warning such a run gave when `doc_sources` was empty is no longer raised.
+migration: |
+  A pipeline that read `no-changes` for such a skill now gets `blocked`: re-run once its documents can be reached, or re-create the skill with Create Skill (`@Ferris CS`) so it records their hashes.
+issues: [1267]

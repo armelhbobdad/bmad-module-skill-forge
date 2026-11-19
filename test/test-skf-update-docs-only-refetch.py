@@ -273,6 +273,24 @@ def test_refresh_hashes_tracks_each_document_the_records_cite(tmp_path):
     again = json.loads(_cli("compare-hashes", str(docs["meta"])).stdout)
     assert [e["url"] for e in again["changed"]] == [urls["B"]]
     assert again["stats"]["total_tracked"] == 3 and again["skipped_null_hash"] == [{"url": urls["C"]}]
+    # #1267: once C can be read, update-skill's --fetch-null comparison counts it changed, refresh-hashes
+    # records its hash, and the next comparison finds every document unchanged
+    (tmp_path / "c.md").write_bytes(b"c one\n")
+    fetched = _cli("compare-hashes", str(docs["meta"]), "--fetch-null")
+    assert fetched.returncode == 0, fetched.stderr
+    comparison = json.loads(fetched.stdout)
+    assert [(e["url"], e["old_hash"]) for e in comparison["changed"]] == \
+        [(urls["B"], _sha(b"b one\n")), (urls["C"], None)]
+    assert comparison["skipped_null_hash"] == []
+    saved = tmp_path / "doc-hashes-null.json"
+    saved.write_bytes(fetched.stdout.encode("utf-8"))
+    refresh = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(saved))
+    assert refresh.returncode == 0, refresh.stderr
+    assert json.loads(refresh.stdout)["refreshed"] == [urls["B"], urls["C"]]
+    assert json.loads(docs["meta"].read_bytes())["doc_sources"][2]["content_hash"] == _sha(b"c one\n")
+    last = json.loads(_cli("compare-hashes", str(docs["meta"])).stdout)
+    assert (last["changed"], last["skipped_null_hash"]) == ([], [])
+    assert last["unchanged"] == [{"url": urls[name]} for name in ("A", "B", "C")]
 
 
 def test_a_rerun_adds_nothing(tmp_path):
