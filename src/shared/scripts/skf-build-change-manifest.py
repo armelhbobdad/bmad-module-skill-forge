@@ -267,8 +267,9 @@ Apply (update-skill write.md §3):
   that lists each unrecognized value replaced (name: old -> new, the
   first 10, then "and N more"); their names are not in its `updated`. A
   rewritten entry keeps any key the update does not set (notes,
-  deprecated). A new entry's source_library is the map's library when its
-  entries name one (--skill-name when they name none). When they name
+  deprecated), except in a docs-only run (below). A new entry's
+  source_library is the map's library when its entries name one
+  (--skill-name when they name none). When they name
   several, it is the library the entries of its file settle, else the one
   the entries under the nearest folder above the file that holds entries
   settle: the one library they name, or of several, the one that is a
@@ -321,9 +322,15 @@ Apply (update-skill write.md §3):
   run or one with errors, an unresolved entry point) adds every name, with
   one warning. A docs-only
   run's records ({"mode": "docs-only", "changed_urls": [...], "exports":
-  [{name, type, params, return_type, url}]}) replace the entries of each
-  changed URL (source_file is the URL; confidence and signature_source
-  T3).
+  [{name, type, params, return_type, url, ...}]}) replace the entries of
+  each changed URL (source_file is the URL; confidence and
+  signature_source T3). Each entry takes every other key its record gives
+  (a quote, a description). An entry of the same name on that URL keeps
+  the keys of create-skill's entry shape its record does not set (its
+  source_library, extraction_method, source_line) and no other key, so no
+  quote or note of the earlier fetch stays; a new entry takes the one
+  extraction_method the map's T3 entries all carry (none when they
+  disagree or one lacks it).
 
   gap-driven reads --reextract-records ({"mode": "gap-driven",
   "verification": [...], "files": [...]}) and --merge-records ({"exports":
@@ -1761,12 +1768,18 @@ def _without_none(fields: dict, keep: tuple = ()) -> dict:
     return {k: v for k, v in fields.items() if v is not None or k in keep}
 
 
+# a provenance entry's keys, in create-skill's order
+_ENTRY_KEYS = ("export_name", "reexported_as", "export_type", "source_library", "params", "return_type", "source_file",
+               "source_line", "confidence", "extraction_method", "ast_node_type", "signature_source")
+# the keys of a docs-only record that apply reads or sets: every other key the record gives goes onto its entry
+_DOCS_RECORD_KEYS = frozenset(("name", "export_name", "type", "export_type", "params", "parameters", "return_type",
+                               "url", "source_file", "source_library", "confidence", "signature_source"))
+
+
 def _new_entry(fields: dict, library: str) -> dict:
     """An entry in create-skill's key order, from the fields a record gives."""
-    order = ("export_name", "reexported_as", "export_type", "source_library", "params", "return_type", "source_file",
-             "source_line", "confidence", "extraction_method", "ast_node_type", "signature_source")
     merged = {**fields, "source_library": fields.get("source_library") or library}
-    out = {k: merged[k] for k in order if k in merged and (merged[k] is not None or k == "ast_node_type")}
+    out = {k: merged[k] for k in _ENTRY_KEYS if k in merged and (merged[k] is not None or k == "ast_node_type")}
     return out
 
 
@@ -2028,21 +2041,37 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
 
 
 def _apply_docs_only(pmap: _Map, records: dict) -> tuple[int, int]:
+    """Docs-only mode: the records' exports replace the entries of each changed URL; source_file is the URL,
+    confidence and signature_source T3. Each entry takes every other key its record gives (a quote, a description,
+    #1247). An entry of the same name the URL held keeps the _ENTRY_KEYS its record does not set (a null params or
+    return_type keeps its value, as any rewrite does) and drops every other key (a note, an old quote), so no quote
+    or note of the earlier fetch stays; a new entry takes the one extraction_method the map's T3 entries all carry,
+    none when they disagree or one lacks it. Returns (files, exports) for the update block."""
     changed = [u for u in records.get("changed_urls") or [] if isinstance(u, str) and u]
     exports = [e for e in records.get("exports") or [] if isinstance(e, dict)]
+    methods = {e.get("extraction_method") for e in pmap.doc["entries"]
+               if isinstance(e, dict) and _tier(e.get("confidence")) == "T3"}
+    only = next(iter(methods)) if len(methods) == 1 else None
+    method = only if isinstance(only, str) and only else None
     for url in changed:
         old = {_name_of(pmap.doc["entries"][i]): pmap.doc["entries"][i] for i in pmap.indexes_of(url)}
         pmap.remove(pmap.indexes_of(url))
         for record in exports:
-            if record.get("url") != url or not _name_of(record):
+            name = _name_of(record)
+            if record.get("url") != url or not name:
                 continue
-            fields = {"export_name": _name_of(record), "export_type": record.get("export_type", record.get("type")),
+            fields = {"export_name": name, "export_type": record.get("export_type", record.get("type")),
                       "params": record.get("params", record.get("parameters")),
                       "return_type": record.get("return_type"), "source_file": url,
                       "confidence": "T3", "signature_source": "T3"}
-            carried = old.get(_name_of(record))
-            entry = _rewrite(carried, _without_none(fields)) if carried else _new_entry(
-                _without_none(fields), pmap.library_for(url, _name_of(record)))
+            extra = {k: v for k, v in record.items() if k not in _DOCS_RECORD_KEYS and v is not None}
+            carried = old.get(name)
+            if carried:
+                entry = _rewrite({k: v for k, v in carried.items() if k in _ENTRY_KEYS}, _without_none(fields))
+            else:
+                entry = _new_entry({**_without_none({**fields, "extraction_method": method}), **extra},
+                                   pmap.library_for(url, name))
+            entry.update(extra)
             pmap.add(entry)
     return len(changed), len(exports)
 
