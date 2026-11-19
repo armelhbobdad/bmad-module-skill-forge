@@ -365,7 +365,19 @@ Context payload shape (consumed by `emit` for skf-setup):
   "hygiene_orphaned_kept", "hygiene_stale_cleaned" and
   "ccc_registry_stale_cleaned" (int), "hygiene_empty_collections" (the
   registered QMD collections that hold no indexed files, each also the
-  warning `qmd_collection_empty: <name>`),
+  warning `qmd_collection_empty: <name> (<cause>)`),
+  "hygiene_empty_causes" ({name: cause}, the cause one of "folder
+  missing", "folder present", "folder in another project" and "folder
+  unknown"; a name with no entry, or another value, reads "folder
+  unknown"),
+  "hygiene_pending" and "hygiene_pending_cleared" (int),
+  "hygiene_pending_collections" (the classifier's `pending` names
+  without its `empty` ones: registered collections Brief Skill marked
+  `status: "pending"` whose listing gives no file count, each also the
+  warning `qmd_collection_pending: <name>`; a marked empty name is only
+  on the empty lines), "hygiene_pending_cleared_collections" (the
+  marks clean-stale removed, its `qmd_pending_cleared`: QMD now lists
+  files for them, so they get no warning),
   "ccc_index_deferred" (bool: --defer-index skipped a due index build),
   and "require_tier" (the tier --require-tier named, or null). The staged
   helper outputs supply every one of them but the two resolved paths,
@@ -441,6 +453,13 @@ STAGED_CLEAN_STALE = "clean-stale.json"
 STAGED_FILES = (STAGED_DETECT, STAGED_CCC, STAGED_CLASSIFY, STAGED_REMOVE, STAGED_CLEAN_STALE)
 # The index failure a run reports when ccc is available and step 1b staged no result.
 CCC_NO_RESULT = "the ccc settings helper wrote no result"
+# Why a registered QMD collection holds no indexed files, from the
+# classifier's folder check, in the order the banner names them.
+EMPTY_FOLDER_MISSING = "folder missing"
+EMPTY_FOLDER_PRESENT = "folder present"
+EMPTY_FOLDER_ELSEWHERE = "folder in another project"
+EMPTY_FOLDER_UNKNOWN = "folder unknown"
+EMPTY_CAUSES = (EMPTY_FOLDER_MISSING, EMPTY_FOLDER_PRESENT, EMPTY_FOLDER_ELSEWHERE, EMPTY_FOLDER_UNKNOWN)
 
 SCHEMA_DIR = SCHEMA_FILE.parent
 SETUP_WORKFLOW = "skf-setup"
@@ -597,9 +616,15 @@ def _assemble_warnings(payload: dict) -> list[str]:
         warnings.append(f"ccc_registry_stale_removed: {p}")
     if payload.get("qmd_status") == "daemon_stopped":
         warnings.append("qmd_daemon_stopped")
-    # A registered collection QMD lists with no file answers no search.
+    # A registered collection QMD lists with no file answers no search; its
+    # folder's cause says whether re-indexing can refill it.
+    causes = _dict(payload.get("hygiene_empty_causes"))
     for name in _strings(payload.get("hygiene_empty_collections")):
-        warnings.append(f"qmd_collection_empty: {name}")
+        warnings.append(f"qmd_collection_empty: {name} ({_empty_cause(causes, name)})")
+    # A collection Brief Skill marked pending whose listing gives no count may
+    # answer no search until re-embedded; a cleared mark is no anomaly.
+    for name in _strings(payload.get("hygiene_pending_collections")):
+        warnings.append(f"qmd_collection_pending: {name}")
     for tool in _objects(payload.get("tools_below_minimum")):
         warnings.append(f"tool_below_minimum: {_tool_name(tool)} {tool.get('version')} "
                         f"(minimum {tool.get('minimum')})")
@@ -637,6 +662,12 @@ def _strings(value) -> list[str]:
 
 def _objects(value) -> list[dict]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _empty_cause(causes: dict, name: str) -> str:
+    """The cause `hygiene_empty_causes` gives an empty collection: "folder unknown" for none or any other value."""
+    cause = causes.get(name)
+    return cause if cause in EMPTY_CAUSES else EMPTY_FOLDER_UNKNOWN
 
 
 def _tool_name(tool: dict) -> str:
@@ -825,6 +856,31 @@ def read_staged(run_dir: Path | None) -> dict:
     return staged
 
 
+def _fold_empty_causes(classified: dict, empty: list[str]) -> dict[str, str]:
+    """{name: cause} for each empty collection, read from the classifier's folder check.
+
+    A name with no Path (qmd could not show it, or an older classifier
+    staged no `empty_paths`) is "folder unknown". A Path outside the
+    project is another project's, whether or not it still exists, so that
+    cause wins over a missing folder.
+    """
+    paths = _dict(classified.get("empty_paths"))
+    missing = set(_strings(classified.get("empty_folder_missing")))
+    elsewhere = set(_strings(classified.get("empty_outside_project")))
+    causes = {}
+    for name in empty:
+        path = paths.get(name)
+        if not isinstance(path, str) or not path:
+            causes[name] = EMPTY_FOLDER_UNKNOWN
+        elif name in elsewhere:
+            causes[name] = EMPTY_FOLDER_ELSEWHERE
+        elif name in missing:
+            causes[name] = EMPTY_FOLDER_MISSING
+        else:
+            causes[name] = EMPTY_FOLDER_PRESENT
+    return causes
+
+
 def fold_staged(payload: dict, staged: dict) -> dict:
     """The setup payload with the fields each staged helper output is the source of.
 
@@ -849,14 +905,30 @@ def fold_staged(payload: dict, staged: dict) -> dict:
                           when the classifier failed), hygiene_healthy,
                           hygiene_empty and hygiene_empty_collections
                           (its `empty` names, each a `qmd_collection_empty:
-                          <name>` warning; 0 and none when the classifier
-                          failed), hygiene_orphaned_kept (every orphan,
-                          while no removal ran) and
+                          <name> (<cause>)` warning; 0 and none when the
+                          classifier failed), hygiene_empty_causes (each
+                          empty name's cause, from its folder check: no
+                          `empty_paths` entry is "folder unknown", else
+                          a name in `empty_outside_project` is "folder in
+                          another project", else one in
+                          `empty_folder_missing` is "folder missing",
+                          else "folder present"; {} when the classifier
+                          failed), hygiene_pending and
+                          hygiene_pending_collections (its `pending`
+                          names not in `empty`, each a
+                          `qmd_collection_pending: <name>` warning; 0 and
+                          none when the classifier failed or wrote no
+                          `pending` list), hygiene_orphaned_kept (every
+                          orphan, while no removal ran) and
                           orphan_auto_resolution's count
       qmd-remove.json     hygiene_orphaned_removed, hygiene_orphaned_kept
                           (the orphans the removal could not delete) and
                           orphan_auto_resolution's removed and failed
-      clean-stale.json    hygiene_stale_cleaned, ccc_registry_stale_cleaned
+      clean-stale.json    hygiene_pending_cleared and
+                          hygiene_pending_cleared_collections (its
+                          `qmd_pending_cleared`, the marks it removed: 0
+                          and none when it failed or wrote no such list),
+                          hygiene_stale_cleaned, ccc_registry_stale_cleaned
                           and ccc_registry_stale_removed (none when it failed)
     """
     out = dict(payload)
@@ -915,6 +987,11 @@ def fold_staged(payload: dict, staged: dict) -> dict:
         out["hygiene_result"] = "completed" if completed else "qmd_unavailable"
         out["hygiene_healthy"] = len(healthy) if completed else 0
         out["hygiene_empty"], out["hygiene_empty_collections"] = len(empty), empty
+        out["hygiene_empty_causes"] = _fold_empty_causes(classified, empty)
+        # A marked collection with no file is reported as empty alone: re-embedding cannot help it.
+        pending = ([name for name in _strings(classified.get("pending")) if name not in empty]
+                   if completed else [])
+        out["hygiene_pending"], out["hygiene_pending_collections"] = len(pending), pending
         out["hygiene_orphaned_removed"], out["hygiene_orphaned_kept"] = 0, len(orphaned)
         if isinstance(resolution, dict) and "count" not in resolution:
             resolution = {**resolution, "count": len(orphaned)}
@@ -931,6 +1008,9 @@ def fold_staged(payload: dict, staged: dict) -> dict:
     if STAGED_CLEAN_STALE in staged:
         cleaned = _dict(staged[STAGED_CLEAN_STALE])
         pruned = _strings(cleaned.get("ccc_removed"))
+        # What the registry write removed: a clean-stale that failed cleared none.
+        unmarked = _strings(cleaned.get("qmd_pending_cleared"))
+        out["hygiene_pending_cleared"], out["hygiene_pending_cleared_collections"] = len(unmarked), unmarked
         out["hygiene_stale_cleaned"] = len(_strings(cleaned.get("qmd_removed")))
         out["ccc_registry_stale_cleaned"] = len(pruned)
         out["ccc_registry_stale_removed"] = pruned
@@ -1086,6 +1166,43 @@ def _upgrade_line(tool: dict) -> str:
     return line + (f" to use the {tool['tier']} tier" if tool.get("tier") else "")
 
 
+def _empty_lines(payload: dict) -> list[str]:
+    """The QMD Registry lines for the registered collections that hold no indexed files.
+
+    The count and every name, then one line per cause a name has, in the
+    order of EMPTY_CAUSES. Only a folder that is still there may be
+    re-indexed, and another project's collection gets no advice at all:
+    QMD's index is shared, so the project that owns the folder decides.
+    """
+    empty = _strings(payload.get("hygiene_empty_collections"))
+    causes = _dict(payload.get("hygiene_empty_causes"))
+    named = {cause: ", ".join(name for name in empty if _empty_cause(causes, name) == cause)
+             for cause in EMPTY_CAUSES}
+    lines = [f"{_count(payload.get('hygiene_empty'))} registered collection(s) hold no indexed files, so "
+             f"Deep-tier searches find nothing in them: {', '.join(empty)}"]
+    if named[EMPTY_FOLDER_MISSING]:
+        lines.append(f"Folder missing: {named[EMPTY_FOLDER_MISSING]}. Re-indexing cannot refill a collection "
+                     "whose folder is gone: run `qmd collection remove <name>` for each, and the next "
+                     "Deep-tier setup drops its registry entry")
+    if named[EMPTY_FOLDER_PRESENT]:
+        lines.append(f"Folder present: {named[EMPTY_FOLDER_PRESENT]}. When the folder holds files its pattern "
+                     "matches (as after a reset index), run `qmd update` (it re-indexes every "
+                     "collection on this machine and empties any whose folder is gone), then "
+                     "`qmd embed -c <name>`; when it holds none, run `qmd collection remove <name>`")
+    if named[EMPTY_FOLDER_ELSEWHERE]:
+        lines.append(f"Folder in another project: {named[EMPTY_FOLDER_ELSEWHERE]}. QMD's index is shared by "
+                     "every project on this machine, so setup leaves them to the project that owns the folder")
+    if named[EMPTY_FOLDER_UNKNOWN]:
+        lines.append(f"Folder unknown: {named[EMPTY_FOLDER_UNKNOWN]}. `qmd collection show <name>` gives each "
+                     "one's folder. When that folder is gone or holds no file its pattern matches, "
+                     "re-indexing cannot refill it: run `qmd collection remove <name>`, and the next "
+                     "Deep-tier setup drops its registry entry")
+        lines.append("When the folder does hold such files, run `qmd update` (it re-indexes every "
+                     "collection on this machine and empties any whose folder is gone), then "
+                     "`qmd embed -c <name>`")
+    return [f"  {line}" for line in lines]
+
+
 def _tier_change_message(copy: dict, previous: str, current: str, added, removed) -> str:
     """tier-rules.md's upgrade or downgrade message, filled in.
 
@@ -1165,26 +1282,29 @@ def render_report(payload: dict, copy: dict) -> list[str]:
     if hygiene == "completed":
         qmd = ["  QMD Registry:", f"  {_count(payload.get('hygiene_healthy'))} collection(s) healthy"]
         if _count(payload.get("hygiene_empty")) > 0:
-            names = ", ".join(_strings(payload.get("hygiene_empty_collections")))
-            qmd.append(f"  {_count(payload.get('hygiene_empty'))} registered collection(s) hold no indexed "
-                       f"files, so Deep-tier searches find nothing in them: {names}")
-            qmd.append("  `qmd collection show <name>` gives each one's folder. When that folder is gone or "
-                       "holds no file its pattern matches, re-indexing cannot refill it: run "
-                       "`qmd collection remove <name>`, and the next Deep-tier setup drops its registry entry")
-            qmd.append("  When the folder does hold such files, run `qmd update` (it re-indexes every "
-                       "collection on this machine and empties any whose folder is gone), then "
-                       "`qmd embed -c <name>`")
+            qmd += _empty_lines(payload)
+        if _count(payload.get("hygiene_pending")) > 0:
+            qmd.append(f"  {_count(payload.get('hygiene_pending'))} registered collection(s) still marked "
+                       "pending, since Brief Skill could not confirm their files and QMD's listing gives no "
+                       f"file count: {', '.join(_strings(payload.get('hygiene_pending_collections')))}. "
+                       "Re-embed each one with `qmd embed -c <name>`, or run /skf-brief-skill again for its "
+                       "skill. The mark clears only once QMD's listing gives a file count, so a qmd that "
+                       "lists bare names keeps it until you upgrade qmd")
         for key, what in (("hygiene_orphaned_removed", "orphaned collection(s) removed"),
                           ("hygiene_orphaned_kept", "orphaned collection(s) kept"),
                           ("hygiene_stale_cleaned", "stale QMD registry entry/entries cleaned")):
             if _count(payload.get(key)) > 0:
                 qmd.append(f"  {_count(payload.get(key))} {what}")
+        if _count(payload.get("hygiene_pending_cleared")) > 0:
+            qmd.append(f"  {_count(payload.get('hygiene_pending_cleared'))} collection(s) no longer marked "
+                       "pending, since QMD now lists files for them: "
+                       f"{', '.join(_strings(payload.get('hygiene_pending_cleared_collections')))}")
         blocks.append(qmd)
     if _count(payload.get("ccc_registry_stale_cleaned")) > 0:
         blocks.append([f"  CCC Registry: {_count(payload.get('ccc_registry_stale_cleaned'))} stale "
                        "entry/entries cleaned"])
     if (hygiene == "completed" and _count(payload.get("hygiene_healthy")) == 0
-            and _count(payload.get("hygiene_empty")) == 0):
+            and _count(payload.get("hygiene_empty")) == 0 and _count(payload.get("hygiene_pending")) == 0):
         blocks.append(["  QMD Registry: empty. Collections are created automatically when you run "
                        "/skf-create-skill."])
     if hygiene == "qmd_unavailable":

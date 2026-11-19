@@ -1,0 +1,6 @@
+type: added
+scope: skf-setup
+summary: |
+  On Deep tier, setup now reads the `status: "pending"` mark Brief Skill writes on a QMD collection's registry entry when its embed check fails. A marked collection QMD now lists with files is counted healthy, and setup removes the mark from its `forge-tier.yaml` entry, which the FORGE STATUS banner reports. A marked collection whose listing gives no file count is no longer counted healthy: the banner names it with `qmd embed -c <name>` or a new `/skf-brief-skill` run, and says the mark stays until QMD's listing gives a file count (a qmd that lists bare names gives none). Under `--headless` or `--quiet`, the `SKF_SETUP_RESULT_JSON` envelope's `warnings` lists each such collection as `qmd_collection_pending: <name>`. A marked collection with no indexed file stays on the empty-collection lines alone. The banner no longer calls the registry empty when it holds only marked collections.
+issues: [1265]
+prs: [1273]

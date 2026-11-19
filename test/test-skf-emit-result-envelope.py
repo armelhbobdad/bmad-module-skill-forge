@@ -2068,6 +2068,12 @@ def _hygiene(**counts) -> dict:
     return {"hygiene_result": "completed", "hygiene_healthy": 2, **counts}
 
 
+def _empty(cause=None) -> dict:
+    """Completed hygiene with one empty collection, a-docs, of `cause` (None: no cause entry)."""
+    return _hygiene(hygiene_empty=1, hygiene_empty_collections=["a-docs"],
+                    hygiene_empty_causes={"a-docs": cause} if cause else {})
+
+
 QUICK = {"tier": "Quick", "previous_tier": "Quick", "tools": _probes(ast=NO_AST, gh=NO_GH),
          "previous_tools": {"ast_grep": False, "gh_cli": False, "qmd": False, "ccc": False}}
 DEEP = {"tier": "Deep", "previous_tier": "Deep", "tools": _probes(qmd=QMD), "qmd_status": "healthy",
@@ -2124,22 +2130,43 @@ BANNER_CASES = [
     ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
      "  2 registered collection(s) hold no indexed files, so Deep-tier searches find nothing in them: a-docs, "
      "b-temporal"),
-    ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
-     "  `qmd collection show <name>` gives each one's folder. When that folder is gone or holds no file its "
-     "pattern matches, re-indexing cannot refill it: run `qmd collection remove <name>`, and the next "
-     "Deep-tier setup drops its registry entry"),
-    ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
+    ('an empty name\'s cause is "folder missing"', _empty("folder missing"), _empty("folder present"),
+     "  Folder missing: a-docs. Re-indexing cannot refill a collection whose folder is gone: run "
+     "`qmd collection remove <name>` for each, and the next Deep-tier setup drops its registry entry"),
+    ('an empty name\'s cause is "folder present"', _empty("folder present"), _empty("folder missing"),
+     "  Folder present: a-docs. When the folder holds files its pattern matches (as after a reset index), run "
+     "`qmd update` (it re-indexes every collection on this machine and empties any whose folder is gone), then "
+     "`qmd embed -c <name>`; when it holds none, run `qmd collection remove <name>`"),
+    ('an empty name\'s cause is "folder in another project"', _empty("folder in another project"),
+     _empty("folder missing"),
+     "  Folder in another project: a-docs. QMD's index is shared by every project on this machine, so setup "
+     "leaves them to the project that owns the folder"),
+    ('an empty name\'s cause is "folder unknown" (or it has none)', _empty(), _empty("folder missing"),
+     "  Folder unknown: a-docs. `qmd collection show <name>` gives each one's folder. When that folder is gone "
+     "or holds no file its pattern matches, re-indexing cannot refill it: run `qmd collection remove <name>`, "
+     "and the next Deep-tier setup drops its registry entry"),
+    ('an empty name\'s cause is "folder unknown" (or it has none)', _empty("folder unknown"),
+     _empty("folder present"),
      "  When the folder does hold such files, run `qmd update` (it re-indexes every collection on this "
      "machine and empties any whose folder is gone), then `qmd embed -c <name>`"),
+    ("hygiene_pending > 0", _hygiene(hygiene_pending=1, hygiene_pending_collections=["c-brief"]), _hygiene(),
+     "  1 registered collection(s) still marked pending, since Brief Skill could not confirm their files and "
+     "QMD's listing gives no file count: c-brief. Re-embed each one with `qmd embed -c <name>`, or run "
+     "/skf-brief-skill again for its skill. The mark clears only once QMD's listing gives a file count, so a "
+     "qmd that lists bare names keeps it until you upgrade qmd"),
     ("hygiene_orphaned_removed > 0", _hygiene(hygiene_orphaned_removed=2), _hygiene(),
      "  2 orphaned collection(s) removed"),
     ("hygiene_orphaned_kept > 0", _hygiene(hygiene_orphaned_kept=3), _hygiene(),
      "  3 orphaned collection(s) kept"),
     ("hygiene_stale_cleaned > 0", _hygiene(hygiene_stale_cleaned=1), _hygiene(),
      "  1 stale QMD registry entry/entries cleaned"),
+    ("hygiene_pending_cleared > 0",
+     _hygiene(hygiene_pending_cleared=1, hygiene_pending_cleared_collections=["d-brief"]), _hygiene(),
+     "  1 collection(s) no longer marked pending, since QMD now lists files for them: d-brief"),
     ("ccc_registry_stale_cleaned > 0", {"ccc_registry_stale_cleaned": 2}, {"ccc_registry_stale_cleaned": 0},
      "  CCC Registry: 2 stale entry/entries cleaned"),
-    ('hygiene_result is "completed" and hygiene_healthy is 0 and hygiene_empty is 0', _hygiene(hygiene_healthy=0),
+    ('hygiene_result is "completed" and hygiene_healthy is 0 and hygiene_empty is 0 and hygiene_pending is 0',
+     _hygiene(hygiene_healthy=0),
      _hygiene(hygiene_healthy=0, hygiene_empty=1, hygiene_empty_collections=["a-docs"]),
      "  QMD Registry: empty. Collections are created automatically when you run /skf-create-skill."),
     ('hygiene_result is "qmd_unavailable"', {"hygiene_result": "qmd_unavailable"}, {},
@@ -2303,9 +2330,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template is what render-report prints: 45 conditions, a case for each."""
+    """The template is what render-report prints: 50 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 45
+    assert len(entries) == 50
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 

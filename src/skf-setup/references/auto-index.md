@@ -26,7 +26,7 @@ Reconcile the `qmd_collections` registry with the live QMD collections, and prun
 
 ## Rules
 
-- Never reimplement the forge-namespace suffix filter, the path check or the file-count check in prose: the classifier owns them
+- Never reimplement the forge-namespace suffix filter, the path check, the file-count check, the folder check or the pending-mark check in prose: the classifier owns them
 - Run `qmd collection remove`, through the classifier's `remove-orphans`, only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and the emitter records the decision from the flags step 4 passes, so the envelope's `warnings` name each collection the removal deleted
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
@@ -51,7 +51,7 @@ uv run {qmdClassifyHelper} classify \
 
 **If the script exits non-zero** (qmd is not running), go to section 4: step 4 reports QMD hygiene as skipped.
 
-Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files: step 4's report shows them with how to clear each one: `qmd collection show` for its folder, then `qmd collection remove` when re-indexing cannot refill it. This step removes none of them and offers no removal.
+Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files, and the classifier reads each one's folder (`empty_paths`, `empty_folder_missing` and `empty_outside_project`). Step 4's report names each one's cause and how to clear it: `qmd collection remove` alone for a folder that is gone, re-indexing or removal for a folder still there, and no advice for a folder in another project (QMD's index is shared by every project on the machine). This step removes none of them and offers no removal. Its `pending` list names the registered collections Brief Skill marked `status: "pending"` that QMD lists with no file count or a count of 0: step 4's report names each one with how to re-embed it, and a marked one with no indexed files only as empty. Its `pending_cleared` list names the marked collections QMD now lists files for, whose marks section 4 removes. Bind neither: section 4's helper reads `pending_cleared` from the file, and step 4's emitter reads `pending`.
 
 ### 3. Handle Orphaned Collections
 
@@ -96,17 +96,20 @@ Pass `--prune-missing-ccc-paths` when `{ccc}` is true, and leave it out otherwis
 uv run {forgeTierRwHelper} clean-stale \
     --target "{sidecar_path}/forge-tier.yaml" \
     --qmd-live-from "{run_dir}/qmd-classify.json" \
+    --clear-pending-from "{run_dir}/qmd-classify.json" \
     [--prune-missing-ccc-paths] \
     > "{run_dir}/clean-stale.json" && cat "{run_dir}/clean-stale.json"
 ```
 
-The script removes the `qmd_collections` entries no live collection matches, reading the live names from section 2's output; with no such output (below Deep tier, or a classifier that failed) it leaves `qmd_collections` alone.
+The script removes the `qmd_collections` entries no live collection matches, reading the live names from section 2's output, then drops `status: "pending"` from each kept entry that output lists under `pending_cleared`, keeping its other fields; with no such output (below Deep tier, or a classifier that failed) it leaves `qmd_collections` alone.
 
 **If the script exits non-zero:** the registry stays as it was. Unless `{quiet_mode}` is true, display one line: "Registry cleanup skipped: {message}.", where `{message}` is the `message` of the stderr JSON `{"status":"error","message":...}`. Then continue to section 5: hygiene errors never fail the workflow.
 
 **Otherwise**, when `qmd_removed` is non-empty and `{quiet_mode}` is false, display: "**Cleaned {n} stale QMD registry entry/entries** (collection no longer exists in QMD).", where `{n}` is the number of names in `qmd_removed`.
 
 Removed ccc registry paths are not displayed here: the step 4 report's CCC Registry line counts them, and the envelope's `warnings` lists each one.
+
+Cleared pending marks (`qmd_pending_cleared`) are not displayed here either: the step 4 report's QMD Registry block names them.
 
 ### 5. Auto-Proceed
 
