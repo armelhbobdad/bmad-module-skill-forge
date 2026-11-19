@@ -703,12 +703,27 @@ def test_re_extract_reads_only_the_tree():
 
 
 def test_retired_file_gone():
+    """72398eb3 retired the `target_version` re-pin of a skill built from source; #1248 reads the brief's
+    `target_version` again for a docs-only skill only, in the three places that say so."""
     assert not (REFS / "remote-source-resolution.md").exists()
+    allowed = {
+        "references/init.md": ("**If `--target-version` was provided:**", "**If `--source-root` was provided:**"),
+        "references/load-baseline.md": ("**A docs-only skill** has no version file", "\n"),
+        "references/invocation-contract.md": ("| **Flags** |", "\n"),
+    }
     for path in sorted(UPDATE.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".toml", ".py"):
             text = _read(path)
-            for gone in ("remote-source-resolution", "remoteSourceResolution", "target_version"):
+            rel = path.relative_to(UPDATE).as_posix()
+            for gone in ("remote-source-resolution", "remoteSourceResolution", "a new `target_version`",
+                         "implicit `target_version`"):
                 assert gone not in text, (path.relative_to(REPO_ROOT), gone)
+            # `{target_version_override}` holds the token and also sits outside the slices (load-baseline.md §4b, §6)
+            counted = text.replace("{target_version_override}", "").count("target_version")
+            expected = 0
+            if rel in allowed:
+                expected = _slice(text, *allowed[rel]).replace("{target_version_override}", "").count("target_version")
+            assert counted == expected, (path.relative_to(REPO_ROOT), counted, expected)
     assert "remote-source-resolution" not in _read(INSTALL_TEST)
 
 
