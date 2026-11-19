@@ -2225,9 +2225,12 @@ def test_write_counts_the_public_api_with_the_runner():
                   "`{run_dir}/denominator.json` in place of the runner's: they hold its names.",
                   "on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count them by "
                   "`{entryPointsByHandData}` and pass the `counts` of `{run_dir}/denominator.json`",
-                  "A docs-only skill has no tree to count"):
+                  "A docs-only skill has no tree to count",
+                  # #1250: the helper counts a docs-only skill's doc items, never the count metadata.json recorded
+                  "leave both counts out of the payload and pass `--shape docs-only`"):
         assert token in bullet, token
-    for gone in ("add their names to the two counts", "count the entry points by hand"):
+    for gone in ("add their names to the two counts", "count the entry points by hand",
+                 "pass the values metadata.json records, as the drift override does"):
         assert gone not in bullet, gone
     # the hand-count file binds update-skill's paths, and §3b halts where it cannot run
     by_hand = " ".join((SRC / front["entryPointsByHandData"]).read_text(encoding="utf-8").split())
@@ -3941,7 +3944,10 @@ def test_reference_app_stats_use_the_reference_app_shape():
     for token in ("read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it",
                   "When it is `reference-app`, pass `--shape reference-app` and `--skill-md \"{skill_package}/SKILL.md\"`, "
                   "which counts `pattern_surfaces_documented`",
-                  "pass no `--shape` (the helper's default, the library shape)"):
+                  "pass no `--shape` (the helper's default, the library shape)",
+                  # #1250: a docs-only skill's public API is its doc items, which the helper counts
+                  "for a docs-only skill (`source_type: \"docs-only\"` in the brief or metadata.json, as step 3 §1 "
+                  "checks), pass `--shape docs-only`"):
         assert token in shape, token
     # init.md's Stack Skill Guard is the one gate for stacks: write does not narrate a route no stack takes (#600)
     assert "Stack Skill Guard" not in shape
@@ -3964,6 +3970,7 @@ def test_reference_app_stats_use_the_reference_app_shape():
     assert "`--skill-md <staging-skill-dir>/SKILL.md` (the SKILL.md §2a wrote), with no " \
            "`pattern_surfaces_documented` in the payload" in shape_
     assert "(the Pattern Surface row count) in the payload" not in shape_
+    assert "pass `--shape docs-only` with neither count in the payload" in shape_
 
 
 def _stats_main(block: str, forge_version: Path, monkeypatch, capsys) -> tuple[int, dict]:
@@ -4013,6 +4020,13 @@ def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
     assert out["stats"]["exports_documented"] == out["stats"]["pattern_surfaces_documented"] == 2
     assert sum(out["confidence_distribution"].values()) == 3  # per citation, not per pattern surface
     assert "effective_denominator" not in out["stats"]
+    # #1250: a docs-only skill's call gives no count; the helper counts each entry, one per doc item, as public API
+    docs = _fence(two, "--shape docs-only -o")
+    assert docs not in (library, app) and "exports_public_api" not in docs and "exports_internal" not in docs
+    code, out = _stats_main(docs, forge_version, monkeypatch, capsys)
+    assert code == 0 and out["coherence"]["ok"] is True
+    assert (out["stats"]["exports_public_api"], out["stats"]["exports_internal"]) == (3, 0)
+    assert out["stats"]["public_api_coverage"] == out["stats"]["total_coverage"] == 1.0
 
 
 def test_write_passes_the_effective_denominator_create_skill_decides():

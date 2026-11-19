@@ -2655,7 +2655,7 @@ def test_write_sets_metadata_through_the_helper() -> None:
     qmd = reextract[reextract.index("### 3. Deep Tier QMD Enrichment"):reextract.index("### 4. ")]
     assert "bind `{qmd_version}` ← the version `qmd --version` prints (`qmd 2.0.1` gives `2.0.1`)" in qmd
     assert qmd.index("bind `{qmd_version}`") < qmd.index("**If no matching collection found in registry:**")
-    assert three_b.count('-o "{run_dir}/stats.json"') == 2
+    assert three_b.count('-o "{run_dir}/stats.json"') == 3
     for gone in ("Update `exports` array to reflect current export list", "add no name whose record",
                  "Set `exports` to the list", "into `metadata.json` **verbatim**", "Update `generation_date`",
                  "and write the `stats` and `confidence_distribution` it returns"):

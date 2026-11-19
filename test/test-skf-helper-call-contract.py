@@ -555,6 +555,7 @@ FLAG_ONLY_MUST_FIND = [
     ("src/skf-create-skill/references/report.md", "skf-render-metadata-stats.py",
      ("--check", "--validation-status", "schema-unavailable")),
     ("src/skf-update-skill/references/write-metadata.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
+    ("src/skf-update-skill/references/write-metadata.md", "skf-render-metadata-stats.py", ("--shape", "docs-only")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
      ("--provenance", "--skill-dir")),
     # audit-skill's re-index runs the recipe runner over its scan list (#589), with the scope type of a
