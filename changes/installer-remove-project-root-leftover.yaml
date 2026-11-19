@@ -3,3 +3,4 @@ scope: installer
 summary: |
   `install` and `update` now remove the `{project-root}` folder an earlier version created in the project: each output folder in it that holds nothing but the `.gitkeep` file the installer wrote there goes, then `{project-root}` itself once it is empty. A folder in it that holds any other file stays as it is, and so does `{project-root}`.
 issues: [1246]
+prs: [1255]
