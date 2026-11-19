@@ -51,7 +51,7 @@ uv run {qmdClassifyHelper} classify \
 
 **If the script exits non-zero** (qmd is not running), go to section 4: step 4 reports QMD hygiene as skipped.
 
-Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files: step 4's report shows them with the commands that index them. This step removes none of them and offers no removal.
+Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files: step 4's report shows them with how to clear each one: `qmd collection show` for its folder, then `qmd collection remove` when re-indexing cannot refill it. This step removes none of them and offers no removal.
 
 ### 3. Handle Orphaned Collections
 

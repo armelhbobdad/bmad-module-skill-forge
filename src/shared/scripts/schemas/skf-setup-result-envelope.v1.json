@@ -124,7 +124,7 @@
         "warnings": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Non-fatal anomalies surfaced during the run. May include customization_resolver_unavailable, tier_override_invalid, tier_override_unsafe, ccc_exclusion_warnings entries, ccc_registry_stale_removed entries, qmd_daemon_stopped, qmd_collection_empty entries (one per registered QMD collection that holds no indexed files: '<name>'), tool_below_minimum entries (one per tool below its minimum version: '<tool> <version> (minimum <minimum>)'; a tier tool among them reads false under tools), ccc_indexing_failed, etc. Empty when none."
+          "description": "Non-fatal anomalies surfaced during the run. May include customization_resolver_unavailable, tier_override_invalid, tier_override_unsafe, ccc_exclusion_warnings entries, ccc_registry_stale_removed entries, qmd_daemon_stopped, qmd_collection_empty entries (one per registered QMD collection that holds no indexed files: '<name>'; re-indexing cannot refill one whose folder is gone, and `qmd collection remove <name>` clears it), tool_below_minimum entries (one per tool below its minimum version: '<tool> <version> (minimum <minimum>)'; a tier tool among them reads false under tools), ccc_indexing_failed, etc. Empty when none."
         },
         "error": {
           "oneOf": [

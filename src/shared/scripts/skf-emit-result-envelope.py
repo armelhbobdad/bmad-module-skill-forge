@@ -1167,8 +1167,13 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         if _count(payload.get("hygiene_empty")) > 0:
             names = ", ".join(_strings(payload.get("hygiene_empty_collections")))
             qmd.append(f"  {_count(payload.get('hygiene_empty'))} registered collection(s) hold no indexed "
-                       f"files, so Deep-tier searches find nothing in them: {names}. Run `qmd update`, "
-                       "then `qmd embed`, to index what their folders hold")
+                       f"files, so Deep-tier searches find nothing in them: {names}")
+            qmd.append("  `qmd collection show <name>` gives each one's folder. When that folder is gone or "
+                       "holds no file its pattern matches, re-indexing cannot refill it: run "
+                       "`qmd collection remove <name>`, and the next Deep-tier setup drops its registry entry")
+            qmd.append("  When the folder does hold such files, run `qmd update` (it re-indexes every "
+                       "collection on this machine and empties any whose folder is gone), then "
+                       "`qmd embed -c <name>`")
         for key, what in (("hygiene_orphaned_removed", "orphaned collection(s) removed"),
                           ("hygiene_orphaned_kept", "orphaned collection(s) kept"),
                           ("hygiene_stale_cleaned", "stale QMD registry entry/entries cleaned")):
