@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill, skf-update-skill
+summary: |
+  Export Skill and Update Skill now keep the `|api:` line of a docs-only skill and of a reference app. The api ranking took a name only when metadata.json `exports` listed it, but a docs-only skill's `exports` names its documented items, often by ids such as `page#concept-0`, and a reference app's is empty by design. So the ranking dropped every name of the prior `|api:` line and of the `## Key API Summary` or `## Pattern Surface` rows, then filled the line with those ids or left it out. For a skill whose metadata.json `scope_type` is `docs-only` or `reference-app`, the ranking now takes the prior line's names, then the table's rows, and never checks them against `exports` or takes a name from it. It still leaves out a name SKILL.md marks deprecated or removed. A line an earlier export already filled with item ids keeps them: edit the `|api:` line in the `context-snippet.md` of the skill's active version, then export the skill again.
+issues: [1251]
