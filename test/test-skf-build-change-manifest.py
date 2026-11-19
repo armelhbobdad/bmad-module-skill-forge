@@ -1277,8 +1277,8 @@ class TestApplyOtherModes:
                                   test_report_run_id=None, **BLOCK)
         by_name = {e["export_name"]: e for e in doc["entries"]}
         assert set(by_name) == {"get", "put", "other"}
-        assert (by_name["get"]["params"], by_name["get"]["notes"], by_name["put"]["confidence"]) == \
-            (["id"], "n", "T3")
+        assert (by_name["get"]["params"], "notes" not in by_name["get"], by_name["put"]["confidence"]) == \
+            (["id"], True, "T3")
         # an unchanged URL's entry is left alone but for the signature_source it lacked (#802)
         assert by_name["other"] == {**old["entries"][2], "signature_source": "T3"}
         assert (doc["files_changed"], doc["exports_affected"]) == (1, 2)
