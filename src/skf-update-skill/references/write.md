@@ -181,6 +181,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Exports removed: {count}
 - [MANUAL] sections preserved: {count}
 - Conflicts resolved: {count}
+- Gotchas restated: {count}
 
 ### Scope and Targeted Re-Extraction
 - Authoritative files: {authoritative_files_mirror, or none}

@@ -6,6 +6,12 @@ nextStepFile: 'merge-write.md'
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# Resolve `{rebuildManagedSectionsHelper}` to the first existing path: §3
+# Priority 9 reads the prior snippet's gotchas line with its `gotchas prior`
+# action, and skips when neither exists (write.md §5 halts on the same helper).
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 # SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
 # stage; resolve them again when a binding was lost: first existing path wins.
 # §4's gate decisions and warnings go to the run log through the first, and
@@ -135,6 +141,15 @@ SKF_JSON
 
 **If no metadata-update entries:** skip Priority 8b silently, and write no `metadata-patches.json`.
 
+**Priority 9: Restate the prior snippet's joined gotchas (every mode):** write.md §5 regenerates the snippet's `|gotchas:` line from the merged SKILL.md by skf-export-skill/references/generate-snippet.md §3a, which keeps a prior pitfall that joins several pitfalls only while one T2-future annotation, or one bullet, row or Quick Start call of its source 2, states it whole: otherwise the line carries it once and the next export drops it, although SKILL.md may still state each pitfall it joins. From `{project-root}`, resolve `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`, run `uv run {rebuildManagedSectionsHelper} gotchas prior "{skill_package}/context-snippet.md" --skills-folder "{skills_output_folder}" --skill {skill_name}` and bind `prior_gotchas` ← its `prior_gotchas`.
+
+- **Which pitfalls:** each entry, already carried or not, that joins several pitfalls that each warn on their own: one it marks `read_whole`, the one pitfall such a value reads back as once a run wrote it (its `; ` written as `, `), or an older line's pitfalls joined with `, `. Take it only when no T2-future annotation of `{forge_version}/evidence-report.md` (when it does not exist, an older skill's flat `{forge_data_folder}/{skill_name}/evidence-report.md`, which merge-write.md §6b copies), and no one such bullet, row or Quick Start call of the merged SKILL.md, states it whole. A prior pitfall that is one pitfall needs nothing: generate-snippet.md §3a keeps it while SKILL.md states it anywhere.
+- **What to write:** for each pitfall it joins, in its order, one bullet in its prior wording without a `[CARRIED]` marker, when the merged SKILL.md still states its main claim, no place in it contradicts that claim with another version or name, and no T2-future annotation or such bullet, row or Quick Start call states it yet. End the bullet with the citation (`[AST:]`, `[SRC:]`, `[QMD:]` or `[EXT:]`) of the SKILL.md place that states it. Restate no pitfall that SKILL.md no longer states, states only in a `references/*.md` file, or states only without a citation (such as its frontmatter `description`).
+- **Where:** at the end of SKILL.md's level-2 section whose heading names gotchas, before any [MANUAL] block that ends it, when one sits before SKILL.md's first `## Full` heading and outside any [MANUAL] block (never `## Migration & Deprecation Warnings`, which holds T2-future warnings only). Otherwise add a new `## Gotchas` section right before SKILL.md's first `## Full` heading (at the end of the body when it has none), outside any [MANUAL] block. The bullets go in SKILL.md, a split-body skill's included, never in a `references/*.md` file.
+- write.md §5 then gives each bullet back as a gotcha, in SKILL.md order, and the joined value, which no single place states whole, takes only a slot the line leaves free: written unmarked until an export records the skill, then carried at most once more and dropped. This priority flags no conflict and appends no evidence record: §6 counts its bullets as `gotchas_restated`.
+
+**If `prior_gotchas` is null or holds no such pitfall,** or no path resolves, or `gotchas prior` exits non-zero: skip Priority 9 silently, since write.md §5 runs the same call and halts on its failure.
+
 ### 4. Check for Conflicts
 
 Scan all merge operations for flagged conflicts.
@@ -195,6 +210,7 @@ Merge Results:
   exports_removed: [count]
   exports_moved: [count]
   exports_renamed: [count]
+  gotchas_restated: [count]
 
   manual_sections_preserved: [count]
   manual_conflicts_resolved: [count]
