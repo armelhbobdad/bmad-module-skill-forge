@@ -199,7 +199,7 @@ src/
 └── module-help.csv           # Skill menu for bmad-help integration
 ```
 
-The installer copies the workflow folders (`skf-*/`), `knowledge/`, `shared/`, `module.yaml` and `module-help.csv` into `_bmad/skf/` in your project. It also copies the workflows, `knowledge/` and `shared/` into the skills folder of each IDE you pick. It copies the `forger/` YAML templates into `_bmad/_memory/forger-sidecar/`, where Ferris keeps your tier and preferences, and never overwrites files already there. Paths on this page such as `knowledge/` or `shared/scripts/` are relative to `_bmad/skf/`.
+The installer copies the workflow folders (`skf-*/`), `knowledge/`, `shared/`, `module.yaml` and `module-help.csv` into `_bmad/skf/` in your project. It also copies the workflows and `shared/`, which their scripts find beside them, into the skills folder of each IDE you pick; `knowledge/` stays in `_bmad/skf/` alone. SKF needs the name `shared` in those folders: when a `shared/` there holds a file SKF did not install, `install` and `update` stop before changing anything and list each such file. It copies the `forger/` YAML templates into `_bmad/_memory/forger-sidecar/`, where Ferris keeps your tier and preferences, and never overwrites files already there. Paths on this page such as `knowledge/` or `shared/scripts/` are relative to `_bmad/skf/`.
 
 ---
 

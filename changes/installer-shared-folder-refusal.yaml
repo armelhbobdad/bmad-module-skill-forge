@@ -1,0 +1,7 @@
+type: breaking
+scope: installer
+summary: |
+  `install` (a first install, Update or Fresh install) and `update` now stop before changing anything, and exit 1, when the `shared` entry of a selected IDE's skills folder holds anything SKF did not install: a file of yours, a link, a file named `shared` or a folder that cannot be read. The message names the folder and every such entry. SKF installs its `shared/` folder there and needs that name. The check also stops on a copy SKF itself wrote that no list names any more: after `_bmad/` was deleted by hand and a newer version is installed, or when an IDE a reinstall dropped is added back and its folder still holds an older version's copy. An install that used to succeed there now exits 1.
+migration: |
+  Look at the files the message lists: move or rename your own `shared` skill, or delete the files left from an earlier SKF copy, then run the command again.
+issues: [1279]

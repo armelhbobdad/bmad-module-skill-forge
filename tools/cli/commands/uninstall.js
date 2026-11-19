@@ -2,9 +2,10 @@
  * SKF Uninstall Command
  * Clean removal of SKF files, IDE skill directories, sidecar, and output folders.
  * Uses the manifest to know what to remove, and removes only what the
- * installer wrote: the fixed SKF, sidecar and learning folders, the SKF
- * entries of each IDE skills folder, and each output folder .gitkeep that
- * still holds the installer's text.
+ * installer wrote: the fixed SKF, sidecar and learning folders, the skf-*
+ * entries of each IDE skills folder and the files SKF installed in its
+ * shared/ and knowledge/, and each output folder .gitkeep that still holds
+ * the installer's text.
  */
 
 const chalk = require('chalk');
@@ -12,7 +13,7 @@ const path = require('node:path');
 const fs = require('fs-extra');
 const { confirm, isCancel, spinner, log, outro } = require('@clack/prompts');
 const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../lib/manifest');
-const { removeAllSkfSkills, loadPlatforms } = require('../lib/ide-skills');
+const { classifyIdeTargets, ideTargetEntryCount, removeAllSkfSkills } = require('../lib/ide-skills');
 const { GITKEEP, resolveProjectFolder } = require('../lib/project-folders');
 
 // The SKF module folder the installer writes, whatever the manifest's skf_folder says.
@@ -88,14 +89,6 @@ async function classifyOutputEntries(projectDir, manifest) {
 }
 
 /**
- * Whether an entry of an IDE skills folder is one the IDE step removes
- * (the rule cleanSkfSkills in ide-skills.js applies).
- */
-function isSkfSkillEntry(name) {
-  return name.startsWith('skf-') || name === 'knowledge' || name === 'shared';
-}
-
-/**
  * The number of files a folder holds, at any depth (what removing it
  * deletes), or null when it cannot be read.
  */
@@ -132,8 +125,9 @@ async function folderLine(projectDir, label, folder) {
  * shown under the same condition as the step that removes it. Not listed:
  * the command files earlier releases left in each platform's legacy
  * folders, which the IDE step also removes, and the empty folders the
- * cleanup removes. Output entries uninstall keeps are named in a second
- * warning.
+ * cleanup removes. The entries uninstall keeps in each IDE skills folder's
+ * shared/ or knowledge/ it removes SKF's files from, and the output entries
+ * it keeps, are each named in a warning of their own.
  */
 async function displayRemovalPlan(projectDir, manifest) {
   const lines = [];
@@ -144,18 +138,16 @@ async function displayRemovalPlan(projectDir, manifest) {
   const sidecarLine = await folderLine(projectDir, 'Agent sidecar state', '_bmad/_memory/forger-sidecar');
   if (sidecarLine) lines.push(sidecarLine);
 
-  // Each IDE skills folder holding an entry the IDE step removes.
-  for (const platform of Object.values(loadPlatforms().platforms)) {
-    const targetDir = platform.installer?.target_dir;
-    if (!targetDir) continue;
-    let names;
-    try {
-      names = await fs.readdir(path.join(projectDir, targetDir));
-    } catch {
-      continue;
-    }
-    const count = names.filter((name) => isSkfSkillEntry(name)).length;
-    if (count > 0) lines.push(planLine('SKF skills', `${targetDir}/, ${plural(count, 'entry', 'entries')}`));
+  // Each IDE skills folder holding an entry the IDE step removes: its skf-*
+  // entries, and each support folder holding a file SKF installed.
+  const ideKept = [];
+  for (const target of await classifyIdeTargets(projectDir, { moduleDir: path.join(projectDir, SKF_FOLDER), manifest })) {
+    const count = ideTargetEntryCount(target);
+    if (count === 0) continue;
+    const cleaned = target.support.filter((folder) => folder.remove.length > 0);
+    const among = cleaned.length > 0 ? `, ${cleaned.map((folder) => `${folder.name}/`).join(' and ')} among them` : '';
+    lines.push(planLine('SKF skills', `${target.targetDir}/, ${plural(count, 'entry', 'entries')}${among}`));
+    for (const folder of cleaned) ideKept.push(...folder.kept);
   }
 
   if ((manifest.files.learning || []).length > 0) {
@@ -170,6 +162,10 @@ async function displayRemovalPlan(projectDir, manifest) {
   lines.push(planLine('Installation manifest', `${MANIFEST_DIR}/${MANIFEST_FILE}`));
 
   log.warn(`The following will be removed:\n${lines.join('\n')}`);
+
+  if (ideKept.length > 0) {
+    log.warn(`Left in place in IDE skills folders, not files SKF installed:\n${ideKept.join('\n')}`);
+  }
 
   if (keep.length > 0) {
     log.warn(`Left in place, not a .gitkeep the installer wrote:\n${keep.join('\n')}`);
@@ -272,11 +268,13 @@ module.exports = {
 
       const s = spinner();
 
-      // Remove IDE skill directories from all known platforms (skills + legacy command files)
+      // Remove what SKF installed in the IDE skills folders of all known platforms
+      // (skills + legacy command files), before _bmad/skf goes: its files are what
+      // the IDE copies are compared with.
       s.start('Removing IDE skill directories...');
-      const removedIdeDirs = await removeAllSkfSkills(projectDir);
-      if (removedIdeDirs.length > 0) {
-        s.stop(`Cleaned skills from ${removedIdeDirs.length} IDE target(s)`);
+      const { cleaned } = await removeAllSkfSkills(projectDir, { moduleDir: path.join(projectDir, SKF_FOLDER), manifest });
+      if (cleaned.length > 0) {
+        s.stop(`Cleaned skills from ${cleaned.length} IDE target(s)`);
       } else {
         s.stop('No IDE skill directories found');
       }

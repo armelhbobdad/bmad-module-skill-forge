@@ -1,4 +1,5 @@
 const chalk = require('chalk');
+const { IdeFolderInUseError } = require('../lib/ide-skills');
 const { Installer } = require('../lib/installer');
 const { startToolCheck } = require('../lib/tool-check');
 const { UI } = require('../lib/ui');
@@ -33,7 +34,8 @@ module.exports = {
       }
     } catch (error) {
       console.error(chalk.red('\nInstallation failed:'), error.message);
-      console.error(chalk.dim(error.stack));
+      // A shared/ folder SKF needs is a refusal, not a crash: its message says what to do.
+      if (!(error instanceof IdeFolderInUseError)) console.error(chalk.dim(error.stack));
       process.exitCode = 1;
     } finally {
       // A cancelled or failed install prints no report: stop the probes still running.

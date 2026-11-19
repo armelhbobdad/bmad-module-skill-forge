@@ -1,0 +1,5 @@
+type: changed
+scope: installer
+summary: |
+  The installer no longer copies `knowledge/` into each IDE skills folder: no workflow read that copy, and every workflow reads `_bmad/skf/knowledge/`, which the installer still writes. `install`, `update` and `uninstall` remove the files of the copy an earlier version put in an IDE skills folder, keep any other file there and name it, and the manifest no longer lists a file under an IDE folder's `knowledge/`.
+issues: [1279]
