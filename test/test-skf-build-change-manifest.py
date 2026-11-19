@@ -2311,14 +2311,20 @@ def _note_dropped(key: str) -> str:
     return f"metadata: stats.{key} dropped: it explained an effective_denominator this run changed or removed"
 
 
+# the merged SKILL.md a `metadata` call reads the description of: _skill_metadata()'s, so it changes nothing there
+SKILL_MD = b"---\nname: lib\ndescription: Lib.\n---\n\n# lib\n"
+
+
 def _metadata_files(tmp_path: Path, metadata: dict | None = None) -> tuple:
-    """metadata.json, the lists and the stats a `metadata` call reads, and its argv."""
+    """metadata.json, the lists, the stats and the SKILL.md a `metadata` call reads, and its argv."""
     target, lists, stats_file = tmp_path / "metadata.json", tmp_path / "lists.json", tmp_path / "stats.json"
     target.write_bytes(json.dumps(metadata or _skill_metadata()).encode("utf-8"))
     lists.write_bytes(json.dumps(LISTS).encode("utf-8"))
     stats_file.write_bytes(json.dumps(STATS_OUT).encode("utf-8"))
+    (tmp_path / "SKILL.md").write_bytes(SKILL_MD)
     return target, ("metadata", "--metadata", str(target), "--lists", str(lists), "--stats", str(stats_file),
-                    "--version", "1.1.0", "--generation-date", "2026-10-01T10:00:00Z")
+                    "--skill-md", str(tmp_path / "SKILL.md"), "--version", "1.1.0",
+                    "--generation-date", "2026-10-01T10:00:00Z")
 
 
 def _tools_after(tmp_path: Path, extraction: object) -> subprocess.CompletedProcess:
@@ -2567,8 +2573,10 @@ class TestUpdateMetadata:
         lists.write_bytes(json.dumps(LISTS).encode("utf-8"))
         stats_file.write_bytes(json.dumps({**STATS_OUT, "stats": {**STATS_OUT["stats"], "scripts_count": 2}})
                                .encode("utf-8"))
+        (tmp_path / "SKILL.md").write_bytes(SKILL_MD)
         argv = ("metadata", "--metadata", str(target), "--lists", str(lists), "--stats", str(stats_file),
-                "--version", "1.1.0", "--generation-date", "2026-10-01T10:00:00Z", "--source-commit", "bbb")
+                "--skill-md", str(tmp_path / "SKILL.md"), "--version", "1.1.0",
+                "--generation-date", "2026-10-01T10:00:00Z", "--source-commit", "bbb")
         refused = _run_cli(*argv)
         assert refused.returncode == 1 and "the stats count 2 scripts" in refused.stderr
         assert json.loads(target.read_bytes()) == _skill_metadata()
@@ -2613,6 +2621,8 @@ def test_write_sets_metadata_through_the_helper() -> None:
     meta = meta[:meta.index("```")]
     for flag in ('--metadata "{skill_package}/metadata.json"', '--lists "{run_dir}/metadata-lists.json"',
                  '--stats "{run_dir}/stats.json"', '--version "{new_version}"',
+                 # #1252: the merged SKILL.md, whose frontmatter description metadata.json takes
+                 '--skill-md "{skill_package}/SKILL.md"',
                  '--generation-date "{generation_date}"',
                  # #801: the toolchain this run used, the installed SKF's version always
                  '\n      --skf-root "{project-root}/_bmad/skf" \\\n',
@@ -2620,7 +2630,9 @@ def test_write_sets_metadata_through_the_helper() -> None:
         assert flag in meta, flag
     after = three_b[three_b.index("uv run {buildChangeManifestHelper} metadata"):]
     after = after[after.index("```") + 3:after.index("On exit 1, fix the input its stderr names")]
-    for token in ("Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`",
+    for token in ("It sets `description` to the frontmatter `description` of the merged SKILL.md, as create-skill "
+                  "writes the two together, and `tool_versions` to the toolchain this run used",
+                  "Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`",
                   "and `--qmd-version` when re-extract.md §3 queried QMD and bound `{qmd_version}`",
                   "a tool this run did not use keeps the version metadata.json records",
                   "`dropped_stats` lists each key it drops, a stats helper field this run's stats left out included",
@@ -2628,6 +2640,15 @@ def test_write_sets_metadata_through_the_helper() -> None:
                   "Leave out only a warning that a stats key was `kept from an earlier run` when this run's "
                   "`metadata_patches[]` wrote that key; a dropped key's warning always goes to `warnings[]`"):
         assert token in after, token
+    # #1252: a SKILL.md with no readable description halts the update before metadata.json changes, and the step
+    # never edits the merged SKILL.md to get past the refusal
+    exit_1 = three_b[three_b.index("On exit 1, fix the input its stderr names"):]
+    exit_1 = exit_1[:exit_1.index("\n")]
+    for token in ("(never SKILL.md, which write.md's Rules leave as merged: on an error that names `--skill-md`, "
+                  "HALT at once as below)",
+                  'HALT with status `halted-for-write-failure` (halt procedure: `phase: "write:metadata"`, '
+                  '`path: "{skill_package}/metadata.json"`'):
+        assert token in exit_1, token
     # #815: a patch adds no explanatory stat the next recount would leave standing beside another count, in write,
     # in merge's Priority 8b, which queues it, and in gap-driven's rule R4, which routes it
     assert "add an explanatory stat" not in two + three_b

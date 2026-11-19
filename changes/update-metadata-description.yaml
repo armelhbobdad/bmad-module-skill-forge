@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill now writes the frontmatter `description` of the updated `SKILL.md` into `metadata.json`, as Create Skill does. Before, an update kept the description `metadata.json` already held, so a description the update or a person changed, such as one that names a newer release, stayed stale there. An update whose `SKILL.md` has no description in its frontmatter now stops with `halted-for-write-failure` before it writes `metadata.json`.
+issues: [1252]

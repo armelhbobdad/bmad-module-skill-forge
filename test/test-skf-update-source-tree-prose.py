@@ -3524,8 +3524,8 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     kept_row = {"file": "scripts/run.sh", "purpose": "Run it, as the author put it", "source_file": "tools/run.sh",
                 "confidence": "T1-low"}
     (skill_package / "metadata.json").write_bytes(json.dumps({
-        "name": "lib", "version": "1.0.0", "scope_type": "component-library", "source_commit": "aaa",
-        "source_ref": "v1", "generation_date": "2026-01-01T00:00:00Z", "exports": ["search"],
+        "name": "lib", "version": "1.0.0", "description": "Lib 1.0.", "scope_type": "component-library",
+        "source_commit": "aaa", "source_ref": "v1", "generation_date": "2026-01-01T00:00:00Z", "exports": ["search"],
         "scripts": [kept_row], "stats": {"exports_documented": 1, "effective_denominator": 1,
                                          "components_registered": 1, "notes": "patched"},
         "confidence_distribution": {"t1": 1, "t1_low": 0, "t2": 0, "t3": 0}, "last_update": "2026-01-01",
@@ -3558,6 +3558,8 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     assert stats.main(argv) == 0, capsys.readouterr()
     meta_call = _fence(two, "uv run {buildChangeManifestHelper} metadata")
+    # #1252: the merged SKILL.md, whose frontmatter description the update changed
+    (skill_package / "SKILL.md").write_bytes(b"---\nname: lib\ndescription: Lib 1.1, merged.\n---\n\n# lib\n")
     # the installed SKF and step 2's runner output name the toolchain this run used (#801)
     (tmp_path / "_bmad" / "skf").mkdir(parents=True)
     (tmp_path / "_bmad" / "skf" / "package.json").write_bytes(b'{"version": "4.0.0"}')
@@ -3577,6 +3579,8 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     written = json.loads((skill_package / "metadata.json").read_bytes())
     assert (written["version"], written["generation_date"], written["source_commit"], written["source_ref"]) == \
         ("1.1.0", "2026-10-01T10:00:00Z", "bbb", "v1")
+    # #1252: the description follows the merged SKILL.md, in the place metadata.json held it
+    assert written["description"] == "Lib 1.1, merged." and list(written)[:3] == ["name", "version", "description"]
     assert written["scripts"] == [kept_row, new_row] and "last_update" not in written and "update_type" not in written
     assert written["tool_versions"] == tools
     assert written["stats"]["components_registered"] == 1 and written["stats"]["notes"] == "patched"
@@ -7185,6 +7189,7 @@ def test_a_moved_local_source_is_named_with_source_root(tmp_path):
     (run_dir / "metadata-lists.json").write_bytes(b'{"exports": [], "scripts": [], "assets": []}')
     (run_dir / "stats.json").write_bytes(json.dumps({"stats": {"scripts_count": 0, "assets_count": 0},
                                                      "confidence_distribution": {}}).encode("utf-8"))
+    (package / "SKILL.md").write_bytes(b"---\nname: lib\ndescription: Lib.\n---\n")
     moved = (tmp_path / "moved source").as_posix()
     values = {"skill_package": str(package), "run_dir": str(run_dir), "new_version": "1.0.1",
               "generation_date": "2026-11-13T10:00:00Z", "project-root": str(tmp_path), "source_root_override": moved}
