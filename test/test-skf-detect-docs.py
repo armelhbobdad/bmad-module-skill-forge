@@ -1090,6 +1090,40 @@ class TestCompareDocHashes:
         assert result["skipped_null_hash"] == [{"url": "https://d/a"}]
         assert calls["n"] == 0, "null-hash entry must NOT trigger a fetch"
 
+    @pytest.mark.parametrize("readable", [True, False], ids=["readable", "unreadable"])
+    def test_fetch_null_compares_a_null_entry(self, readable):
+        # #1267: update-skill passes fetch_null, so an entry recorded with a
+        # null hash (or none at all) is fetched: changed once it can be read,
+        # fetch_failed when it still cannot, and never skipped_null_hash.
+        served = {"https://d/c": b"c"}
+        if readable:
+            served.update({"https://d/a": b"a", "https://d/b": b"b"})
+        doc_sources = [
+            {"url": "https://d/a", "content_hash": None},
+            {"url": "https://d/b"},
+            {"url": "https://d/c", "content_hash": _hash_bytes(b"c")},
+        ]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            result = mod.compare_doc_hashes(doc_sources, fetch_null=True)
+        if readable:
+            assert result["changed"] == [
+                {"url": "https://d/a", "old_hash": None, "new_hash": _hash_bytes(b"a")},
+                {"url": "https://d/b", "old_hash": None, "new_hash": _hash_bytes(b"b")},
+            ]
+            assert result["fetch_failed"] == []
+        else:
+            assert result["changed"] == []
+            assert result["fetch_failed"] == [
+                {"url": "https://d/a", "old_hash": None, "reason": "URL error: unreachable"},
+                {"url": "https://d/b", "old_hash": None, "reason": "URL error: unreachable"},
+            ]
+        assert result["unchanged"] == [{"url": "https://d/c"}]
+        assert result["skipped_null_hash"] == []
+        stats = result["stats"]
+        assert stats["total_tracked"] == 3 == (
+            stats["changed"] + stats["unchanged"] + stats["fetch_failed"] + stats["skipped_null_hash"]
+        )
+
     def test_fetch_failure_lands_in_fetch_failed_with_reason(self):
         served: Dict[str, bytes] = {}  # nothing served -> failing fetch
         stored = _hash_bytes(b"whatever")
@@ -1213,6 +1247,31 @@ class TestCompareHashesCli:
             capture_output=True, text=True,
         )
         assert result.returncode == 2  # argparse usage error
+
+    def test_fetch_null_flag_reaches_the_comparison(self, tmp_path):
+        # #1267: without the flag (audit-skill) a null hash is skipped; with it
+        # (update-skill) the document is fetched and counted changed.
+        content = b"a page create-skill could not fetch\n"
+        doc = tmp_path / "guide.md"
+        doc.write_bytes(content)
+        url = "file://" + doc.as_posix()
+        meta = tmp_path / "metadata.json"
+        meta.write_text(json.dumps({"doc_sources": [{"url": url, "content_hash": None}]}), encoding="utf-8")
+        without = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", str(meta)],
+            capture_output=True, text=True,
+        )
+        assert without.returncode == 0, without.stderr
+        parsed = json.loads(without.stdout)
+        assert parsed["skipped_null_hash"] == [{"url": url}] and parsed["changed"] == []
+        with_flag = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", str(meta), "--fetch-null"],
+            capture_output=True, text=True,
+        )
+        assert with_flag.returncode == 0, with_flag.stderr
+        parsed = json.loads(with_flag.stdout)
+        assert parsed["changed"] == [{"url": url, "old_hash": None, "new_hash": _hash_bytes(content)}]
+        assert parsed["skipped_null_hash"] == []
 
 
 # --------------------------------------------------------------------------

@@ -1,0 +1,6 @@
+type: changed
+scope: skf-update-skill
+summary: |
+  A docs-only update that compared its documents and found none changed now says in its report how many of the tracked documents match their recorded hashes, and how many could not be checked when some could not be fetched, in place of "Source code matches provenance map exactly". `skf-build-change-manifest.py build --doc-hashes` adds `docs_tracked`, `docs_unchanged` and `docs_not_checked` to the `counts` of the change manifest it writes.
+issues: [1267]
+prs: [1274]

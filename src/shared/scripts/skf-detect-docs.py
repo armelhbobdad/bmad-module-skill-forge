@@ -52,7 +52,7 @@ per-URL fetch/hash/compare/count prose at
 orchestrates HTTP GETs or computes sha256 by hand, and correctness no longer
 depends on whether a WebFetch tool is wired.
 
-  uv run src/shared/scripts/skf-detect-docs.py compare-hashes <source>
+  uv run src/shared/scripts/skf-detect-docs.py compare-hashes <source> [--fetch-null]
 
 Input `<source>`:
   - a path to a JSON file that is EITHER an array of `{url, content_hash}`
@@ -74,6 +74,12 @@ Each list is stably sorted by url.  Stored hashes are normalized (leading
 `algo:` prefix stripped) before comparison so a bare-hex writer form still
 matches.  Exit 0 on any well-formed input (never blocks the informational
 audit); exit 2 on malformed args or JSON.
+
+With --fetch-null (update-skill's comparison; audit-skill does not pass
+it), an entry with a null or missing content_hash is fetched too: it
+lands in `changed` with `old_hash` null when it can be read, and in
+`fetch_failed` with `old_hash` null when it cannot, so
+`skipped_null_hash` stays empty.
 
 ---------------------------------------------------------------------------
 Subcommand: refresh-hashes
@@ -759,12 +765,15 @@ def _load_doc_sources(raw_text: str, source_label: str) -> List[Any]:
     )
 
 
-def compare_doc_hashes(doc_sources: List[Any]) -> Dict[str, Any]:
+def compare_doc_hashes(doc_sources: List[Any], fetch_null: bool = False) -> Dict[str, Any]:
     """Fetch/hash/compare each tracked doc source and categorize it.
 
     Deterministic: the same entries served the same upstream bytes always
     yield the same categorization. Every entry lands in exactly one bucket, so
     `stats.total_tracked` == the sum of the four category counts.
+
+    With fetch_null, an entry with a null or missing content_hash is fetched
+    too, so skipped_null_hash stays empty (#1267).
     """
     changed: List[Dict[str, Any]] = []
     unchanged: List[Dict[str, Any]] = []
@@ -786,15 +795,15 @@ def compare_doc_hashes(doc_sources: List[Any]) -> Dict[str, Any]:
             })
             continue
         stored = entry.get("content_hash")
-        if stored is None:
-            # No baseline hash was recorded at compile time — nothing to
-            # compare against, so skip the fetch entirely.
+        if stored is None and not fetch_null:
+            # No hash was recorded, so audit-skill skips the fetch; update-skill
+            # passes fetch_null to compare it (#1267).
             skipped_null_hash.append({"url": url})
             continue
         new_hash, reason = _fetch_and_hash_reason(url)
         if new_hash is None:
             fetch_failed.append({"url": url, "old_hash": stored, "reason": reason})
-        elif _normalize_hash(new_hash) == _normalize_hash(stored):
+        elif stored is not None and _normalize_hash(new_hash) == _normalize_hash(stored):
             unchanged.append({"url": url})
         else:
             changed.append({"url": url, "old_hash": stored, "new_hash": new_hash})
@@ -836,6 +845,15 @@ def _cmd_compare_hashes(argv: List[str]) -> int:
             "read that JSON from stdin"
         ),
     )
+    parser.add_argument(
+        "--fetch-null",
+        action="store_true",
+        help=(
+            "fetch an entry recorded with a null content_hash too: changed "
+            "(old_hash null) when it can be read, fetch_failed when not; "
+            "update-skill passes it, audit-skill does not"
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.source == "-":
@@ -858,7 +876,7 @@ def _cmd_compare_hashes(argv: List[str]) -> int:
         sys.stderr.write("\n")
         return 2
 
-    result = compare_doc_hashes(doc_sources)
+    result = compare_doc_hashes(doc_sources, fetch_null=args.fetch_null)
     json.dump(result, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")
     return 0

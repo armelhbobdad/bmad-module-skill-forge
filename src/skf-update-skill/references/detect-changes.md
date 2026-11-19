@@ -90,16 +90,16 @@ The halt leaves `{run_dir}` in place, with the decisions the gates below recorde
 **A docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json) has no source tree for §2's categories to read: its drift is in the documents `doc_sources` records with their hashes. Compare them with the helper audit-skill's doc-drift step runs: resolve `{compareDocHashesHelper}` ← first existing path in `{compareDocHashesProbeOrder}` and, from `{project-root}`, run:
 
 ```bash
-uv run {compareDocHashesHelper} compare-hashes "{skill_package}/metadata.json" > "{run_dir}/doc-hashes.json"
+uv run {compareDocHashesHelper} compare-hashes "{skill_package}/metadata.json" --fetch-null > "{run_dir}/doc-hashes.json"
 ```
 
-It fetches each URL with a recorded hash and buckets it `changed`, `unchanged`, `fetch_failed` or `skipped_null_hash`, with `stats`: never fetch or hash a URL by hand. On exit 2, no JSON, or no candidate resolves, HALT with status `blocked` (halt procedure: `phase: "detect-changes:doc-hashes"`, `path: "{skill_package}/metadata.json"`, `reason: "<its error, or skf-detect-docs.py is missing; re-install SKF>"`). Add `doc-fetch-failed: {url} ({reason})` to `warnings[]` for each `fetch_failed` entry (a document that could not be read is not drift), `doc-not-hashed: {url}` for each `skipped_null_hash` entry, and `doc-drift-not-checked: metadata.json records no doc_sources` when `stats.total_tracked` is 0. Then skip §2 to §2.2 and §3's build, and have the helper write the change manifest from that output, never by hand:
+It fetches each URL `doc_sources` tracks and buckets it `changed`, `unchanged` or `fetch_failed`, with `stats`: never fetch or hash a URL by hand. `--fetch-null` fetches an entry recorded with a null hash too (create-skill and step 5 record one for a document they could not fetch): it lands in `changed` with `old_hash` null once it can be read, so this update re-reads it and step 5 records its hash. On exit 2, no JSON, or no candidate resolves, HALT with status `blocked` (halt procedure: `phase: "detect-changes:doc-hashes"`, `path: "{skill_package}/metadata.json"`, `reason: "<its error, or skf-detect-docs.py is missing; re-install SKF>"`). **When `stats.changed` + `stats.unchanged` is 0**, no document was compared (each one failed to fetch, or `doc_sources` holds none), and a no-change result would call the skill current from documents nobody read: HALT with status `blocked` (halt procedure: `phase: "detect-changes:doc-hashes"`, `path: "{skill_package}/metadata.json"`, `reason: "no document could be compared: {the list}; re-run once the documents can be reached, or re-create the skill with Create Skill to record their hashes"`) and display "**No document of `{skill_name}` could be compared.** {the list}. Re-run once the documents can be reached, or re-create the skill with `[CS] Create Skill` to record their hashes.", with `{the list}` each `fetch_failed` entry as `{url} ({reason})`, joined by `, `, or `metadata.json records no doc_sources` when `stats.total_tracked` is 0. Otherwise add `doc-fetch-failed: {url} ({reason})` to `warnings[]` for each `fetch_failed` entry (a document that could not be read is not drift). Then skip §2 to §2.2 and §3's build, and have the helper write the change manifest from that output, never by hand:
 
 ```bash
 uv run {buildChangeManifestHelper} build --doc-hashes "{run_dir}/doc-hashes.json" > "{run_dir}/change-manifest.json"
 ```
 
-It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "counts": {"docs_changed", "docs_fetch_failed"}}`. On exit 1 or no JSON: HALT with status `blocked` (halt procedure: `phase: "detect-changes:change-manifest"`, its stderr as `reason`). §4 then reports no change only when every hashed document matches (`changed_urls` is empty); otherwise §5 routes to step 3, whose §1 re-fetches the changed URLs, and step 5 records their new hashes from `{run_dir}/doc-hashes.json`.
+It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "counts": {"docs_changed", "docs_fetch_failed", "docs_tracked", "docs_unchanged", "docs_not_checked"}}`, `docs_not_checked` counting the documents it could not compare. On exit 1 or no JSON: HALT with status `blocked` (halt procedure: `phase: "detect-changes:change-manifest"`, its stderr as `reason`). §4 then reports no change only when every document it compared matches (`changed_urls` is empty); otherwise §5 routes to step 3, whose §1 re-fetches the changed URLs, and step 5 records their new hashes from `{run_dir}/doc-hashes.json`.
 
 `{source_root}` is the tree load-baseline.md §6b prepared at `{target_commit}` when `{source_tree_status}` is `ready` or `offline`, and otherwise the skill's local source. **If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists**, HALT with status `blocked` per SKILL.md's source-tree rule (halt procedure: `phase: "detect-changes:source-tree-missing"`, `path: "{source_root}"`, `reason: "source tree {source_root} disappeared mid-run"`): reading a missing tree would report every file deleted. §2.1's helpers walk `{source_root}` themselves: build no file inventory here.
 
@@ -319,13 +319,15 @@ Pass each helper file its category wrote. On exit 1 or no JSON: HALT with status
 
 ### 4. Check for No-Change Shortcut
 
-**If zero changes detected across all categories** (`no_changes` is true in `{run_dir}/change-manifest.json`; for a docs-only skill, when every hashed document matched):
+**If zero changes detected across all categories** (`no_changes` is true in `{run_dir}/change-manifest.json`; for a docs-only skill, when every document §1 compared matched):
 
 "**No changes detected.** Source code matches provenance map exactly.
 
 The skill `{skill_name}` is current — no update needed.
 
 **Skipping to report step...**"
+
+For a docs-only skill, say "{docs_unchanged} of {docs_tracked} tracked documents match their recorded hashes." in place of "Source code matches provenance map exactly.", or, when `docs_not_checked` is above 0, "{docs_unchanged} of {docs_tracked} tracked documents match their recorded hashes; {docs_not_checked} could not be checked (see Warnings).", each count from `counts` in `{run_dir}/change-manifest.json`.
 
 → Skip steps 3-5, immediately load {noChangeReportFile} with "no changes" status. A `--detect-only` or `--dry-run` run takes this route too and stays read-only there: report.md §1 prints its line with no result file and never runs `{onCompleteCommand}`.
 

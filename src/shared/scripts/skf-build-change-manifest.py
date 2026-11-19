@@ -215,7 +215,10 @@ Docs-only (update-skill detect-changes §1): build --doc-hashes reads the
 compare-hashes output and prints {"mode": "docs-only", "no_changes":
 <changed[] is empty>, "changed_urls": [each changed[].url],
 "fetch_failed": [each fetch_failed[].url], "counts": {"docs_changed",
-"docs_fetch_failed"}}. It takes no other input.
+"docs_fetch_failed", "docs_tracked" (the entries of all four lists),
+"docs_unchanged", "docs_not_checked" (fetch_failed plus
+skipped_null_hash: the documents it could not compare)}}. It takes no
+other input.
 
 Rename candidates (update-skill detect-changes Category C):
 
@@ -323,8 +326,10 @@ Apply (update-skill write.md §3):
   one warning. A docs-only
   run's records ({"mode": "docs-only", "changed_urls": [...], "exports":
   [{name, type, params, return_type, url, ...}]}) replace the entries of
-  each changed URL and of each export URL the map holds no entry of (a
-  page a changed document now links to; source_file is the URL;
+  each changed URL (one changed_urls lists twice is applied once, the
+  first kept, as refresh-hashes does) and of each URL a named record
+  gives that the map holds no entry of (a page a changed document now
+  links to; source_file is the URL;
   confidence and signature_source T3). Each entry takes every other key
   its record gives (a quote, a description). An entry of the same name on
   that URL keeps the keys of create-skill's entry shape its record does
@@ -464,11 +469,14 @@ Apply (update-skill write.md §3):
   Last it sets the top-level source_commit and source_ref (when given)
   and the update block, replacing an earlier update's values in place:
   last_update (--generation-date), update_type, test_report_run_id,
-  files_changed (the manifest's files, or in gap-driven mode the files of
-  the entries this run changed), exports_affected (the manifest's export
-  changes, or the verification records), confidence_tier and
-  manual_sections_preserved. An older update-history key
-  (update_operations, update_metadata) stays as it is.
+  files_changed (the manifest's files, in gap-driven mode the files of the
+  entries this run changed, or in docs-only mode the URLs it applied: each
+  changed_urls URL once, and each URL a named record gives that the map
+  held no entry of), exports_affected (the manifest's export changes, in
+  gap-driven mode the verification records, or in docs-only mode the
+  records it applied), confidence_tier and manual_sections_preserved. An
+  older update-history key (update_operations, update_metadata) stays as
+  it is.
 
   Lists. With --metadata-in (the skill's metadata.json as the update
   found it) and --lists-out, it also writes the lists metadata.json takes,
@@ -2044,18 +2052,21 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
 
 
 def _apply_docs_only(pmap: _Map, records: dict, warnings: list[str]) -> tuple[int, int]:
-    """Docs-only mode: the records' exports replace the entries of each changed URL, and of each export URL the map
+    """Docs-only mode: the records' exports replace the entries of each changed URL (one changed_urls lists twice is
+    applied once, the first kept, as refresh-hashes does, #1266), and of each URL a named record gives that the map
     holds no entry of, which is applied as changed (#1249); source_file is the URL, confidence and signature_source
     T3. Each entry takes every other key its record gives (a quote, a description, #1247). An entry of the same name
     the URL held keeps the _ENTRY_KEYS its record does not set (a null params or return_type keeps its value, as any
     rewrite does) and drops every other key (a note, an old quote), so no quote or note of the earlier fetch stays;
     a new entry takes the one extraction_method the map's T3 entries all carry, none when they disagree or one lacks
     it. A record with no name or url, or on a URL the map holds entries of that changed_urls does not list, is left
-    out, with one warning in `warnings` that names each. Returns (files, exports) for the update block."""
-    changed = [u for u in records.get("changed_urls") or [] if isinstance(u, str) and u]
+    out, with one warning in `warnings` that names each. Returns (files, exports) for the update block: the URLs it
+    applied and the records it applied, so a record left out counts toward neither."""
+    changed = list(dict.fromkeys(u for u in records.get("changed_urls") or [] if isinstance(u, str) and u))
     exports = [e for e in records.get("exports") or [] if isinstance(e, dict)]
-    for url in (record.get("url") for record in exports):
-        # a document the map holds no entry of (a page a changed document now links to) is applied as changed
+    for url in (record.get("url") for record in exports if _name_of(record)):
+        # a document the map holds no entry of (a page a changed document now links to) is applied as changed; a
+        # record with no name is left out, so its URL is not (#1266)
         if isinstance(url, str) and url and url not in changed and not pmap.indexes_of(url):
             changed.append(url)
     methods = {e.get("extraction_method") for e in pmap.doc["entries"]
@@ -2090,7 +2101,7 @@ def _apply_docs_only(pmap: _Map, records: dict, warnings: list[str]) -> tuple[in
         warnings.append(f"provenance: {count} docs-only record{'' if count == 1 else 's'} not applied, as each has "
                         f"no name or url, or names a document the map holds entries of that changed_urls does not "
                         f"list, whose entries stay as they were: {named}")
-    return len(changed), len(exports)
+    return len(changed), len(exports) - len(left_out)
 
 
 def _drift_note(drift: tuple | None) -> str:
@@ -3680,13 +3691,21 @@ def _payload(args: argparse.Namespace) -> dict:
 
 
 def docs_only_manifest(doc_hashes: dict) -> dict:
-    """A docs-only skill's change manifest from compare-hashes' output."""
+    """A docs-only skill's change manifest from compare-hashes' output.
+
+    Its counts also give the documents tracked (all four lists), unchanged and
+    not checked (fetch_failed plus skipped_null_hash), so a no-change report
+    says how many it compared (#1267).
+    """
     def urls(key: str) -> list[str]:
         return [e["url"] for e in _get_list(doc_hashes, key) if isinstance(e, dict) and isinstance(e.get("url"), str)]
 
     changed, failed = urls("changed"), urls("fetch_failed")
+    unchanged, skipped = urls("unchanged"), urls("skipped_null_hash")
     return {"mode": "docs-only", "no_changes": not changed, "changed_urls": changed, "fetch_failed": failed,
-            "counts": {"docs_changed": len(changed), "docs_fetch_failed": len(failed)}}
+            "counts": {"docs_changed": len(changed), "docs_fetch_failed": len(failed),
+                       "docs_tracked": len(changed) + len(unchanged) + len(failed) + len(skipped),
+                       "docs_unchanged": len(unchanged), "docs_not_checked": len(failed) + len(skipped)}}
 
 
 def _category_d(args: argparse.Namespace) -> dict | None:

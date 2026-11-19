@@ -11,6 +11,8 @@ the map holds none of and warns about each record it leaves out, and
 skf-detect-docs.py `refresh-hashes --records` starts tracking each cited
 document `doc_sources` lacks, so the next comparison reads it; with the
 prose of re-extract.md, write-metadata.md and the result envelope schema.
+Last, the counts a docs-only run records (#1266): a URL changed_urls lists
+twice is applied once, and a record left out counts toward neither.
 """
 
 from __future__ import annotations
@@ -211,9 +213,9 @@ def test_a_record_left_out_is_named_in_one_warning():
     assert [e for e in doc["entries"] if e["source_file"] == KEPT_URL] == [held[1]]
     assert len(summary["warnings"]) == 1
     warning = summary["warnings"][0]
-    assert warning.startswith("provenance:")
+    assert warning.startswith("provenance: 3 docs-only records not applied")
     assert f"stray ({KEPT_URL})" in warning and "lost (no url)" in warning and f"(no name) ({URL})" in warning
-    assert doc["files_changed"] == 1
+    assert (doc["files_changed"], doc["exports_affected"]) == (1, 1)
 
 
 def _sha(data: bytes) -> str:
@@ -271,6 +273,24 @@ def test_refresh_hashes_tracks_each_document_the_records_cite(tmp_path):
     again = json.loads(_cli("compare-hashes", str(docs["meta"])).stdout)
     assert [e["url"] for e in again["changed"]] == [urls["B"]]
     assert again["stats"]["total_tracked"] == 3 and again["skipped_null_hash"] == [{"url": urls["C"]}]
+    # #1267: once C can be read, update-skill's --fetch-null comparison counts it changed, refresh-hashes
+    # records its hash, and the next comparison finds every document unchanged
+    (tmp_path / "c.md").write_bytes(b"c one\n")
+    fetched = _cli("compare-hashes", str(docs["meta"]), "--fetch-null")
+    assert fetched.returncode == 0, fetched.stderr
+    comparison = json.loads(fetched.stdout)
+    assert [(e["url"], e["old_hash"]) for e in comparison["changed"]] == \
+        [(urls["B"], _sha(b"b one\n")), (urls["C"], None)]
+    assert comparison["skipped_null_hash"] == []
+    saved = tmp_path / "doc-hashes-null.json"
+    saved.write_bytes(fetched.stdout.encode("utf-8"))
+    refresh = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(saved))
+    assert refresh.returncode == 0, refresh.stderr
+    assert json.loads(refresh.stdout)["refreshed"] == [urls["B"], urls["C"]]
+    assert json.loads(docs["meta"].read_bytes())["doc_sources"][2]["content_hash"] == _sha(b"c one\n")
+    last = json.loads(_cli("compare-hashes", str(docs["meta"])).stdout)
+    assert (last["changed"], last["skipped_null_hash"]) == ([], [])
+    assert last["unchanged"] == [{"url": urls[name]} for name in ("A", "B", "C")]
 
 
 def test_a_rerun_adds_nothing(tmp_path):
@@ -338,3 +358,48 @@ def test_the_steps_pass_the_records_and_report_each_document_added():
     one = _slice(_read(RE_EXTRACT), "### 1. Check for Docs-Only Mode", "### 1b.")
     assert "[<each URL this step fetched>]" in one and "a page a changed document now links to" in one
     assert "doc-source-added" in _warnings_description(json.loads(_read(ENVELOPE_SCHEMA)))
+
+
+# --------------------------------------------------------------------------
+# #1266: a docs-only run counts only what it applied
+# --------------------------------------------------------------------------
+
+
+def _held() -> list[dict]:
+    """The map each #1266 run starts from."""
+    return [_doc_entry("get", URL), _doc_entry("other", KEPT_URL)]
+
+
+@pytest.mark.parametrize(("changed_urls", "exports", "counts", "names"), [
+    pytest.param([URL, URL], [{"name": "get", "type": "function", "url": URL}], (1, 1), ["get"], id="twice"),
+    pytest.param([URL, KEPT_URL, URL], [{"name": "get", "type": "function", "url": URL},
+                                        {"name": "other", "type": "function", "url": KEPT_URL}],
+                 (2, 2), ["get", "other"], id="among-others"),
+])
+def test_a_url_listed_twice_is_applied_once(changed_urls, exports, counts, names):
+    """A URL changed_urls lists twice: the document counts once, the summary names each of its exports once, and
+    the map's entries are those of a run listing it once."""
+    doc, summary = _apply(_held(), {"mode": "docs-only", "changed_urls": changed_urls,
+                                    "exports": [dict(e) for e in exports]})
+    assert (doc["files_changed"], doc["exports_affected"]) == counts
+    assert (summary["entries"]["added"], summary["entries"]["removed"]) == (names, names)
+    assert summary["warnings"] == []
+    once, _ = _apply(_held(), {"mode": "docs-only", "changed_urls": list(dict.fromkeys(changed_urls)),
+                               "exports": [dict(e) for e in exports]})
+    assert doc["entries"] == once["entries"]
+
+
+def test_a_nameless_record_on_a_new_document_counts_no_document():
+    """A record with no name on a URL the map holds no entry of: neither count takes it, the warning still names
+    it, and the map's entries are those of a run without it."""
+    get = {"name": "get", "type": "function", "url": URL}
+    doc, summary = _apply(_held(), {"mode": "docs-only", "changed_urls": [URL], "exports": [
+        dict(get), {"type": "function", "url": NEW_URL}]})
+    assert (doc["files_changed"], doc["exports_affected"]) == (1, 1)
+    assert (summary["entries"]["added"], summary["entries"]["removed"]) == (["get"], ["get"])
+    assert len(summary["warnings"]) == 1
+    warning = summary["warnings"][0]
+    assert warning.startswith("provenance: 1 docs-only record not applied")
+    assert f"(no name) ({NEW_URL})" in warning
+    without, _ = _apply(_held(), {"mode": "docs-only", "changed_urls": [URL], "exports": [dict(get)]})
+    assert doc["entries"] == without["entries"]

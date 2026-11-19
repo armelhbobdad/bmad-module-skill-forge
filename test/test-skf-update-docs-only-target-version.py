@@ -15,12 +15,19 @@ document matches, the run still ends `no-changes` and writes nothing: report.md
 §1 says the named version was not recorded and warns
 `target-version-not-recorded`, which the envelope schema lists.
 
+Last, a docs-only update compares a document recorded with a null hash
+(#1267): detect-changes.md §1 passes `compare-hashes --fetch-null`, which
+audit-skill's doc-drift step does not, HALTs `blocked` when it compared no
+document, and a no-change report says how many tracked documents match their
+recorded hashes from the counts `build --doc-hashes` writes.
+
 The run tests execute the calls the prose spells out (each fence split first,
 then filled) against the real helpers.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 import subprocess
@@ -38,10 +45,15 @@ LOAD_BASELINE = REFS / "load-baseline.md"
 MERGE_WRITE = REFS / "merge-write.md"
 CONTRACT = REFS / "invocation-contract.md"
 REPORT = REFS / "report.md"
+DETECT = REFS / "detect-changes.md"
+WRITE_META = REFS / "write-metadata.md"
+AUDIT_DRIFT = SRC / "skf-audit-skill" / "references" / "doc-drift.md"
 SCRIPTS = SRC / "shared" / "scripts"
 SCHEMA = SCRIPTS / "schemas" / "skf-update-result-envelope.v1.json"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 VALIDATOR = SCRIPTS / "skf-validate-brief-inputs.py"
+DETECT_DOCS = SCRIPTS / "skf-detect-docs.py"
+BUILD_MANIFEST = SCRIPTS / "skf-build-change-manifest.py"
 DOCS = REPO_ROOT / "docs"
 VALIDATOR_PATHS = [
     "{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py",
@@ -305,3 +317,153 @@ def test_no_change_run_reports_the_unrecorded_version():
     # the no-change route writes no version: detect-changes.md §4 skips steps 3 to 5 in every mode
     four = _slice(_read(REFS / "detect-changes.md"), "### 4. Check for No-Change Shortcut", "### 5.")
     assert "Skip steps 3-5" in four and "A `--detect-only` or `--dry-run` run takes this route too" in four
+
+
+# --------------------------------------------------------------------------
+# #1267: a docs-only update compares a null hash and stops when it compared none
+# --------------------------------------------------------------------------
+
+COMPARE_CALL = "uv run {compareDocHashesHelper} compare-hashes"
+BUILD_CALL = "uv run {buildChangeManifestHelper} build --doc-hashes"
+COUNTS = "{docs_unchanged} of {docs_tracked} tracked documents match their recorded hashes."
+COUNTS_NOT_CHECKED = ("{docs_unchanged} of {docs_tracked} tracked documents match their recorded hashes; "
+                      "{docs_not_checked} could not be checked (see Warnings).")
+
+
+def _detect_one() -> str:
+    return _slice(_read(DETECT), "### 1. Scan Current Source State", "### 2.")
+
+
+def _run_call(call: str, helper: str, script: Path, values: dict) -> dict:
+    """Run a documented `uv run {helper} ... > "<file>"` line against `script`, split first and filled after, and
+    write its stdout to the filled redirect target, as the step does. Returns the JSON it wrote."""
+    line = call.strip()
+    assert line.count(" > ") == 1, line
+    command, target = line.split(" > ", 1)
+
+    def fill(arg: str) -> str:
+        for key, value in values.items():
+            arg = arg.replace("{" + key + "}", value)
+        assert "{" not in arg, arg
+        return arg
+
+    argv = [fill(arg) for arg in shlex.split(command.split("uv run {" + helper + "}", 1)[1])]
+    (out,) = [fill(arg) for arg in shlex.split(target)]
+    proc = subprocess.run([sys.executable, str(script), *argv], capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    Path(out).write_text(proc.stdout, encoding="utf-8")
+    return json.loads(proc.stdout)
+
+
+def _docs_only_skill(tmp_path: Path, name: str, doc_sources: list | None) -> dict:
+    """A docs-only skill package and a run folder, `doc_sources` left out when None."""
+    package, run_dir = tmp_path / name / "pkg", tmp_path / name / "run"
+    package.mkdir(parents=True)
+    run_dir.mkdir()
+    meta = {"name": "docs", "source_type": "docs-only"}
+    if doc_sources is not None:
+        meta["doc_sources"] = doc_sources
+    (package / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    return {"skill_package": str(package), "run_dir": str(run_dir)}
+
+
+def _documents(tmp_path: Path) -> dict:
+    """The matrix's documents: A and C hashed and matching, B null and readable, D null and unreadable, E hashed
+    and unreadable. Returns each one's `doc_sources` entry and URL."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    entries = {}
+    for name, body, hashed in (("A", b"a one\n", True), ("B", b"b one\n", False), ("C", b"c one\n", True),
+                               ("D", None, False), ("E", None, True)):
+        path = docs / f"{name.lower()}.md"
+        if body is not None:
+            path.write_bytes(body)
+        content_hash = ("sha256:" + hashlib.sha256(body or b"gone\n").hexdigest()) if hashed else None
+        entries[name] = {"url": "file://" + path.as_posix(), "content_hash": content_hash}
+    return entries
+
+
+def test_a_docs_only_update_compares_null_hashes_and_halts_when_it_compared_none(tmp_path):
+    one = _detect_one()
+    call = _fence(one, COMPARE_CALL)
+    assert "--fetch-null" in call
+    # audit-skill keeps skipping a null hash: there is no baseline to grade drift against
+    assert "--fetch-null" not in _fence(_read(AUDIT_DRIFT), COMPARE_CALL)
+    halt = "**When `stats.changed` + `stats.unchanged` is 0**"
+    assert halt in one
+    # the exit-2 halt and the nothing-compared halt
+    assert one.count('phase: "detect-changes:doc-hashes"') == 2
+    for token in ("re-run once the documents can be reached", "`metadata.json records no doc_sources`",
+                  "joined by `, `", "**No document of `{skill_name}` could be compared.**",
+                  "re-create the skill with `[CS] Create Skill` to record their hashes"):
+        assert token in one, token
+    # with --fetch-null skipped_null_hash is empty, and the halt replaces the no-doc_sources warning
+    assert "`doc-not-hashed: {url}`" not in one and "doc-drift-not-checked" not in one
+    # the halt comes before the warnings and before the manifest build, in every mode
+    assert one.index(halt) < one.index("Otherwise add `doc-fetch-failed: {url} ({reason})`") < one.index(BUILD_CALL)
+    assert "detect_only_mode" not in _slice(one, halt, "\n") and "dry_run_mode" not in _slice(one, halt, "\n")
+    assert "passes `--fetch-null`" in _read(WRITE_META)
+    workflows = _slice(_read(DOCS / "workflows.md"), "### Update Skill (US)", "**Agent:**")
+    headless = _slice(workflows, "**Headless:**", "\n")
+    assert "`detect-changes:doc-hashes`" in headless and "could not be checked" in headless
+    docs = _documents(tmp_path)
+    # row 1: A matches, B (null) can now be read, so it is changed and the manifest routes it to step 3
+    values = _docs_only_skill(tmp_path, "row1", [docs["A"], docs["B"]])
+    compared = _run_call(call, "compareDocHashesHelper", DETECT_DOCS, values)
+    assert compared["unchanged"] == [{"url": docs["A"]["url"]}]
+    assert [(e["url"], e["old_hash"]) for e in compared["changed"]] == [(docs["B"]["url"], None)]
+    assert compared["changed"][0]["new_hash"] == "sha256:" + hashlib.sha256(b"b one\n").hexdigest()
+    assert compared["skipped_null_hash"] == []
+    built = _run_call(_fence(one, BUILD_CALL), "buildChangeManifestHelper", BUILD_MANIFEST, values)
+    assert built["no_changes"] is False and built["changed_urls"] == [docs["B"]["url"]]
+    # row 3: D (null) and E both fail to fetch, so nothing was compared and §1 HALTs
+    values = _docs_only_skill(tmp_path, "row3", [docs["D"], docs["E"]])
+    compared = _run_call(call, "compareDocHashesHelper", DETECT_DOCS, values)
+    assert compared["stats"]["changed"] + compared["stats"]["unchanged"] == 0
+    assert [(e["url"], e["old_hash"]) for e in compared["fetch_failed"]] == \
+        [(docs["D"]["url"], None), (docs["E"]["url"], docs["E"]["content_hash"])]
+    assert all(e["reason"] for e in compared["fetch_failed"]) and compared["skipped_null_hash"] == []
+    # row 4: no doc_sources at all, so §1 HALTs with the no-doc_sources list
+    values = _docs_only_skill(tmp_path, "row4", None)
+    compared = _run_call(call, "compareDocHashesHelper", DETECT_DOCS, values)
+    assert compared["stats"]["total_tracked"] == 0
+    assert compared["stats"]["changed"] + compared["stats"]["unchanged"] == 0
+
+
+def test_a_docs_only_no_change_report_counts_its_documents(tmp_path):
+    four = _slice(_read(DETECT), "### 4. Check for No-Change Shortcut", "### 5.")
+    assert "for a docs-only skill, when every document §1 compared matched" in four
+    four_counts = _slice(four, "For a docs-only skill, say", "\n")
+    one = _slice(_read(REPORT), "### 1. Handle No-Change Shortcut", "### 1a.")
+    report_counts = _slice(one, "For a docs-only skill (`mode` is `docs-only`", "\n")
+    for paragraph in (four_counts, report_counts):
+        for token in (f'"{COUNTS}"', f'"{COUNTS_NOT_CHECKED}"', "when `docs_not_checked` is above 0",
+                      "`{run_dir}/change-manifest.json`"):
+            assert token in paragraph, token
+        assert "\u2014" not in paragraph  # no em dash
+    assert 'in place of "Source code matches provenance map exactly."' in four_counts
+    assert 'replace the sentence that starts "Source code matches provenance map exactly"' in report_counts
+    # after the gap-driven replacement, before the `{source_moved}` notice the target-version paragraph follows
+    assert one.index("In gap-driven mode") < one.index(report_counts) < one.index("When `{source_moved}` is true")
+    # §1's counts reach the manifest the report reads them from
+    assert '"docs_tracked", "docs_unchanged", "docs_not_checked"' in _detect_one()
+    build = _fence(_detect_one(), BUILD_CALL)
+    call = _fence(_detect_one(), COMPARE_CALL)
+    docs = _documents(tmp_path)
+
+    def counts(name: str, doc_sources: list) -> tuple:
+        values = _docs_only_skill(tmp_path, name, doc_sources)
+        _run_call(call, "compareDocHashesHelper", DETECT_DOCS, values)
+        built = _run_call(build, "buildChangeManifestHelper", BUILD_MANIFEST, values)
+        c = built["counts"]
+        return built["no_changes"], (c["docs_tracked"], c["docs_unchanged"], c["docs_not_checked"])
+
+    # row 2: A matches and D (null) still cannot be read
+    assert counts("row2", [docs["A"], docs["D"]]) == (True, (2, 1, 1))
+    filled = COUNTS_NOT_CHECKED.replace("{docs_unchanged}", "1").replace("{docs_tracked}", "2") \
+        .replace("{docs_not_checked}", "1")
+    assert filled == "1 of 2 tracked documents match their recorded hashes; 1 could not be checked (see Warnings)."
+    # row 5: A and C match
+    assert counts("row5", [docs["A"], docs["C"]]) == (True, (2, 2, 0))
+    assert COUNTS.replace("{docs_unchanged}", "2").replace("{docs_tracked}", "2") == \
+        "2 of 2 tracked documents match their recorded hashes."
