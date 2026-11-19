@@ -323,14 +323,17 @@ Apply (update-skill write.md §3):
   one warning. A docs-only
   run's records ({"mode": "docs-only", "changed_urls": [...], "exports":
   [{name, type, params, return_type, url, ...}]}) replace the entries of
-  each changed URL (source_file is the URL; confidence and
-  signature_source T3). Each entry takes every other key its record gives
-  (a quote, a description). An entry of the same name on that URL keeps
-  the keys of create-skill's entry shape its record does not set (its
-  source_library, extraction_method, source_line) and no other key, so no
-  quote or note of the earlier fetch stays; a new entry takes the one
-  extraction_method the map's T3 entries all carry (none when they
-  disagree or one lacks it).
+  each changed URL and of each export URL the map holds no entry of (a
+  page a changed document now links to; source_file is the URL;
+  confidence and signature_source T3). Each entry takes every other key
+  its record gives (a quote, a description). An entry of the same name on
+  that URL keeps the keys of create-skill's entry shape its record does
+  not set (its source_library, extraction_method, source_line) and no
+  other key, so no quote or note of the earlier fetch stays; a new entry
+  takes the one extraction_method the map's T3 entries all carry (none
+  when they disagree or one lacks it). A record with no name or url, or
+  on a URL the map holds entries of that changed_urls does not list, is
+  left out, with one warning that names each (name (url)).
 
   gap-driven reads --reextract-records ({"mode": "gap-driven",
   "verification": [...], "files": [...]}) and --merge-records ({"exports":
@@ -2040,15 +2043,21 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
     return files, total if isinstance(total, int) else 0
 
 
-def _apply_docs_only(pmap: _Map, records: dict) -> tuple[int, int]:
-    """Docs-only mode: the records' exports replace the entries of each changed URL; source_file is the URL,
-    confidence and signature_source T3. Each entry takes every other key its record gives (a quote, a description,
-    #1247). An entry of the same name the URL held keeps the _ENTRY_KEYS its record does not set (a null params or
-    return_type keeps its value, as any rewrite does) and drops every other key (a note, an old quote), so no quote
-    or note of the earlier fetch stays; a new entry takes the one extraction_method the map's T3 entries all carry,
-    none when they disagree or one lacks it. Returns (files, exports) for the update block."""
+def _apply_docs_only(pmap: _Map, records: dict, warnings: list[str]) -> tuple[int, int]:
+    """Docs-only mode: the records' exports replace the entries of each changed URL, and of each export URL the map
+    holds no entry of, which is applied as changed (#1249); source_file is the URL, confidence and signature_source
+    T3. Each entry takes every other key its record gives (a quote, a description, #1247). An entry of the same name
+    the URL held keeps the _ENTRY_KEYS its record does not set (a null params or return_type keeps its value, as any
+    rewrite does) and drops every other key (a note, an old quote), so no quote or note of the earlier fetch stays;
+    a new entry takes the one extraction_method the map's T3 entries all carry, none when they disagree or one lacks
+    it. A record with no name or url, or on a URL the map holds entries of that changed_urls does not list, is left
+    out, with one warning in `warnings` that names each. Returns (files, exports) for the update block."""
     changed = [u for u in records.get("changed_urls") or [] if isinstance(u, str) and u]
     exports = [e for e in records.get("exports") or [] if isinstance(e, dict)]
+    for url in (record.get("url") for record in exports):
+        # a document the map holds no entry of (a page a changed document now links to) is applied as changed
+        if isinstance(url, str) and url and url not in changed and not pmap.indexes_of(url):
+            changed.append(url)
     methods = {e.get("extraction_method") for e in pmap.doc["entries"]
                if isinstance(e, dict) and _tier(e.get("confidence")) == "T3"}
     only = next(iter(methods)) if len(methods) == 1 else None
@@ -2073,6 +2082,14 @@ def _apply_docs_only(pmap: _Map, records: dict) -> tuple[int, int]:
                                    pmap.library_for(url, name))
             entry.update(extra)
             pmap.add(entry)
+    left_out = [record for record in exports if not _name_of(record) or record.get("url") not in changed]
+    if left_out:
+        count = len(left_out)
+        urls = [r.get("url") if isinstance(r.get("url"), str) and r.get("url") else "no url" for r in left_out]
+        named = _capped([f"{_name_of(r) or '(no name)'} ({url})" for r, url in zip(left_out, urls)])
+        warnings.append(f"provenance: {count} docs-only record{'' if count == 1 else 's'} not applied, as each has "
+                        f"no name or url, or names a document the map holds entries of that changed_urls does not "
+                        f"list, whose entries stay as they were: {named}")
     return len(changed), len(exports)
 
 
@@ -2534,7 +2551,7 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
             return {}, {"status": "refused", "blocking_unresolved": outcome}
         files, exports = outcome
     elif mode == "docs-only":
-        files, exports = _apply_docs_only(pmap, records)
+        files, exports = _apply_docs_only(pmap, records, warnings)
     else:
         fresh = _Fresh(records.get("files") or [], extraction, details)
         if update_type == "full":

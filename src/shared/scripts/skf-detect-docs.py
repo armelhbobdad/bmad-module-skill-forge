@@ -81,23 +81,38 @@ Subcommand: refresh-hashes
 
 Records the new hashes of the documents a `compare-hashes` run found
 changed, once update-skill has re-read them (update-skill write.md §3b), so
-the next comparison starts from the documents this update used.
+the next comparison starts from the documents this update used, and starts
+tracking each document the update cites that the skill did not track.
 
   uv run src/shared/scripts/skf-detect-docs.py refresh-hashes \\
-      <metadata.json> --compare <compare-hashes output>
+      <metadata.json> --compare <compare-hashes output> \\
+      [--records <reextract-records.json>]
 
 Each `doc_sources[]` entry whose url is in the comparison's `changed[]`
 takes that entry's `new_hash` as its `content_hash` and the current UTC
-time as its `recorded_at`; every other entry and every other key of the
-file stays as it was. The file is rewritten through a temporary file and
-one rename.
+time as its `recorded_at`. With --records (update-skill's docs-only
+re-extraction records, `{"changed_urls": [...], "exports": [{url, ...}]}`),
+each URL of its `changed_urls`, then of its `exports[].url`, that no
+`doc_sources[]` entry holds (URLs compared as exact strings, the first of
+each kept) is fetched and hashed as `hash-urls` does and appended after the
+existing entries as `{"url", "detected_via": "brief_doc_urls",
+"content_hash": "sha256:..."|null, "recorded_at"}`, `content_hash` null
+when it cannot be fetched; both writes take one `recorded_at`. Every other
+entry and every other key of the file stays as it was. The file is
+rewritten through a temporary file and one rename.
 
 Output (JSON object on stdout):
   {"metadata": <path>, "refreshed": [urls], "not_found": [changed urls
-   that metadata.json does not track]}
+   that metadata.json does not track], "added": [urls appended],
+   "fetch_failed": [{"url", "reason"} of each appended url it could not
+   fetch]}
 
-Exit 0 once written; exit 2 on malformed args, JSON that is not the shape
-named, or a file that cannot be read or written.
+`added` and `fetch_failed` are empty without --records. Exit 0 once
+written; exit 2 on malformed args (argparse's usage text), and exit 2 with
+stderr JSON (`code` REFRESH_FAILED, the file untouched) on JSON that is not
+the shape named (a records file that is not an object, or whose
+`changed_urls` or `exports` is not an array included), or a file that cannot
+be read or written.
 
 ---------------------------------------------------------------------------
 Subcommand: record-sources
@@ -884,26 +899,77 @@ def refresh_doc_hashes(
     return {**metadata, "doc_sources": out}, refreshed, not_found
 
 
+def add_cited_sources(
+    metadata: Dict[str, Any], records: Dict[str, Any], recorded_at: Optional[str] = None
+) -> Tuple[Dict[str, Any], List[str], List[Dict[str, Any]]]:
+    """(metadata with an entry appended for each document the records cite that `doc_sources` does not hold, the
+    urls appended, the `{url, reason}` of each it could not fetch).
+
+    The records cite each non-empty string of their `changed_urls`, then each export's non-empty `url`, compared
+    as exact strings and the first of each kept. Each new one is fetched and hashed by `hash_urls`, the
+    `compare-hashes` primitive, so the next comparison reads it too: `detected_via` `brief_doc_urls`,
+    `content_hash` null when it cannot be fetched.
+
+    Raises ValueError when `doc_sources`, `changed_urls` or `exports` is present and not an array.
+    """
+    entries = metadata.get("doc_sources")
+    if entries is None:
+        entries = []
+    if not isinstance(entries, list):
+        raise ValueError("`doc_sources` in the metadata is not an array")
+    for key in ("changed_urls", "exports"):
+        if records.get(key) is not None and not isinstance(records[key], list):
+            raise ValueError(f"`{key}` in the records is not an array")
+    cited = [u for u in records.get("changed_urls") or [] if isinstance(u, str) and u]
+    cited += [e["url"] for e in records.get("exports") or []
+              if isinstance(e, dict) and isinstance(e.get("url"), str) and e["url"]]
+    tracked = {e.get("url") for e in entries if isinstance(e, dict)}
+    new = list(dict.fromkeys(url for url in cited if url not in tracked))
+    if not new:
+        return {**metadata, "doc_sources": entries}, [], []
+    hashed = hash_urls(new, recorded_at)
+    added = [e["url"] for e in hashed["doc_sources"]]
+    return {**metadata, "doc_sources": [*entries, *hashed["doc_sources"]]}, added, hashed["fetch_failed"]
+
+
 def _cmd_refresh_hashes(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="skf-detect-docs.py refresh-hashes",
         description=(
             "Record in metadata.json's doc_sources the new content_hash of each "
-            "document a compare-hashes run found changed."
+            "document a compare-hashes run found changed, and start tracking "
+            "each document the re-extraction records cite that it does not."
         ),
     )
     parser.add_argument("metadata", help="the skill's metadata.json, rewritten in place")
     parser.add_argument("--compare", required=True, help="the compare-hashes output for that metadata.json")
+    parser.add_argument(
+        "--records",
+        help=(
+            "update-skill's docs-only re-extraction records: each URL of their changed_urls and "
+            "exports[].url that doc_sources does not hold is hashed and appended"
+        ),
+    )
     args = parser.parse_args(argv)
 
     path = Path(args.metadata)
     tmp = path.with_name(f".{path.name}.skf-{os.getpid()}-tmp")
+    added: List[str] = []
+    fetch_failed: List[Dict[str, Any]] = []
     try:
         metadata = json.loads(path.read_text(encoding="utf-8"))
         comparison = json.loads(Path(args.compare).read_text(encoding="utf-8"))
         if not isinstance(metadata, dict) or not isinstance(comparison, dict):
             raise ValueError("metadata.json and the comparison must each hold a JSON object")
-        updated, refreshed, not_found = refresh_doc_hashes(metadata, comparison)
+        records = None
+        if args.records is not None:
+            records = json.loads(Path(args.records).read_text(encoding="utf-8"))
+            if not isinstance(records, dict):
+                raise ValueError("the records must hold a JSON object")
+        stamp = datetime.now(timezone.utc).isoformat()
+        updated, refreshed, not_found = refresh_doc_hashes(metadata, comparison, stamp)
+        if records is not None:
+            updated, added, fetch_failed = add_cited_sources(updated, records, stamp)
         tmp.write_bytes((json.dumps(updated, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
         os.replace(tmp, path)
     except (OSError, ValueError) as exc:
@@ -912,7 +978,8 @@ def _cmd_refresh_hashes(argv: List[str]) -> int:
         json.dump({"error": str(exc), "code": "REFRESH_FAILED"}, sys.stderr)
         sys.stderr.write("\n")
         return 2
-    json.dump({"metadata": path.as_posix(), "refreshed": refreshed, "not_found": not_found}, sys.stdout)
+    json.dump({"metadata": path.as_posix(), "refreshed": refreshed, "not_found": not_found, "added": added,
+               "fetch_failed": fetch_failed}, sys.stdout)
     sys.stdout.write("\n")
     return 0
 
@@ -922,8 +989,9 @@ def _cmd_refresh_hashes(argv: List[str]) -> int:
 # ---------------------------------------------------------------------------
 
 # `doc_sources[].detected_via` value for entries that come from the brief's
-# `doc_urls` (and the subpages step 3c fetched from them) rather than from
-# repository detection. Listed in skf-create-skill/assets/skill-sections.md.
+# `doc_urls` (and the subpages step 3c fetched from them, and the documents an
+# update-skill run cites first) rather than from repository detection. Listed
+# in skf-create-skill/assets/skill-sections.md.
 BRIEF_DOC_URLS_DETECTED_VIA = "brief_doc_urls"
 
 

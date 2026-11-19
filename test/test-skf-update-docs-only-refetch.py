@@ -5,13 +5,21 @@ Covers skf-build-change-manifest.py `apply` in docs-only mode: each
 provenance entry of a re-fetched document takes every key its re-extract
 record gives (a quote, a description), a kept entry drops what the earlier
 fetch read that the record does not give again, and a new entry takes the
-one extraction_method the map's T3 entries share (#1247); with the prose
-of re-extract.md.
+one extraction_method the map's T3 entries share (#1247). Then a document
+the update cites first (#1249): `apply` writes the entries of an export URL
+the map holds none of and warns about each record it leaves out, and
+skf-detect-docs.py `refresh-hashes --records` starts tracking each cited
+document `doc_sources` lacks, so the next comparison reads it; with the
+prose of re-extract.md, write-metadata.md and the result envelope schema.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,7 +28,10 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
 MANIFEST_PATH = SCRIPTS / "skf-build-change-manifest.py"
+DETECT_DOCS_PATH = SCRIPTS / "skf-detect-docs.py"
 RE_EXTRACT = REPO_ROOT / "src" / "skf-update-skill" / "references" / "re-extract.md"
+WRITE_META = REPO_ROOT / "src" / "skf-update-skill" / "references" / "write-metadata.md"
+ENVELOPE_SCHEMA = SCRIPTS / "schemas" / "skf-update-result-envelope.v1.json"
 
 
 def _load(name: str, path: Path):
@@ -32,6 +43,7 @@ def _load(name: str, path: Path):
 
 
 manifest = _load("skf_build_change_manifest_docs_only", MANIFEST_PATH)
+detect_docs = _load("skf_detect_docs_docs_only", DETECT_DOCS_PATH)
 
 BLOCK = {"generation_date": "2026-10-01T10:00:00Z", "confidence_tier": "Forge", "manual_sections_preserved": 2}
 
@@ -160,3 +172,169 @@ def test_re_extract_asks_for_every_key_the_entries_carry():
     one = _slice(_read(RE_EXTRACT), "### 1. Check for Docs-Only Mode", "### 1b.")
     assert "such as a `quote` or a `description`" in one
     assert "drops every other key the record leaves out" in one
+
+
+# --------------------------------------------------------------------------
+# #1249: a document the update cites first is written and tracked
+# --------------------------------------------------------------------------
+
+NEW_URL = "https://docs.example.com/linked"
+
+
+def test_an_export_on_a_document_the_map_does_not_hold_is_applied():
+    """A page a changed document now links to: its exports become entries though changed_urls does not list it."""
+    doc, summary = _apply([_doc_entry("get", URL)], {"mode": "docs-only", "changed_urls": [URL], "exports": [
+        {"name": "get", "type": "function", "params": ["id"], "url": URL},
+        {"name": "linked", "type": "function", "params": ["x"], "url": NEW_URL, "quote": "linked q"},
+        {"name": "linked_too", "type": "function", "params": [], "url": NEW_URL}]})
+    linked = _by_name(doc)["linked"]
+    assert (linked["source_file"], linked["confidence"], linked["signature_source"], linked["quote"]) == \
+        (NEW_URL, "T3", "T3", "linked q")
+    assert linked["extraction_method"] == "doc-fetch"
+    # the new document counts once, however many exports it has
+    assert doc["files_changed"] == 2 and summary["warnings"] == []
+    assert (summary["entries"]["added"], summary["entries"]["removed"]) == (["get", "linked", "linked_too"], ["get"])
+
+
+def test_a_record_left_out_is_named_in_one_warning():
+    """An export on a URL the map holds entries of that changed_urls does not list, a record with no url and one
+    with no name: the held document's entries stay as they were, and one warning names all three."""
+    held = [_doc_entry("get", URL), _doc_entry("other", KEPT_URL, quote="other q")]
+    doc, summary = _apply([dict(e) for e in held], {"mode": "docs-only", "changed_urls": [URL], "exports": [
+        {"name": "get", "type": "function", "url": URL},
+        {"name": "stray", "type": "function", "url": KEPT_URL},
+        {"name": "lost", "type": "function"},
+        {"type": "function", "url": URL}]})
+    entries = _by_name(doc)
+    assert "stray" not in entries and "lost" not in entries
+    assert [e["export_name"] for e in doc["entries"] if e["source_file"] == URL] == ["get"]
+    assert [e for e in doc["entries"] if e["source_file"] == KEPT_URL] == [held[1]]
+    assert len(summary["warnings"]) == 1
+    warning = summary["warnings"][0]
+    assert warning.startswith("provenance:")
+    assert f"stray ({KEPT_URL})" in warning and "lost (no url)" in warning and f"(no name) ({URL})" in warning
+    assert doc["files_changed"] == 1
+
+
+def _sha(data: bytes) -> str:
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _cli(*argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(DETECT_DOCS_PATH), *argv], capture_output=True, encoding="utf-8")
+
+
+def _write_json(path: Path, data) -> Path:
+    path.write_bytes((json.dumps(data) + "\n").encode("utf-8"))
+    return path
+
+
+def _three_documents(tmp_path: Path) -> dict:
+    """A tracked and stale (its page changed), B a page the update cites first, C one it cannot fetch; the
+    comparison step 2 wrote, and the records re-extract.md §1 wrote."""
+    a, b, c = tmp_path / "a.md", tmp_path / "b.md", tmp_path / "c.md"
+    a.write_bytes(b"a two\n")
+    b.write_bytes(b"b one\n")
+    urls = {name: "file://" + path.as_posix() for name, path in (("A", a), ("B", b), ("C", c))}
+    meta = _write_json(tmp_path / "metadata.json", {"name": "docs", "source_type": "docs-only", "doc_sources": [
+        {"url": urls["A"], "detected_via": "brief_doc_urls", "content_hash": _sha(b"a one\n"),
+         "recorded_at": "2026-01-01T00:00:00+00:00"}]})
+    compare = _cli("compare-hashes", str(meta))
+    assert [e["url"] for e in json.loads(compare.stdout)["changed"]] == [urls["A"]]
+    comparison = tmp_path / "doc-hashes.json"
+    comparison.write_bytes(compare.stdout.encode("utf-8"))
+    records = _write_json(tmp_path / "reextract-records.json", {
+        "mode": "docs-only", "changed_urls": [urls["A"], urls["B"]],
+        "exports": [{"name": "x", "url": urls["A"]}, {"name": "y", "url": urls["C"]}, {"name": "z", "url": urls["B"]},
+                    {"name": "no-url"}]})
+    return {"urls": urls, "meta": meta, "comparison": comparison, "records": records, "b": b}
+
+
+def test_refresh_hashes_tracks_each_document_the_records_cite(tmp_path):
+    docs = _three_documents(tmp_path)
+    urls = docs["urls"]
+    result = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(docs["comparison"]),
+                  "--records", str(docs["records"]))
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert (out["refreshed"], out["not_found"], out["added"]) == ([urls["A"]], [], [urls["B"], urls["C"]])
+    assert [f["url"] for f in out["fetch_failed"]] == [urls["C"]] and out["fetch_failed"][0]["reason"]
+    sources = json.loads(docs["meta"].read_bytes())["doc_sources"]
+    assert [s["url"] for s in sources] == [urls["A"], urls["B"], urls["C"]]
+    assert (sources[0]["content_hash"], sources[1]["content_hash"], sources[2]["content_hash"]) == \
+        (_sha(b"a two\n"), _sha(b"b one\n"), None)
+    assert [s["detected_via"] for s in sources] == ["brief_doc_urls"] * 3
+    assert len({s["recorded_at"] for s in sources}) == 1  # one stamp for the refresh and the additions
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []  # no temporary file left
+    # the next update compares the new document too
+    docs["b"].write_bytes(b"b two\n")
+    again = json.loads(_cli("compare-hashes", str(docs["meta"])).stdout)
+    assert [e["url"] for e in again["changed"]] == [urls["B"]]
+    assert again["stats"]["total_tracked"] == 3 and again["skipped_null_hash"] == [{"url": urls["C"]}]
+
+
+def test_a_rerun_adds_nothing(tmp_path):
+    docs = _three_documents(tmp_path)
+    first = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(docs["comparison"]),
+                 "--records", str(docs["records"]))
+    assert first.returncode == 0, first.stderr
+    docs["comparison"].write_bytes(_cli("compare-hashes", str(docs["meta"])).stdout.encode("utf-8"))
+    before = json.loads(docs["meta"].read_bytes())
+    result = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(docs["comparison"]),
+                  "--records", str(docs["records"]))
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert (out["refreshed"], out["added"], out["fetch_failed"]) == ([], [], [])
+    assert json.loads(docs["meta"].read_bytes()) == before
+
+
+@pytest.mark.parametrize("records", [b"{nope", b"[]", b'{"changed_urls": "x"}', b'{"exports": {}}', None],
+                         ids=["not-json", "not-an-object", "changed-urls-not-an-array", "exports-not-an-array",
+                              "missing"])
+def test_bad_records_exit_2_and_write_nothing(tmp_path, records):
+    docs = _three_documents(tmp_path)
+    before = docs["meta"].read_bytes()
+    bad = tmp_path / "bad-records.json"
+    if records is not None:
+        bad.write_bytes(records)
+    result = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(docs["comparison"]), "--records", str(bad))
+    assert result.returncode == 2 and json.loads(result.stderr)["code"] == "REFRESH_FAILED"
+    assert docs["meta"].read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+
+def test_without_records_nothing_is_added(tmp_path):
+    docs = _three_documents(tmp_path)
+    result = _cli("refresh-hashes", str(docs["meta"]), "--compare", str(docs["comparison"]))
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert (out["refreshed"], out["added"], out["fetch_failed"]) == ([docs["urls"]["A"]], [], [])
+    assert [s["url"] for s in json.loads(docs["meta"].read_bytes())["doc_sources"]] == [docs["urls"]["A"]]
+
+
+def _warnings_description(schema) -> str:
+    """The description of the envelope's `warnings` array."""
+    if isinstance(schema, dict):
+        warnings = schema.get("properties", {}).get("warnings")
+        if isinstance(warnings, dict) and "description" in warnings:
+            return warnings["description"]
+        for value in schema.values():
+            found = _warnings_description(value)
+            if found:
+                return found
+    if isinstance(schema, list):
+        for value in schema:
+            found = _warnings_description(value)
+            if found:
+                return found
+    return ""
+
+
+def test_the_steps_pass_the_records_and_report_each_document_added():
+    paragraph = _read(WRITE_META).split("**A docs-only skill's document hashes.**", 1)[1]
+    fence = paragraph.split("```bash\n", 1)[1].split("```", 1)[0]
+    assert '--records "{run_dir}/reextract-records.json"' in fence
+    assert "`doc-source-added: {url}`" in paragraph and "`doc-not-hashed: {url} ({reason})`" in paragraph
+    one = _slice(_read(RE_EXTRACT), "### 1. Check for Docs-Only Mode", "### 1b.")
+    assert "[<each URL this step fetched>]" in one and "a page a changed document now links to" in one
+    assert "doc-source-added" in _warnings_description(json.loads(_read(ENVELOPE_SCHEMA)))

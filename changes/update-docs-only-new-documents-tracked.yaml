@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  A docs-only update that cites a document the skill did not track before, such as a page a changed document now links to, now records it in `metadata.json` `doc_sources` with its content hash, so the next update and Audit Skill check it for drift. The run's warnings name each one as `doc-source-added: <url>`, and `doc-not-hashed` names one that could not be fetched. Its provenance entries are written even when the re-extraction did not list it among the changed documents.
+issues: [1249]

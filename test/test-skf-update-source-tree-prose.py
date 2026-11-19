@@ -5951,10 +5951,17 @@ def test_a_docs_only_skill_compares_its_document_hashes(tmp_path):
                      "uv run {compareDocHashesHelper} refresh-hashes")
     assert yaml.safe_load(_frontmatter(_read(WRITE_META)))["compareDocHashesProbeOrder"] == \
         _probe("skf-detect-docs.py")
+    # re-extract §1's records cite a page the changed document now links to, which doc_sources does not track:
+    # the refresh starts tracking it, so the next comparison reads it too (#1249)
+    linked = tmp_path / "linked.md"
+    linked.write_bytes(b"new page\n")
+    new = "file://" + linked.as_posix()
+    (run_dir / "reextract-records.json").write_bytes(json.dumps({"mode": "docs-only", "changed_urls": [url, new],
+                                                                 "exports": []}).encode("utf-8"))
     code, refreshed = _run_script(DETECT_DOCS, _cmd_args(refresh, "compareDocHashesHelper", values))
-    assert code == 0 and refreshed["refreshed"] == [url]
+    assert code == 0 and refreshed["refreshed"] == [url] and refreshed["added"] == [new]
     code, again = _run_script(DETECT_DOCS, _cmd_args(call, "compareDocHashesHelper", values))
-    assert code == 0 and again["changed"] == [] and again["unchanged"] == [{"url": url}]
+    assert code == 0 and again["changed"] == [] and again["unchanged"] == [{"url": u} for u in sorted((url, new))]
 
 
 def test_category_c_is_the_rename_rules_by_script(tmp_path):
