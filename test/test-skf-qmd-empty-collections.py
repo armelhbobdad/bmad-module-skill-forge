@@ -19,6 +19,15 @@ the folder check into one cause per name: `folder missing` (removal
 alone), `folder present` (re-index or removal), `folder in another
 project` (no advice: QMD's index is shared) or `folder unknown` (today's
 two lines). Each warning ends with its cause; setup still removes none.
+
+#1265: setup read only each registry entry's `name`, so a collection Brief
+Skill registered with `status: "pending"` (its embed check failed) counted
+as healthy, nothing named it, and the mark stayed after the user fixed it.
+The classifier now splits the marked names by the counts of its one
+`qmd collection list`: `pending_cleared` (a count above 0: healthy, and
+clean-stale --clear-pending-from drops the mark) and `pending` (a count of
+0 or none: not healthy). The banner names both, and each pending name that
+is not empty is a `qmd_collection_pending: <name>` warning.
 """
 
 from __future__ import annotations
@@ -486,3 +495,197 @@ def test_a_failed_classifier_shows_no_empty_line():
 def test_portfolio_reads_the_counts_with_the_classifier_parser(listing):
     assert portfolio.file_counts(listing) == classify.parse_collection_file_counts(listing)
     assert not hasattr(portfolio, "_FILES_RE")
+
+
+# --------------------------------------------------------------------------
+# (f) Brief Skill's pending mark (#1265)
+# --------------------------------------------------------------------------
+
+
+# p-brief is marked and QMD lists files for it, q-brief is marked and holds
+# none, r-brief is marked and its block gives no count, s-brief is unmarked.
+PENDING_LISTING = """Collections (4):
+
+p-brief (qmd://p-brief/)
+  Pattern:  skill-brief.yaml
+  Files:    3
+  Updated:  1d ago
+
+q-brief (qmd://q-brief/)
+  Pattern:  skill-brief.yaml
+  Files:    0
+  Updated:  0s ago
+
+r-brief (qmd://r-brief/)
+  Pattern:  skill-brief.yaml
+
+s-brief (qmd://s-brief/)
+  Pattern:  skill-brief.yaml
+  Files:    2
+  Updated:  2d ago
+
+"""
+
+PENDING_REGISTRY = """qmd_collections:
+  - name: p-brief
+    type: brief
+    status: pending
+  - name: q-brief
+    type: brief
+    status: pending
+  - name: r-brief
+    type: brief
+    status: pending
+  - name: s-brief
+    type: brief
+"""
+
+
+@pytest.fixture
+def marked_registry(tmp_path) -> Path:
+    path = tmp_path / "forge-tier.yaml"
+    path.write_text(PENDING_REGISTRY, encoding="utf-8")
+    return path
+
+
+def test_the_classifier_splits_the_marks_by_the_counts_it_already_has(tmp_path, monkeypatch, capsys,
+                                                                      marked_registry):
+    calls = []
+
+    def fake_qmd(*args):
+        calls.append(args)
+        if args == ("collection", "list"):
+            return 0, PENDING_LISTING, ""
+        if args == ("collection", "show", "q-brief"):
+            return 0, _show("q-brief", tmp_path / "forge-data" / "q"), ""
+        # The split reads the counts of the one listing: any other call fails the run.
+        raise AssertionError(f"unexpected qmd call {args}")
+
+    monkeypatch.setattr(classify, "_run_qmd", fake_qmd)
+    out = _classify_cli(monkeypatch, capsys, marked_registry, tmp_path)
+    assert out["pending"] == ["q-brief", "r-brief"]
+    assert out["pending_cleared"] == ["p-brief"]
+    assert out["healthy"] == ["p-brief", "s-brief"]
+    assert out["empty"] == ["q-brief"]
+    assert calls == [("collection", "list"), ("collection", "show", "q-brief")]
+
+
+def test_with_live_names_every_mark_stays_pending(tmp_path, monkeypatch, capsys, marked_registry):
+    monkeypatch.setattr(classify, "_run_qmd", lambda *args: pytest.fail(f"unexpected qmd call {args}"))
+    out = _classify_cli(monkeypatch, capsys, marked_registry, tmp_path,
+                        "--live-names", "p-brief,q-brief,r-brief,s-brief")
+    assert (out["pending"], out["pending_cleared"]) == (["p-brief", "q-brief", "r-brief"], [])
+    assert (out["healthy"], out["empty"]) == (["s-brief"], [])
+
+
+def test_a_bare_name_listing_leaves_every_mark_pending(tmp_path, monkeypatch, capsys, marked_registry):
+    calls = []
+
+    def fake_qmd(*args):
+        calls.append(args)
+        return 0, "p-brief\nq-brief\nr-brief\ns-brief\n", ""
+
+    monkeypatch.setattr(classify, "_run_qmd", fake_qmd)
+    out = _classify_cli(monkeypatch, capsys, marked_registry, tmp_path)
+    assert (out["pending"], out["pending_cleared"]) == (["p-brief", "q-brief", "r-brief"], [])
+    assert (out["healthy"], out["empty"]) == (["s-brief"], [])
+    assert calls == [("collection", "list")]
+
+
+PENDING = {**CLASSIFIED, "live_names": ["p-brief", "q-brief", "r-brief", "s-brief"],
+           "healthy": ["p-brief", "s-brief"], "empty": ["q-brief"], "empty_paths": {},
+           "empty_folder_missing": [], "empty_outside_project": [],
+           "pending": ["q-brief", "r-brief"], "pending_cleared": ["p-brief"]}
+CLEARED = {"status": "ok", "version": "v1", "qmd_removed": ["gone-brief"], "qmd_pending_cleared": ["p-brief"],
+           "ccc_removed": [], "wrote": True}
+
+PENDING_LINE = ("  1 registered collection(s) still marked pending, since Brief Skill could not confirm their files "
+                "and QMD's listing gives no file count: r-brief. Re-embed each one with `qmd embed -c <name>`, or "
+                "run /skf-brief-skill again for its skill. The mark clears only once QMD's listing gives a file "
+                "count, so a qmd that lists bare names keeps it until you upgrade qmd")
+CLEARED_LINE = "  1 collection(s) no longer marked pending, since QMD now lists files for them: p-brief"
+
+
+def test_fold_staged_reads_the_pending_marks():
+    folded = emit.fold_staged({}, {emit.STAGED_CLASSIFY: PENDING, emit.STAGED_CLEAN_STALE: CLEARED})
+    # A marked empty name is reported as empty alone.
+    assert (folded["hygiene_pending"], folded["hygiene_pending_collections"]) == (1, ["r-brief"])
+    assert (folded["hygiene_pending_cleared"], folded["hygiene_pending_cleared_collections"]) == (1, ["p-brief"])
+    assert (folded["hygiene_healthy"], folded["hygiene_empty_collections"]) == (2, ["q-brief"])
+
+
+@pytest.mark.parametrize("classified,cleaned", [
+    pytest.param(None, None, id="both-failed"),
+    pytest.param({key: value for key, value in PENDING.items() if key not in ("pending", "pending_cleared")},
+                 {key: value for key, value in CLEARED.items() if key != "qmd_pending_cleared"}, id="older-outputs"),
+])
+def test_fold_staged_gives_no_pending_mark_from_a_failed_or_older_helper(classified, cleaned):
+    folded = emit.fold_staged({}, {emit.STAGED_CLASSIFY: classified, emit.STAGED_CLEAN_STALE: cleaned})
+    assert (folded["hygiene_pending"], folded["hygiene_pending_collections"]) == (0, [])
+    assert (folded["hygiene_pending_cleared"], folded["hygiene_pending_cleared_collections"]) == (0, [])
+
+
+def test_each_still_pending_collection_is_one_warning():
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    env = emit.assemble_envelope(emit.fold_staged(_payload(), {emit.STAGED_CLASSIFY: PENDING,
+                                                               emit.STAGED_CLEAN_STALE: CLEARED}))
+    warnings = env["skf_setup"]["warnings"]
+    assert [w for w in warnings if w.startswith("qmd_collection_pending")] == ["qmd_collection_pending: r-brief"]
+    # Right after the empty warnings; the cleared and the empty marked name get no pending warning.
+    assert warnings[warnings.index("qmd_collection_empty: q-brief (folder unknown)") + 1] == (
+        "qmd_collection_pending: r-brief")
+    assert not [w for w in warnings if "p-brief" in w]
+    assert [w for w in warnings if "q-brief" in w] == ["qmd_collection_empty: q-brief (folder unknown)"]
+    assert env["skf_setup"]["status"] == "success"
+    assert emit._validate_against_schema(env, schema) == []
+    description = schema["properties"]["skf_setup"]["properties"]["warnings"]["description"]
+    assert "qmd_collection_pending" in description and "`qmd embed -c <name>`" in description
+    assert "the mark clears only once QMD's listing gives a file count" in description
+
+
+def _report_with(classified, cleaned=None) -> list[str]:
+    staged = {emit.STAGED_CLASSIFY: classified}
+    if cleaned is not None:
+        staged[emit.STAGED_CLEAN_STALE] = cleaned
+    payload = emit.fold_staged(_payload(project_root="/p", forge_data_folder="/p/forge-data",
+                                        orphan_auto_resolution=None), staged)
+    return emit.render_report(payload, emit.load_tier_rules(TIER_RULES))
+
+
+def test_the_banner_names_the_pending_and_the_cleared_marks():
+    lines = _report_with(PENDING, CLEARED)
+    pending = lines.index(PENDING_LINE)
+    # After the empty lines, before the stale count; the cleared line follows that count.
+    assert lines[pending - 1].startswith("  When the folder does hold such files")
+    assert lines[pending + 1:pending + 3] == ["  1 stale QMD registry entry/entries cleaned", CLEARED_LINE]
+    assert "q-brief" not in lines[pending]
+    assert "  2 collection(s) healthy" in lines
+    # No clean-stale output: no cleared line.
+    assert not [line for line in _report_with(PENDING) if "no longer marked pending" in line]
+
+
+def test_an_all_pending_registry_is_not_empty():
+    every_pending = {**PENDING, "live_names": ["r-brief", "u-brief"], "healthy": [], "empty": [],
+                     "pending": ["r-brief", "u-brief"], "pending_cleared": []}
+    lines = _report_with(every_pending)
+    healthy = lines.index("  0 collection(s) healthy")
+    assert lines[healthy + 1] == PENDING_LINE.replace("  1 registered", "  2 registered").replace(
+        ": r-brief.", ": r-brief, u-brief.")
+    assert not [line for line in lines if line.startswith("  QMD Registry: empty.")]
+
+
+def _section(text: str, heading: str) -> str:
+    start = text.index(heading)
+    ends = [i for i in (text.find("\n### ", start + 1), text.find("\n## ", start + 1)) if i >= 0]
+    return text[start:min(ends)] if ends else text[start:]
+
+
+def test_the_docs_say_what_setup_does_with_the_mark():
+    registry = (ROOT / "src" / "knowledge" / "qmd-registry.md").read_text(encoding="utf-8")
+    assert "should flag" not in registry
+    assert "pending (" in _section(registry, "### Example 3")
+    hygiene = (ROOT / "src" / "skf-setup" / "references" / "auto-index.md").read_text(encoding="utf-8")
+    assert "`pending_cleared`" in _section(hygiene, "### 2.")
+    [call] = [block for block in _section(hygiene, "### 4.").split("```")
+              if block.startswith("bash") and "clean-stale" in block]
+    assert '--clear-pending-from "{run_dir}/qmd-classify.json"' in call

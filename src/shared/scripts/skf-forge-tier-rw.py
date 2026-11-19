@@ -128,7 +128,7 @@ Subcommands:
                 skf-create-skill §6b to register CCC-indexed source
                 paths without re-rendering the whole file in prose.
 
-  clean-stale   Two cleanup operations gated by flags:
+  clean-stale   Three operations gated by flags:
                   --qmd-live-from <qmd-classify.json>: remove
                     qmd_collections entries whose `name` is not in the
                     `live_names` list of skf-qmd-classify-collections.py's
@@ -138,9 +138,20 @@ Subcommands:
                     as "nothing is live" and empty the registry.
                   --qmd-live-names a,b,c: the same with the list given
                     inline (mutually exclusive with --qmd-live-from).
-                  --prune-missing-ccc-paths — remove ccc_index_registry
+                  --clear-pending-from <qmd-classify.json>: after that
+                    cleanup, drop `status` from each kept qmd_collections
+                    entry whose `name` the staged classification lists
+                    under `pending_cleared` (QMD now lists files for it)
+                    and whose `status`, read again under the lock, is
+                    still exactly "pending"; every other field and entry
+                    stays as it was. A file that is not there, or holds
+                    no `pending_cleared` list of names, clears nothing.
+                    Prints `qmd_pending_cleared`: the names it cleared,
+                    each once, in registry order ([] without the flag).
+                  --prune-missing-ccc-paths: remove ccc_index_registry
                     entries whose `path` no longer exists on disk.
-                Both kinds of cleanup can run in the same invocation.
+                All three can run in the same invocation; `wrote` is
+                true when any of them changed the file.
 
 Output schema (the read and effective subcommands and the response from every
 write):
@@ -193,7 +204,8 @@ system-wide:
       --name foo-extraction
   echo '{...}' | uv run skf-forge-tier-rw.py register-ccc-index --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py clean-stale --target /path/forge-tier.yaml \\
-      --qmd-live-from /run/qmd-classify.json --prune-missing-ccc-paths
+      --qmd-live-from /run/qmd-classify.json \\
+      --clear-pending-from /run/qmd-classify.json --prune-missing-ccc-paths
 """
 
 from __future__ import annotations
@@ -233,6 +245,9 @@ TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
 # The tiers forge-tier.yaml and a `tier_override` may name, case-sensitive,
 # as in skf-detect-tools.py.
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
+# The `status` Brief Skill gives a qmd_collections entry whose embed check
+# failed; clean-stale --clear-pending-from drops it, and no other value.
+PENDING_STATUS = "pending"
 
 
 def _die(code: int, message: str) -> None:
@@ -871,9 +886,43 @@ def live_names_from(path: Path) -> list[str] | None:
     return names
 
 
+def pending_cleared_from(path: Path) -> list[str]:
+    """The `pending_cleared` names of a staged classifier output, [] to clear no mark.
+
+    A file that is not there (the classifier did not run), that holds no
+    JSON object (it failed) or that holds no list of names under
+    `pending_cleared` (an older classifier wrote it) gives [].
+    """
+    names = (_staged_object(path) or {}).get("pending_cleared")
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        return []
+    return names
+
+
+def _clear_pending_marks(entries, names: list[str]) -> tuple[list, list[str]]:
+    """`entries` with `status` dropped from each one `names` lists whose `status` is exactly "pending".
+
+    Returns (the entries, the names cleared, each once, in registry order).
+    Every other entry, and every other field of a cleared one, stays as it
+    was: an entry with no mark, or with another `status`, is never touched.
+    """
+    listed = set(names)
+    kept: list = []
+    cleared: list[str] = []
+    for entry in entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if isinstance(name, str) and name in listed and entry.get("status") == PENDING_STATUS:
+            entry = {key: value for key, value in entry.items() if key != "status"}
+            if name not in cleared:
+                cleared.append(name)
+        kept.append(entry)
+    return kept, cleared
+
+
 def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
                     prune_missing_ccc_paths: bool,
-                    lock_timeout: float = REGISTRY_LOCK_WAIT_SEC) -> None:
+                    lock_timeout: float = REGISTRY_LOCK_WAIT_SEC,
+                    clear_pending: list[str] | None = None) -> None:
     missing = f"clean-stale: target does not exist: {target}"
     if not target.exists():
         _die(1, missing)
@@ -884,6 +933,7 @@ def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
 
         qmd_removed: list[str] = []
         ccc_removed: list[str] = []
+        qmd_pending_cleared: list[str] = []
 
         if qmd_live_names is not None:
             live_set = set(qmd_live_names)
@@ -899,6 +949,12 @@ def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
                     qmd_removed.append(str(name))
             data["qmd_collections"] = kept
 
+        # After the stale cleanup, so a removed entry is never listed as cleared;
+        # the marks are the ones this read under the lock finds.
+        entries = data.get("qmd_collections") or []
+        if clear_pending and isinstance(entries, list):
+            data["qmd_collections"], qmd_pending_cleared = _clear_pending_marks(entries, clear_pending)
+
         if prune_missing_ccc_paths:
             kept = []
             for entry in data.get("ccc_index_registry", []) or []:
@@ -912,14 +968,16 @@ def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
                     ccc_removed.append(str(entry_path))
             data["ccc_index_registry"] = kept
 
-        if qmd_removed or ccc_removed:
+        wrote = bool(qmd_removed or ccc_removed or qmd_pending_cleared)
+        if wrote:
             # Round-trip through render to preserve the canonical format.
             rendered = render_forge_tier_yaml(_payload_from(data))
             _atomic_write(target, rendered)
     _ok({
         "qmd_removed": qmd_removed,
+        "qmd_pending_cleared": qmd_pending_cleared,
         "ccc_removed": ccc_removed,
-        "wrote": bool(qmd_removed or ccc_removed),
+        "wrote": wrote,
         "lock_stale_replaced": stale_replaced,
     })
 
@@ -971,7 +1029,8 @@ def main() -> None:
     add_lock_timeout(p_write)
 
     p_clean = sub.add_parser("clean-stale",
-                             help="Remove stale qmd_collections / ccc_index_registry entries")
+                             help="Remove stale qmd_collections / ccc_index_registry entries, and "
+                                  "clear the pending marks a classification lists")
     p_clean.add_argument("--target", type=Path, required=True)
     live = p_clean.add_mutually_exclusive_group()
     live.add_argument("--qmd-live-from", type=Path, default=None,
@@ -982,6 +1041,11 @@ def main() -> None:
                       help="Comma-separated list of currently-live QMD collection names. "
                            "Entries in qmd_collections whose name is NOT in this list are removed. "
                            "Omit the flag entirely to skip QMD cleanup.")
+    p_clean.add_argument("--clear-pending-from", type=Path, default=None,
+                         help="skf-qmd-classify-collections.py's staged output. After the QMD cleanup, "
+                              "each kept qmd_collections entry its pending_cleared lists, and whose "
+                              "status is still \"pending\", loses that status. A file that is not "
+                              "there, or holds no pending_cleared list, clears nothing.")
     p_clean.add_argument("--prune-missing-ccc-paths", action="store_true",
                          help="Remove ccc_index_registry entries whose path no longer exists.")
     add_lock_timeout(p_clean)
@@ -1025,7 +1089,8 @@ def main() -> None:
             live = live_names_from(args.qmd_live_from)
         elif args.qmd_live_names is not None:
             live = [n.strip() for n in args.qmd_live_names.split(",") if n.strip()]
-        cmd_clean_stale(args.target, live, args.prune_missing_ccc_paths, lock_timeout)
+        clear = None if args.clear_pending_from is None else pending_cleared_from(args.clear_pending_from)
+        cmd_clean_stale(args.target, live, args.prune_missing_ccc_paths, lock_timeout, clear_pending=clear)
     elif args.cmd == "register-qmd-collection":
         cmd_register_qmd_collection(args.target, lock_timeout)
     elif args.cmd == "remove-qmd-collection":

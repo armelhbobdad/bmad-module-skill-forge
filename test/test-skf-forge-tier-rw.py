@@ -1141,6 +1141,110 @@ def test_register_qmd_replaces_when_name_collides(tmp_target):
     assert by_name["stripe-extraction"]["skill_name"] == "stripe"  # untouched
 
 
+# ─── clean-stale --clear-pending-from: Brief Skill's mark (#1265) ───────────
+
+
+def _brief(name: str, **fields) -> dict:
+    """A qmd_collections entry as Brief Skill registers it."""
+    return {"name": name, "type": "brief", "source_workflow": "brief-skill",
+            "skill_name": name.removesuffix("-brief"), "created_at": "2026-11-18", **fields}
+
+
+MARKED = [
+    _brief("gone-brief", status="pending"),  # stale: no live collection
+    _brief("p-brief", status="pending"),  # listed and marked: cleared
+    {"name": "a-docs", "type": "docs", "skill_name": "a", "status": "pending"},  # listed and marked
+    _brief("r-brief", status="pending"),  # marked, not listed: kept
+    _brief("s-brief"),  # listed, no mark
+    _brief("t-brief", status="ready"),  # listed, another status
+]
+
+
+def _marked_sidecar(target: Path) -> dict:
+    payload = _baseline_payload()
+    payload["qmd_collections"] = [dict(entry) for entry in MARKED]
+    payload["ccc_index_registry"] = [{"path": "/repo/skills/foo", "indexed_at": "2026-04-25T10:00:00+00:00"}]
+    _write_tools(target, payload)
+    return payload
+
+
+def _clean(target: Path, *flags: str) -> dict:
+    result = subprocess.run([sys.executable, str(SCRIPT_PATH), "clean-stale", "--target", str(target), *flags],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_clean_stale_clears_the_pending_marks_the_classification_lists(tmp_target):
+    """The stale entry goes first; then only a kept entry the classification
+    lists, whose status read under the lock is still "pending", loses it.
+    p-brief also stands for the accepted race: a mark Brief Skill set again
+    after the classification is cleared the same way."""
+    payload = _marked_sidecar(tmp_target)
+    staged = tmp_target.parent / "qmd-classify.json"
+    staged.write_text(json.dumps({
+        "status": "ok", "live_names": ["a-docs", "p-brief", "r-brief", "s-brief", "t-brief"],
+        "pending": ["r-brief"], "pending_cleared": ["a-docs", "gone-brief", "p-brief", "s-brief", "t-brief"],
+    }), encoding="utf-8")
+    response = _clean(tmp_target, "--qmd-live-from", str(staged), "--clear-pending-from", str(staged))
+    assert response["qmd_removed"] == ["gone-brief"]
+    # Each name once, in registry order; never the stale, unmarked or "ready" one.
+    assert response["qmd_pending_cleared"] == ["p-brief", "a-docs"]
+    assert response["wrote"] is True
+
+    persisted = _read_yaml_file(tmp_target)
+    by_name = {entry["name"]: entry for entry in MARKED}
+    unmarked = {name: {k: v for k, v in by_name[name].items() if k != "status"} for name in ("p-brief", "a-docs")}
+    assert persisted["qmd_collections"] == [unmarked["p-brief"], unmarked["a-docs"], by_name["r-brief"],
+                                            by_name["s-brief"], by_name["t-brief"]]
+    assert persisted["ccc_index_registry"] == payload["ccc_index_registry"]
+
+
+@pytest.mark.parametrize("content", [None, "", '{"status": "ok", "live_names": ["p-brief"]}',
+                                     '{"pending_cleared": "p-brief"}', '{"pending_cleared": ["p-brief", 3]}'],
+                         ids=["not-staged", "classifier-failed", "no-key", "not-a-list", "not-names"])
+def test_clean_stale_clears_no_mark_without_a_pending_cleared_list(tmp_target, content):
+    _marked_sidecar(tmp_target)
+    before = tmp_target.read_bytes()
+    staged = tmp_target.parent / "qmd-classify.json"
+    if content is not None:
+        staged.write_text(content, encoding="utf-8")
+    response = _clean(tmp_target, "--clear-pending-from", str(staged))
+    assert (response["qmd_pending_cleared"], response["qmd_removed"], response["wrote"]) == ([], [], False)
+    assert tmp_target.read_bytes() == before
+
+
+def test_clean_stale_without_the_flag_keeps_every_mark(tmp_target):
+    _marked_sidecar(tmp_target)
+    staged = tmp_target.parent / "qmd-classify.json"
+    staged.write_text(json.dumps({"status": "ok", "live_names": [entry["name"] for entry in MARKED],
+                                  "pending_cleared": ["a-docs", "p-brief"]}), encoding="utf-8")
+    before = tmp_target.read_bytes()
+    response = _clean(tmp_target, "--qmd-live-from", str(staged))
+    assert (response["qmd_pending_cleared"], response["qmd_removed"], response["wrote"]) == ([], [], False)
+    assert tmp_target.read_bytes() == before
+    marks = {entry["name"]: entry.get("status") for entry in _read_yaml_file(tmp_target)["qmd_collections"]}
+    assert (marks["p-brief"], marks["a-docs"]) == ("pending", "pending")
+
+
+def test_clean_stale_writes_a_cleared_mark_with_nothing_stale(tmp_target):
+    """A re-run where every entry is live: the cleared mark alone makes the
+    write. A name two entries share (a hand-edited file) is listed once,
+    and both entries lose the mark."""
+    payload = _baseline_payload()
+    payload["qmd_collections"] = [_brief("p-brief", status="pending"), _brief("p-brief", status="pending"),
+                                  _brief("s-brief")]
+    _write_tools(tmp_target, payload)
+    staged = tmp_target.parent / "qmd-classify.json"
+    staged.write_text(json.dumps({"status": "ok", "live_names": ["p-brief", "s-brief"],
+                                  "pending_cleared": ["p-brief"]}), encoding="utf-8")
+    response = _clean(tmp_target, "--qmd-live-from", str(staged), "--clear-pending-from", str(staged))
+    assert (response["qmd_removed"], response["ccc_removed"]) == ([], [])
+    assert response["qmd_pending_cleared"] == ["p-brief"]
+    assert response["wrote"] is True
+    assert _read_yaml_file(tmp_target)["qmd_collections"] == [_brief("p-brief"), _brief("p-brief"), _brief("s-brief")]
+
+
 def test_register_qmd_preserves_unrelated_state(tmp_target):
     payload = _baseline_payload()
     payload["ccc_index_registry"] = [{"path": "/some/abs/path", "indexed_at": "2025-01-01"}]

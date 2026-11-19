@@ -4,13 +4,18 @@
 Classification rules under test (per step 3 §2 and PR #244):
 
   Healthy   = forge-suffix-matched live ∩ registry, with a file count
-              other than 0 (an unknown count stays healthy)
+              other than 0 (an unknown count stays healthy) and no
+              pending mark left standing
   Empty     = forge-suffix-matched live ∩ registry whose `qmd collection
               list` block reads `Files: 0` (reported, never removed);
               each one's `qmd collection show` Path goes to
               empty_paths, a Path that is no directory to
               empty_folder_missing, one outside --project-root to
               empty_outside_project
+  Pending   = forge-suffix-matched live ∩ registry whose entry holds
+              `status: "pending"` (Brief Skill's mark): a count above 0
+              goes to pending_cleared (and healthy), a count of 0 or
+              none to pending (not healthy)
   Orphaned  = forge-suffix-matched live − registry, whose Path lies
               inside --project-root
   Stale     = registry − ALL live (includes foreign-suffix names)
@@ -336,6 +341,31 @@ def test_load_registry_non_list_dies(tmp_yaml):
     assert exc.value.code == 1
 
 
+def test_load_registry_names_with_a_status_reads_only_marked_entries(tmp_yaml):
+    """#1265: Brief Skill's mark is a `status` of exactly "pending"."""
+    tmp_yaml.write_text(
+        "qmd_collections:\n"
+        "  - name: a-brief\n"
+        "    status: pending\n"
+        "  - name: b-brief\n"
+        "    status: ready\n"
+        "  - name: c-brief\n"
+        "  - status: pending\n"  # no name
+        "  - pending\n"  # not a mapping
+        "  - name: d-docs\n"
+        "    status: \"pending\"\n"
+        "  - name: e-brief\n"
+        "    status: Pending\n"
+        "  - name: f-brief\n"
+        "    status: [pending]\n",
+        encoding="utf-8",
+    )
+    assert mod.load_registry_names(tmp_yaml, status="pending") == ["a-brief", "d-docs"]
+    # The default still lists every name, whatever its status.
+    assert mod.load_registry_names(tmp_yaml) == ["a-brief", "b-brief", "c-brief", "d-docs", "e-brief", "f-brief"]
+    assert mod.load_registry_names(tmp_yaml.with_name("missing.yaml"), status="pending") == []
+
+
 # ─── classify() — the core set arithmetic ────────────────────────────────────
 
 
@@ -349,12 +379,36 @@ def test_classify_first_run_no_collections():
         "empty_paths": {},
         "empty_folder_missing": [],
         "empty_outside_project": [],
+        "pending": [],
+        "pending_cleared": [],
         "orphaned": [],
         "orphaned_paths": {},
         "stale": [],
         "foreign_filtered_count": 0,
         "foreign_filtered_sample": [],
     }
+
+
+def test_classify_splits_pending_marks_by_file_count():
+    """#1265: a marked name QMD lists with files is cleared and healthy; one
+    with a count of 0 or none stays pending and is not healthy."""
+    live = ["p-brief", "q-brief", "r-brief", "s-brief"]
+    registry = [*live, "gone-brief"]
+    files = {"p-brief": 3, "q-brief": 0, "r-brief": None, "s-brief": 2}
+    out = mod.classify(live, registry, files=files, pending=["p-brief", "q-brief", "r-brief", "gone-brief"])
+    assert out["pending"] == ["q-brief", "r-brief"]
+    assert out["pending_cleared"] == ["p-brief"]
+    assert out["healthy"] == ["p-brief", "s-brief"]
+    assert out["empty"] == ["q-brief"]
+    # A marked stale entry is stale alone.
+    assert out["stale"] == ["gone-brief"]
+    keys = list(out)
+    start = keys.index("empty_outside_project") + 1
+    assert keys[start:start + 2] == ["pending", "pending_cleared"]
+    # With no marks the same counts classify as before.
+    plain = mod.classify(live, registry, files=files)
+    assert (plain["pending"], plain["pending_cleared"]) == ([], [])
+    assert plain["healthy"] == ["p-brief", "r-brief", "s-brief"]
 
 
 def test_classify_returns_live_names_sorted_unique():

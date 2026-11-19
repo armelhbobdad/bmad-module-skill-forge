@@ -15,10 +15,11 @@ tools sharing the QMD daemon.
 Classification rules (per step 3 §2):
 
   Healthy:  name in {forge-suffix-matched live} AND in registry, with a
-              file count other than 0. No action needed. A collection
-              whose count the listing does not give (a bare-name listing
-              from an older qmd, or a block with no `Files:` line) stays
-              healthy.
+              file count other than 0 and no pending mark left standing
+              (below). No action needed. A collection whose count the
+              listing does not give (a bare-name listing from an older
+              qmd, or a block with no `Files:` line) stays healthy unless
+              it is marked pending.
   Empty:    name in {forge-suffix-matched live} AND in registry, whose
               block of `qmd collection list` reads `Files: 0`: QMD lists
               no file for it, so searches return nothing. Reported,
@@ -30,6 +31,21 @@ Classification rules (per step 3 §2):
               outside --project-root under `empty_outside_project`
               (another project's folder: QMD's index is shared). A name
               qmd cannot show has no Path and is in neither list.
+  Pending:  name in {forge-suffix-matched live} AND in registry, whose
+              registry entry holds `status: "pending"` (exactly that
+              string): the mark Brief Skill writes when its embed check
+              fails (verify-collection finds no file QMD lists for its
+              collection, gets no count, or cannot run). The counts of
+              the same one `qmd collection list` split the marked names:
+              one whose count is above 0 goes to `pending_cleared` (QMD
+              now lists files for it, so it is healthy, and clean-stale
+              --clear-pending-from drops its mark), one whose count is 0
+              or not given goes to `pending` (not healthy; a marked name
+              with `Files: 0` is also empty, and step 4 reports it as
+              empty alone). Both lists keep the sorted order of the
+              registered names. With --live-names (no counts) every
+              marked name is pending. A marked stale entry is stale, in
+              neither list.
   Orphaned: name in {forge-suffix-matched live}, NOT in registry, and
               `qmd collection show <name>` reports a Path inside
               --project-root. Offered for removal in step 3 §3.
@@ -63,8 +79,10 @@ Subcommands:
     --registry-from-yaml <path>
                   Path to forge-tier.yaml. The script reads the file's
                   `qmd_collections` array and extracts the `name` field
-                  from each entry. Missing file or missing array → empty
-                  registry, which is a valid first-run state.
+                  from each entry, and the names whose entry holds
+                  `status: "pending"` (the marked names Pending splits).
+                  Missing file or missing array → empty registry, which
+                  is a valid first-run state.
 
     --project-root <path>
                   The project whose orphans may be offered for removal.
@@ -75,8 +93,9 @@ Subcommands:
                   in QMD. If omitted, the script invokes `qmd collection
                   list` itself. Empty string → no live collections, which
                   is a valid first-run state. `--live-names` carries no
-                  counts, so with it no collection is empty and no
-                  registered name is shown.
+                  counts, so with it no collection is empty, no
+                  registered name is shown and every marked name is
+                  pending.
 
   remove-orphans  Remove the orphans a classification found.
 
@@ -103,6 +122,8 @@ Output of classify (single JSON document on stdout):
                          "qux-brief": "/abs/other/forge-data/qux"},
     "empty_folder_missing":  ["foo-temporal"],
     "empty_outside_project": ["qux-brief"],
+    "pending":          ["qux-brief"],
+    "pending_cleared":  ["foo-brief"],
     "orphaned":         ["bar-extraction"],
     "orphaned_paths":   {"bar-extraction": "/abs/project/skills/bar"},
     "stale":            ["baz-docs"],
@@ -207,14 +228,19 @@ def parse_live_names(raw: str) -> list[str]:
     return out
 
 
-def load_registry_names(path: Path) -> list[str]:
+def load_registry_names(path: Path, status: str | None = None) -> list[str]:
     """Read forge-tier.yaml and extract `name` from each qmd_collections entry.
 
     Missing file → empty list (valid first-run state). Malformed file
     (parse error, wrong top-level type) → exit 1 with an actionable
-    message. Entries without a `name` field are skipped silently — the
+    message. Entries without a `name` field are skipped silently: the
     forge-tier-rw.py contract guarantees `name` is always present, but
     a hand-edited file might violate it; classify what we can.
+
+    With `status`, only the names whose entry's `status` is exactly that
+    string: status="pending" gives the collections Brief Skill marked
+    when its embed check failed. Without it every name, whatever its
+    entry's `status`.
     """
     if not path.exists():
         return []
@@ -231,7 +257,9 @@ def load_registry_names(path: Path) -> list[str]:
         _die(1, f"qmd_collections in {path} is not a list (got {type(entries).__name__})")
     names: list[str] = []
     for entry in entries:
-        if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+        if not (isinstance(entry, dict) and isinstance(entry.get("name"), str)):
+            continue
+        if status is None or (isinstance(entry.get("status"), str) and entry["status"] == status):
             names.append(entry["name"])
     return names
 
@@ -254,8 +282,9 @@ def is_inside(path: str | None, root) -> bool:
 
 
 def classify(live: list[str], registry: list[str], project_root=None,
-             paths: dict | None = None, files: dict | None = None) -> dict:
-    """Pure function: classify live vs registry into healthy/empty/orphaned/stale/foreign.
+             paths: dict | None = None, files: dict | None = None,
+             pending: list[str] | None = None) -> dict:
+    """Pure function: classify live vs registry into healthy/empty/pending/orphaned/stale/foreign.
 
     With `project_root`, a forge-suffixed live name missing from the
     registry is orphaned only when `paths` maps it to a Path inside that
@@ -265,7 +294,8 @@ def classify(live: list[str], registry: list[str], project_root=None,
 
     `files` maps a live name to the `Files:` count its listing block gives
     (parse_collection_file_counts). A registered name it maps to 0 is
-    empty; one it maps to None, or does not hold, stays healthy.
+    empty; one it maps to None, or does not hold, stays healthy unless
+    `pending` marks it (below).
 
     `paths` also maps each empty name to the Path `qmd collection show`
     gave it. `empty_paths` holds the empty names with a Path,
@@ -274,10 +304,19 @@ def classify(live: list[str], registry: list[str], project_root=None,
     ([] without one), each in `empty` order. A name with no Path is in
     none of the three.
 
+    `pending` names the registry entries whose `status` is "pending"
+    (load_registry_names(path, status="pending")). Each registered one
+    goes to `pending_cleared` when `files` maps it to a count above 0,
+    and is healthy; else (a count of 0, or none) to `pending`, and is not
+    healthy (one with a count of 0 is empty too). Both lists keep the
+    order of the registered names; a marked name that is not registered
+    is in neither.
+
     Returns the classification payload (without status/version envelope).
     """
     paths = paths or {}
     files = files or {}
+    marked = set(pending or [])
     forge_live = [n for n in live if is_forge_owned(n)]
     foreign_live = [n for n in live if not is_forge_owned(n)]
 
@@ -289,7 +328,12 @@ def classify(live: list[str], registry: list[str], project_root=None,
     # QMD lists no file for an empty collection, so it answers no search;
     # it is still live, so it stays in live_names and no cleanup prunes it.
     empty = [n for n in registered if files.get(n) == 0]
-    healthy = [n for n in registered if files.get(n) != 0]
+    # Brief Skill's mark clears once QMD lists files for the collection; a
+    # count of 0, or none, cannot show that its files are indexed.
+    pending_cleared = [n for n in registered
+                       if n in marked and isinstance(files.get(n), int) and files[n] > 0]
+    still_pending = [n for n in registered if n in marked and n not in pending_cleared]
+    healthy = [n for n in registered if files.get(n) != 0 and n not in still_pending]
     # Its folder says why: re-indexing cannot refill a folder that is gone,
     # and a folder outside this project belongs to another project.
     empty_paths = {n: paths[n] for n in empty if paths.get(n)}
@@ -317,6 +361,8 @@ def classify(live: list[str], registry: list[str], project_root=None,
         "empty_paths": empty_paths,
         "empty_folder_missing": folder_missing,
         "empty_outside_project": outside_project,
+        "pending": still_pending,
+        "pending_cleared": pending_cleared,
         "orphaned": orphaned,
         "orphaned_paths": {n: paths[n] for n in orphaned if paths.get(n)},
         "stale": stale,
@@ -532,7 +578,8 @@ def main() -> None:
         "--registry-from-yaml",
         type=Path,
         required=True,
-        help="Path to forge-tier.yaml. Script reads qmd_collections array. "
+        help="Path to forge-tier.yaml. Script reads qmd_collections array "
+             "(each name, and the names marked status: pending). "
              "Missing file → empty registry (first-run state).",
     )
     p_classify.add_argument(
@@ -558,16 +605,19 @@ def main() -> None:
             _die(2, error)
         live = names
     else:
-        # --live-names carries no counts, so every registered name stays healthy.
+        # --live-names carries no counts: no registered name is empty, and
+        # every one Brief Skill marked stays pending.
         live, files = parse_live_names(args.live_names), {}
     registry = load_registry_names(args.registry_from_yaml)
+    # The split of the marked names reads the counts above: no qmd call.
+    pending = load_registry_names(args.registry_from_yaml, status="pending")
     forge_live = {n for n in live if is_forge_owned(n)}
     candidates = sorted(forge_live - set(registry))
     # Only an empty registered name needs its folder; the sets are disjoint
     # (unregistered against registered), so one dict serves both.
     empties = sorted(n for n in forge_live & set(registry) if files.get(n) == 0)
     paths = {name: fetch_collection_path(name)[0] for name in [*candidates, *empties]}
-    _ok(classify(live, registry, args.project_root, paths, files))
+    _ok(classify(live, registry, args.project_root, paths, files, pending=pending))
 
 
 def _force_utf8(*streams) -> None:

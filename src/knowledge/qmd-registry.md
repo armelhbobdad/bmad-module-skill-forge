@@ -22,7 +22,7 @@ The progressive registry solves all three by indexing **curated workflow artifac
 | --- | --- | --- |
 | **Producer** | brief-skill, create-skill | Creates QMD collections from workflow artifacts and registers them in forge-tier.yaml |
 | **Consumer** | audit-skill, update-skill, create-stack-skill | Reads the registry, discovers collections by skill name and type, queries via qmd_bridge (see [tool-resolution.md](tool-resolution.md) for concrete resolution) |
-| **Janitor** | setup | Cross-references live QMD collections against the registry, cleans orphans and stale entries, and reports registered collections QMD holds no files for |
+| **Janitor** | setup | Cross-references live QMD collections against the registry, cleans orphans and stale entries, reports registered collections QMD holds no files for, and clears or reports each collection Brief Skill marked pending |
 
 ### Registry Schema
 
@@ -47,7 +47,7 @@ qmd_collections:
 
 **Optional field: `status`**
 
-The `status` field is only present when QMD embed verification fails during collection creation. When `status: "pending"` is set, the collection exists in QMD but vector embeddings may be incomplete — only BM25 keyword `search` is reliable. `vector_search` and `deep_search` may return no results until re-embedded. Collections without a `status` field are fully operational. The setup janitor should flag `"pending"` collections for re-embedding.
+The `status` field is present only when Brief Skill's embed check failed: `verify-collection` found no file QMD lists for the collection, got no count, or could not run. Such a collection, marked `status: "pending"`, may answer no search until it is embedded. Collections without a `status` field are fully operational. On each Deep-tier run, setup checks every marked collection against its `Files:` count in `qmd collection list`: it clears the mark of one QMD lists with files, reports one with no file as empty, and reports one with no count as pending, advising `qmd embed -c <name>` or a new `/skf-brief-skill` run. That mark stays until QMD's listing gives a count, which a qmd that lists bare names never does. A Brief Skill run whose check passes also replaces the entry without the mark.
 
 ### Collection Types
 
@@ -72,7 +72,7 @@ create-skill compiles skill → indexes {name}-extraction → registers in forge
 audit-skill reads registry → queries {name}-extraction for drift baseline
 update-skill reads registry → queries {name}-extraction for T2 enrichment
     ↓
-setup reads registry + QMD state → cleans orphans, removes stale entries
+setup reads registry + QMD state → cleans orphans, removes stale entries, clears pending marks
 ```
 
 ## Collection Gate
@@ -114,7 +114,7 @@ The `ccc_index_registry` array in forge-tier.yaml is a **parallel but separate**
 | **What is indexed** | Curated workflow artifacts (SKILL.md, briefs, temporal data) | Source code (the actual codebase) |
 | **Index engine** | QMD (BM25 + optional vector search) | cocoindex-code (AST + vector embeddings) |
 | **Lifecycle** | Per-skill: created by create-skill, consumed by audit/update-skill | Per-project: created by setup, verified by create-skill |
-| **Janitor** | setup step 3 (orphan/stale QMD collection cleanup) | setup step 3 section 5b (stale path cleanup) |
+| **Janitor** | setup step 3 (orphan/stale QMD collection cleanup, pending-mark clearing) | setup step 3 section 5b (stale path cleanup) |
 | **Availability** | Deep tier only | Forge+ and Deep tiers |
 
 These registries are orthogonal — they never reference each other, and their janitor sections operate independently.
@@ -145,7 +145,7 @@ Then append/replace the registry entry in forge-tier.yaml. Failures never block 
 
 **Context:** Setup-forge verifies QMD health on every run.
 
-**Implementation:** Cross-reference live QMD collections against registry. Classify as healthy (in both, and not listed with `Files: 0`), empty (in both, but QMD lists no file for it, most often because its folder is gone; setup reads each one's folder with `qmd collection show` and reports it by cause, advising `qmd collection remove` alone for a folder that is gone, re-indexing or removal for a folder still there and nothing for a folder in another project; once the user removes one, the next Deep-tier setup cleans its registry entry, but setup never removes it), orphaned (in QMD only, and indexed from a folder inside this project: QMD's index is shared by every project on the machine, so another project's collections never count), or stale (in registry only). Prompt user before removing orphans, and check each one's folder again just before removing it. Silently clean stale registry entries.
+**Implementation:** Cross-reference live QMD collections against registry. Classify as healthy (in both, not listed with `Files: 0`, and no pending mark left standing), empty (in both, but QMD lists no file for it, most often because its folder is gone; setup reads each one's folder with `qmd collection show` and reports it by cause, advising `qmd collection remove` alone for a folder that is gone, re-indexing or removal for a folder still there and nothing for a folder in another project; once the user removes one, the next Deep-tier setup cleans its registry entry, but setup never removes it), pending (in both, marked `status: "pending"` by Brief Skill, and listed with no file count; setup reports it with `qmd embed -c <name>` or a new `/skf-brief-skill` run, and clears the mark of a marked collection QMD now lists files for, which counts as healthy), orphaned (in QMD only, and indexed from a folder inside this project: QMD's index is shared by every project on the machine, so another project's collections never count), or stale (in registry only). Prompt user before removing orphans, and check each one's folder again just before removing it. Silently clean stale registry entries.
 
 ## Related Fragments
 

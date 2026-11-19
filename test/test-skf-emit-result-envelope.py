@@ -2149,15 +2149,24 @@ BANNER_CASES = [
      _empty("folder present"),
      "  When the folder does hold such files, run `qmd update` (it re-indexes every collection on this "
      "machine and empties any whose folder is gone), then `qmd embed -c <name>`"),
+    ("hygiene_pending > 0", _hygiene(hygiene_pending=1, hygiene_pending_collections=["c-brief"]), _hygiene(),
+     "  1 registered collection(s) still marked pending, since Brief Skill could not confirm their files and "
+     "QMD's listing gives no file count: c-brief. Re-embed each one with `qmd embed -c <name>`, or run "
+     "/skf-brief-skill again for its skill. The mark clears only once QMD's listing gives a file count, so a "
+     "qmd that lists bare names keeps it until you upgrade qmd"),
     ("hygiene_orphaned_removed > 0", _hygiene(hygiene_orphaned_removed=2), _hygiene(),
      "  2 orphaned collection(s) removed"),
     ("hygiene_orphaned_kept > 0", _hygiene(hygiene_orphaned_kept=3), _hygiene(),
      "  3 orphaned collection(s) kept"),
     ("hygiene_stale_cleaned > 0", _hygiene(hygiene_stale_cleaned=1), _hygiene(),
      "  1 stale QMD registry entry/entries cleaned"),
+    ("hygiene_pending_cleared > 0",
+     _hygiene(hygiene_pending_cleared=1, hygiene_pending_cleared_collections=["d-brief"]), _hygiene(),
+     "  1 collection(s) no longer marked pending, since QMD now lists files for them: d-brief"),
     ("ccc_registry_stale_cleaned > 0", {"ccc_registry_stale_cleaned": 2}, {"ccc_registry_stale_cleaned": 0},
      "  CCC Registry: 2 stale entry/entries cleaned"),
-    ('hygiene_result is "completed" and hygiene_healthy is 0 and hygiene_empty is 0', _hygiene(hygiene_healthy=0),
+    ('hygiene_result is "completed" and hygiene_healthy is 0 and hygiene_empty is 0 and hygiene_pending is 0',
+     _hygiene(hygiene_healthy=0),
      _hygiene(hygiene_healthy=0, hygiene_empty=1, hygiene_empty_collections=["a-docs"]),
      "  QMD Registry: empty. Collections are created automatically when you run /skf-create-skill."),
     ('hygiene_result is "qmd_unavailable"', {"hygiene_result": "qmd_unavailable"}, {},
@@ -2321,9 +2330,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template is what render-report prints: 48 conditions, a case for each."""
+    """The template is what render-report prints: 50 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 48
+    assert len(entries) == 50
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 

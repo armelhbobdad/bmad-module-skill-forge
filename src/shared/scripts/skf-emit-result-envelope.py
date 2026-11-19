@@ -370,6 +370,14 @@ Context payload shape (consumed by `emit` for skf-setup):
   missing", "folder present", "folder in another project" and "folder
   unknown"; a name with no entry, or another value, reads "folder
   unknown"),
+  "hygiene_pending" and "hygiene_pending_cleared" (int),
+  "hygiene_pending_collections" (the classifier's `pending` names
+  without its `empty` ones: registered collections Brief Skill marked
+  `status: "pending"` whose listing gives no file count, each also the
+  warning `qmd_collection_pending: <name>`; a marked empty name is only
+  on the empty lines), "hygiene_pending_cleared_collections" (the
+  marks clean-stale removed, its `qmd_pending_cleared`: QMD now lists
+  files for them, so they get no warning),
   "ccc_index_deferred" (bool: --defer-index skipped a due index build),
   and "require_tier" (the tier --require-tier named, or null). The staged
   helper outputs supply every one of them but the two resolved paths,
@@ -613,6 +621,10 @@ def _assemble_warnings(payload: dict) -> list[str]:
     causes = _dict(payload.get("hygiene_empty_causes"))
     for name in _strings(payload.get("hygiene_empty_collections")):
         warnings.append(f"qmd_collection_empty: {name} ({_empty_cause(causes, name)})")
+    # A collection Brief Skill marked pending whose listing gives no count may
+    # answer no search until re-embedded; a cleared mark is no anomaly.
+    for name in _strings(payload.get("hygiene_pending_collections")):
+        warnings.append(f"qmd_collection_pending: {name}")
     for tool in _objects(payload.get("tools_below_minimum")):
         warnings.append(f"tool_below_minimum: {_tool_name(tool)} {tool.get('version')} "
                         f"(minimum {tool.get('minimum')})")
@@ -901,13 +913,22 @@ def fold_staged(payload: dict, staged: dict) -> dict:
                           another project", else one in
                           `empty_folder_missing` is "folder missing",
                           else "folder present"; {} when the classifier
-                          failed), hygiene_orphaned_kept (every orphan,
-                          while no removal ran) and
+                          failed), hygiene_pending and
+                          hygiene_pending_collections (its `pending`
+                          names not in `empty`, each a
+                          `qmd_collection_pending: <name>` warning; 0 and
+                          none when the classifier failed or wrote no
+                          `pending` list), hygiene_orphaned_kept (every
+                          orphan, while no removal ran) and
                           orphan_auto_resolution's count
       qmd-remove.json     hygiene_orphaned_removed, hygiene_orphaned_kept
                           (the orphans the removal could not delete) and
                           orphan_auto_resolution's removed and failed
-      clean-stale.json    hygiene_stale_cleaned, ccc_registry_stale_cleaned
+      clean-stale.json    hygiene_pending_cleared and
+                          hygiene_pending_cleared_collections (its
+                          `qmd_pending_cleared`, the marks it removed: 0
+                          and none when it failed or wrote no such list),
+                          hygiene_stale_cleaned, ccc_registry_stale_cleaned
                           and ccc_registry_stale_removed (none when it failed)
     """
     out = dict(payload)
@@ -967,6 +988,10 @@ def fold_staged(payload: dict, staged: dict) -> dict:
         out["hygiene_healthy"] = len(healthy) if completed else 0
         out["hygiene_empty"], out["hygiene_empty_collections"] = len(empty), empty
         out["hygiene_empty_causes"] = _fold_empty_causes(classified, empty)
+        # A marked collection with no file is reported as empty alone: re-embedding cannot help it.
+        pending = ([name for name in _strings(classified.get("pending")) if name not in empty]
+                   if completed else [])
+        out["hygiene_pending"], out["hygiene_pending_collections"] = len(pending), pending
         out["hygiene_orphaned_removed"], out["hygiene_orphaned_kept"] = 0, len(orphaned)
         if isinstance(resolution, dict) and "count" not in resolution:
             resolution = {**resolution, "count": len(orphaned)}
@@ -983,6 +1008,9 @@ def fold_staged(payload: dict, staged: dict) -> dict:
     if STAGED_CLEAN_STALE in staged:
         cleaned = _dict(staged[STAGED_CLEAN_STALE])
         pruned = _strings(cleaned.get("ccc_removed"))
+        # What the registry write removed: a clean-stale that failed cleared none.
+        unmarked = _strings(cleaned.get("qmd_pending_cleared"))
+        out["hygiene_pending_cleared"], out["hygiene_pending_cleared_collections"] = len(unmarked), unmarked
         out["hygiene_stale_cleaned"] = len(_strings(cleaned.get("qmd_removed")))
         out["ccc_registry_stale_cleaned"] = len(pruned)
         out["ccc_registry_stale_removed"] = pruned
@@ -1255,17 +1283,28 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         qmd = ["  QMD Registry:", f"  {_count(payload.get('hygiene_healthy'))} collection(s) healthy"]
         if _count(payload.get("hygiene_empty")) > 0:
             qmd += _empty_lines(payload)
+        if _count(payload.get("hygiene_pending")) > 0:
+            qmd.append(f"  {_count(payload.get('hygiene_pending'))} registered collection(s) still marked "
+                       "pending, since Brief Skill could not confirm their files and QMD's listing gives no "
+                       f"file count: {', '.join(_strings(payload.get('hygiene_pending_collections')))}. "
+                       "Re-embed each one with `qmd embed -c <name>`, or run /skf-brief-skill again for its "
+                       "skill. The mark clears only once QMD's listing gives a file count, so a qmd that "
+                       "lists bare names keeps it until you upgrade qmd")
         for key, what in (("hygiene_orphaned_removed", "orphaned collection(s) removed"),
                           ("hygiene_orphaned_kept", "orphaned collection(s) kept"),
                           ("hygiene_stale_cleaned", "stale QMD registry entry/entries cleaned")):
             if _count(payload.get(key)) > 0:
                 qmd.append(f"  {_count(payload.get(key))} {what}")
+        if _count(payload.get("hygiene_pending_cleared")) > 0:
+            qmd.append(f"  {_count(payload.get('hygiene_pending_cleared'))} collection(s) no longer marked "
+                       "pending, since QMD now lists files for them: "
+                       f"{', '.join(_strings(payload.get('hygiene_pending_cleared_collections')))}")
         blocks.append(qmd)
     if _count(payload.get("ccc_registry_stale_cleaned")) > 0:
         blocks.append([f"  CCC Registry: {_count(payload.get('ccc_registry_stale_cleaned'))} stale "
                        "entry/entries cleaned"])
     if (hygiene == "completed" and _count(payload.get("hygiene_healthy")) == 0
-            and _count(payload.get("hygiene_empty")) == 0):
+            and _count(payload.get("hygiene_empty")) == 0 and _count(payload.get("hygiene_pending")) == 0):
         blocks.append(["  QMD Registry: empty. Collections are created automatically when you run "
                        "/skf-create-skill."])
     if hygiene == "qmd_unavailable":
