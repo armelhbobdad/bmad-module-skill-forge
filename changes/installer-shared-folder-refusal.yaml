@@ -5,3 +5,4 @@ summary: |
 migration: |
   Look at the files the message lists: move or rename your own `shared` skill, or delete the files left from an earlier SKF copy, then run the command again.
 issues: [1279]
+prs: [1280]
