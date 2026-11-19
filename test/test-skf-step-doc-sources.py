@@ -287,12 +287,18 @@ class TestDocsOnlyCorpusRetention:
         assert "docs-only" in cleanup_lines[0], (
             "the cleanup must be gated on source_type so a docs-only corpus is retained"
         )
+        # #1270: at Deep tier the folder is the source path of the {skill-name}-docs collection
+        assert "the tier is not Deep and" in cleanup_lines[0]
+        assert "**At Deep tier, keep the folder for every brief:**" in cleanup_lines[0]
 
     def test_rules_forbid_deleting_docs_only_corpus(self, text: str) -> None:
         rules = re.search(r"^## Rules\n(.*?)(?=^## )", text, re.MULTILINE | re.DOTALL)
         assert rules and "docs-only" in rules.group(1), (
             "fetch-docs.md Rules must state that a docs-only staging directory is never deleted"
         )
+        # #1270: nor the folder a registered {skill-name}-docs collection reads
+        assert ("or, at Deep tier, of any brief: it is the source path of the `{skill-name}-docs` "
+                "QMD collection §5b registers") in rules.group(1)
 
 
 # ---------------------------------------------------------------------------
