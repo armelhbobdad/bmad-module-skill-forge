@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill now writes the first `|api:` line of a docs-only skill from the names of its `## Key API Summary` table, in row order. The line was taken from the extraction inventory's exports, which a docs-only skill does not have, so a run could leave the line out or fill it with the names of the documented items, often ids such as `page#concept-0`, which Export Skill and Update Skill then kept on every export and update. A name now takes `()` when the skill's provenance map gives it a function kind, the line never takes an item name the table does not give, and it is left out when the table gives no name. A line an earlier run already filled with item ids keeps them: delete the `|api:` line from the `context-snippet.md` of the skill's active version, then export the skill again, which takes the line's names from the table.
+issues: [1268]
+prs: [1276]

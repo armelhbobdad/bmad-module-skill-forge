@@ -153,7 +153,7 @@ If a later tool rewrites the description, step 6 §0's Description Guard restore
 Write the snippet in the format of `{skillSectionsData}`'s context-snippet.md Format (when §2 loaded `{assemblyComponentLibraryData}`: that file's), from these values:
 
 - **version**: the inventory's `run.version`, the source version step 3 reconciled, not the brief's default
-- **api**: Top 10 exports from extraction inventory, append `()` to function names
+- **api**: Top 10 exports from extraction inventory, append `()` to function names. For a `docs-only` brief (`source_type: "docs-only"`), take instead the first 10 names of the rows of the `## Key API Summary` table §2 assembled, in row order, each once: read a row's name without backticks, `()`, a module qualifier (`cognee.add` is `add`) or generic parameters (`Meta<T = Args>` is `Meta`), and split a cell that names several on `/`. Such a name takes `()` when its `export_type` in the provenance map §1c staged is a function, and is written bare for any other kind or when the map gives no kind for it. Never take a `t3_items` name the table does not give (an item id such as `page#concept-0`), and omit the line when the table gives no name.
 - **key-types**: Inline summary of most important enum/type values from Key Types section
 - **gotchas**: Derived from T2-future annotations (breaking changes), async requirements, version-specific behavior changes. If no gotchas available, omit the gotchas line.
 
