@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   A docs-only update no longer counts, in the provenance map's update block, the re-extracted exports it leaves out and warns about (one with no name or url, or on a document the provenance map already holds entries of that the update did not list among the changed documents): `exports_affected` counts only those it applied, and `files_changed` no longer counts a new page whose only exports have no name. A document the re-extraction lists twice among the changed documents is applied once, so `files_changed` counts it once and the summary in `apply.json` names each of its exports once among the entries added and removed.
 issues: [1266]
+prs: [1274]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   A pipeline that read `no-changes` for such a skill now gets `blocked`: re-run once its documents can be reached, or re-create the skill with Create Skill (`@Ferris CS`) so it records their hashes.
 issues: [1267]
+prs: [1274]
