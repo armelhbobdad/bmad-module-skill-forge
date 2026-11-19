@@ -1032,8 +1032,9 @@ NOT_ROUTED_REASONS = {
     "metadata-drift": (
         "update-skill recounts `stats.exports_public_api`, `stats.exports_documented` and "
         "`stats.effective_denominator` each time it writes metadata.json, so a metadata patch to them does not hold "
-        "(under `--allow-workspace-drift` and for a docs-only skill it keeps the recorded public API counts and "
-        "`stats.effective_denominator` instead); Create Skill rebuilds diverging barrel counts from the source and "
+        "(under `--allow-workspace-drift` it keeps the recorded public API counts and `stats.effective_denominator` "
+        "instead, and for a docs-only skill the recorded `stats.effective_denominator`); Create Skill rebuilds "
+        "diverging barrel counts from the source and "
         "recounts a `stats.effective_denominator` the brief's `scope.tier_a_include` set disagrees with "
         "(denominator drift), a person fixes denominator deflation on a brief with no tier A list by adding "
         "`scope.tier_a_include` to it, and documented-surface counts that differ by the `Type::method` entries the "

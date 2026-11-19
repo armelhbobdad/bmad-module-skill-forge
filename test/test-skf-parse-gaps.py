@@ -975,6 +975,10 @@ def test_translate_leaves_barrel_drift_unrouted_with_its_reason():
         in item["reason"]
     assert "Create Skill rebuilds diverging barrel counts" in item["reason"]
     assert "builds `exports[]` from the provenance map" not in item["reason"]
+    # #1250: a docs-only skill's public API counts are recounted too, from its doc items; only its recorded
+    # effective_denominator is kept
+    assert "and for a docs-only skill it keeps the recorded public API counts" not in item["reason"]
+    assert "and for a docs-only skill the recorded `stats.effective_denominator`" in item["reason"]
     assert f"test-report: not routed: GAP-001 (metadata-drift): {item['reason']}" in summary["warnings"]
 
 

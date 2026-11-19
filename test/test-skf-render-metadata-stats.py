@@ -1029,5 +1029,104 @@ class TestPrimaryConfidence:
         assert json.loads(_run([str(empty)], stdin="{}").stdout)["primary_confidence"] is None
 
 
+# --------------------------------------------------------------------------
+# --shape docs-only: a docs-only skill's public API is its doc items, counted
+# by the helper (#1250)
+# --------------------------------------------------------------------------
+
+
+def _doc_items(n):
+    """A docs-only provenance map's entries: one T3 entry per doc item, cited by its URL."""
+    return [{"export_name": f"item{i}", "export_type": "function", "source_file": "https://docs.example/api",
+             "confidence": "T3", "signature_source": "T3"} for i in range(n)]
+
+
+DOCS_ONLY_STATS = {"exports_documented": 3, "exports_public_api": 3, "exports_internal": 0, "exports_total": 3,
+                   "public_api_coverage": 1.0, "total_coverage": 1.0, "scripts_count": 0, "assets_count": 0}
+
+
+class TestDocsOnlyShape:
+    def test_every_entry_is_public_api(self):
+        # the library shape reads the payload's counts: 0 with none given, so both coverages are null
+        result = mod.derive_stats({"entries": _doc_items(3)}, {"scripts": [], "assets": []}, "docs-only")
+        assert result["stats"] == DOCS_ONLY_STATS
+        assert result["confidence_distribution"] == {"t1": 0, "t1_low": 0, "t2": 0, "t3": 3}
+
+    @pytest.mark.parametrize("payload", [{"scripts": [], "assets": []},
+                                         {"exports_public_api": 3, "exports_internal": 0, "scripts": [],
+                                          "assets": []}], ids=["no-counts", "matching-counts"])
+    def test_the_cli_counts_the_entries(self, tmp_path, payload):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _doc_items(3)})
+        out_file = tmp_path / "out.json"
+        res = _run([str(prov), "--shape", "docs-only", "-o", str(out_file)], stdin=json.dumps(payload))
+        assert res.returncode == 0, res.stderr
+        out = json.loads(out_file.read_text(encoding="utf-8"))
+        assert out["stats"] == DOCS_ONLY_STATS and out["coherence"] == {"ok": True, "violations": []}
+
+    @pytest.mark.parametrize("payload, key", [
+        ({"exports_public_api": 2}, "exports_public_api"),
+        ({"exports_internal": 1}, "exports_internal"),
+        ({"exports_public_api": True}, "exports_public_api"),
+    ], ids=["stale-public-api", "internal", "bool"])
+    def test_a_payload_count_that_differs_exits_2(self, tmp_path, payload, key):
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": _doc_items(3)})
+        out_file = tmp_path / "out.json"
+        res = _run([str(prov), "--shape", "docs-only", "-o", str(out_file)],
+                   stdin=json.dumps({**payload, "scripts": [], "assets": []}))
+        assert res.returncode == 2 and res.stdout == "" and not out_file.exists()
+        assert len(res.stderr.splitlines()) == 1, res.stderr
+        assert f"the payload's {key} (" in res.stderr and "leave both counts out of the payload" in res.stderr
+
+    def test_check_compares_and_fixes_the_two_counts(self, tmp_path):
+        # metadata.json as an update that passed the recorded count left it: 2 recorded for 3 doc items
+        prov_doc = {"entries": _doc_items(3)}
+        stale = {"name": "docs", "source_type": "docs-only",
+                 "stats": {**DOCS_ONLY_STATS, "exports_public_api": 2, "exports_total": 2,
+                           "public_api_coverage": 1.5, "total_coverage": 1.5},
+                 "confidence_distribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 3}}
+        prov, meta = _staged(tmp_path, prov_doc, stale)
+        # without --shape the check reads the library shape, as before: the recorded counts agree with themselves
+        assert _run([str(prov), "--check", str(meta)]).returncode == 0
+        res = _run([str(prov), "--check", str(meta), "--shape", "docs-only", "--fix"])
+        assert res.returncode == 1, res.stderr
+        out = json.loads(res.stdout)
+        fields = ["stats.exports_public_api", "stats.exports_total", "stats.public_api_coverage",
+                  "stats.total_coverage"]
+        assert [v["field"] for v in out["coherence"]["violations"]] == fields
+        assert out["fixed"] == fields
+        assert json.loads(meta.read_text(encoding="utf-8")) == {**stale, "stats": DOCS_ONLY_STATS}
+        assert _run([str(prov), "--check", str(meta), "--shape", "docs-only"]).returncode == 0
+
+    def test_check_compares_the_internal_count(self):
+        prov = {"entries": _doc_items(3)}
+        derived = mod.derive_stats(prov, {}, "docs-only")
+        coherence = mod.check_stats(derived, {"stats": {**DOCS_ONLY_STATS, "exports_internal": 1},
+                                              "confidence_distribution": derived["confidence_distribution"]}, prov)
+        assert [v["field"] for v in coherence["violations"]] == ["stats.exports_internal"]
+
+    def test_the_shape_is_never_inferred(self):
+        assert mod.detect_shape({"scope_type": "docs-only"}) == "library"
+        assert mod.detect_shape({"source_type": "docs-only"}) == "library"
+
+    @pytest.mark.parametrize("head, judgment, shape", [
+        ({"scope_type": "full-library"}, {}, "library"),
+        ({"scope_type": "reference-app"}, {"pattern_surfaces_documented": 2}, "reference-app"),
+        ({"skill_type": "stack"}, {"exports_documented": 3}, "stack"),
+    ], ids=["library", "reference-app", "stack"])
+    def test_check_without_a_shape_leaves_the_other_shapes_as_they_were(self, tmp_path, head, judgment, shape):
+        # recorded counts that disagree with the entry count but agree with themselves: only the docs-only
+        # shape compares them, so the shape --check infers passes them as before
+        prov_doc = {"entries": _doc_items(3)}
+        derived = mod.derive_stats(prov_doc, {"exports_public_api": 2, "exports_internal": 1, **judgment}, shape)
+        meta_doc = {**head, "stats": derived["stats"], "confidence_distribution": derived["confidence_distribution"]}
+        assert mod.detect_shape(meta_doc) == shape
+        prov, meta = _staged(tmp_path, prov_doc, meta_doc)
+        res = _run([str(prov), "--check", str(meta)])
+        assert res.returncode == 0, res.stdout + res.stderr
+        out = json.loads(res.stdout)
+        assert out["coherence"] == {"ok": True, "violations": []}
+        assert (out["stats"]["exports_public_api"], out["stats"]["exports_internal"]) == (2, 1)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

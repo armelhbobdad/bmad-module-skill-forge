@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill, skf-create-skill
+summary: |
+  Update Skill now counts every doc item of a docs-only skill as its public API when it writes `metadata.json`, so `stats.exports_public_api`, `stats.exports_total`, `stats.public_api_coverage` and `stats.total_coverage` follow the doc items an update added or removed. Before, an update kept the count the previous version recorded, and a skill whose doc items doubled reported a public API coverage of 2.0. Create Skill now has its stats helper make the same count instead of leaving it to the run.
+issues: [1250]
+prs: [1256]

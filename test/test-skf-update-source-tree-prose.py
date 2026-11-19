@@ -2225,9 +2225,12 @@ def test_write_counts_the_public_api_with_the_runner():
                   "`{run_dir}/denominator.json` in place of the runner's: they hold its names.",
                   "on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count them by "
                   "`{entryPointsByHandData}` and pass the `counts` of `{run_dir}/denominator.json`",
-                  "A docs-only skill has no tree to count"):
+                  "A docs-only skill has no tree to count",
+                  # #1250: the helper counts a docs-only skill's doc items, never the count metadata.json recorded
+                  "leave both counts out of the payload and pass `--shape docs-only`"):
         assert token in bullet, token
-    for gone in ("add their names to the two counts", "count the entry points by hand"):
+    for gone in ("add their names to the two counts", "count the entry points by hand",
+                 "pass the values metadata.json records, as the drift override does"):
         assert gone not in bullet, gone
     # the hand-count file binds update-skill's paths, and §3b halts where it cannot run
     by_hand = " ".join((SRC / front["entryPointsByHandData"]).read_text(encoding="utf-8").split())
@@ -3521,8 +3524,8 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     kept_row = {"file": "scripts/run.sh", "purpose": "Run it, as the author put it", "source_file": "tools/run.sh",
                 "confidence": "T1-low"}
     (skill_package / "metadata.json").write_bytes(json.dumps({
-        "name": "lib", "version": "1.0.0", "scope_type": "component-library", "source_commit": "aaa",
-        "source_ref": "v1", "generation_date": "2026-01-01T00:00:00Z", "exports": ["search"],
+        "name": "lib", "version": "1.0.0", "description": "Lib 1.0.", "scope_type": "component-library",
+        "source_commit": "aaa", "source_ref": "v1", "generation_date": "2026-01-01T00:00:00Z", "exports": ["search"],
         "scripts": [kept_row], "stats": {"exports_documented": 1, "effective_denominator": 1,
                                          "components_registered": 1, "notes": "patched"},
         "confidence_distribution": {"t1": 1, "t1_low": 0, "t2": 0, "t3": 0}, "last_update": "2026-01-01",
@@ -3555,6 +3558,8 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     assert stats.main(argv) == 0, capsys.readouterr()
     meta_call = _fence(two, "uv run {buildChangeManifestHelper} metadata")
+    # #1252: the merged SKILL.md, whose frontmatter description the update changed
+    (skill_package / "SKILL.md").write_bytes(b"---\nname: lib\ndescription: Lib 1.1, merged.\n---\n\n# lib\n")
     # the installed SKF and step 2's runner output name the toolchain this run used (#801)
     (tmp_path / "_bmad" / "skf").mkdir(parents=True)
     (tmp_path / "_bmad" / "skf" / "package.json").write_bytes(b'{"version": "4.0.0"}')
@@ -3574,6 +3579,8 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     written = json.loads((skill_package / "metadata.json").read_bytes())
     assert (written["version"], written["generation_date"], written["source_commit"], written["source_ref"]) == \
         ("1.1.0", "2026-10-01T10:00:00Z", "bbb", "v1")
+    # #1252: the description follows the merged SKILL.md, in the place metadata.json held it
+    assert written["description"] == "Lib 1.1, merged." and list(written)[:3] == ["name", "version", "description"]
     assert written["scripts"] == [kept_row, new_row] and "last_update" not in written and "update_type" not in written
     assert written["tool_versions"] == tools
     assert written["stats"]["components_registered"] == 1 and written["stats"]["notes"] == "patched"
@@ -3941,7 +3948,10 @@ def test_reference_app_stats_use_the_reference_app_shape():
     for token in ("read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it",
                   "When it is `reference-app`, pass `--shape reference-app` and `--skill-md \"{skill_package}/SKILL.md\"`, "
                   "which counts `pattern_surfaces_documented`",
-                  "pass no `--shape` (the helper's default, the library shape)"):
+                  "pass no `--shape` (the helper's default, the library shape)",
+                  # #1250: a docs-only skill's public API is its doc items, which the helper counts
+                  "for a docs-only skill (`source_type: \"docs-only\"` in the brief or metadata.json, as step 3 §1 "
+                  "checks), pass `--shape docs-only`"):
         assert token in shape, token
     # init.md's Stack Skill Guard is the one gate for stacks: write does not narrate a route no stack takes (#600)
     assert "Stack Skill Guard" not in shape
@@ -3964,6 +3974,7 @@ def test_reference_app_stats_use_the_reference_app_shape():
     assert "`--skill-md <staging-skill-dir>/SKILL.md` (the SKILL.md §2a wrote), with no " \
            "`pattern_surfaces_documented` in the payload" in shape_
     assert "(the Pattern Surface row count) in the payload" not in shape_
+    assert "pass `--shape docs-only` with neither count in the payload" in shape_
 
 
 def _stats_main(block: str, forge_version: Path, monkeypatch, capsys) -> tuple[int, dict]:
@@ -4013,6 +4024,13 @@ def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
     assert out["stats"]["exports_documented"] == out["stats"]["pattern_surfaces_documented"] == 2
     assert sum(out["confidence_distribution"].values()) == 3  # per citation, not per pattern surface
     assert "effective_denominator" not in out["stats"]
+    # #1250: a docs-only skill's call gives no count; the helper counts each entry, one per doc item, as public API
+    docs = _fence(two, "--shape docs-only -o")
+    assert docs not in (library, app) and "exports_public_api" not in docs and "exports_internal" not in docs
+    code, out = _stats_main(docs, forge_version, monkeypatch, capsys)
+    assert code == 0 and out["coherence"]["ok"] is True
+    assert (out["stats"]["exports_public_api"], out["stats"]["exports_internal"]) == (3, 0)
+    assert out["stats"]["public_api_coverage"] == out["stats"]["total_coverage"] == 1.0
 
 
 def test_write_passes_the_effective_denominator_create_skill_decides():
@@ -7171,6 +7189,7 @@ def test_a_moved_local_source_is_named_with_source_root(tmp_path):
     (run_dir / "metadata-lists.json").write_bytes(b'{"exports": [], "scripts": [], "assets": []}')
     (run_dir / "stats.json").write_bytes(json.dumps({"stats": {"scripts_count": 0, "assets_count": 0},
                                                      "confidence_distribution": {}}).encode("utf-8"))
+    (package / "SKILL.md").write_bytes(b"---\nname: lib\ndescription: Lib.\n---\n")
     moved = (tmp_path / "moved source").as_posix()
     values = {"skill_package": str(package), "run_dir": str(run_dir), "new_version": "1.0.1",
               "generation_date": "2026-11-13T10:00:00Z", "project-root": str(tmp_path), "source_root_override": moved}

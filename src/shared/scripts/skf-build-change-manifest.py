@@ -63,7 +63,7 @@ Subcommands:
       when given. Prints a summary with the warnings for a person.
 
   metadata --metadata <metadata.json> --lists <file> --stats <file>
-           --version <version> --generation-date <iso>
+           --skill-md <SKILL.md> --version <version> --generation-date <iso>
            [--source-commit <sha>] [--source-ref <ref>] [--source-root <path>]
            [--skf-root <dir>] [--extraction <file>] [--qmd-version <version>]
       The skill's metadata.json an update leaves (see "Metadata" below),
@@ -486,6 +486,8 @@ Metadata (update-skill write.md §3b):
 
   metadata.json as --metadata holds it, with what the update sets: version
   (--version) and generation_date (--generation-date, YYYY-MM-DDTHH:MM:SSZ);
+  description, the frontmatter description of --skill-md (the merged
+  SKILL.md), read as create-skill's metadata call reads the staged one;
   source_commit, source_ref and source_root when --source-commit,
   --source-ref or --source-root is given (an empty one sets null), else as
   they stand (--source-root: the local folder a run's --source-root
@@ -528,8 +530,10 @@ Metadata (update-skill write.md §3b):
   other field. It refuses (exit 1, nothing written, one stderr line) a
   --stats whose scripts_count or assets_count is not the length of
   --lists' scripts or assets, a --generation-date of another form, an
-  --extraction that is not a JSON object, a file it cannot read, and a
-  skf-render-quick-metadata.py beside it that cannot be loaded.
+  --extraction that is not a JSON object, a file it cannot read, a
+  --skill-md with no frontmatter description or a blank one, and a
+  skf-render-quick-metadata.py or skf-description-guard.py beside it that
+  cannot be loaded.
 
   Summary on stdout: {"status": "written", "map": <-o>, "entries":
   {"added", "updated", "removed"}, "not_public": [{name, file}],
@@ -2664,9 +2668,11 @@ def update_metadata(metadata: object, lists: object, stats: object, *, version: 
                     source_commit: str | None = None, source_ref: str | None = None,
                     source_root: str | None = None,
                     skf_version: str | None = None, skf_root: str | Path | None = None,
-                    ast_grep_version: str | None = None, qmd_version: str | None = None) -> tuple[dict, dict]:
+                    ast_grep_version: str | None = None, qmd_version: str | None = None,
+                    description: str | None = None) -> tuple[dict, dict]:
     """(the metadata.json an update leaves, {"dropped_stats": [...], "warnings": [...]}) (see "Metadata" in the
-    module docstring). Raises ValueError."""
+    module docstring). `description` is the merged SKILL.md's, as _skill_description reads it; None keeps the one
+    metadata.json holds. Raises ValueError."""
     if not isinstance(metadata, dict):
         raise ValueError("--metadata file must hold a JSON object (the skill's metadata.json)")
     if not isinstance(lists, dict) or not all(isinstance(lists.get(k), list) for k in ("exports", "scripts",
@@ -2689,6 +2695,8 @@ def update_metadata(metadata: object, lists: object, stats: object, *, version: 
     out = {k: v for k, v in metadata.items() if k not in ("last_update", "update_type")}
     out["version"] = version
     out["generation_date"] = generation_date
+    if description is not None:
+        out["description"] = description
     for key, value in (("source_commit", source_commit), ("source_ref", source_ref), ("source_root", source_root)):
         if value is not None:
             out[key] = value or None
@@ -3786,6 +3794,51 @@ def _quick_metadata():
     return _QUICK_METADATA
 
 
+_DESCRIPTION_GUARD = None
+
+
+def _description_guard():
+    """skf-description-guard.py, loaded once from this folder as skf-extraction-inventory.py loads it: its
+    read_description reads a SKILL.md's frontmatter description, so create-skill and update-skill read it one way.
+    Raises ValueError, one line, when it cannot be loaded."""
+    global _DESCRIPTION_GUARD
+    if _DESCRIPTION_GUARD is None:
+        path = Path(__file__).resolve().parent / "skf-description-guard.py"
+        cannot = f"cannot load {path.name} beside {Path(__file__).name}"
+        if not path.is_file():
+            raise ValueError(f"{cannot}: it is missing; re-install SKF")
+        spec = importlib.util.spec_from_file_location("skf_description_guard", path)
+        if spec is None or spec.loader is None:
+            raise ValueError(f"{cannot}: re-install SKF")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (ImportError, SyntaxError, OSError) as exc:
+            raise ValueError(f"{cannot} ({type(exc).__name__}: {' '.join(str(exc).split())}): re-install "
+                             f"SKF") from exc
+        if not callable(getattr(module, "read_description", None)):
+            raise ValueError(f"{cannot}: it has no read_description; re-install SKF")
+        _DESCRIPTION_GUARD = module
+    return _DESCRIPTION_GUARD
+
+
+def _skill_description(path: str) -> str:
+    """The frontmatter description of --skill-md (the merged SKILL.md), as skf-description-guard.py's
+    read_description returns it, unstripped. Raises ValueError, one line, when the file cannot be read, has no
+    frontmatter description or a blank one, or the guard cannot be loaded."""
+    guard = _description_guard()
+    skill_md = Path(path)
+    try:
+        description, _hash = guard.read_description(skill_md)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        # a YAML error's message spans lines: one stderr line, as the step's halt reads it
+        raise ValueError(f"--skill-md: cannot read the description of {skill_md.as_posix()}: "
+                         f"{' '.join(str(exc).split())}") from exc
+    if not description.strip():
+        raise ValueError(f"--skill-md: the description of {skill_md.as_posix()} is empty")
+    return description
+
+
 def _runner_ast_grep(path: str | None) -> str | None:
     """The ast-grep version the recipe runner's output (--extraction) records: "unknown" when it records none but
     holds an export ast-grep matched, and None when ast-grep did not run (no export it matched, as in the
@@ -3813,7 +3866,8 @@ def _cmd_metadata(args: argparse.Namespace) -> int:
             _load_json_file(Path(args.stats), "--stats file"), version=args.version,
             generation_date=args.generation_date, source_commit=args.source_commit, source_ref=args.source_ref,
             source_root=args.source_root, skf_version=skf_version, skf_root=args.skf_root,
-            ast_grep_version=_runner_ast_grep(args.extraction), qmd_version=args.qmd_version)
+            ast_grep_version=_runner_ast_grep(args.extraction), qmd_version=args.qmd_version,
+            description=_skill_description(args.skill_md))
         _write_json_atomic(target, metadata)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -4109,6 +4163,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_meta = sub.add_parser(
         "metadata", help="write the metadata.json an update leaves",
         description="Rewrite the skill's metadata.json in place. It sets version and generation_date, "
+                    "description from --skill-md's frontmatter, "
                     "source_commit, source_ref and source_root when given, exports, scripts and assets from "
                     "--lists (a script or asset list left out when empty), confidence_distribution from --stats and the stats "
                     "helper's stats fields, dropping one an earlier run wrote that --stats lacks; tool_versions.skf "
@@ -4119,12 +4174,15 @@ def _build_parser() -> argparse.ArgumentParser:
                     "with a warning. It keeps every other old stats key, with a warning for each one create-skill "
                     "does not write for the skill's scope_type. It removes last_update and "
                     "update_type and keeps every other field, a patched one included. It refuses a --stats whose "
-                    "scripts_count or assets_count is not the length of --lists' scripts or assets.")
+                    "scripts_count or assets_count is not the length of --lists' scripts or assets, and a "
+                    "--skill-md whose frontmatter has no description or a blank one.")
     p_meta.add_argument("--metadata", required=True, metavar="FILE",
                         help="the skill's metadata.json, rewritten in place")
     p_meta.add_argument("--lists", required=True, metavar="FILE", help="the lists apply wrote (--lists-out)")
     p_meta.add_argument("--stats", required=True, metavar="FILE",
                         help="the JSON skf-render-metadata-stats.py wrote (its -o file)")
+    p_meta.add_argument("--skill-md", required=True, metavar="FILE",
+                        help="the merged SKILL.md, whose frontmatter description metadata.json takes")
     p_meta.add_argument("--version", required=True, help="the version this update writes")
     p_meta.add_argument("--generation-date", required=True, help="the clock's UTC time, YYYY-MM-DDTHH:MM:SSZ")
     p_meta.add_argument("--source-commit", default=None, help="the commit this update read (an empty one: null)")

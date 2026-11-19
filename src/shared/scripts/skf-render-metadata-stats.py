@@ -51,6 +51,14 @@ distribution ALWAYS bins `entries[]`, so it always sums to `len(entries)`. What
     per-entry counts, and writes neither `stats` nor
     `confidence_distribution` into metadata.json; `--check` does not fit a
     stack.
+  - **docs-only**: a docs-only skill has no source tree to count, so the
+    helper makes both public API counts as well: `exports_public_api` is
+    the entry count (one entry per doc item) and `exports_internal` is 0,
+    beside `exports_documented` = `len(entries)` as for a library, so both
+    coverages are 1.0. `--check` never infers this shape (a skill's
+    `scope_type` need not name its `source_type`): pass `--shape docs-only`,
+    and it compares the recorded `exports_public_api` and `exports_internal`
+    with the two counts too.
 
 Modes
 -----
@@ -101,6 +109,10 @@ Judgment payload (stdin JSON, compute mode)::
       "scripts": [ ... ],                 # list — scripts[] array (or "scripts_count": int)
       "assets":  [ ... ]                  # list — assets[]  array (or "assets_count":  int)
     }
+
+With `--shape docs-only` the helper reads neither `exports_public_api` nor
+`exports_internal` from the payload, since it counts them: leave both out,
+as a payload that gives one with another value exits 2 with nothing written.
 
 Output JSON (both modes)::
 
@@ -179,8 +191,9 @@ Exit codes:
   1: coherence violations present (drift to auto-fix, a bad signature_source,
      or a label that disagrees with extraction_method); the JSON on stdout is
      still authoritative, so rely on it, not the code
-  2: usage, IO or JSON-decode error, or a `--skill-md` count refused (see
-     Pattern Surface count above)
+  2: usage, IO or JSON-decode error, a `--skill-md` count refused (see
+     Pattern Surface count above), or a payload count `--shape docs-only`
+     refuses
 """
 
 from __future__ import annotations
@@ -197,7 +210,7 @@ from pathlib import Path
 # Canonical signature_source tiers → distribution bin keys. Compared
 # case-insensitively so "T1-low" / "t1-low" both land in t1_low.
 _SIG_MAP = {"T1": "t1", "T1-LOW": "t1_low", "T2": "t2", "T3": "t3"}
-_VALID_SHAPES = ("library", "stack", "reference-app")
+_VALID_SHAPES = ("library", "stack", "reference-app", "docs-only")
 _DIST_KEYS = ("t1", "t1_low", "t2", "t3")
 # Each distribution bin's label, in the order a tie is broken (the later wins).
 _DIST_LABELS = {"t1": "T1", "t1_low": "T1-low", "t2": "T2", "t3": "T3"}
@@ -332,11 +345,15 @@ def derive_stats(prov: dict, judgment: dict, shape: str = "library") -> dict:
         exports_documented = _int(judgment.get("pattern_surfaces_documented"), 0)
     elif shape == "stack":
         exports_documented = _int(judgment.get("exports_documented"), 0)
-    else:  # library
+    else:  # library, docs-only
         exports_documented = entry_count
 
-    exports_public_api = _int(judgment.get("exports_public_api"), 0)
-    exports_internal = _int(judgment.get("exports_internal"), 0)
+    if shape == "docs-only":
+        # no source tree to count: each entry is a doc item, and every doc item is public API
+        exports_public_api, exports_internal = entry_count, 0
+    else:
+        exports_public_api = _int(judgment.get("exports_public_api"), 0)
+        exports_internal = _int(judgment.get("exports_internal"), 0)
     exports_total = exports_public_api + exports_internal
 
     stats: dict[str, object] = {
@@ -564,6 +581,12 @@ def check_stats(derived: dict, metadata: dict, prov: dict) -> dict:
 
     _cmp_int(violations, "stats.exports_documented", d_stats["exports_documented"],
              m_stats.get("exports_documented"))
+    if derived["_derivation"]["shape"] == "docs-only":
+        # the helper makes both counts for this shape, so a recorded one that differs has drifted
+        _cmp_int(violations, "stats.exports_public_api", d_stats["exports_public_api"],
+                 m_stats.get("exports_public_api"))
+        _cmp_int(violations, "stats.exports_internal", d_stats["exports_internal"],
+                 m_stats.get("exports_internal"))
     _cmp_int(violations, "stats.exports_total", d_stats["exports_total"],
              m_stats.get("exports_total"))
     _cmp_ratio(violations, "stats.public_api_coverage", d_stats["public_api_coverage"],
@@ -713,7 +736,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--shape", choices=_VALID_SHAPES, default=None,
         help="assembly shape (default: library in compute mode; inferred from "
-             "metadata.json in --check mode). Selects what exports_documented equals.",
+             "metadata.json in --check mode, never as docs-only). Selects what exports_documented equals; "
+             "docs-only also counts every provenance entry as public API and none as internal, and exits 2 "
+             "on a payload count that differs",
     )
     parser.add_argument(
         "--skill-md", metavar="PATH", dest="skill_md", default=None,
@@ -807,6 +832,17 @@ def main(argv: list[str] | None = None) -> int:
                     "--skill-md counts it\n")
                 return 2
             judgment = {**judgment, "pattern_surfaces_documented": counted}
+        if shape == "docs-only":
+            entries = prov.get("entries")
+            count = len(entries) if isinstance(entries, list) else 0
+            for key, expected in (("exports_public_api", count), ("exports_internal", 0)):
+                given = judgment.get(key)
+                if given is not None and (isinstance(given, bool) or _int(given, -1) != expected):
+                    sys.stderr.write(
+                        f"error: the payload's {key} ({given!r}) is not {expected}: --shape docs-only counts each "
+                        f"of the {count} provenance entries as public API and exports_internal as 0, so leave "
+                        "both counts out of the payload\n")
+                    return 2
         derived = derive_stats(prov, judgment, shape)
         coherence = coherence_compute(derived, prov)
 
