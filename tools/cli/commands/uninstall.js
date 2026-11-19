@@ -10,6 +10,7 @@ const fs = require('fs-extra');
 const { confirm, isCancel, spinner, log, outro } = require('@clack/prompts');
 const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../lib/manifest');
 const { removeAllSkfSkills } = require('../lib/ide-skills');
+const { resolveProjectFolder } = require('../lib/project-folders');
 
 /**
  * Count files that still exist on disk from manifest lists.
@@ -25,7 +26,7 @@ async function countExistingFiles(projectDir, manifest) {
 
   let existing = 0;
   for (const file of allFiles) {
-    if (await fs.pathExists(path.join(projectDir, file))) {
+    if (await fs.pathExists(path.resolve(projectDir, file))) {
       existing++;
     }
   }
@@ -52,7 +53,7 @@ async function displayRemovalPlan(projectDir, manifest) {
     // Count how many still exist
     let existCount = 0;
     for (const f of files) {
-      if (await fs.pathExists(path.join(projectDir, f))) existCount++;
+      if (await fs.pathExists(path.resolve(projectDir, f))) existCount++;
     }
 
     if (existCount === 0) continue;
@@ -76,7 +77,7 @@ async function displayRemovalPlan(projectDir, manifest) {
 async function removeFiles(projectDir, fileList) {
   let removed = 0;
   for (const file of fileList) {
-    const fullPath = path.join(projectDir, file);
+    const fullPath = path.resolve(projectDir, file);
     if (await fs.pathExists(fullPath)) {
       await fs.remove(fullPath);
       removed++;
@@ -100,10 +101,31 @@ async function removeEmptyDir(dirPath) {
   }
 }
 
+/**
+ * Remove the output folders' .gitkeep files the manifest lists, then each
+ * output folder left empty: the folder of each listed file (an earlier
+ * version's manifest can list one under a literal {project-root} folder)
+ * and the folder each output folder value resolves to. The project folder
+ * itself always stays.
+ */
+async function removeOutputScaffolding(projectDir, manifest) {
+  const outputFiles = (manifest.files && manifest.files.output) || [];
+  await removeFiles(projectDir, outputFiles);
+  const folders = outputFiles.map((file) => path.dirname(path.resolve(projectDir, file)));
+  for (const value of [manifest.skills_output_folder, manifest.forge_data_folder]) {
+    if (value) folders.push(resolveProjectFolder(projectDir, value));
+  }
+  const root = path.resolve(projectDir);
+  for (const folder of folders) {
+    if (folder !== root) await removeEmptyDir(folder);
+  }
+}
+
 module.exports = {
   command: 'uninstall',
   description: 'Remove SKF installation from the current project',
   options: [],
+  removeOutputScaffolding,
   action: async () => {
     try {
       const projectDir = process.cwd();
@@ -171,13 +193,7 @@ module.exports = {
       const outputFiles = manifest.files.output || [];
       if (outputFiles.length > 0) {
         s.start('Removing output scaffolding...');
-        await removeFiles(projectDir, outputFiles);
-        // Remove empty output folders
-        for (const folder of [manifest.skills_output_folder, manifest.forge_data_folder]) {
-          if (folder) {
-            await removeEmptyDir(path.join(projectDir, folder));
-          }
-        }
+        await removeOutputScaffolding(projectDir, manifest);
         s.stop('Output scaffolding removed');
       }
 

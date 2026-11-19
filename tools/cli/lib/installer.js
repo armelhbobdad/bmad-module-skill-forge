@@ -9,6 +9,7 @@ const { spinner } = require('@clack/prompts');
 const yaml = require('js-yaml');
 const { installSkillsToIdes } = require('./ide-skills');
 const { writeManifest } = require('./manifest');
+const { GITKEEP, PROJECT_ROOT_RE, resolveProjectFolder } = require('./project-folders');
 
 class Installer {
   constructor() {
@@ -275,11 +276,51 @@ class Installer {
     const forgeDataFolder = config.forge_data_folder || 'forge-data';
 
     for (const folder of [skillsFolder, forgeDataFolder]) {
-      const folderPath = path.join(projectDir, folder);
+      await this.removePlaceholderLeftover(projectDir, folder);
+      const folderPath = resolveProjectFolder(projectDir, folder);
       if (!(await fs.pathExists(folderPath))) {
         await fs.ensureDir(folderPath);
-        await fs.writeFile(path.join(folderPath, '.gitkeep'), '# This file ensures the directory is tracked by git\n');
+        await fs.writeFile(path.join(folderPath, '.gitkeep'), GITKEEP);
       }
+    }
+  }
+
+  /**
+   * Remove the folder an earlier installer version created for a value that
+   * starts with {project-root}: it joined the value to the project folder as
+   * it stands, so `{project-root}/skills` became `<project>/{project-root}/skills`.
+   * The folder goes only when its one entry is the .gitkeep the installer
+   * wrote there, then each parent left empty, up to the project folder.
+   */
+  async removePlaceholderLeftover(projectDir, value) {
+    const root = path.resolve(projectDir);
+    const literal = path.resolve(path.join(projectDir, String(value)));
+    if (!PROJECT_ROOT_RE.test(String(value)) || literal === resolveProjectFolder(projectDir, value)) return;
+    const inside = (dir) => {
+      const rel = path.relative(root, dir);
+      return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+    };
+    if (!inside(literal)) return;
+    try {
+      if (!(await fs.lstat(literal)).isDirectory()) return;
+      const entries = await fs.readdir(literal);
+      if (entries.length !== 1 || entries[0] !== '.gitkeep') return;
+      const gitkeep = path.join(literal, '.gitkeep');
+      if (!(await fs.lstat(gitkeep)).isFile()) return;
+      if ((await fs.readFile(gitkeep, 'utf8')) !== GITKEEP) return;
+      await fs.remove(literal);
+    } catch {
+      return;
+    }
+    let parent = path.dirname(literal);
+    while (inside(parent)) {
+      try {
+        if ((await fs.readdir(parent)).length > 0) return;
+        await fs.rmdir(parent);
+      } catch {
+        return;
+      }
+      parent = path.dirname(parent);
     }
   }
 

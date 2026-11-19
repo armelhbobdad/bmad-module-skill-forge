@@ -9,6 +9,7 @@ const path = require('node:path');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
 const { readManifest } = require('../lib/manifest');
+const { resolveProjectFolder } = require('../lib/project-folders');
 const { getAvailablePlatforms } = require('../lib/ide-skills');
 const { startToolCheck } = require('../lib/tool-check');
 
@@ -69,8 +70,8 @@ async function getStatus(projectDir) {
   // Check output folders
   const skillsFolder = config?.skills_output_folder || 'skills';
   const forgeDataFolder = config?.forge_data_folder || 'forge-data';
-  const skillsFolderExists = await fs.pathExists(path.join(projectDir, skillsFolder));
-  const forgeDataFolderExists = await fs.pathExists(path.join(projectDir, forgeDataFolder));
+  const skillsFolderExists = await fs.pathExists(resolveProjectFolder(projectDir, skillsFolder));
+  const forgeDataFolderExists = await fs.pathExists(resolveProjectFolder(projectDir, forgeDataFolder));
 
   // Check sidecar state
   const sidecarExists = await fs.pathExists(sidecarDir);
@@ -189,6 +190,7 @@ module.exports = {
   command: 'status',
   description: 'Show SKF installation state, version, tier, and configuration',
   options: [],
+  getStatus,
   action: async () => {
     const printToolReport = startToolCheck();
     try {
