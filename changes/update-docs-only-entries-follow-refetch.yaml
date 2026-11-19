@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   A docs-only update now writes each provenance entry of a re-fetched document from what that run read. A `quote`, `description` or other detail the re-extraction gives reaches new and kept entries alike. A kept entry keeps the provenance fields the re-extraction does not set, such as its `source_library` or a `return_type` given as null, and drops every other key it does not give again, such as a quote from the earlier fetch or a hand-written `notes`. A new entry takes the `extraction_method` the skill's other documentation entries share.
 issues: [1247]
+prs: [1257]
