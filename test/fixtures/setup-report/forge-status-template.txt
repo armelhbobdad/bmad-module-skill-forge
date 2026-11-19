@@ -29,8 +29,11 @@
   QMD Registry:
   {hygiene_healthy} collection(s) healthy
   {if hygiene_empty > 0: {hygiene_empty} registered collection(s) hold no indexed files, so Deep-tier searches find nothing in them: {hygiene_empty_collections, comma-separated}}
-  {if hygiene_empty > 0: `qmd collection show <name>` gives each one's folder. When that folder is gone or holds no file its pattern matches, re-indexing cannot refill it: run `qmd collection remove <name>`, and the next Deep-tier setup drops its registry entry}
-  {if hygiene_empty > 0: When the folder does hold such files, run `qmd update` (it re-indexes every collection on this machine and empties any whose folder is gone), then `qmd embed -c <name>`}
+  {if an empty name's cause is "folder missing": Folder missing: {the collections with that cause, comma-separated}. Re-indexing cannot refill a collection whose folder is gone: run `qmd collection remove <name>` for each, and the next Deep-tier setup drops its registry entry}
+  {if an empty name's cause is "folder present": Folder present: {the collections with that cause, comma-separated}. When the folder holds files its pattern matches (as after a reset index), run `qmd update` (it re-indexes every collection on this machine and empties any whose folder is gone), then `qmd embed -c <name>`; when it holds none, run `qmd collection remove <name>`}
+  {if an empty name's cause is "folder in another project": Folder in another project: {the collections with that cause, comma-separated}. QMD's index is shared by every project on this machine, so setup leaves them to the project that owns the folder}
+  {if an empty name's cause is "folder unknown" (or it has none): Folder unknown: {the collections with that cause, comma-separated}. `qmd collection show <name>` gives each one's folder. When that folder is gone or holds no file its pattern matches, re-indexing cannot refill it: run `qmd collection remove <name>`, and the next Deep-tier setup drops its registry entry}
+  {if an empty name's cause is "folder unknown" (or it has none): When the folder does hold such files, run `qmd update` (it re-indexes every collection on this machine and empties any whose folder is gone), then `qmd embed -c <name>`}
   {if hygiene_orphaned_removed > 0: {hygiene_orphaned_removed} orphaned collection(s) removed}
   {if hygiene_orphaned_kept > 0: {hygiene_orphaned_kept} orphaned collection(s) kept}
   {if hygiene_stale_cleaned > 0: {hygiene_stale_cleaned} stale QMD registry entry/entries cleaned}

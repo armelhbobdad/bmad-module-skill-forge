@@ -26,7 +26,7 @@ Reconcile the `qmd_collections` registry with the live QMD collections, and prun
 
 ## Rules
 
-- Never reimplement the forge-namespace suffix filter, the path check or the file-count check in prose: the classifier owns them
+- Never reimplement the forge-namespace suffix filter, the path check, the file-count check or the folder check in prose: the classifier owns them
 - Run `qmd collection remove`, through the classifier's `remove-orphans`, only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and the emitter records the decision from the flags step 4 passes, so the envelope's `warnings` name each collection the removal deleted
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
@@ -51,7 +51,7 @@ uv run {qmdClassifyHelper} classify \
 
 **If the script exits non-zero** (qmd is not running), go to section 4: step 4 reports QMD hygiene as skipped.
 
-Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files: step 4's report shows them with how to clear each one: `qmd collection show` for its folder, then `qmd collection remove` when re-indexing cannot refill it. This step removes none of them and offers no removal.
+Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files, and the classifier reads each one's folder (`empty_paths`, `empty_folder_missing` and `empty_outside_project`). Step 4's report names each one's cause and how to clear it: `qmd collection remove` alone for a folder that is gone, re-indexing or removal for a folder still there, and no advice for a folder in another project (QMD's index is shared by every project on the machine). This step removes none of them and offers no removal.
 
 ### 3. Handle Orphaned Collections
 

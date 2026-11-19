@@ -23,7 +23,13 @@ Classification rules (per step 3 §2):
               block of `qmd collection list` reads `Files: 0`: QMD lists
               no file for it, so searches return nothing. Reported,
               never removed: it stays in live_names, so no registry
-              cleanup prunes it.
+              cleanup prunes it. Its folder tells why it holds none:
+              `qmd collection show <name>` (run for an empty name only)
+              gives its Path (`empty_paths`), a Path that is no
+              directory is listed under `empty_folder_missing`, and one
+              outside --project-root under `empty_outside_project`
+              (another project's folder: QMD's index is shared). A name
+              qmd cannot show has no Path and is in neither list.
   Orphaned: name in {forge-suffix-matched live}, NOT in registry, and
               `qmd collection show <name>` reports a Path inside
               --project-root. Offered for removal in step 3 §3.
@@ -62,12 +68,15 @@ Subcommands:
 
     --project-root <path>
                   The project whose orphans may be offered for removal.
+                  An empty collection whose Path lies outside it is
+                  listed under `empty_outside_project`.
 
     --live-names  Comma-separated list of collection names currently
                   in QMD. If omitted, the script invokes `qmd collection
                   list` itself. Empty string → no live collections, which
                   is a valid first-run state. `--live-names` carries no
-                  counts, so with it no collection is empty.
+                  counts, so with it no collection is empty and no
+                  registered name is shown.
 
   remove-orphans  Remove the orphans a classification found.
 
@@ -88,7 +97,12 @@ Output of classify (single JSON document on stdout):
     "version": "v1",
     "live_names":       ["bar-extraction", "foo-brief", "memory-root-1"],
     "healthy":          ["foo-brief", "foo-extraction"],
-    "empty":            ["foo-temporal"],
+    "empty":            ["foo-docs", "foo-temporal", "qux-brief"],
+    "empty_paths":      {"foo-docs": "/abs/project/forge-data/foo",
+                         "foo-temporal": "/abs/project/_bmad-output/foo-temporal",
+                         "qux-brief": "/abs/other/forge-data/qux"},
+    "empty_folder_missing":  ["foo-temporal"],
+    "empty_outside_project": ["qux-brief"],
     "orphaned":         ["bar-extraction"],
     "orphaned_paths":   {"bar-extraction": "/abs/project/skills/bar"},
     "stale":            ["baz-docs"],
@@ -253,6 +267,13 @@ def classify(live: list[str], registry: list[str], project_root=None,
     (parse_collection_file_counts). A registered name it maps to 0 is
     empty; one it maps to None, or does not hold, stays healthy.
 
+    `paths` also maps each empty name to the Path `qmd collection show`
+    gave it. `empty_paths` holds the empty names with a Path,
+    `empty_folder_missing` those whose Path is no directory, and
+    `empty_outside_project` those whose Path lies outside `project_root`
+    ([] without one), each in `empty` order. A name with no Path is in
+    none of the three.
+
     Returns the classification payload (without status/version envelope).
     """
     paths = paths or {}
@@ -269,6 +290,12 @@ def classify(live: list[str], registry: list[str], project_root=None,
     # it is still live, so it stays in live_names and no cleanup prunes it.
     empty = [n for n in registered if files.get(n) == 0]
     healthy = [n for n in registered if files.get(n) != 0]
+    # Its folder says why: re-indexing cannot refill a folder that is gone,
+    # and a folder outside this project belongs to another project.
+    empty_paths = {n: paths[n] for n in empty if paths.get(n)}
+    folder_missing = [n for n, path in empty_paths.items() if not os.path.isdir(path)]
+    outside_project = ([] if project_root is None
+                       else [n for n, path in empty_paths.items() if not is_inside(path, project_root)])
     candidates = sorted(forge_live_set - registry_set)
     if project_root is None:
         orphaned = candidates
@@ -287,6 +314,9 @@ def classify(live: list[str], registry: list[str], project_root=None,
         "live_names": sorted(all_live_set),
         "healthy": healthy,
         "empty": empty,
+        "empty_paths": empty_paths,
+        "empty_folder_missing": folder_missing,
+        "empty_outside_project": outside_project,
         "orphaned": orphaned,
         "orphaned_paths": {n: paths[n] for n in orphaned if paths.get(n)},
         "stale": stale,
@@ -531,8 +561,12 @@ def main() -> None:
         # --live-names carries no counts, so every registered name stays healthy.
         live, files = parse_live_names(args.live_names), {}
     registry = load_registry_names(args.registry_from_yaml)
-    candidates = sorted({n for n in live if is_forge_owned(n)} - set(registry))
-    paths = {name: fetch_collection_path(name)[0] for name in candidates}
+    forge_live = {n for n in live if is_forge_owned(n)}
+    candidates = sorted(forge_live - set(registry))
+    # Only an empty registered name needs its folder; the sets are disjoint
+    # (unregistered against registered), so one dict serves both.
+    empties = sorted(n for n in forge_live & set(registry) if files.get(n) == 0)
+    paths = {name: fetch_collection_path(name)[0] for name in [*candidates, *empties]}
     _ok(classify(live, registry, args.project_root, paths, files))
 
 
