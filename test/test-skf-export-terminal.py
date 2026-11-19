@@ -1331,7 +1331,13 @@ def test_a_gotcha_the_current_skill_md_states_is_derived_not_carried():
     assert "cannot be derived from the current evidence report" not in text
     drop = _line(shared, "- **When `dropped` is not empty**")
     assert "no longer appear in the current SKILL.md or evidence report" in drop
-    assert "re-forge the skill with update-skill" in drop and "the evidence report's T2-future section" in drop
+    assert "re-forge the skill with update-skill" not in drop
+    assert "update-skill cannot restate it, since" not in drop
+    assert "state it by hand in `{resolved_skill_package}/SKILL.md`" in drop and \
+        "the evidence report's T2-future section" in drop
+    assert "between `<!-- [MANUAL:name] -->` and `<!-- [/MANUAL:name] -->` markers so a later update keeps it" \
+        in drop
+    assert "as an async requirement its Quick Start shows" not in drop
     assert "- **gotchas line**" not in _read(SNIPPET_FORMAT), "#1164: the rule lives in §3a alone"
     five = _regeneration()
     assert "new gotchas" not in five and "derive the gotchas as its §3a states" in five
@@ -1531,17 +1537,26 @@ CARRY_PROMISE = ("They will be DROPPED on the next export unless a T2-future ann
                  "names gotchas, deprecations, migration, breaking changes or import corrections, one "
                  "`## Key API Summary` row whose purpose says deprecated or removed, or one Quick Start `await` "
                  "call states it whole.")
+CARRY_RESTATE = ("For one that joins several pitfalls in a single skill, run update-skill (`@Ferris US {skill-name}`, "
+                 "without `--detect-only` or `--dry-run`) before the next export, even when the source has not "
+                 "changed: it restates in SKILL.md, as a gotchas bullet, each of its pitfalls that SKILL.md still "
+                 "states with a citation, and the next export keeps on the line as many of those as its 3 slots "
+                 "hold, naming the rest as left off. For a stack skill, which update-skill does not update, state "
+                 "such a value whole in one of those places of `{resolved_skill_package}/SKILL.md`, or each of its "
+                 "pitfalls in its own, before the next export.")
 DROP_REASONS = ("\"**Stale gotchas dropped:** {each pitfall, with why it was dropped: it was already carried "
                 "forward once, or the line's 3 slots went to current gotchas, and, for one that joins several "
                 "pitfalls, that no single place states it whole}. The pitfalls that do not join several no longer "
                 "appear in the current SKILL.md or evidence report, or a place in SKILL.md now contradicts them "
                 "with another version or name.")
-DROP_COMES_BACK = ("A dropped pitfall comes back only as a new gotcha: if one is still relevant, re-forge the skill "
-                   "with update-skill so its SKILL.md states it in a bullet of a section whose heading names "
-                   "gotchas, deprecations, migration, breaking changes or import corrections, in a "
-                   "`## Key API Summary` row whose purpose says deprecated or removed, or as an async requirement "
-                   "its Quick Start shows (other SKILL.md prose that says it does not add it back), or add it to "
-                   "the evidence report's T2-future section, then re-run export.")
+DROP_COMES_BACK = ("A dropped pitfall comes back only as a new gotcha, and no update-skill run can restate it once "
+                   "the `|gotchas:` line update-skill reads no longer holds it: if one is still relevant and "
+                   "SKILL.md does not state it yet (for one that joins several pitfalls, each of them) in a bullet "
+                   "of a section whose heading names gotchas, deprecations, migration, breaking changes or import "
+                   "corrections (other SKILL.md prose that says it does not add it back), state it by hand in "
+                   "`{resolved_skill_package}/SKILL.md`, in such a bullet between `<!-- [MANUAL:name] -->` and "
+                   "`<!-- [/MANUAL:name] -->` markers so a later update keeps it, or add it to the evidence "
+                   "report's T2-future section, then re-run export.")
 DROP_JOINED_ADVICE = ("For one that joins several pitfalls, state it whole in one such place, or each of its "
                       "pitfalls in its own.\"")
 # The snippet format's gotchas rule before #1164, which left the rule in §3a alone.
@@ -1643,7 +1658,12 @@ def test_a_prior_pitfall_the_current_skill_md_still_says_anywhere_is_derived():
                      "state, in source order")
     assert _in_order(_line(shared, "- **When `left_off` is not empty**"), NO_SLOT_WARNING, NO_SLOT_REMEDY)
     carry = _line(shared, "- **When `carried` is not empty**")
-    assert CARRY_PROMISE in carry and "unless the current SKILL.md or evidence report states them" not in carry
+    assert _in_order(carry, CARRY_PROMISE, CARRY_RESTATE) and \
+        "unless the current SKILL.md or evidence report states them" not in carry
+    assert "in a single skill" in CARRY_RESTATE and \
+        "For a stack skill, which update-skill does not update," in CARRY_RESTATE
+    assert "Stack skills cannot be surgically updated" in \
+        _read(REPO / "src" / "skf-update-skill" / "references" / "init.md")
     drop = _line(shared, "- **When `dropped` is not empty**")
     assert _in_order(drop, DROP_REASONS, DROP_COMES_BACK, DROP_JOINED_ADVICE)
     assert "re-forge the skill with update-skill so its SKILL.md states it, or" not in drop
@@ -1708,7 +1728,7 @@ def test_a_prior_value_that_joins_several_pitfalls_is_carried_once_then_dropped(
     pitfall source 2 states comes back, as a new gotcha. An older `, `-joined line whose pitfalls SKILL.md
     states only in prose, or only apart, rides the same one cycle."""
     text = _read(SNIPPET)
-    assert ONE_PITFALL_CLAUSE in text and CARRY_PROMISE in text
+    assert ONE_PITFALL_CLAUSE in text and CARRY_PROMISE in text and CARRY_RESTATE in text
     whole = "a; b; c; d"
     assert rms.read_gotchas(whole) == [{"text": whole, "already_carried": False, "read_whole": True}]
     joined = rms.write_gotchas([(whole, False)])

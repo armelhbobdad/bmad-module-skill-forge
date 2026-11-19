@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill
+summary: |
+  Export Skill's `gotchas_carried` warning now says that, for a carried value that joins several pitfalls in a single skill, an Update Skill run without `--detect-only` or `--dry-run` before the next export restates its pitfalls in SKILL.md, even when the source has not changed, and that for a stack skill, which Update Skill does not update, you state the value or each of its pitfalls in SKILL.md by hand. The `gotchas_dropped_stale` warning no longer sends a dropped pitfall to Update Skill, which cannot restate one gone from the snippet: it says to state the pitfall by hand in the skill's SKILL.md, as a bullet of a section whose heading names gotchas, deprecations, migration, breaking changes or import corrections, between `[MANUAL]` markers so a later update keeps it, or in the evidence report's T2-future section, then export again.
+issues: [1269]

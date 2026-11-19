@@ -1,0 +1,5 @@
+type: changed
+scope: skf-update-skill
+summary: |
+  When the source has not changed but the skill's `context-snippet.md` holds a `|gotchas:` value that joins several pitfalls, which a later export would drop, and SKILL.md still states, with a citation, one of those pitfalls that is not yet a gotcha of its own, Update Skill now goes on past its no-change shortcut: it restates each such pitfall in SKILL.md as a gotchas bullet, regenerates the snippet and writes a new version with the status `success`. That version is chosen as on any update that writes, so a docs-only skill whose `--target-version` or skill brief names a higher version records it on such a run although no document changed. Before, the run ended `no-changes` and wrote nothing, so a later export dropped the value and no later update could restate it. `--detect-only` and `--dry-run` still write nothing and warn `gotchas-not-restated` instead.
+issues: [1269]

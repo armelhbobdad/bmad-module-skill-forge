@@ -14,6 +14,10 @@ gets nothing: §3a's source 3 keeps it while SKILL.md states it anywhere (#1092)
 Step prose is not executed by any test, so these checks pin Priority 9's clauses, run its documented call on
 a fixture skill, and model its judgments and §3a's (as test-skf-export-terminal.py does), handing them to the
 rebuild helper's `resolve_gotchas` for the update and the next export.
+
+#1269: on an unchanged source detect-changes.md §4 runs the same call before its no-change shortcut and, when
+Priority 9 would write a bullet, goes on to step 3 with the empty change manifest; `--detect-only` and
+`--dry-run` keep the shortcut and warn `gotchas-not-restated`.
 """
 
 from __future__ import annotations
@@ -377,3 +381,226 @@ def test_restated_parts_keep_the_line_through_the_next_export(clauses, prior_lin
     # The next export reads the line the update wrote: a joined value it carried reads back as one pitfall.
     read_back = tuple(_form(p["text"]) for p in prior if _form(p["text"]) in _joined(prior, several))
     assert _export(placed[0], merged, report, several + read_back)[1] == next_export
+
+
+# --------------------------------------------------------------------------
+# #1269: an unchanged source goes on to merge while a joined value waits
+# --------------------------------------------------------------------------
+
+DETECT = UPDATE_REFS / "detect-changes.md"
+SCHEMA = REPO / "src" / "shared" / "scripts" / "schemas" / "skf-update-result-envelope.v1.json"
+WORKFLOWS = REPO / "docs" / "workflows.md"
+CONCEPTS = REPO / "docs" / "concepts.md"
+BUILD = REPO / "src" / "shared" / "scripts" / "skf-build-change-manifest.py"
+SNIPPET = REPO / "src" / "skf-export-skill" / "references" / "generate-snippet.md"
+
+# detect-changes.md §4's gate, each an exact substring of its paragraph.
+GATE_HEADING = "**A joined gotchas value goes on to merge.**"
+GATE_HOLDS = "The gate holds when its `prior_gotchas`"
+GATE_JOINS = ("holds a pitfall that joins several pitfalls that each warn on their own (one marked `read_whole`, "
+              "or pitfalls joined with `, `; not one pitfall whose own wording holds a `, `)")
+GATE_ANNOTATION = ("that no T2-future annotation of `{forge_version}/evidence-report.md` (else "
+                   "`{forge_data_folder}/{skill_name}/evidence-report.md`)")
+GATE_WHOLE = ("and no one bullet of a section whose heading names gotchas, deprecations, migration, breaking "
+              "changes or import corrections, no one `## Key API Summary` row whose purpose says deprecated or "
+              "removed and no one Quick Start `await` call states whole")
+GATE_PARTS = ("and `{skill_package}/SKILL.md` states, with a citation and uncontradicted, one of its pitfalls "
+              "that no such annotation, bullet, row or call states yet")
+GATE_DROP = "a later export drops the joined pitfall"
+GATE_NOT_READ_ONLY = "When the gate holds and neither `detect_only_mode` nor `dry_run_mode` is true"
+GATE_DISPLAY = ('display "**Source unchanged, but a joined gotchas value is being restated** in SKILL.md, as '
+                "gotchas bullets; the next export keeps as many of them as the line's 3 slots hold.\"")
+GATE_ROUTE = "load `{nextStepFile}` with this change manifest, skipping §5"
+GATE_EMPTY = ("it extracts nothing and writes the empty records merge and step 5 read, Priority 9 writes the "
+              "bullets, and the run writes a new version")
+GATE_WARNING = ("When the gate holds on a read-only run, add `gotchas-not-restated: {skill_name}'s context "
+                "snippet holds a gotchas value that joins several pitfalls, which a later export drops; an "
+                "update without --detect-only or --dry-run restates them in SKILL.md` to `warnings[]`")
+GATE_SHORTCUT = ("Every run that does not load `{nextStepFile}` here, one whose gate does not hold, a read-only one "
+                 "and one whose call exits non-zero or resolves no path included, takes the shortcut:")
+# The schema's warnings description names the new code right after the docs-only version notice.
+GATE_SCHEMA_ENTRY = ("target-version-not-recorded (report.md §1: a docs-only run named a higher version but no "
+                     "document changed, so nothing was written), gotchas-not-restated (detect-changes.md §4: a "
+                     "--detect-only or --dry-run run on an unchanged source left a joined gotchas value for a run "
+                     "without those flags to restate)")
+# Earlier drafts' phrases: untied actions, a slot-blind promise, a SKILL.md-only parts check, an undefined place
+# and a joins clause without "that each warn on their own", and a display clause that slots every bullet.
+GATE_GONE = ("Unless `detect_only_mode` or `dry_run_mode` is true", "A read-only run adds `gotchas-not-restated",
+             "so the next export keeps its pitfalls", "in none of those places yet", "Every other run,",
+             "gotchas-type", "joins several (one marked",
+             "the next export places within the line's 3 slots")
+# generate-snippet.md §3a's drop warning asks for a hand bullet only while SKILL.md does not hold one yet.
+DROP_NOT_YET_STATED = ("if one is still relevant and SKILL.md does not state it yet (for one that joins "
+                       "several pitfalls, each of them) in a bullet of a section whose heading names gotchas")
+
+
+def _four() -> str:
+    return _slice(_read(DETECT), "### 4. Check for No-Change Shortcut", "### 5.")
+
+
+def _build(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
+    """One `skf-build-change-manifest.py` call, run with this Python in `tmp_path`; it must exit 0."""
+    proc = subprocess.run([sys.executable, str(BUILD), *args], capture_output=True, text=True, encoding="utf-8",
+                          cwd=tmp_path, timeout=60)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return proc
+
+
+def test_an_unchanged_source_goes_on_to_merge_while_a_joined_value_waits():
+    """§4 runs Priority 9's `gotchas prior` call before its shortcut; when Priority 9 would write a bullet, a run
+    that is not read-only loads re-extract.md with the empty change manifest and a read-only one warns
+    `gotchas-not-restated`; every other run takes the shortcut as before. The frontmatter binds the helper as
+    merge.md does, the schema names the warning, and the user docs say the new route."""
+    four = _four()
+    assert _in_order(four, GATE_HEADING, RESOLVE_CLAUSE, PRIOR_CALL, GATE_HOLDS, GATE_JOINS, GATE_ANNOTATION,
+                     GATE_WHOLE, GATE_PARTS, GATE_DROP, GATE_NOT_READ_ONLY, GATE_DISPLAY, GATE_ROUTE, GATE_EMPTY,
+                     GATE_WARNING, GATE_SHORTCUT, '"**No changes detected.**', "Skip steps 3-5",
+                     "A `--detect-only` or `--dry-run` run takes this route too")
+    assert PRIOR_CALL_RE.findall(four) == [PRIOR_CALL]
+    for gone in GATE_GONE:
+        assert gone not in four, gone
+    front = _frontmatter(_read(DETECT))
+    loaded = yaml.safe_load(front)
+    assert loaded["rebuildManagedSectionsProbeOrder"] == \
+        yaml.safe_load(_frontmatter(_read(MERGE)))["rebuildManagedSectionsProbeOrder"]
+    assert loaded["nextStepFile"] == "re-extract.md"
+    assert "Take §4's shortcut when neither exists" in _comment_before(front, "rebuildManagedSectionsProbeOrder")
+    assert EM_DASH not in _slice(four, GATE_HEADING, "\n")
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert GATE_SCHEMA_ENTRY in warnings
+    update = _slice(_read(WORKFLOWS), "### Update Skill (US)", "**Agent:**")
+    headless = _slice(update, "**Headless:**", "\n")
+    for phrase in ("`gotchas-not-restated`", "which a later export would drop", "with the status `success`",
+                   "A normal run whose source is unchanged",
+                   "goes on instead when SKILL.md still states, with a citation, one of those pitfalls that is not "
+                   "yet a gotcha of its own"):
+        assert phrase in headless, phrase
+    concepts = _read(CONCEPTS)
+    assert ("or when, with no document changed, it restates in SKILL.md one or more pitfalls of a `|gotchas:` "
+            "value that a later export would drop") in concepts
+    assert "Either version is written only when the update finds a changed document;" not in concepts
+    assert "it restates in SKILL.md the pitfalls of a" not in concepts
+
+
+@pytest.mark.parametrize("clauses, read_only", [
+    pytest.param((GATE_NOT_READ_ONLY, GATE_ROUTE, GATE_EMPTY), False, id="plain-run"),
+    pytest.param((GATE_NOT_READ_ONLY, GATE_WARNING, GATE_SHORTCUT), True, id="read-only"),
+])
+def test_an_unchanged_source_update_restates_a_carried_value_before_the_next_export(clauses, read_only):
+    """The matrix's Carried and Read-only rows: an export carried a joined value whose parts SKILL.md states, and
+    the source has not changed. A plain update restates the parts, so the next export keeps the line; a read-only
+    one writes nothing, so the next export drops the value. The restate run's own drop warning, which write.md §5
+    gives its report, asks for no hand bullet SKILL.md already holds."""
+    four = _four()
+    for clause in clauses:
+        assert clause in four, clause
+    assert _export(JOINED, PROSE_ABCD, (), ())[1] == ("[CARRIED] a, b, c, d", [], [])
+    several = ("a, b, c, d",)
+    assert _restate(rms.read_gotchas(CARRIED_JOINED), PROSE_ABCD, (), several), "the gate fires"
+    if read_only:
+        assert _export(CARRIED_JOINED, PROSE_ABCD, (), several)[1] == (None, [], [("a, b, c, d", "already-carried")])
+        return
+    restated = _restate(rms.read_gotchas(CARRIED_JOINED), PROSE_ABCD, (), several)
+    assert restated == list("abcd")
+    merged = _merged(PROSE_ABCD, restated)
+    assert _export(CARRIED_JOINED, merged, (), several)[1] == \
+        ("a; b; c", ["d"], [("a, b, c, d", "already-carried")])
+    assert _export("a; b; c", merged, (), several)[1] == ("a; b; c", ["d"], [])
+    # write.md §5 gives this run's report the drop warning for the joined value Priority 9 just restated.
+    assert "add each warning its §3a emits to `warnings[]`" in _read(WRITE)
+    assert all(("gotchas bullet", part) in merged for part in "abcd")
+    drop = _slice(_read(SNIPPET), "- **When `dropped` is not empty**", "\n")
+    assert DROP_NOT_YET_STATED in drop and "update-skill cannot restate it, since" not in drop
+
+
+@pytest.mark.parametrize("clauses, prior_line, skill_md, report, several, fires", [
+    pytest.param((GATE_JOINS,), CARRIED_JOINED, PROSE_ABCD, (), ("a, b, c, d",), True, id="carried-joined"),
+    pytest.param((GATE_JOINS,), JOINED, PROSE_ABCD, (), (), True, id="joined-not-yet-carried"),
+    pytest.param((GATE_JOINS,), None, PROSE_ABCD, (), (), False, id="no-gotchas-line"),
+    pytest.param((GATE_JOINS,), "x; y", [("Overview", "x"), ("Overview", "y")], (), (), False,
+                 id="single-pitfalls"),
+    pytest.param((GATE_WHOLE,), JOINED, [("gotchas bullet", JOINED)] + PROSE_ABCD, (), (), False, id="stated-whole"),
+    pytest.param((GATE_WHOLE,), JOINED, [("deprecated Key API Summary row", JOINED)] + PROSE_ABCD, (), (), False,
+                 id="key-api-row-states-it-whole"),
+    # One pitfall whose wording holds a `, `: no `several` judgment joins it, so Priority 9 writes nothing.
+    pytest.param((GATE_JOINS,), "a, b", [("Overview", "a"), ("Overview", "b")], (), (), False,
+                 id="one-pitfall-with-a-comma"),
+    pytest.param((GATE_ANNOTATION,), JOINED, PROSE_ABCD, (JOINED,), (), False, id="annotation-states-it-whole"),
+    pytest.param((GATE_PARTS,), JOINED, [("gotchas bullet", p) for p in "abcd"], (), (), False,
+                 id="parts-already-bullets"),
+    pytest.param((GATE_PARTS,), JOINED, [("description", "a")], (), (), False, id="parts-uncited"),
+    pytest.param((GATE_PARTS,), JOINED, [], (), (), False, id="parts-gone"),
+    # A T2-future annotation states each part, so Priority 9 writes nothing.
+    pytest.param((GATE_PARTS,), JOINED, PROSE_ABCD, tuple("abcd"), (), False, id="parts-in-annotations"),
+])
+def test_the_no_change_branch_fires_only_when_priority_9_writes_a_bullet(clauses, prior_line, skill_md, report,
+                                                                        several, fires):
+    """The matrix's Nothing-to-restate row: the gate holds only when Priority 9 would write at least one bullet,
+    so an unchanged source whose prior line needs nothing takes the shortcut with no new warning."""
+    prior = rms.read_gotchas(prior_line) if prior_line else []
+    four = _four()
+    for clause in clauses + (() if fires else (GATE_SHORTCUT,)):
+        assert clause in four, clause
+    assert bool(_restate(prior, skill_md, report, several)) is fires
+
+
+@pytest.mark.parametrize("mode", ["normal", "docs-only"])
+def test_the_restate_route_writes_no_provenance_change(tmp_path, mode):
+    """The matrix's Docs-only row and the route's empty records: on the empty change manifest step 3's records
+    hold no file, and step 5's `apply`, given the manifest, the records and the `--metadata-in` and `--lists-out`
+    files write.md §3 passes in every mode, changes no entry and counts nothing."""
+    if mode == "normal":
+        (tmp_path / "files.json").write_text("[]", encoding="utf-8")
+        records = json.loads(_build(tmp_path, "records", "--files-from", "files.json", "-o", "rec.json").stdout)
+        assert records["files_extracted"] == 0
+        assert json.loads((tmp_path / "rec.json").read_text(encoding="utf-8"))["files"] == []
+        (tmp_path / "in.json").write_text(json.dumps({"degraded_mode": False, "update_mode": "normal"}),
+                                          encoding="utf-8")
+        manifest = _build(tmp_path, "build", "--input", "in.json").stdout
+        entry = {"export_name": "parse", "export_type": "function", "params": [], "return_type": "dict",
+                 "source_file": "src/a.py", "source_line": 3, "confidence": "T1", "extraction_method": "ast-grep",
+                 "ast_node_type": "function_definition", "signature_source": "T1"}
+    else:
+        compared = {"changed": [], "unchanged": [{"url": "https://example.com/a"}], "fetch_failed": [],
+                    "skipped_null_hash": [], "stats": {"total_tracked": 1, "changed": 0, "unchanged": 1}}
+        (tmp_path / "cmp.json").write_text(json.dumps(compared), encoding="utf-8")
+        manifest = _build(tmp_path, "build", "--doc-hashes", "cmp.json").stdout
+        # re-extract.md §1's docs-only records on an empty `changed_urls`.
+        (tmp_path / "rec.json").write_text(json.dumps({"mode": "docs-only", "changed_urls": [], "exports": []}),
+                                           encoding="utf-8")
+        entry = {"export_name": "parse", "export_type": "function", "source_file": "https://example.com/a",
+                 "confidence": "T3", "extraction_method": "doc-fetch", "signature_source": "T3"}
+    (tmp_path / "man.json").write_text(manifest, encoding="utf-8")
+    assert json.loads(manifest)["no_changes"] is True
+    (tmp_path / "map.json").write_text(json.dumps({"skill_name": "demo", "entries": [entry]}), encoding="utf-8")
+    lists = {"exports": ["parse"], "scripts": [], "assets": []}
+    (tmp_path / "meta.json").write_text(json.dumps(lists), encoding="utf-8")
+    applied = json.loads(_build(
+        tmp_path, "apply", "--update-type", "incremental", "--provenance-map", "map.json", "--manifest", "man.json",
+        "--reextract-records", "rec.json", "--skill-name", "demo", "--generation-date", "2026-11-19T00:00:00Z",
+        "--confidence-tier", "Forge", "--manual-sections-preserved", "0", "--source-commit", "", "--source-ref", "",
+        "--metadata-in", "meta.json", "--lists-out", "lists.json", "-o", "out.json").stdout)
+    nothing = {"added": [], "updated": [], "removed": []}
+    assert applied["entries"] == nothing and applied["file_entries"] == nothing
+    assert applied["signature_source_backfilled"] == {} and applied["warnings"] == []
+    out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert out["entries"] == [entry]
+    assert out["files_changed"] == 0 and out["exports_affected"] == 0
+    assert json.loads((tmp_path / "lists.json").read_text(encoding="utf-8")) == lists
+
+
+def test_a_changed_source_routes_through_section_5_as_before():
+    """The matrix's Source-changed row: the gate sits inside §4's no-change branch, between its condition line and
+    the shortcut's display block, so a changed source still reaches §5, whose route to `{nextStepFile}` stands,
+    and Priority 9 runs there as before."""
+    detect = _read(DETECT)
+    assert detect.count(GATE_HEADING) == 1
+    four = _four()
+    [condition] = [line for line in four.split("\n")
+                   if line.startswith("**If zero changes detected across all categories**")]
+    assert condition + "\n\n" + GATE_HEADING in four
+    assert GATE_SHORTCUT + "\n\n" + '"**No changes detected.**' in four
+    five = _slice(detect, "### 5. Display Change Summary and Route", None)
+    assert ('- **Otherwise** → display "**Proceeding to re-extraction of {affected_file_count} changes...**" and '
+            "load `{nextStepFile}` (re-extract.md) to begin re-extraction.") in five
+    assert _in_order(_priority_9(), *P9_CLAUSES)

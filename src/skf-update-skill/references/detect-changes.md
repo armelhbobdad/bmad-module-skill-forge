@@ -38,6 +38,11 @@ structuralDiffProbeOrder:
 compareDocHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
+# `{rebuildManagedSectionsHelper}`: §4's `gotchas prior`, the call merge.md's
+# Priority 9 runs. Take §4's shortcut when neither exists.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 # SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
 # stage; resolve them again when a binding was lost: first existing path wins.
 # The warnings and gate decisions go to the run log through the first, and
@@ -320,6 +325,8 @@ Pass each helper file its category wrote. On exit 1 or no JSON: HALT with status
 ### 4. Check for No-Change Shortcut
 
 **If zero changes detected across all categories** (`no_changes` is true in `{run_dir}/change-manifest.json`; for a docs-only skill, when every document §1 compared matched):
+
+**A joined gotchas value goes on to merge.** From `{project-root}`, resolve `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` and run `uv run {rebuildManagedSectionsHelper} gotchas prior "{skill_package}/context-snippet.md" --skills-folder "{skills_output_folder}" --skill {skill_name}`, the call merge.md Priority 9 runs. The gate holds when its `prior_gotchas` holds a pitfall that joins several pitfalls that each warn on their own (one marked `read_whole`, or pitfalls joined with `, `; not one pitfall whose own wording holds a `, `) that no T2-future annotation of `{forge_version}/evidence-report.md` (else `{forge_data_folder}/{skill_name}/evidence-report.md`) and no one bullet of a section whose heading names gotchas, deprecations, migration, breaking changes or import corrections, no one `## Key API Summary` row whose purpose says deprecated or removed and no one Quick Start `await` call states whole, and `{skill_package}/SKILL.md` states, with a citation and uncontradicted, one of its pitfalls that no such annotation, bullet, row or call states yet: a later export drops the joined pitfall. When the gate holds and neither `detect_only_mode` nor `dry_run_mode` is true, display "**Source unchanged, but a joined gotchas value is being restated** in SKILL.md, as gotchas bullets; the next export keeps as many of them as the line's 3 slots hold." and load `{nextStepFile}` with this change manifest, skipping §5: it extracts nothing and writes the empty records merge and step 5 read, Priority 9 writes the bullets, and the run writes a new version. When the gate holds on a read-only run, add `gotchas-not-restated: {skill_name}'s context snippet holds a gotchas value that joins several pitfalls, which a later export drops; an update without --detect-only or --dry-run restates them in SKILL.md` to `warnings[]`. Every run that does not load `{nextStepFile}` here, one whose gate does not hold, a read-only one and one whose call exits non-zero or resolves no path included, takes the shortcut:
 
 "**No changes detected.** Source code matches provenance map exactly.
 
