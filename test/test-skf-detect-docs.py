@@ -2137,3 +2137,10 @@ class TestFetchDocsProse:
         text = FETCH_DOCS.read_text(encoding="utf-8")
         keep = text[text.index("### 5c."):text.index("### 6.")]
         assert '**When `source_type` is `"docs-only"`, keep the folder at every tier:**' in keep
+        # #1270: a Deep-tier source brief keeps the folder its {skill-name}-docs collection reads
+        assert "**At Deep tier, keep the folder for every brief:**" in keep
+        assert "removing it is accepted for supplemental docs" not in text
+        report = text[text.index("### 6. Report"):text.index("### 7.")]
+        assert ("{If docs-only mode, a whole-language reference or a Deep-tier run that saved a page: "
+                "'**Docs corpus kept:** `{docs_staging}`{if the `{skill-name}-docs` collection was registered in "
+                "§5b: ', the source path of QMD collection `{skill-name}-docs`'}'}") in report

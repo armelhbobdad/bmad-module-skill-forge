@@ -39,7 +39,7 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 - Tool-agnostic — use whatever web fetching capability is available
 - Do not halt the workflow if web fetching is unavailable or fails, with one exception: a `docs-only` brief left with nothing to compile halts at §5's zero-content check, before anything is staged. The user may still stop the run at §5's zero-export gate ([R])
 - Do not override existing T1, T1-low, or T2 extraction data with T3 content
-- Never delete the staging directory of a `docs-only` skill, whose only source corpus is the fetched pages, or of a whole-language reference, whose Language Guide step 5 reads from them
+- Never delete the staging directory of a `docs-only` skill, whose only source corpus is the fetched pages, of a whole-language reference, whose Language Guide step 5 reads from them, or, at Deep tier, of any brief: it is the source path of the `{skill-name}-docs` QMD collection §5b registers
 - A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound: it stages `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "summary": {"halt_reason": "<halt_reason>", "evidence_report": null}}`, plus `"path"` when the HALT names a file or folder, as `{run_dir}/halt.json`, runs `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, displays the line it prints (the halt message alone when no path resolves) and stops with the HALT's exit code. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
@@ -76,7 +76,7 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 - Log warning: "No web fetching capability available in this environment. Skipping documentation fetch."
 - Continue at §5's **Zero-content check**: nothing was fetched.
 
-Bind `{docs_staging}` ← `{project-root}/_bmad-output/{skill-name}-docs`, the folder that holds every page this step fetches. Just before the first page this run fetched is saved, create the folder or empty it (`mkdir -p "{docs_staging}" && rm -f "{docs_staging}"/*.md`), so a corpus kept from an earlier docs-only run (§5c) is replaced by this run's pages, never mixed with them, and stays as it was when every fetch fails.
+Bind `{docs_staging}` ← `{project-root}/_bmad-output/{skill-name}-docs`, the folder that holds every page this step fetches. Just before the first page this run fetched is saved, create the folder or empty it (`mkdir -p "{docs_staging}" && rm -f "{docs_staging}"/*.md`), so a corpus an earlier run kept (§5c) is replaced by this run's pages, never mixed with them, and stays as it was when every fetch fails.
 
 **For each URL in `doc_urls`** (the `{n}`th entry, counting from 1):
 
@@ -204,7 +204,7 @@ SKF_T3
 
 ### 5c. Keep or Remove the Fetched Pages
 
-Once the pages are extracted, and at Deep tier indexed by §5b, remove `{docs_staging}` **only when `source_type` is `"source"` and the brief is not a whole-language reference** (`whole_language_reference` false): `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. A whole-language reference keeps the folder, since its Language Guide index (§4a) points step 5 at the pages in it. At Deep tier the folder is the source path of the `{skill-name}-docs` collection §5b registered; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the folder at every tier:** the fetched pages are the skill's only source corpus, since there is no code tree, so deleting them would leave nothing to verify citations against and, at Deep tier, the just-registered collection with nothing to refresh from. Record the kept path in the evidence report.
+Once the pages are extracted, remove `{docs_staging}` **only when `source_type` is `"source"`, the tier is not Deep and the brief is not a whole-language reference** (`whole_language_reference` false): `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. A whole-language reference keeps the folder, since its Language Guide index (§4a) points step 5 at the pages in it. **At Deep tier, keep the folder for every brief:** §5b indexes it as the `{skill-name}-docs` collection, which step 4 searches for a source brief too and every `qmd update` re-scans, so deleting it would leave that collection empty while the registry still lists it. **When `source_type` is `"docs-only"`, keep the folder at every tier:** the fetched pages are the skill's only source corpus, since there is no code tree, so deleting them would leave nothing to verify citations against. Record the kept path in the evidence report.
 
 ### 6. Report
 
@@ -215,7 +215,7 @@ Display:
 **T3 items extracted:** {count}
 **Confidence:** All doc-fetched items are T3 — `[EXT:{url}]` citations applied.
 {If docs-only mode: '**Mode:** Docs-only — all skill content is T3. source_authority: community'}
-{If docs-only mode or a whole-language reference: '**Docs corpus kept:** `{docs_staging}`{if the `{skill-name}-docs` collection was registered in §5b: ', the source path of QMD collection `{skill-name}-docs`'}'}
+{If docs-only mode, a whole-language reference or a Deep-tier run that saved a page: '**Docs corpus kept:** `{docs_staging}`{if the `{skill-name}-docs` collection was registered in §5b: ', the source path of QMD collection `{skill-name}-docs`'}'}
 
 Proceeding to enrichment..."
 
