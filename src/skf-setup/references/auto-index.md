@@ -26,7 +26,7 @@ Reconcile the `qmd_collections` registry with the live QMD collections, and prun
 
 ## Rules
 
-- Never reimplement the forge-namespace suffix filter or the path check in prose: the classifier owns them
+- Never reimplement the forge-namespace suffix filter, the path check or the file-count check in prose: the classifier owns them
 - Run `qmd collection remove`, through the classifier's `remove-orphans`, only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and the emitter records the decision from the flags step 4 passes, so the envelope's `warnings` name each collection the removal deleted
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
@@ -51,7 +51,7 @@ uv run {qmdClassifyHelper} classify \
 
 **If the script exits non-zero** (qmd is not running), go to section 4: step 4 reports QMD hygiene as skipped.
 
-Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`.
+Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← `orphaned_paths`. Its `empty` list names the registered collections QMD lists with no indexed files: step 4's report shows them with the commands that index them. This step removes none of them and offers no removal.
 
 ### 3. Handle Orphaned Collections
 

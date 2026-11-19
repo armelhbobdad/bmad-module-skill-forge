@@ -3,7 +3,10 @@
 
 Classification rules under test (per step 3 §2 and PR #244):
 
-  Healthy   = forge-suffix-matched live ∩ registry
+  Healthy   = forge-suffix-matched live ∩ registry, with a file count
+              other than 0 (an unknown count stays healthy)
+  Empty     = forge-suffix-matched live ∩ registry whose `qmd collection
+              list` block reads `Files: 0` (reported, never removed)
   Orphaned  = forge-suffix-matched live − registry, whose Path lies
               inside --project-root
   Stale     = registry − ALL live (includes foreign-suffix names)
@@ -338,6 +341,7 @@ def test_classify_first_run_no_collections():
     assert out == {
         "live_names": [],
         "healthy": [],
+        "empty": [],
         "orphaned": [],
         "orphaned_paths": {},
         "stale": [],

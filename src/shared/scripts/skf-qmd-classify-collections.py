@@ -8,14 +8,22 @@ Replaces the prose-driven classification logic in `src/skf-setup/references/
 auto-index.md` §2 with one Python invocation. Compares the live
 QMD collections (from `qmd collection list`) against the forge registry
 (`qmd_collections` array in forge-tier.yaml) and classifies each name as
-Healthy / Orphaned / Stale, applying the forge-namespace suffix filter
-added in PR #244 to silently exclude collections owned by unrelated
+Healthy / Empty / Orphaned / Stale, applying the forge-namespace suffix
+filter added in PR #244 to silently exclude collections owned by unrelated
 tools sharing the QMD daemon.
 
 Classification rules (per step 3 §2):
 
-  Healthy:  name in {forge-suffix-matched live} AND in registry.
-              No action needed.
+  Healthy:  name in {forge-suffix-matched live} AND in registry, with a
+              file count other than 0. No action needed. A collection
+              whose count the listing does not give (a bare-name listing
+              from an older qmd, or a block with no `Files:` line) stays
+              healthy.
+  Empty:    name in {forge-suffix-matched live} AND in registry, whose
+              block of `qmd collection list` reads `Files: 0`: QMD lists
+              no file for it, so searches return nothing. Reported,
+              never removed: it stays in live_names, so no registry
+              cleanup prunes it.
   Orphaned: name in {forge-suffix-matched live}, NOT in registry, and
               `qmd collection show <name>` reports a Path inside
               --project-root. Offered for removal in step 3 §3.
@@ -58,7 +66,8 @@ Subcommands:
     --live-names  Comma-separated list of collection names currently
                   in QMD. If omitted, the script invokes `qmd collection
                   list` itself. Empty string → no live collections, which
-                  is a valid first-run state.
+                  is a valid first-run state. `--live-names` carries no
+                  counts, so with it no collection is empty.
 
   remove-orphans  Remove the orphans a classification found.
 
@@ -79,6 +88,7 @@ Output of classify (single JSON document on stdout):
     "version": "v1",
     "live_names":       ["bar-extraction", "foo-brief", "memory-root-1"],
     "healthy":          ["foo-brief", "foo-extraction"],
+    "empty":            ["foo-temporal"],
     "orphaned":         ["bar-extraction"],
     "orphaned_paths":   {"bar-extraction": "/abs/project/skills/bar"},
     "stale":            ["baz-docs"],
@@ -142,6 +152,10 @@ _QMD_HEADER_RE = re.compile(r"^Collections \(\d+\):\s*$")
 # Empty-state message from `qmd collection list`, e.g.
 # "No collections found. Run 'qmd collection add .' to create one."
 _QMD_EMPTY_STATE_PREFIX = "No collections found"
+
+# The file count line of a collection's block, e.g. "  Files:    9" or
+# "  Files:    0 (updated never)"; `\b` also reads the `qmd status` form.
+_QMD_FILES_RE = re.compile(r"^\s+Files:\s*(\d+)\b")
 
 
 def _die(code: int, message: str) -> None:
@@ -226,8 +240,8 @@ def is_inside(path: str | None, root) -> bool:
 
 
 def classify(live: list[str], registry: list[str], project_root=None,
-             paths: dict | None = None) -> dict:
-    """Pure function: classify live vs registry into healthy/orphaned/stale/foreign.
+             paths: dict | None = None, files: dict | None = None) -> dict:
+    """Pure function: classify live vs registry into healthy/empty/orphaned/stale/foreign.
 
     With `project_root`, a forge-suffixed live name missing from the
     registry is orphaned only when `paths` maps it to a Path inside that
@@ -235,9 +249,14 @@ def classify(live: list[str], registry: list[str], project_root=None,
     orphaned: only a caller that already knows they all belong to this
     project may leave it out (the CLI always passes it).
 
+    `files` maps a live name to the `Files:` count its listing block gives
+    (parse_collection_file_counts). A registered name it maps to 0 is
+    empty; one it maps to None, or does not hold, stays healthy.
+
     Returns the classification payload (without status/version envelope).
     """
     paths = paths or {}
+    files = files or {}
     forge_live = [n for n in live if is_forge_owned(n)]
     foreign_live = [n for n in live if not is_forge_owned(n)]
 
@@ -245,7 +264,11 @@ def classify(live: list[str], registry: list[str], project_root=None,
     registry_set = set(registry)
     all_live_set = set(live)
 
-    healthy = sorted(forge_live_set & registry_set)
+    registered = sorted(forge_live_set & registry_set)
+    # QMD lists no file for an empty collection, so it answers no search;
+    # it is still live, so it stays in live_names and no cleanup prunes it.
+    empty = [n for n in registered if files.get(n) == 0]
+    healthy = [n for n in registered if files.get(n) != 0]
     candidates = sorted(forge_live_set - registry_set)
     if project_root is None:
         orphaned = candidates
@@ -263,6 +286,7 @@ def classify(live: list[str], registry: list[str], project_root=None,
     return {
         "live_names": sorted(all_live_set),
         "healthy": healthy,
+        "empty": empty,
         "orphaned": orphaned,
         "orphaned_paths": {n: paths[n] for n in orphaned if paths.get(n)},
         "stale": stale,
@@ -299,6 +323,33 @@ def parse_collection_list_output(raw: str) -> list[str]:
             continue
         names.append(line.split()[0])
     return names
+
+
+def parse_collection_file_counts(raw: str) -> dict[str, int | None]:
+    """Collection name -> the `Files:` count its block of `qmd collection list` stdout gives.
+
+    Each line at the left margin goes through parse_collection_list_output,
+    so the header, the empty-state message and the ` (qmd://<name>/)` URI
+    read as they do there; an indented `Files:` line below a name sets its
+    count. A name whose block gives no count (a bare-name listing from an
+    older qmd, or a block with no `Files:` line) maps to None: its count is
+    unknown, not 0.
+    """
+    counts: dict[str, int | None] = {}
+    current = None
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        if not line[0].isspace():
+            names = parse_collection_list_output(line)
+            current = names[0] if names else None
+            if current is not None:
+                counts.setdefault(current, None)
+            continue
+        match = _QMD_FILES_RE.match(line)
+        if match and current is not None:
+            counts[current] = int(match.group(1))
+    return counts
 
 
 def _resolve_outside_cwd(command: str) -> str | None:
@@ -351,20 +402,26 @@ def _run_qmd(*args: str) -> tuple[int | None, str, str]:
     return result.returncode, result.stdout or "", result.stderr or ""
 
 
-def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
-    """Invoke `qmd collection list` and return (names, error).
+def fetch_live_collections_from_qmd() -> tuple[list[str], dict[str, int | None], str | None]:
+    """Invoke `qmd collection list` once and return (names, file counts, error).
 
     Owns the CLI parsing so callers (and prompts) don't reinvent it.
-    Empty stdout / non-zero exit → ([], error_message). The classifier's
+    Empty stdout / non-zero exit → ([], {}, error_message). The classifier's
     same-process invocation here is the single source of truth for what
-    counts as a "live collection name".
+    counts as a "live collection name" and how many files each one holds.
     """
     code, out, err = _run_qmd("collection", "list")
     if code is None:
-        return [], err
+        return [], {}, err
     if code != 0:
-        return [], f"qmd collection list exited {code}: {err.strip() or '<no stderr>'}"
-    return parse_collection_list_output(out), None
+        return [], {}, f"qmd collection list exited {code}: {err.strip() or '<no stderr>'}"
+    return parse_collection_list_output(out), parse_collection_file_counts(out), None
+
+
+def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
+    """Invoke `qmd collection list` and return (names, error): fetch_live_collections_from_qmd without the counts."""
+    names, _counts, error = fetch_live_collections_from_qmd()
+    return names, error
 
 
 def parse_collection_path(raw: str) -> str | None:
@@ -466,16 +523,17 @@ def main() -> None:
         _ok(remove_orphans(load_orphaned_names(args.classification_from), args.project_root))
         return
     if args.live_names is None:
-        names, error = fetch_live_names_from_qmd()
+        names, files, error = fetch_live_collections_from_qmd()
         if error is not None:
             _die(2, error)
         live = names
     else:
-        live = parse_live_names(args.live_names)
+        # --live-names carries no counts, so every registered name stays healthy.
+        live, files = parse_live_names(args.live_names), {}
     registry = load_registry_names(args.registry_from_yaml)
     candidates = sorted({n for n in live if is_forge_owned(n)} - set(registry))
     paths = {name: fetch_collection_path(name)[0] for name in candidates}
-    _ok(classify(live, registry, args.project_root, paths))
+    _ok(classify(live, registry, args.project_root, paths, files))
 
 
 def _force_utf8(*streams) -> None:
