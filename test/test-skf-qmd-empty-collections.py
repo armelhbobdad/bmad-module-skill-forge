@@ -250,9 +250,17 @@ def test_the_banner_names_the_empty_collections_and_keeps_the_tier():
     every_empty = {**CLASSIFIED, "healthy": [], "empty": ["a-docs", "b-temporal", "c-brief"]}
     lines = _report(every_empty)
     healthy = lines.index("  0 collection(s) healthy")
-    assert lines[healthy + 1] == (
+    assert lines[healthy + 1:healthy + 4] == [
         "  3 registered collection(s) hold no indexed files, so Deep-tier searches find nothing in them: "
-        "a-docs, b-temporal, c-brief. Run `qmd update`, then `qmd embed`, to index what their folders hold")
+        "a-docs, b-temporal, c-brief",
+        "  `qmd collection show <name>` gives each one's folder. When that folder is gone or holds no file its "
+        "pattern matches, re-indexing cannot refill it: run `qmd collection remove <name>`, and the next "
+        "Deep-tier setup drops its registry entry",
+        "  When the folder does hold such files, run `qmd update` (it re-indexes every collection on this "
+        "machine and empties any whose folder is gone), then `qmd embed -c <name>`"]
+    # A bare `qmd update` or unscoped `qmd embed` is never the first advice: it
+    # re-indexes the whole shared index.
+    assert not [line for line in lines if "Run `qmd update`" in line or line.endswith("`qmd embed`")]
     assert not [line for line in lines if line.startswith("  QMD Registry: empty.")]
     assert "  Forge ready. Deep tier active." in lines
     # With no registered collection at all, the registry still reads empty.

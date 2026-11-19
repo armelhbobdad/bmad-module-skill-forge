@@ -2123,7 +2123,14 @@ BANNER_CASES = [
     ('hygiene_result is "completed"', _hygiene(), {}, "  QMD Registry:"),
     ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
      "  2 registered collection(s) hold no indexed files, so Deep-tier searches find nothing in them: a-docs, "
-     "b-temporal. Run `qmd update`, then `qmd embed`, to index what their folders hold"),
+     "b-temporal"),
+    ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
+     "  `qmd collection show <name>` gives each one's folder. When that folder is gone or holds no file its "
+     "pattern matches, re-indexing cannot refill it: run `qmd collection remove <name>`, and the next "
+     "Deep-tier setup drops its registry entry"),
+    ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
+     "  When the folder does hold such files, run `qmd update` (it re-indexes every collection on this "
+     "machine and empties any whose folder is gone), then `qmd embed -c <name>`"),
     ("hygiene_orphaned_removed > 0", _hygiene(hygiene_orphaned_removed=2), _hygiene(),
      "  2 orphaned collection(s) removed"),
     ("hygiene_orphaned_kept > 0", _hygiene(hygiene_orphaned_kept=3), _hygiene(),
@@ -2296,9 +2303,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template is what render-report prints: 43 conditions, a case for each."""
+    """The template is what render-report prints: 45 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 43
+    assert len(entries) == 45
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 
