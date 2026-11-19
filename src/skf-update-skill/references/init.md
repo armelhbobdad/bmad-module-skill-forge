@@ -30,6 +30,11 @@ emitEnvelopeProbeOrder:
 runStateProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
   - '{project-root}/src/shared/scripts/skf-update-run-state.py'
+# `{validateBriefInputsHelper}`: §1 checks a `--target-version` value as Brief
+# Skill checks a target version. HALT if neither resolves.
+validateBriefInputsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -128,6 +133,18 @@ Pass `--version`: §1 always binds `{active_version}`. Never glob, sort or read 
 **If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by load-baseline.md §4 when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown), when a provenance map is present, or in gap-driven mode, where that section halts `blocked` instead.
 
 **If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; load-baseline.md §6b passes it to `skf-source-tree.py`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}` (interactive only: a headless run halted above); when load-baseline.md §4b switches a run to gap-driven mode, it unsets it with the same warning.
+
+**If `--target-version` was provided:** decide this after the test-report lookup above, as for `--target-ref`. When `update_mode` is `gap-driven` it has no effect, since a repair keeps the version it repairs: warn the user once at flag-parse time ("`--target-version` has no effect with `--from-test-report`: a gap-driven repair keeps the version it repairs") and leave `{target_version_override}` unset; when load-baseline.md §4b switches a run to gap-driven mode, it unsets it with the same warning. Otherwise check the value as Brief Skill checks a target version: resolve `{validateBriefInputsHelper}` ← first existing path in `{validateBriefInputsProbeOrder}` and, from `{project-root}`, run, with the value written as a JSON string:
+
+```bash
+uv run {validateBriefInputsHelper} --only target_version <<'SKF_JSON'
+{"target_version": "<the value>"}
+SKF_JSON
+```
+
+- **Exit 0** (`valid: true`): set `{target_version_override}` to the value. load-baseline.md §6c takes that version for a docs-only skill when it is above the skill's, and load-baseline.md §6 halts for any other skill.
+- **Exit 1** (`valid: false`): HALT (halt procedure: `status: "blocked"`, `phase: "init:target-version"`, `path: "{forge_data_folder}/{skill_name}"`, `reason: "input-invalid: --target-version: {its first error's message}"`, with `version` and `previous_version` `"unknown"`) and display "**`--target-version` takes a full version:** {its first error's message}." This runs before the §1b lock, so there is no lock to release.
+- **Exit 2** (the payload is not valid JSON, such as a quote left unescaped): write it again and re-run the check.
 
 **If `--source-root` was provided:** set `{source_root_override}` to its path, made absolute (a relative path is read from `{project-root}`) and written with `/`. load-baseline.md §6 applies it in every mode: it replaces the `source_root` metadata.json records for a skill read from a local folder, and halts for any other.
 

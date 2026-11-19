@@ -1,0 +1,6 @@
+type: added
+scope: skf-update-skill
+summary: |
+  New `--target-version <version>` flag for a docs-only skill: Update Skill writes the release its documents describe, a full version such as `2.4.0`, as the skill's new version when it is above the current one, instead of the next patch version. Without the flag, a docs-only update takes the version its skill brief names (`target_version`, else `version`) the same way. Either version is written only when the update writes, that is when a document the skill tracks changed: when none changed, the run ends `no-changes`, writes nothing and warns `target-version-not-recorded`. A version that is not above the skill's still gives the next patch version. The flag stops a skill built from source code `blocked` with `target-version-needs-docs-only`, a value that is not a full version stops the run `blocked` at `init:target-version`, and with `--from-test-report` the flag has no effect.
+issues: [1248]
+prs: [1261]
