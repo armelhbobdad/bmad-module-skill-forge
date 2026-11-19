@@ -6,6 +6,7 @@
 const path = require('node:path');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
+const { GITKEEP, resolveProjectFolder } = require('./project-folders');
 
 const MANIFEST_DIR = '_bmad/_config';
 const MANIFEST_FILE = 'skf-manifest.yaml';
@@ -60,12 +61,17 @@ async function writeManifest(projectDir, config, options = {}) {
   const learnDir = path.join(projectDir, '_skf-learn');
   const learnFiles = await collectFiles(learnDir, projectDir);
 
-  // Collect output folder gitkeep files
+  // Collect output folder gitkeep files, relative to the project. The
+  // installer never writes one in the project folder itself (a value of
+  // `{project-root}` alone), so a .gitkeep there is not recorded, and a
+  // .gitkeep holding other text than the installer's is the user's own.
   const outputFiles = [];
   for (const folder of [config.skills_output_folder || 'skills', config.forge_data_folder || 'forge-data']) {
-    const gitkeep = path.join(folder, '.gitkeep');
-    if (await fs.pathExists(path.join(projectDir, gitkeep))) {
-      outputFiles.push(gitkeep);
+    const folderPath = resolveProjectFolder(projectDir, folder);
+    if (folderPath === path.resolve(projectDir)) continue;
+    const gitkeep = path.join(folderPath, '.gitkeep');
+    if ((await fs.readFile(gitkeep, 'utf8').catch(() => null)) === GITKEEP) {
+      outputFiles.push(path.relative(projectDir, gitkeep));
     }
   }
 

@@ -1,0 +1,6 @@
+type: fixed
+scope: installer
+summary: |
+  `install` (Update or Fresh install) and `update` now read a `skills_output_folder` or `forge_data_folder` value that starts with `{project-root}`, as a BMAD Method install writes it, the way the workflows read it: they check the real folders at the project root and create only a missing one, instead of creating a folder literally named `{project-root}` in the project. An absolute value now stays where it points instead of being created inside the project folder. `status` now reports those folders correctly, and `uninstall` now finds them.
+issues: [1246]
+prs: [1255]

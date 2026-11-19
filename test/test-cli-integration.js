@@ -7,6 +7,11 @@
  * - Uninstall removes all tracked files
  * - IDE skill installation for each target
  * - Manifest accuracy
+ * - Folder values that start with {project-root}, as a BMAD Method install
+ *   writes them: install, update, status and uninstall read them as the
+ *   project root, and install and update remove the literal {project-root}
+ *   folder earlier versions left when it holds only the installer's .gitkeep
+ *   files
  * - The tool report (tools/cli/lib/tool-check.js), against stub tools on a
  *   PATH the test sets: each tool's version and status against its minimum,
  *   a stub that hangs, a stub in the project folder that never runs, .cmd
@@ -256,6 +261,7 @@ async function testUninstallCleansUp() {
   try {
     const { Installer } = require('../tools/cli/lib/installer');
     const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../tools/cli/lib/manifest');
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
     const installer = new Installer();
 
     // Install first
@@ -304,19 +310,7 @@ async function testUninstallCleansUp() {
     if (await fs.pathExists(learnDir)) await fs.remove(learnDir);
 
     // Remove output scaffolding
-    for (const file of manifest.files.output || []) {
-      const fullPath = path.join(projectDir, file);
-      if (await fs.pathExists(fullPath)) await fs.remove(fullPath);
-    }
-    for (const folder of [manifest.skills_output_folder, manifest.forge_data_folder]) {
-      if (folder) {
-        const dirPath = path.join(projectDir, folder);
-        if (await fs.pathExists(dirPath)) {
-          const entries = await fs.readdir(dirPath);
-          if (entries.length === 0) await fs.remove(dirPath);
-        }
-      }
-    }
+    await removeOutputScaffolding(projectDir, manifest);
 
     // Remove sidecar
     const sidecarDir = path.join(projectDir, '_bmad/_memory/forger-sidecar');
@@ -1542,6 +1536,397 @@ async function testTesslVersionFromItsBinary() {
 }
 
 // ============================================================
+// Folder values that start with {project-root}
+// ============================================================
+
+// The text of the .gitkeep every installer version wrote in an output folder it created.
+const INSTALLER_GITKEEP = '# This file ensures the directory is tracked by git\n';
+
+/**
+ * Write _bmad/skf/config.yaml with `values`, each written with JSON.stringify
+ * so a backslash survives YAML. Returns the text written.
+ */
+async function writeSavedConfig(projectDir, values) {
+  const lines = ['user_name: Tester', 'project_name: placeholder-test'];
+  for (const [key, value] of Object.entries(values)) lines.push(`${key}: ${JSON.stringify(value)}`);
+  const text = `${lines.join('\n')}\n`;
+  const configPath = path.join(projectDir, '_bmad', 'skf', 'config.yaml');
+  await fs.ensureDir(path.dirname(configPath));
+  await fs.writeFile(configPath, text, 'utf8');
+  return text;
+}
+
+/**
+ * Run the installer with its output suppressed.
+ */
+async function runInstall(config) {
+  const { Installer } = require('../tools/cli/lib/installer');
+  const restore = suppressConsole();
+  try {
+    return await new Installer().install(config);
+  } finally {
+    restore();
+  }
+}
+
+/**
+ * Run `run` in a new temp project, removed after it.
+ */
+async function inProject(label, description, run) {
+  const projectDir = await makeTempDir(label);
+  try {
+    await run(projectDir);
+  } catch (error) {
+    assert(false, `${description} completes without error`, error.stack);
+  } finally {
+    await fs.remove(projectDir);
+  }
+}
+
+/**
+ * The names in the project folder that start with {project-root}.
+ */
+async function literalEntries(projectDir) {
+  return (await fs.readdir(projectDir)).filter((name) => name.startsWith('{project-root}'));
+}
+
+async function testProjectRootFolderValues() {
+  console.log(`${colors.yellow}Test Suite 18: Folder Values That Start With {project-root}${colors.reset}\n`);
+
+  const { readManifest } = require('../tools/cli/lib/manifest');
+  // The values a BMAD Method install writes, one with a backslash.
+  const bmadMethodValues = {
+    skills_output_folder: '{project-root}/skf-skills',
+    forge_data_folder: String.raw`{project-root}\forge-data`,
+    ides: [],
+    install_learning: false,
+  };
+  // Update a BMAD Method install: a real skf-skills/ holding a skill, no forge-data/.
+  const updateBmadMethodProject = async (projectDir) => {
+    const saved = await writeSavedConfig(projectDir, bmadMethodValues);
+    await fs.ensureDir(path.join(projectDir, 'skf-skills', 'demo'));
+    await fs.writeFile(path.join(projectDir, 'skf-skills', 'demo', 'SKILL.md'), '# demo\n');
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', _action: 'update' });
+    return saved;
+  };
+
+  await inProject('root-update', 'update with {project-root} values', async (projectDir) => {
+    const saved = await updateBmadMethodProject(projectDir);
+    const literal = await literalEntries(projectDir);
+    assert(literal.length === 0, 'update: no folder named {project-root} in the project', literal.join(', '));
+    const skills = await fs.readdir(path.join(projectDir, 'skf-skills'));
+    assert(JSON.stringify(skills) === '["demo"]', 'update: the real skf-skills/ is left as it is, with no .gitkeep', skills.join(', '));
+    assert(
+      await fs.pathExists(path.join(projectDir, 'forge-data', '.gitkeep')),
+      'update: the missing forge-data/ is created with a .gitkeep',
+    );
+    const configText = await fs.readFile(path.join(projectDir, '_bmad', 'skf', 'config.yaml'), 'utf8');
+    assert(configText.startsWith(saved), 'update: config.yaml keeps the saved values');
+    const manifest = await readManifest(projectDir);
+    const output = JSON.stringify(manifest.files.output);
+    assert(output === JSON.stringify([path.join('forge-data', '.gitkeep')]), 'update: the manifest lists forge-data/.gitkeep only', output);
+    assert(
+      manifest.skills_output_folder === bmadMethodValues.skills_output_folder &&
+        manifest.forge_data_folder === bmadMethodValues.forge_data_folder,
+      'update: the manifest keeps the raw folder values',
+    );
+  });
+
+  await inProject('root-absolute', 'an install with an absolute skills folder', async (projectDir) => {
+    const elsewhere = await makeTempDir('root-elsewhere');
+    try {
+      const skills = path.join(elsewhere, 'skills');
+      await runInstall({
+        projectDir,
+        skfFolder: '_bmad/skf',
+        project_name: 'absolute-test',
+        skills_output_folder: skills,
+        forge_data_folder: 'forge-data',
+        ides: [],
+        install_learning: false,
+        _action: 'fresh',
+      });
+      const gitkeep = path.join(skills, '.gitkeep');
+      assert(await fs.pathExists(gitkeep), 'absolute value: the .gitkeep is created at that path');
+      // The first segment of the absolute path: `tmp` on Linux, the drive letter on Windows.
+      const first = skills.split(/[/\\]/).find(Boolean).replace(':', '');
+      assert(!(await fs.pathExists(path.join(projectDir, first))), `absolute value: nothing is nested under the project (${first}/)`);
+      const manifest = await readManifest(projectDir);
+      assert(
+        manifest.files.output.includes(path.relative(projectDir, gitkeep)),
+        'absolute value: the manifest lists that .gitkeep relative to the project',
+        JSON.stringify(manifest.files.output),
+      );
+    } finally {
+      await fs.remove(elsewhere);
+    }
+  });
+
+  await inProject('root-fresh', 'a fresh install with {project-root} answers', async (projectDir) => {
+    await runInstall({
+      projectDir,
+      skfFolder: '_bmad/skf',
+      project_name: 'fresh-placeholder',
+      skills_output_folder: '{project-root}/my-skills',
+      forge_data_folder: '{project-root}/my-forge',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    });
+    assert(
+      (await fs.pathExists(path.join(projectDir, 'my-skills', '.gitkeep'))) &&
+        (await fs.pathExists(path.join(projectDir, 'my-forge', '.gitkeep'))),
+      'fresh install: my-skills/ and my-forge/ are created at the project root',
+    );
+    const literal = await literalEntries(projectDir);
+    assert(literal.length === 0, 'fresh install: no folder named {project-root} in the project', literal.join(', '));
+    const manifest = await readManifest(projectDir);
+    const listed = Object.values(manifest.files).flat();
+    const missing = [];
+    for (const file of listed) {
+      if (!(await fs.pathExists(path.resolve(projectDir, file)))) missing.push(file);
+    }
+    assert(listed.length > 0 && missing.length === 0, 'fresh install: every file the manifest lists exists', missing.join(', '));
+  });
+
+  await inProject('root-alone', 'an install with a {project-root} value alone', async (projectDir) => {
+    // A .gitkeep of the user's own in the project folder.
+    await fs.writeFile(path.join(projectDir, '.gitkeep'), 'mine\n');
+    await runInstall({
+      projectDir,
+      skfFolder: '_bmad/skf',
+      project_name: 'root-alone',
+      skills_output_folder: '{project-root}',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    });
+    const literal = await literalEntries(projectDir);
+    assert(literal.length === 0, '{project-root} alone: nothing is created for it', literal.join(', '));
+    assert(
+      (await fs.readFile(path.join(projectDir, '.gitkeep'), 'utf8')) === 'mine\n',
+      "{project-root} alone: the project folder's own .gitkeep is untouched",
+    );
+    const output = JSON.stringify((await readManifest(projectDir)).files.output);
+    assert(
+      output === JSON.stringify([path.join('forge-data', '.gitkeep')]),
+      "{project-root} alone: the manifest does not list the project folder's .gitkeep",
+      output,
+    );
+  });
+
+  try {
+    const { resolveProjectFolder } = require('../tools/cli/lib/project-folders');
+    const root = path.resolve(os.tmpdir(), 'skf-root');
+    const elsewhere = path.resolve(os.tmpdir(), 'skf-elsewhere', 'skills');
+    const forms = [
+      ['{project-root}/skills', '{project-root}/skills', path.resolve(root, 'skills')],
+      [String.raw`{project-root}\skills`, String.raw`{project-root}\skills`, path.resolve(root, 'skills')],
+      ['{project-root}//skills/', '{project-root}//skills/', path.resolve(root, 'skills')],
+      ['./skills', './skills', path.resolve(root, 'skills')],
+      ['skills', 'skills', path.join(root, 'skills')],
+      ['{project-root} alone', '{project-root}', root],
+      ['an absolute path', elsewhere, elsewhere],
+      // With no separator after it, {project-root} is a folder name, as preflight reads it.
+      ['{project-root}_bmad/x', '{project-root}_bmad/x', path.join(root, '{project-root}_bmad', 'x')],
+    ];
+    for (const [label, value, expected] of forms) {
+      const resolved = resolveProjectFolder(root, value);
+      assert(resolved === expected, `resolveProjectFolder: ${label}`, `got ${resolved}, expected ${expected}`);
+    }
+  } catch (error) {
+    assert(false, 'resolveProjectFolder resolves every form', error.stack);
+  }
+
+  await inProject('root-status', 'status with {project-root} values', async (projectDir) => {
+    const { getStatus } = require('../tools/cli/commands/status');
+    await writeSavedConfig(projectDir, {
+      skills_output_folder: '{project-root}/skf-skills',
+      forge_data_folder: '{project-root}/forge-data',
+    });
+    await fs.ensureDir(path.join(projectDir, 'skf-skills'));
+    await fs.ensureDir(path.join(projectDir, 'forge-data'));
+    const status = await getStatus(projectDir);
+    assert(status.skillsFolderExists === true && status.forgeDataFolderExists === true, 'status: both real folders are marked present');
+    assert(
+      status.skillsFolder === '{project-root}/skf-skills' && status.forgeDataFolder === '{project-root}/forge-data',
+      'status: the folder labels keep the raw values',
+    );
+  });
+
+  await inProject('root-uninstall', 'uninstall after an update with {project-root} values', async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    await updateBmadMethodProject(projectDir);
+    await removeOutputScaffolding(projectDir, await readManifest(projectDir));
+    assert(!(await fs.pathExists(path.join(projectDir, 'forge-data'))), 'uninstall: the forge-data/ the installer created goes');
+    assert(await fs.pathExists(path.join(projectDir, 'skf-skills', 'demo', 'SKILL.md')), 'uninstall: skf-skills/ holding a skill stays');
+  });
+
+  await inProject('root-uninstall-empty', 'uninstall with an empty real output folder', async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    await updateBmadMethodProject(projectDir);
+    // The skill is gone, so skf-skills/ is empty, and the manifest lists no file in it.
+    await fs.remove(path.join(projectDir, 'skf-skills', 'demo'));
+    await removeOutputScaffolding(projectDir, await readManifest(projectDir));
+    assert(
+      !(await fs.pathExists(path.join(projectDir, 'skf-skills'))),
+      'uninstall: a real output folder left empty goes, though the manifest lists no file in it',
+    );
+  });
+
+  await inProject('root-uninstall-earlier', 'uninstall with an earlier manifest', async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    // An earlier version joined the value to the project folder as it stood.
+    const listed = path.join('{project-root}', 'skf-skills', '.gitkeep');
+    await fs.ensureDir(path.join(projectDir, '{project-root}', 'skf-skills'));
+    await fs.writeFile(path.join(projectDir, listed), INSTALLER_GITKEEP);
+    await removeOutputScaffolding(projectDir, {
+      skills_output_folder: '{project-root}/skf-skills',
+      forge_data_folder: '{project-root}/forge-data',
+      files: { output: [listed] },
+    });
+    assert(
+      !(await fs.pathExists(path.join(projectDir, '{project-root}', 'skf-skills'))),
+      "uninstall: an earlier manifest's literal {project-root}/skf-skills/ goes",
+    );
+  });
+
+  await inProject('root-uninstall-alone', 'uninstall with a {project-root} value alone', async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    await removeOutputScaffolding(projectDir, {
+      skills_output_folder: '{project-root}',
+      forge_data_folder: 'forge-data',
+      files: { output: [] },
+    });
+    assert(await fs.pathExists(projectDir), 'uninstall: a {project-root} value alone never removes the project folder');
+  });
+
+  await inProject('root-user-gitkeep', "an update over a real folder holding the user's own .gitkeep", async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    await writeSavedConfig(projectDir, bmadMethodValues);
+    const own = path.join(projectDir, 'skf-skills', '.gitkeep');
+    await fs.ensureDir(path.dirname(own));
+    await fs.writeFile(own, 'mine\n');
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', _action: 'update' });
+    const manifest = await readManifest(projectDir);
+    const output = JSON.stringify(manifest.files.output);
+    assert(
+      output === JSON.stringify([path.join('forge-data', '.gitkeep')]),
+      'update: the manifest does not list a .gitkeep the installer did not write',
+      output,
+    );
+    await removeOutputScaffolding(projectDir, manifest);
+    assert(
+      (await fs.pathExists(own)) && (await fs.readFile(own, 'utf8')) === 'mine\n',
+      "uninstall: the user's own .gitkeep in a real output folder stays",
+    );
+  });
+
+  await inProject('root-uninstall-absolute', 'uninstall with an absolute output entry', async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    // The manifest entry for a folder on another Windows drive is absolute: path.relative returns it whole.
+    const elsewhere = await makeTempDir('root-uninstall-elsewhere');
+    try {
+      const skills = path.join(elsewhere, 'skills');
+      await fs.ensureDir(skills);
+      await fs.writeFile(path.join(skills, '.gitkeep'), INSTALLER_GITKEEP);
+      await removeOutputScaffolding(projectDir, {
+        skills_output_folder: skills,
+        forge_data_folder: 'forge-data',
+        files: { output: [path.join(skills, '.gitkeep')] },
+      });
+      assert(!(await fs.pathExists(skills)), 'uninstall: an absolute output entry is removed where it points, with its emptied folder');
+    } finally {
+      await fs.remove(elsewhere);
+    }
+  });
+
+  console.log('');
+}
+
+async function testLeftoverProjectRootFolder() {
+  console.log(`${colors.yellow}Test Suite 19: The {project-root} Folder an Earlier Version Left${colors.reset}\n`);
+
+  const values = {
+    skills_output_folder: '{project-root}/skf-skills',
+    forge_data_folder: '{project-root}/forge-data',
+    ides: [],
+    install_learning: false,
+  };
+  const literal = (projectDir, ...parts) => path.join(projectDir, '{project-root}', ...parts);
+  // What an update with these values left before this fix.
+  const writeLeftover = async (projectDir, text = INSTALLER_GITKEEP) => {
+    for (const folder of ['skf-skills', 'forge-data']) {
+      await fs.ensureDir(literal(projectDir, folder));
+      await fs.writeFile(literal(projectDir, folder, '.gitkeep'), text);
+    }
+  };
+  const realFoldersCreated = async (projectDir) =>
+    (await fs.pathExists(path.join(projectDir, 'skf-skills', '.gitkeep'))) &&
+    (await fs.pathExists(path.join(projectDir, 'forge-data', '.gitkeep')));
+
+  await inProject('leftover-update', 'an update over the leftover', async (projectDir) => {
+    await writeSavedConfig(projectDir, values);
+    await writeLeftover(projectDir);
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', _action: 'update' });
+    assert(!(await fs.pathExists(literal(projectDir))), "update: a {project-root}/ holding only the installer's .gitkeep files goes");
+    assert(await realFoldersCreated(projectDir), 'update: the real skf-skills/ and forge-data/ are created');
+  });
+
+  await inProject('leftover-fresh', 'a fresh install over the leftover', async (projectDir) => {
+    await writeLeftover(projectDir);
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', project_name: 'leftover-fresh', ...values, _action: 'fresh' });
+    assert(
+      !(await fs.pathExists(literal(projectDir))),
+      "fresh install: a {project-root}/ holding only the installer's .gitkeep files goes",
+    );
+    assert(await realFoldersCreated(projectDir), 'fresh install: the real skf-skills/ and forge-data/ are created');
+  });
+
+  await inProject('leftover-user-file', 'an update over a leftover holding a user file', async (projectDir) => {
+    await writeSavedConfig(projectDir, values);
+    await writeLeftover(projectDir);
+    const notes = literal(projectDir, 'forge-data', 'notes.md');
+    await fs.writeFile(notes, 'mine\n');
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', _action: 'update' });
+    assert(
+      (await fs.pathExists(notes)) && (await fs.readFile(literal(projectDir, 'forge-data', '.gitkeep'), 'utf8')) === INSTALLER_GITKEEP,
+      'update: a leftover folder holding a user file stays, with its .gitkeep',
+    );
+    assert(await fs.pathExists(literal(projectDir)), 'update: {project-root}/ stays while a folder in it holds a user file');
+    assert(!(await fs.pathExists(literal(projectDir, 'skf-skills'))), 'update: the other leftover folder, holding only its .gitkeep, goes');
+  });
+
+  await inProject('leftover-other-text', 'an update over a .gitkeep the installer did not write', async (projectDir) => {
+    await writeSavedConfig(projectDir, values);
+    await writeLeftover(projectDir, 'kept by hand\n');
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', _action: 'update' });
+    assert(
+      (await fs.pathExists(literal(projectDir, 'skf-skills', '.gitkeep'))) &&
+        (await fs.pathExists(literal(projectDir, 'forge-data', '.gitkeep'))),
+      "update: a .gitkeep holding other text than the installer's stays",
+    );
+  });
+
+  await inProject('leftover-outside', 'an update with a value whose literal path leaves the project', async (root) => {
+    // The project is two levels down, so the literal path and the resolved one both stay in this temp folder.
+    const projectDir = path.join(root, 'a', 'project');
+    const outside = path.join(root, 'a', 'shared');
+    await fs.ensureDir(outside);
+    await fs.writeFile(path.join(outside, '.gitkeep'), INSTALLER_GITKEEP);
+    await writeSavedConfig(projectDir, { ...values, skills_output_folder: '{project-root}/../../shared' });
+    await runInstall({ projectDir, skfFolder: '_bmad/skf', _action: 'update' });
+    assert(
+      await fs.pathExists(path.join(outside, '.gitkeep')),
+      'update: a folder outside the project that the literal path names stays, though it holds only the .gitkeep',
+    );
+  });
+
+  console.log('');
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -1567,6 +1952,8 @@ async function runTests() {
   await testCliStopsProbesWithoutReport();
   await testSkillCheckVersionFromPackage();
   await testTesslVersionFromItsBinary();
+  await testProjectRootFolderValues();
+  await testLeftoverProjectRootFolder();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');
