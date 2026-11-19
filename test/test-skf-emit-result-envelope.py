@@ -2121,6 +2121,9 @@ BANNER_CASES = [
     ('tools.ccc and ccc_daemon is "error"', _ccc(daemon="error"), _ccc(),
      "  - The ccc daemon is reporting errors: run `ccc doctor` to diagnose. CCC index will fail until resolved"),
     ('hygiene_result is "completed"', _hygiene(), {}, "  QMD Registry:"),
+    ("hygiene_empty > 0", _hygiene(hygiene_empty=2, hygiene_empty_collections=["a-docs", "b-temporal"]), _hygiene(),
+     "  2 registered collection(s) hold no indexed files, so Deep-tier searches find nothing in them: a-docs, "
+     "b-temporal. Run `qmd update`, then `qmd embed`, to index what their folders hold"),
     ("hygiene_orphaned_removed > 0", _hygiene(hygiene_orphaned_removed=2), _hygiene(),
      "  2 orphaned collection(s) removed"),
     ("hygiene_orphaned_kept > 0", _hygiene(hygiene_orphaned_kept=3), _hygiene(),
@@ -2129,7 +2132,8 @@ BANNER_CASES = [
      "  1 stale QMD registry entry/entries cleaned"),
     ("ccc_registry_stale_cleaned > 0", {"ccc_registry_stale_cleaned": 2}, {"ccc_registry_stale_cleaned": 0},
      "  CCC Registry: 2 stale entry/entries cleaned"),
-    ('hygiene_result is "completed" and hygiene_healthy is 0', _hygiene(hygiene_healthy=0), _hygiene(),
+    ('hygiene_result is "completed" and hygiene_healthy is 0 and hygiene_empty is 0', _hygiene(hygiene_healthy=0),
+     _hygiene(hygiene_healthy=0, hygiene_empty=1, hygiene_empty_collections=["a-docs"]),
      "  QMD Registry: empty. Collections are created automatically when you run /skf-create-skill."),
     ('hygiene_result is "qmd_unavailable"', {"hygiene_result": "qmd_unavailable"}, {},
      "  QMD Registry: skipped (qmd unavailable; if the daemon is stopped, `qmd start` restores it)."),
@@ -2292,9 +2296,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template is what render-report prints: 42 conditions, a case for each."""
+    """The template is what render-report prints: 43 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 42
+    assert len(entries) == 43
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 

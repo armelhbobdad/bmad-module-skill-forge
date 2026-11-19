@@ -28,6 +28,7 @@
   {if hygiene_result is "completed":}
   QMD Registry:
   {hygiene_healthy} collection(s) healthy
+  {if hygiene_empty > 0: {hygiene_empty} registered collection(s) hold no indexed files, so Deep-tier searches find nothing in them: {hygiene_empty_collections, comma-separated}. Run `qmd update`, then `qmd embed`, to index what their folders hold}
   {if hygiene_orphaned_removed > 0: {hygiene_orphaned_removed} orphaned collection(s) removed}
   {if hygiene_orphaned_kept > 0: {hygiene_orphaned_kept} orphaned collection(s) kept}
   {if hygiene_stale_cleaned > 0: {hygiene_stale_cleaned} stale QMD registry entry/entries cleaned}
@@ -37,7 +38,7 @@
   CCC Registry: {ccc_registry_stale_cleaned} stale entry/entries cleaned
   {end if}
 
-  {if hygiene_result is "completed" and hygiene_healthy is 0:}
+  {if hygiene_result is "completed" and hygiene_healthy is 0 and hygiene_empty is 0:}
   QMD Registry: empty. Collections are created automatically when you run /skf-create-skill.
   {end if}
 

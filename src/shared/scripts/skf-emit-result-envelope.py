@@ -361,8 +361,11 @@ Context payload shape (consumed by `emit` for skf-setup):
   "settings_yml_written" and "gitignore_updated" (bool),
   "settings_yml_patterns_added" and "settings_yml_patterns_removed"
   (int), "hygiene_result" ("completed|qmd_unavailable|skipped"),
-  "hygiene_healthy", "hygiene_orphaned_removed", "hygiene_orphaned_kept",
-  "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int),
+  "hygiene_healthy", "hygiene_empty", "hygiene_orphaned_removed",
+  "hygiene_orphaned_kept", "hygiene_stale_cleaned" and
+  "ccc_registry_stale_cleaned" (int), "hygiene_empty_collections" (the
+  registered QMD collections that hold no indexed files, each also the
+  warning `qmd_collection_empty: <name>`),
   "ccc_index_deferred" (bool: --defer-index skipped a due index build),
   and "require_tier" (the tier --require-tier named, or null). The staged
   helper outputs supply every one of them but the two resolved paths,
@@ -594,6 +597,9 @@ def _assemble_warnings(payload: dict) -> list[str]:
         warnings.append(f"ccc_registry_stale_removed: {p}")
     if payload.get("qmd_status") == "daemon_stopped":
         warnings.append("qmd_daemon_stopped")
+    # A registered collection QMD lists with no file answers no search.
+    for name in _strings(payload.get("hygiene_empty_collections")):
+        warnings.append(f"qmd_collection_empty: {name}")
     for tool in _objects(payload.get("tools_below_minimum")):
         warnings.append(f"tool_below_minimum: {_tool_name(tool)} {tool.get('version')} "
                         f"(minimum {tool.get('minimum')})")
@@ -841,8 +847,12 @@ def fold_staged(payload: dict, staged: dict) -> dict:
                           reports ccc available (step 1b ran the helper)
       qmd-classify.json   hygiene_result ("completed", or "qmd_unavailable"
                           when the classifier failed), hygiene_healthy,
-                          hygiene_orphaned_kept (every orphan, while no
-                          removal ran) and orphan_auto_resolution's count
+                          hygiene_empty and hygiene_empty_collections
+                          (its `empty` names, each a `qmd_collection_empty:
+                          <name>` warning; 0 and none when the classifier
+                          failed), hygiene_orphaned_kept (every orphan,
+                          while no removal ran) and
+                          orphan_auto_resolution's count
       qmd-remove.json     hygiene_orphaned_removed, hygiene_orphaned_kept
                           (the orphans the removal could not delete) and
                           orphan_auto_resolution's removed and failed
@@ -898,10 +908,13 @@ def fold_staged(payload: dict, staged: dict) -> dict:
     orphaned = _strings(_dict(staged.get(STAGED_CLASSIFY)).get("orphaned"))
     resolution = out.get("orphan_auto_resolution")
     if STAGED_CLASSIFY in staged:
-        healthy = _dict(staged[STAGED_CLASSIFY]).get("healthy")
+        classified = _dict(staged[STAGED_CLASSIFY])
+        healthy = classified.get("healthy")
         completed = isinstance(healthy, list)
+        empty = _strings(classified.get("empty")) if completed else []
         out["hygiene_result"] = "completed" if completed else "qmd_unavailable"
         out["hygiene_healthy"] = len(healthy) if completed else 0
+        out["hygiene_empty"], out["hygiene_empty_collections"] = len(empty), empty
         out["hygiene_orphaned_removed"], out["hygiene_orphaned_kept"] = 0, len(orphaned)
         if isinstance(resolution, dict) and "count" not in resolution:
             resolution = {**resolution, "count": len(orphaned)}
@@ -1151,6 +1164,11 @@ def render_report(payload: dict, copy: dict) -> list[str]:
 
     if hygiene == "completed":
         qmd = ["  QMD Registry:", f"  {_count(payload.get('hygiene_healthy'))} collection(s) healthy"]
+        if _count(payload.get("hygiene_empty")) > 0:
+            names = ", ".join(_strings(payload.get("hygiene_empty_collections")))
+            qmd.append(f"  {_count(payload.get('hygiene_empty'))} registered collection(s) hold no indexed "
+                       f"files, so Deep-tier searches find nothing in them: {names}. Run `qmd update`, "
+                       "then `qmd embed`, to index what their folders hold")
         for key, what in (("hygiene_orphaned_removed", "orphaned collection(s) removed"),
                           ("hygiene_orphaned_kept", "orphaned collection(s) kept"),
                           ("hygiene_stale_cleaned", "stale QMD registry entry/entries cleaned")):
@@ -1160,7 +1178,8 @@ def render_report(payload: dict, copy: dict) -> list[str]:
     if _count(payload.get("ccc_registry_stale_cleaned")) > 0:
         blocks.append([f"  CCC Registry: {_count(payload.get('ccc_registry_stale_cleaned'))} stale "
                        "entry/entries cleaned"])
-    if hygiene == "completed" and _count(payload.get("hygiene_healthy")) == 0:
+    if (hygiene == "completed" and _count(payload.get("hygiene_healthy")) == 0
+            and _count(payload.get("hygiene_empty")) == 0):
         blocks.append(["  QMD Registry: empty. Collections are created automatically when you run "
                        "/skf-create-skill."])
     if hygiene == "qmd_unavailable":

@@ -62,7 +62,8 @@ bare names).
 
 qmd is found on PATH with skf-qmd-classify-collections.py's
 _resolve_outside_cwd (a qmd shim in the current folder is never run), and
-the listing is read with its parse_collection_list_output. That sibling
+the listing is read with its parse_collection_list_output (the names) and
+parse_collection_file_counts (each one's `Files:` count). That sibling
 script is loaded from this folder when a command runs, so --help needs no
 dependency.
 
@@ -79,7 +80,6 @@ import argparse
 import importlib.util
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -91,7 +91,6 @@ HERE = Path(__file__).resolve().parent
 CLASSIFY = HERE / "skf-qmd-classify-collections.py"
 LIST_TIMEOUT = 30
 KILL_WAIT_SEC = 5  # each wait after a time limit: taskkill, then qmd itself
-_FILES_RE = re.compile(r"^\s+Files:\s*(\d+)\s*$")
 
 _SIBLINGS: dict[str, object] = {}
 
@@ -208,22 +207,7 @@ def collection_names(listing: str) -> list[str]:
 
 def file_counts(listing: str) -> dict[str, int | None]:
     """Collection name -> the `Files:` count its block of the listing gives, None when it gives none."""
-    parse = _load(CLASSIFY).parse_collection_list_output
-    counts: dict[str, int | None] = {}
-    current = None
-    for line in listing.splitlines():
-        if not line.strip():
-            continue
-        if not line[0].isspace():
-            names = parse(line)
-            current = names[0] if names else None
-            if current is not None:
-                counts.setdefault(current, None)
-            continue
-        match = _FILES_RE.match(line)
-        if match and current is not None:
-            counts[current] = int(match.group(1))
-    return counts
+    return _load(CLASSIFY).parse_collection_file_counts(listing)
 
 
 def _json_rows(stdout: str):

@@ -22,7 +22,7 @@ The progressive registry solves all three by indexing **curated workflow artifac
 | --- | --- | --- |
 | **Producer** | brief-skill, create-skill | Creates QMD collections from workflow artifacts and registers them in forge-tier.yaml |
 | **Consumer** | audit-skill, update-skill, create-stack-skill | Reads the registry, discovers collections by skill name and type, queries via qmd_bridge (see [tool-resolution.md](tool-resolution.md) for concrete resolution) |
-| **Janitor** | setup | Cross-references live QMD collections against the registry, cleans orphans and stale entries |
+| **Janitor** | setup | Cross-references live QMD collections against the registry, cleans orphans and stale entries, and reports registered collections QMD holds no files for |
 
 ### Registry Schema
 
@@ -145,7 +145,7 @@ Then append/replace the registry entry in forge-tier.yaml. Failures never block 
 
 **Context:** Setup-forge verifies QMD health on every run.
 
-**Implementation:** Cross-reference live QMD collections against registry. Classify as healthy (in both), orphaned (in QMD only, and indexed from a folder inside this project: QMD's index is shared by every project on the machine, so another project's collections never count), or stale (in registry only). Prompt user before removing orphans, and check each one's folder again just before removing it. Silently clean stale registry entries.
+**Implementation:** Cross-reference live QMD collections against registry. Classify as healthy (in both, and not listed with `Files: 0`), empty (in both, but QMD lists no file for it: reported with `qmd update` and `qmd embed`, never removed), orphaned (in QMD only, and indexed from a folder inside this project: QMD's index is shared by every project on the machine, so another project's collections never count), or stale (in registry only). Prompt user before removing orphans, and check each one's folder again just before removing it. Silently clean stale registry entries.
 
 ## Related Fragments
 
