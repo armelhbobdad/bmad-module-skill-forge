@@ -21,6 +21,11 @@
  *   and tessl (from the name of the binary it installed), read without
  *   running either, and snyk-agent-scan, which SKF runs through uvx and the
  *   report never probes
+ * - Uninstall removes only what the installer wrote: an output entry goes
+ *   only when it is a regular .gitkeep holding the installer's text, the
+ *   fixed _bmad/skf goes whatever skf_folder says, and the action, run with
+ *   its confirm prompt stubbed, prints a plan naming the path of each
+ *   removal and a warning naming each output entry it keeps
  *
  * Usage: node test/test-cli-integration.js
  */
@@ -1758,9 +1763,14 @@ async function testProjectRootFolderValues() {
   await inProject('root-uninstall', 'uninstall after an update with {project-root} values', async (projectDir) => {
     const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
     await updateBmadMethodProject(projectDir);
-    await removeOutputScaffolding(projectDir, await readManifest(projectDir));
+    const result = await removeOutputScaffolding(projectDir, await readManifest(projectDir));
     assert(!(await fs.pathExists(path.join(projectDir, 'forge-data'))), 'uninstall: the forge-data/ the installer created goes');
     assert(await fs.pathExists(path.join(projectDir, 'skf-skills', 'demo', 'SKILL.md')), 'uninstall: skf-skills/ holding a skill stays');
+    assert(
+      JSON.stringify(result) === JSON.stringify({ removed: [path.join(projectDir, 'forge-data', '.gitkeep')], kept: [] }),
+      "uninstall: the installer's .gitkeep is listed as removed, and nothing as kept",
+      JSON.stringify(result),
+    );
   });
 
   await inProject('root-uninstall-empty', 'uninstall with an empty real output folder', async (projectDir) => {
@@ -1831,15 +1841,109 @@ async function testProjectRootFolderValues() {
       const skills = path.join(elsewhere, 'skills');
       await fs.ensureDir(skills);
       await fs.writeFile(path.join(skills, '.gitkeep'), INSTALLER_GITKEEP);
-      await removeOutputScaffolding(projectDir, {
+      const result = await removeOutputScaffolding(projectDir, {
         skills_output_folder: skills,
         forge_data_folder: 'forge-data',
         files: { output: [path.join(skills, '.gitkeep')] },
       });
       assert(!(await fs.pathExists(skills)), 'uninstall: an absolute output entry is removed where it points, with its emptied folder');
+      assert(
+        JSON.stringify(result.removed) === JSON.stringify([path.join(skills, '.gitkeep')]) && result.kept.length === 0,
+        'uninstall: the absolute output entry is listed as removed, and nothing as kept',
+        JSON.stringify(result),
+      );
     } finally {
       await fs.remove(elsewhere);
     }
+  });
+
+  // Not through inProject: `..` from its project is the system temp folder. Here the
+  // project is home/project, so every entry points inside the home this test creates.
+  const refusedHome = await makeTempDir('root-uninstall-refused');
+  try {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    const projectDir = path.join(refusedHome, 'project');
+    const victim = path.join(refusedHome, 'victim');
+    const absFolder = path.join(refusedHome, 'abs-folder');
+    const otherGitkeep = path.join(refusedHome, 'other', '.gitkeep');
+    const notes = path.join(projectDir, 'notes.txt');
+    const missingFolder = path.join(projectDir, 'missing');
+    const target = path.join(refusedHome, 'target.txt');
+    const link = path.join(projectDir, 'skills', '.gitkeep');
+    await fs.ensureDir(path.join(victim, 'inner'));
+    await fs.writeFile(path.join(victim, 'inner', 'data.txt'), 'victim\n');
+    await fs.ensureDir(absFolder);
+    await fs.writeFile(path.join(absFolder, 'data.txt'), 'absolute\n');
+    await fs.ensureDir(path.dirname(otherGitkeep));
+    await fs.writeFile(otherGitkeep, 'mine\n');
+    await fs.ensureDir(projectDir);
+    await fs.writeFile(notes, INSTALLER_GITKEEP);
+    // The folder of the missing entry exists and is empty.
+    await fs.ensureDir(missingFolder);
+    // `notes` names notes.txt a second time, as an absolute path: it is listed once.
+    const entries = [path.join('..', 'victim'), absFolder, otherGitkeep, 'notes.txt', path.join('missing', '.gitkeep'), notes];
+    const expectedKept = [victim, absFolder, otherGitkeep, notes];
+    if (!IS_WINDOWS) {
+      await fs.writeFile(target, INSTALLER_GITKEEP);
+      await fs.ensureDir(path.dirname(link));
+      await fs.symlink(target, link);
+      entries.push(path.join('skills', '.gitkeep'));
+      expectedKept.push(link);
+      // Under a regular file, so lstat fails with ENOTDIR, not ENOENT: kept and named.
+      entries.push(path.join('notes.txt', '.gitkeep'));
+      expectedKept.push(path.join(notes, '.gitkeep'));
+    }
+    const result = await removeOutputScaffolding(projectDir, { files: { output: entries } });
+    assert(
+      (await fs.readFile(path.join(victim, 'inner', 'data.txt'), 'utf8')) === 'victim\n',
+      'uninstall: a folder entry outside the project stays with its contents',
+    );
+    assert(
+      (await fs.readFile(path.join(absFolder, 'data.txt'), 'utf8')) === 'absolute\n',
+      'uninstall: an absolute folder entry stays with its contents',
+    );
+    assert((await fs.readFile(otherGitkeep, 'utf8')) === 'mine\n', "uninstall: a .gitkeep holding other text than the installer's stays");
+    assert(
+      (await fs.readFile(notes, 'utf8')) === INSTALLER_GITKEEP,
+      "uninstall: a file holding the installer's text under another name than .gitkeep stays",
+    );
+    assert(await fs.pathExists(missingFolder), "uninstall: a missing entry's folder is not cleaned through it");
+    if (!IS_WINDOWS) {
+      assert(
+        (await fs.lstat(link)).isSymbolicLink() && (await fs.readFile(target, 'utf8')) === INSTALLER_GITKEEP,
+        'uninstall: a .gitkeep symlink stays a link, and its target stays',
+      );
+    }
+    assert(result.removed.length === 0, 'uninstall: no entry the installer did not write is listed as removed', JSON.stringify(result));
+    assert(
+      JSON.stringify(result.kept) === JSON.stringify(expectedKept),
+      'uninstall: each entry it keeps is listed as kept, by its resolved path, and the missing one is in neither list',
+      JSON.stringify(result.kept),
+    );
+  } catch (error) {
+    assert(false, 'uninstall with output entries the installer did not write completes without error', error.stack);
+  } finally {
+    await fs.remove(refusedHome);
+  }
+
+  await inProject('root-uninstall-not-list', 'uninstall with an output value that is not a list', async (projectDir) => {
+    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
+    // Letters only: code that iterates the string resolves each character against the
+    // project, and `.`, `/` or `\` would name the project, the filesystem root or a drive root.
+    for (const name of ['a', 'b']) {
+      await fs.ensureDir(path.join(projectDir, name));
+      await fs.writeFile(path.join(projectDir, name, 'data.txt'), 'mine\n');
+    }
+    const result = await removeOutputScaffolding(projectDir, { files: { output: 'ab' } });
+    assert(
+      (await fs.pathExists(path.join(projectDir, 'a', 'data.txt'))) && (await fs.pathExists(path.join(projectDir, 'b', 'data.txt'))),
+      'uninstall: an output value that is not a list removes nothing',
+    );
+    assert(
+      result.removed.length === 0 && result.kept.length === 0,
+      'uninstall: an output value that is not a list reads as no entries',
+      JSON.stringify(result),
+    );
   });
 
   console.log('');
@@ -1927,6 +2031,358 @@ async function testLeftoverProjectRootFolder() {
 }
 
 // ============================================================
+// Uninstall run through its action
+// ============================================================
+
+// Every escape sequence the plan and the spinner write: colors, cursor hide and show, line erases.
+// eslint-disable-next-line no-control-regex -- clack and chalk write these
+const TERMINAL_ESCAPES = /\u001B\[[\d;?]*[A-Za-z]/g;
+
+/**
+ * Run the uninstall action in `projectDir`, the confirm prompt answering
+ * `answer`. @clack/prompts is ESM-only, so its namespace cannot be patched:
+ * a Module._load hook hands uninstall.js a copy whose confirm records the
+ * call and returns `answer`, and uninstall.js is loaded fresh for the run
+ * and dropped from the cache after it. Console and stdout output is
+ * collected, and process.exit is recorded without stopping the run, since
+ * each exit in the action is followed by a return or the end of the action.
+ * Returns the exit codes, the output with every escape sequence stripped,
+ * the cwd the action ran in and the confirm calls.
+ */
+async function runUninstallAction(projectDir, { answer = true } = {}) {
+  const Module = require('node:module');
+  const modulePath = require.resolve('../tools/cli/commands/uninstall');
+  const exits = [];
+  const printed = [];
+  const confirmCalls = [];
+  const orig = {
+    load: Module._load,
+    cwd: process.cwd(),
+    log: console.log,
+    error: console.error,
+    out: process.stdout.write,
+    err: process.stderr.write,
+    exit: process.exit,
+  };
+  let cwd = null;
+  try {
+    Module._load = (request, ...rest) => {
+      const loaded = orig.load.call(Module, request, ...rest);
+      if (request !== '@clack/prompts') return loaded;
+      return {
+        ...loaded,
+        confirm: async (options) => {
+          confirmCalls.push(options);
+          return answer;
+        },
+      };
+    };
+    delete require.cache[modulePath];
+    const uninstall = require(modulePath);
+    process.chdir(projectDir);
+    cwd = process.cwd();
+    const collect = (chunk) => {
+      printed.push(String(chunk));
+      return true;
+    };
+    console.log = (...args) => printed.push(`${args.join(' ')}\n`);
+    console.error = (...args) => printed.push(`${args.join(' ')}\n`);
+    process.stdout.write = collect;
+    process.stderr.write = collect;
+    process.exit = (code) => {
+      exits.push(code);
+    };
+    await uninstall.action();
+  } finally {
+    console.log = orig.log;
+    console.error = orig.error;
+    process.stdout.write = orig.out;
+    process.stderr.write = orig.err;
+    process.exit = orig.exit;
+    process.chdir(orig.cwd);
+    Module._load = orig.load;
+    delete require.cache[modulePath];
+  }
+  return { exits, output: printed.join('').replaceAll(TERMINAL_ESCAPES, ''), cwd, confirmCalls };
+}
+
+async function testUninstallGuardedRemoval() {
+  console.log(`${colors.yellow}Test Suite 20: Uninstall Removes Only What the Installer Wrote${colors.reset}\n`);
+
+  const { MANIFEST_DIR, MANIFEST_FILE } = require('../tools/cli/lib/manifest');
+  const skfConfig = path.join('_bmad', 'skf', 'config.yaml');
+
+  // Run `run` with a new temp folder `home` and the project `home/project`, so `..`
+  // from the project is `home` and every target sits in a folder this test creates.
+  // `home` goes after the run, once the helper has restored the cwd.
+  const inHome = async (description, run) => {
+    const home = await makeTempDir('uninstall-guarded');
+    try {
+      const projectDir = path.join(home, 'project');
+      await fs.ensureDir(projectDir);
+      await run(home, projectDir);
+    } catch (error) {
+      assert(false, `${description} completes without error`, error.stack);
+    } finally {
+      await fs.remove(home);
+    }
+  };
+  const writeFile = async (file, text) => {
+    await fs.ensureDir(path.dirname(file));
+    await fs.writeFile(file, text);
+  };
+  const writeTestManifest = async (projectDir, manifest) => {
+    const text = yaml.dump({ version: 'test', module: 'skf', ides: [], ...manifest });
+    await writeFile(path.join(projectDir, MANIFEST_DIR, MANIFEST_FILE), text);
+  };
+  const files = (lists) => ({ skf: [], sidecar: [], ide_skills: [], learning: [], output: [], ...lists });
+  // The plan lines, each from its `×` on.
+  const planLines = (output) =>
+    output
+      .split('\n')
+      .filter((line) => line.includes('×'))
+      .map((line) => line.slice(line.indexOf('×')).trimEnd());
+  const exitedOnce = (run) => JSON.stringify(run.exits) === '[0]' && run.confirmCalls.length === 1;
+
+  const skfFolderCases = [
+    { label: '..', value: () => '..' },
+    { label: '.', value: () => '.' },
+    { label: 'src', value: () => 'src' },
+    { label: 'an absolute sibling folder', value: (home) => path.join(home, 'sibling') },
+    { label: 'absent', value: () => null },
+  ];
+  for (const { label, value } of skfFolderCases) {
+    await inHome(`uninstall with skf_folder ${label}`, async (home, projectDir) => {
+      const skfFolder = value(home);
+      await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+      // The file each skf_folder value names a folder of: home, the project, src/ and the sibling.
+      const own = [
+        path.join(home, 'outside.txt'),
+        path.join(projectDir, 'README.md'),
+        path.join(projectDir, 'src', 'index.js'),
+        path.join(home, 'sibling', 'keep.txt'),
+      ];
+      for (const file of own) await writeFile(file, 'mine\n');
+      const manifest = { files: files({ skf: [skfConfig] }) };
+      if (skfFolder !== null) manifest.skf_folder = skfFolder;
+      await writeTestManifest(projectDir, manifest);
+
+      const run = await runUninstallAction(projectDir);
+      assert(exitedOnce(run), `skf_folder ${label}: the action asks once and exits 0`, JSON.stringify(run.exits) + run.output);
+      const skfLines = planLines(run.output).filter((line) => line.includes('SKF module files'));
+      assert(
+        skfLines.length === 1 && skfLines[0] === '× SKF module files (_bmad/skf/, 1 file)',
+        `skf_folder ${label}: the plan names _bmad/skf/, not the raw value`,
+        skfLines.join(' | '),
+      );
+      assert(!(await fs.pathExists(path.join(projectDir, '_bmad', 'skf'))), `skf_folder ${label}: _bmad/skf/ goes`);
+      const missing = [];
+      for (const file of own) {
+        if (!(await fs.pathExists(file))) missing.push(file);
+      }
+      assert(missing.length === 0, `skf_folder ${label}: the folder it names stays with its files`, missing.join(', '));
+    });
+  }
+
+  await inHome('uninstall with an installer .gitkeep and a folder as output entries', async (home, projectDir) => {
+    await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+    await writeFile(path.join(projectDir, 'skills', '.gitkeep'), INSTALLER_GITKEEP);
+    await writeFile(path.join(home, 'victim', 'data.txt'), 'victim\n');
+    await writeTestManifest(projectDir, {
+      skf_folder: '_bmad/skf',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      files: files({ skf: [skfConfig], output: [path.join('skills', '.gitkeep'), path.join('..', 'victim')] }),
+    });
+
+    const run = await runUninstallAction(projectDir);
+    const gitkeep = path.join(run.cwd, 'skills', '.gitkeep');
+    const victim = path.resolve(run.cwd, '..', 'victim');
+    const lines = planLines(run.output);
+    assert(exitedOnce(run), 'output entries: the action asks once and exits 0', JSON.stringify(run.exits) + run.output);
+    assert(
+      lines.includes(`× Output folder scaffolding (${gitkeep})`),
+      "output entries: the plan names the installer's .gitkeep by its absolute path",
+      lines.join(' | '),
+    );
+    const header = 'Left in place, not a .gitkeep the installer wrote:';
+    const kept = run.output.includes(header) ? run.output.slice(run.output.indexOf(header) + header.length).split('\n')[1] : '';
+    assert(
+      kept.trimEnd().endsWith(victim) && !lines.some((line) => line.includes(victim)),
+      'output entries: the warning, not the plan, names the resolved ../victim',
+      run.output,
+    );
+    assert(
+      !(await fs.pathExists(path.join(projectDir, 'skills'))),
+      "output entries: the installer's .gitkeep goes with its emptied folder",
+    );
+    assert(
+      (await fs.readFile(path.join(home, 'victim', 'data.txt'), 'utf8')) === 'victim\n',
+      'output entries: ../victim stays with its contents',
+    );
+  });
+
+  await inHome('uninstall with an empty skf list and an IDE skills folder', async (home, projectDir) => {
+    await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+    await writeFile(path.join(projectDir, '_bmad', 'skf', 'shared', 'notes.md'), '# notes\n');
+    const skills = path.join(projectDir, '.claude', 'skills');
+    await writeFile(path.join(skills, 'skf-demo', 'SKILL.md'), '# skf-demo\n');
+    // knowledge/ and shared/ are the two other names the IDE step removes.
+    await writeFile(path.join(skills, 'knowledge', 'notes.md'), '# knowledge\n');
+    await writeFile(path.join(skills, 'shared', 'notes.md'), '# shared\n');
+    await writeFile(path.join(skills, 'mine', 'SKILL.md'), '# mine\n');
+    await writeTestManifest(projectDir, {
+      skf_folder: '_bmad/skf',
+      files: files({ ide_skills: [path.join('.claude', 'skills', 'skf-demo', 'SKILL.md')] }),
+    });
+
+    const run = await runUninstallAction(projectDir);
+    const lines = planLines(run.output);
+    assert(exitedOnce(run), 'empty skf list: the action asks once and exits 0', JSON.stringify(run.exits) + run.output);
+    assert(
+      lines.includes('× SKF module files (_bmad/skf/, 2 files)'),
+      'empty skf list: the plan still names _bmad/skf/ with the files it holds',
+      lines.join(' | '),
+    );
+    assert(
+      lines.includes('× SKF skills (.claude/skills/, 3 entries)'),
+      'empty skf list: the plan names .claude/skills/ with its SKF entries, knowledge/ and shared/ counted',
+      lines.join(' | '),
+    );
+    assert(
+      !(await fs.pathExists(path.join(skills, 'knowledge'))) && !(await fs.pathExists(path.join(skills, 'shared'))),
+      'empty skf list: knowledge/ and shared/ go, as the plan counted',
+    );
+    assert(
+      lines.length > 0 && lines.every((line) => /\((?!\d)[^)]+\)$/.test(line)),
+      'empty skf list: every plan line names a path, none is a bare count',
+      lines.join(' | '),
+    );
+    assert(!(await fs.pathExists(path.join(projectDir, '_bmad', 'skf'))), 'empty skf list: _bmad/skf/ goes');
+    assert(
+      !(await fs.pathExists(path.join(skills, 'skf-demo'))) && (await fs.pathExists(path.join(skills, 'mine', 'SKILL.md'))),
+      "empty skf list: skf-demo/ goes and the user's mine/ stays",
+    );
+  });
+
+  await inHome('uninstall with the sidecar and learning folders', async (home, projectDir) => {
+    await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+    await writeFile(path.join(projectDir, '_bmad', '_memory', 'forger-sidecar', 'user-state.yaml'), 'tier: Quick\n');
+    const learnFile = path.join('_skf-learn', 'x.md');
+    await writeFile(path.join(projectDir, learnFile), '# x\n');
+    await writeTestManifest(projectDir, { skf_folder: '_bmad/skf', files: files({ skf: [skfConfig], learning: [learnFile] }) });
+
+    const run = await runUninstallAction(projectDir);
+    const lines = planLines(run.output);
+    assert(exitedOnce(run), 'sidecar and learning: the action asks once and exits 0', JSON.stringify(run.exits) + run.output);
+    assert(
+      lines.includes('× Agent sidecar state (_bmad/_memory/forger-sidecar/, 1 file)'),
+      'sidecar and learning: the plan names the sidecar folder with the files it holds',
+      lines.join(' | '),
+    );
+    assert(
+      lines.includes('× Learning material (_skf-learn/, 1 file)'),
+      'sidecar and learning: the plan names _skf-learn/ when the learning list is not empty',
+      lines.join(' | '),
+    );
+    assert(
+      !(await fs.pathExists(path.join(projectDir, '_bmad', '_memory', 'forger-sidecar'))) &&
+        !(await fs.pathExists(path.join(projectDir, '_skf-learn'))),
+      'sidecar and learning: both folders the plan names go',
+    );
+  });
+
+  await inHome('uninstall with an empty learning list', async (home, projectDir) => {
+    await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+    await writeFile(path.join(projectDir, '_skf-learn', 'x.md'), '# x\n');
+    await writeTestManifest(projectDir, { skf_folder: '_bmad/skf', files: files({ skf: [skfConfig] }) });
+
+    const run = await runUninstallAction(projectDir);
+    assert(exitedOnce(run), 'empty learning list: the action asks once and exits 0', JSON.stringify(run.exits) + run.output);
+    assert(
+      !planLines(run.output).some((line) => line.includes('Learning material')),
+      'empty learning list: the plan has no learning line',
+      run.output,
+    );
+    assert(await fs.pathExists(path.join(projectDir, '_skf-learn', 'x.md')), 'empty learning list: _skf-learn/ stays, as the plan said');
+  });
+
+  // An output value that is not a list, or a list holding a number, as a hand-edited
+  // manifest can: the action runs to the end and says what the output step removed.
+  const outputValueCases = [
+    { label: 'an object', output: () => ({ a: 1 }), gitkeep: null, stop: null },
+    {
+      label: "a number and the installer's .gitkeep",
+      output: () => [42, path.join('skills', '.gitkeep')],
+      gitkeep: INSTALLER_GITKEEP,
+      stop: 'Output scaffolding removed',
+    },
+    {
+      label: "a number and a .gitkeep of the user's",
+      output: () => [42, path.join('skills', '.gitkeep')],
+      gitkeep: 'mine\n',
+      stop: 'No output scaffolding removed',
+    },
+  ];
+  for (const { label, output, gitkeep, stop } of outputValueCases) {
+    await inHome(`uninstall with files.output ${label}`, async (home, projectDir) => {
+      await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+      const gitkeepFile = path.join(projectDir, 'skills', '.gitkeep');
+      if (gitkeep !== null) await writeFile(gitkeepFile, gitkeep);
+      await writeTestManifest(projectDir, { skf_folder: '_bmad/skf', files: files({ skf: [skfConfig], output: output() }) });
+
+      const run = await runUninstallAction(projectDir);
+      assert(exitedOnce(run), `files.output ${label}: the action asks once and exits 0`, JSON.stringify(run.exits) + run.output);
+      assert(!(await fs.pathExists(path.join(projectDir, '_bmad', 'skf'))), `files.output ${label}: _bmad/skf/ goes`);
+      const stops = ['Output scaffolding removed', 'No output scaffolding removed'].filter((message) => run.output.includes(message));
+      assert(
+        JSON.stringify(stops) === JSON.stringify(stop === null ? [] : [stop]),
+        `files.output ${label}: the output step reports ${stop === null ? 'nothing' : `"${stop}"`}`,
+        run.output,
+      );
+      if (gitkeep !== null && gitkeep !== INSTALLER_GITKEEP) {
+        assert((await fs.readFile(gitkeepFile, 'utf8')) === gitkeep, `files.output ${label}: the user's .gitkeep stays`);
+      }
+    });
+  }
+
+  // Windows has no mode bit that stops a folder being read, and root reads any folder.
+  if (IS_WINDOWS || (typeof process.getuid === 'function' && process.getuid() === 0)) {
+    console.log(`${colors.dim}  unreadable IDE skills folder: skipped on Windows and as root${colors.reset}`);
+  } else {
+    await inHome('uninstall with an IDE skills folder it cannot read', async (home, projectDir) => {
+      await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+      const unreadable = path.join(projectDir, '.claude', 'skills');
+      await writeFile(path.join(unreadable, 'skf-demo', 'SKILL.md'), '# skf-demo\n');
+      await writeFile(path.join(projectDir, '.cursor', 'skills', 'skf-demo', 'SKILL.md'), '# skf-demo\n');
+      await writeTestManifest(projectDir, { skf_folder: '_bmad/skf', files: files({ skf: [skfConfig] }) });
+
+      let run;
+      await fs.chmod(unreadable, 0o000);
+      try {
+        run = await runUninstallAction(projectDir, { answer: false });
+      } finally {
+        // Restored before the home folder goes, which needs to read it.
+        await fs.chmod(unreadable, 0o755);
+      }
+      const lines = planLines(run.output);
+      assert(exitedOnce(run), 'unreadable IDE folder: the action asks once and exits 0', JSON.stringify(run.exits) + run.output);
+      assert(
+        lines.includes('× SKF skills (.cursor/skills/, 1 entry)') && !lines.some((line) => line.includes('.claude/skills')),
+        'unreadable IDE folder: the plan leaves it out and still names a folder it can read',
+        lines.join(' | '),
+      );
+      assert(
+        (await fs.pathExists(path.join(projectDir, skfConfig))) && (await fs.pathExists(path.join(unreadable, 'skf-demo', 'SKILL.md'))),
+        'unreadable IDE folder: answering no removes nothing',
+      );
+    });
+  }
+
+  console.log('');
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -1954,6 +2410,7 @@ async function runTests() {
   await testTesslVersionFromItsBinary();
   await testProjectRootFolderValues();
   await testLeftoverProjectRootFolder();
+  await testUninstallGuardedRemoval();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');
