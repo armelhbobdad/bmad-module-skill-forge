@@ -4,7 +4,12 @@
  * End-to-end tests using temp directories to verify:
  * - Fresh install creates all expected files
  * - Update preserves config.yaml and replaces SKF files
- * - Uninstall removes all tracked files
+ * - Uninstall, run through its real action with its confirm prompt stubbed:
+ *   declined, it removes nothing; accepted, it removes the install and
+ *   leaves each IDE skills folder in place, empty; with no manifest,
+ *   whether or not an SKF folder is there, it removes nothing and never
+ *   asks; with a stale manifest, it removes only the manifest; each run
+ *   exits 0
  * - IDE skill installation for each target
  * - Manifest accuracy
  * - Folder values that start with {project-root}, as a BMAD Method install
@@ -259,14 +264,22 @@ async function testUpdatePreservesConfig() {
 }
 
 async function testUninstallCleansUp() {
-  console.log(`${colors.yellow}Test Suite 3: Uninstall Cleanup${colors.reset}\n`);
+  console.log(`${colors.yellow}Test Suite 3: Uninstall, Through Its Real Action${colors.reset}\n`);
+
+  const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../tools/cli/lib/manifest');
+  // Every file and folder under `dir`, at any depth, sorted.
+  const listing = async (dir) => (await fs.readdir(dir, { recursive: true })).sort();
+  const exitedZero = (run) => JSON.stringify(run.exits) === '[0]';
+  // One confirm call, asking whether to proceed, with No as the default, so Enter answers No.
+  const askedOnce = (run) =>
+    run.confirmCalls.length === 1 &&
+    run.confirmCalls[0].message === 'Proceed with uninstall?' &&
+    run.confirmCalls[0].initialValue === false;
 
   const projectDir = await makeTempDir('uninstall');
 
   try {
     const { Installer } = require('../tools/cli/lib/installer');
-    const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../tools/cli/lib/manifest');
-    const { removeOutputScaffolding } = require('../tools/cli/commands/uninstall');
     const installer = new Installer();
 
     // Install first
@@ -281,7 +294,7 @@ async function testUninstallCleansUp() {
       _action: 'fresh',
     };
 
-    let restore = suppressConsole();
+    const restore = suppressConsole();
     await installer.install(config);
     restore();
 
@@ -295,70 +308,130 @@ async function testUninstallCleansUp() {
     const manifest = await readManifest(projectDir);
     assert(manifest !== null, 'manifest exists before uninstall');
 
-    // Simulate uninstall: remove all tracked files (mirrors uninstall.js logic without interactive prompt)
-    restore = suppressConsole();
+    // Decline first, so the accept run below also shows a declined run leaves a working install.
+    const before = await listing(projectDir);
+    const declined = await runUninstallAction(projectDir, { answer: false });
+    assert(exitedZero(declined), 'decline: the action exits 0', JSON.stringify(declined.exits) + declined.output);
+    assert(
+      askedOnce(declined),
+      'decline: the action asks once, "Proceed with uninstall?", with No as the default',
+      JSON.stringify(declined.confirmCalls),
+    );
+    assert(
+      declined.output.includes('The following will be removed:') && declined.output.includes('Uninstall cancelled.'),
+      'decline: the action prints the plan, then "Uninstall cancelled."',
+      declined.output,
+    );
+    const after = await listing(projectDir);
+    assert(
+      JSON.stringify(after) === JSON.stringify(before),
+      'decline: nothing in the project changes',
+      `gone: ${before.filter((entry) => !after.includes(entry)).join(', ')}; new: ${after.filter((entry) => !before.includes(entry)).join(', ')}`,
+    );
 
-    // Remove IDE skill directories (directory-level cleanup, not file-by-file)
-    for (const dir of manifest.directories || []) {
-      const dirPath = path.join(projectDir, dir);
-      if (await fs.pathExists(dirPath)) await fs.remove(dirPath);
-      // Clean empty parent (e.g., .claude/ after removing .claude/skills)
-      const parentDir = path.dirname(dirPath);
-      if (await fs.pathExists(parentDir)) {
-        const entries = await fs.readdir(parentDir);
-        if (entries.length === 0) await fs.remove(parentDir);
-      }
-    }
-
-    // Remove learning
-    const learnDir = path.join(projectDir, '_skf-learn');
-    if (await fs.pathExists(learnDir)) await fs.remove(learnDir);
-
-    // Remove output scaffolding
-    await removeOutputScaffolding(projectDir, manifest);
-
-    // Remove sidecar
-    const sidecarDir = path.join(projectDir, '_bmad/_memory/forger-sidecar');
-    if (await fs.pathExists(sidecarDir)) await fs.remove(sidecarDir);
-    const memoryDir = path.join(projectDir, '_bmad/_memory');
-    if (await fs.pathExists(memoryDir)) {
-      const entries = await fs.readdir(memoryDir);
-      if (entries.length === 0) await fs.remove(memoryDir);
-    }
-
-    // Remove SKF module
-    const skfDir = path.join(projectDir, manifest.skf_folder);
-    if (await fs.pathExists(skfDir)) await fs.remove(skfDir);
-
-    // Remove manifest
-    const manifestPath = path.join(projectDir, MANIFEST_DIR, MANIFEST_FILE);
-    if (await fs.pathExists(manifestPath)) await fs.remove(manifestPath);
-    const configDir = path.join(projectDir, MANIFEST_DIR);
-    if (await fs.pathExists(configDir)) {
-      const entries = await fs.readdir(configDir);
-      if (entries.length === 0) await fs.remove(configDir);
-    }
-    const bmadDir = path.join(projectDir, '_bmad');
-    if (await fs.pathExists(bmadDir)) {
-      const entries = await fs.readdir(bmadDir);
-      if (entries.length === 0) await fs.remove(bmadDir);
-    }
-
-    restore();
+    const accepted = await runUninstallAction(projectDir, { answer: true });
+    assert(exitedZero(accepted), 'accept: the action exits 0', JSON.stringify(accepted.exits) + accepted.output);
+    assert(askedOnce(accepted), 'accept: the action asks once', JSON.stringify(accepted.confirmCalls));
+    assert(
+      accepted.output.includes('SKF uninstalled successfully.'),
+      'accept: the action prints "SKF uninstalled successfully."',
+      accepted.output,
+    );
 
     // Verify everything is cleaned up
     assert(!(await fs.pathExists(path.join(projectDir, '_bmad/skf'))), 'SKF dir removed');
     assert(!(await fs.pathExists(path.join(projectDir, '_skf-learn'))), '_skf-learn removed');
-    assert(!(await fs.pathExists(path.join(projectDir, '.claude/skills'))), '.claude/skills removed');
-    assert(!(await fs.pathExists(path.join(projectDir, '.cursor/skills'))), '.cursor/skills removed');
     assert(!(await fs.pathExists(path.join(projectDir, 'skills'))), 'skills/ output folder removed');
     assert(!(await fs.pathExists(path.join(projectDir, 'forge-data'))), 'forge-data/ output folder removed');
+    // _bmad/ goes only through the empty-folder cleanup, so this also shows the cleanup ran last.
     assert(!(await fs.pathExists(path.join(projectDir, '_bmad'))), '_bmad/ cleaned up (empty)');
+    // The IDE step removes the SKF entries of each IDE skills folder, never the folder.
+    for (const ide of ['.claude/skills', '.cursor/skills']) {
+      const dir = path.join(projectDir, ide);
+      const left = (await fs.pathExists(dir)) ? await fs.readdir(dir) : null;
+      assert(left !== null && left.length === 0, `uninstall: ${ide}/ stays, empty`, String(left));
+    }
+    // All the accepted run leaves: each IDE skills folder in its parent, and the
+    // .gitignore the installer wrote, which uninstall never edits.
+    const leftOver = await listing(projectDir);
+    const expectedLeftOver = ['.claude', path.join('.claude', 'skills'), '.cursor', path.join('.cursor', 'skills'), '.gitignore'].sort();
+    assert(
+      JSON.stringify(leftOver) === JSON.stringify(expectedLeftOver),
+      'accept: only the IDE skills folders and .gitignore are left',
+      leftOver.join(', '),
+    );
   } catch (error) {
     assert(false, 'uninstall flow completes without error', error.message);
   } finally {
     await fs.remove(projectDir);
   }
+
+  await inProject('uninstall-no-manifest', 'uninstall with an SKF folder and no manifest', async (dir) => {
+    const skfConfig = path.join(dir, '_bmad', 'skf', 'config.yaml');
+    await fs.ensureDir(path.dirname(skfConfig));
+    await fs.writeFile(skfConfig, 'user_name: Tester\n');
+
+    const run = await runUninstallAction(dir);
+    assert(exitedZero(run), 'no manifest, SKF folder: the action exits 0', JSON.stringify(run.exits) + run.output);
+    assert(
+      run.output.includes('No manifest found') && run.output.includes('Run: npx bmad-module-skill-forge install'),
+      'no manifest, SKF folder: the action says no manifest was found and how to reinstall',
+      run.output,
+    );
+    assert(run.confirmCalls.length === 0, 'no manifest, SKF folder: the action never asks', JSON.stringify(run.confirmCalls));
+    assert(await fs.pathExists(skfConfig), 'no manifest, SKF folder: _bmad/skf/config.yaml stays');
+  });
+
+  await inProject('uninstall-not-installed', 'uninstall with no manifest and no SKF folder', async (dir) => {
+    const readme = path.join(dir, 'README.md');
+    await fs.writeFile(readme, '# mine\n');
+
+    const run = await runUninstallAction(dir);
+    assert(exitedZero(run), 'no manifest, nothing: the action exits 0', JSON.stringify(run.exits) + run.output);
+    assert(
+      run.output.includes('SKF is not installed in this directory.'),
+      'no manifest, nothing: the action says SKF is not installed',
+      run.output,
+    );
+    assert(run.confirmCalls.length === 0, 'no manifest, nothing: the action never asks', JSON.stringify(run.confirmCalls));
+    assert(await fs.pathExists(readme), 'no manifest, nothing: README.md stays');
+  });
+
+  await inProject('uninstall-stale', 'uninstall with a stale manifest', async (dir) => {
+    const readme = path.join(dir, 'README.md');
+    await fs.writeFile(readme, '# mine\n');
+    // Every file it lists is gone from disk.
+    const manifestPath = path.join(dir, MANIFEST_DIR, MANIFEST_FILE);
+    await fs.ensureDir(path.dirname(manifestPath));
+    await fs.writeFile(
+      manifestPath,
+      yaml.dump({
+        skf_folder: '_bmad/skf',
+        files: {
+          skf: ['_bmad/skf/config.yaml'],
+          sidecar: [],
+          ide_skills: ['.claude/skills/skf-setup/SKILL.md'],
+          learning: [],
+          output: ['skills/.gitkeep'],
+        },
+      }),
+    );
+
+    const before = await listing(dir);
+    const run = await runUninstallAction(dir);
+    assert(exitedZero(run), 'stale manifest: the action exits 0', JSON.stringify(run.exits) + run.output);
+    assert(run.output.includes('No SKF files found to remove.'), 'stale manifest: the action says no SKF files were found', run.output);
+    assert(run.confirmCalls.length === 0, 'stale manifest: the action never asks', JSON.stringify(run.confirmCalls));
+    assert(!(await fs.pathExists(manifestPath)), 'stale manifest: the manifest goes');
+    assert(await fs.pathExists(readme), 'stale manifest: README.md stays');
+    // The stale path removes the manifest file alone, so _bmad/_config/ and _bmad/ stay, now empty.
+    const after = await listing(dir);
+    assert(
+      JSON.stringify(after) === JSON.stringify(before.filter((entry) => entry !== path.join(MANIFEST_DIR, MANIFEST_FILE))),
+      'stale manifest: nothing but the manifest goes',
+      `before: ${before.join(', ')}; after: ${after.join(', ')}`,
+    );
+  });
 
   console.log('');
 }
