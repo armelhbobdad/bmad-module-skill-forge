@@ -1730,6 +1730,8 @@ def test_a_missing_registry_takes_the_direct_content_fallback():
     section = _flow(_slice(text, "### 2. Query Original Knowledge Context", "### 3."))
     assert ("Run items 1 to 4 in the main thread (Pattern 3, data operations): only the main thread can end this "
             "step") in section
+    # #1271: the find sentence binds the `{collection_name}` the cases below use.
+    assert "and bind `{collection_name}` ← its `name` when there is one" in section
     missing = _slice(section, "**Registry entry missing.**", "**Registry entry present but")
     assert "Whatever tier the skill was compiled at, a Deep-tier audit still checks its claims" in missing
     assert ("bind `{collection_label}` ← `none (no QMD extraction collection is registered for {skill_name})` "
@@ -1738,12 +1740,45 @@ def test_a_missing_registry_takes_the_direct_content_fallback():
         assert gone not in missing, gone
     empty = _slice(section, "**Registry entry present but", "**Registry entry present and populated.**")
     assert "Bind `{collection_label}` ← `{collection_name} (registered but empty)`" in empty
+    # #1271: qmd indexes on `qmd collection add`, so an empty collection's
+    # folder is almost always gone or holds no matching file. The log gives
+    # setup's route (show, remove, or update then embed) instead of a bare
+    # `qmd update`, and a collection QMD no longer holds is a stale entry
+    # that takes the same fallback.
+    for kept in (
+            "`No files found in collection: {collection_name}`",
+            "or `Files: 0` in `qmd status` whatever its `(updated ...)` text",
+            "Do **not** proceed to querying",
+            "and fall through to the **direct-content fallback** below instead of skipping outright",
+            "`qmd collection show {collection_name}` gives its folder",
+            "run `qmd collection remove {collection_name}`",
+            "a Create Skill run of `{skill_name}` then registers a fresh collection",
+            "When the folder does hold such files, run `qmd update` (it re-indexes every collection on this "
+            "machine and empties any whose folder is gone), then `qmd embed -c {collection_name}`",
+            "(the CLI prints `Collection not found: {collection_name}` and exits 1)",
+            "QMD holds no collection `{collection_name}`: its registry entry is stale, and the next Deep-tier "
+            "setup cleans it. A Create Skill run of `{skill_name}` registers a fresh collection.\"",
+            "bind `{collection_label}` ← `{collection_name} (registered but not in QMD)` and take the same "
+            "**direct-content fallback**",
+            "Until a Create Skill run of `{skill_name}` registers a fresh collection, later audits keep that "
+            "fallback, which reads the skill's own files."):
+        assert kept in empty, kept
+    assert text.count("qmd update") == 1
+    assert text.index("When the folder does hold such files") < text.index("qmd update")
+    for gone in ("never been indexed", "never indexed", "{collection.path}", "(updated never)"):
+        assert gone not in text, gone
+    # The audit repeats setup's advice for an empty collection: whichever of
+    # the two changes first, the other follows (the emitter splits the
+    # caveat across string literals, so only this part is pinned).
+    caveat = "collection on this machine and empties any whose folder is gone"
+    assert caveat in text
+    assert caveat in _read(EMITTER)
     populated = _slice(section, "**Registry entry present and populated.**", "**Direct-content fallback**")
     assert ("bind `{collection_label}` ← `{collection_name}`, `{claims_source}` ← `from QMD` and "
             "`{confidence}` ← `T2`") in populated
     fallback = _slice(section, "**Direct-content fallback**", "2. Query the collection")
-    assert "(used when no extraction collection is registered for the skill, or the one registered is empty)" in (
-        fallback)
+    assert ("(used when no extraction collection is registered for the skill, or the one registered is empty or "
+            "not in QMD)") in fallback
     assert ("Bind `{claims_source}` ← `read from its SKILL.md and references/*.md in direct-content fallback "
             "mode` and `{confidence}` ← `T1-low-fallback`") in fallback
     compiled = _slice(text, "### 4. Compile Semantic Drift Section", "### 5.")
