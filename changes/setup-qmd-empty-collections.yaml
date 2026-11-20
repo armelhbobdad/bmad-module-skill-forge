@@ -1,6 +1,6 @@
 type: fixed
 scope: skf-setup
 summary: |
-  On Deep tier, setup no longer counts a registered QMD collection that holds no indexed files as healthy. QMD lists such a collection with `Files: 0` when no file in its folder matches its pattern, for example after that folder was deleted, and it answers no search. The FORGE STATUS banner now names these collections and says how to clear each one. The banner no longer calls the registry empty when it holds only such collections. Under `--headless` or `--quiet`, the `SKF_SETUP_RESULT_JSON` envelope's `warnings` lists each one as a `qmd_collection_empty` entry. Setup removes none of them.
+  On Deep tier, setup no longer counts a registered QMD collection that holds no indexed files as healthy. QMD lists such a collection with `Files: 0` when no file in its folder matches its pattern, for example after that folder was deleted, and it answers no search. The FORGE STATUS banner now names these collections and says how to clear each one whose folder is not in another project. The banner no longer calls the registry empty when it holds only such collections. Under `--headless` or `--quiet`, the `SKF_SETUP_RESULT_JSON` envelope's `warnings` lists each one as a `qmd_collection_empty` entry. Setup removes none of them.
 issues: [1245]
 prs: [1254, 1260, 1273]

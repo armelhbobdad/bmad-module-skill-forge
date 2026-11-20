@@ -91,9 +91,9 @@ def test_update_skill_reads_no_such_name_as_gone_from_exports():
     assert headline.endswith("waits for the next export. " + TRIGGER)
 
 
-def test_the_fragment_says_to_edit_a_line_an_earlier_export_filled_with_ids():
+def test_the_fragment_says_to_delete_a_line_an_earlier_export_filled_with_ids():
     """#1251: ids an earlier export wrote into the `|api:` line stay as prior names, so the fragment says to
-    edit the line by hand and export again."""
+    delete the line and export again, as the create-skill fragment for #1268 says."""
     fragment = yaml.safe_load(FRAGMENT.read_text(encoding="utf-8"))
     assert (fragment["type"], fragment["scope"], fragment["issues"]) == \
         ("fixed", "skf-export-skill, skf-update-skill", [1251])
@@ -102,7 +102,8 @@ def test_the_fragment_says_to_edit_a_line_an_earlier_export_filled_with_ids():
                   "takes the prior line's names, then the table's rows, and never checks them against `exports` or "
                   "takes a name from it.",
                   "It still leaves out a name SKILL.md marks deprecated or removed.",
-                  "A line an earlier export already filled with item ids keeps them: edit the `|api:` line in the "
-                  "`context-snippet.md` of the skill's active version, then export the skill again."):
+                  "A line an earlier export already filled with item ids keeps them: delete the `|api:` line from the "
+                  "`context-snippet.md` of the skill's active version, then export the skill again, which takes the "
+                  "line's names from the table."):
         assert claim in summary, claim
     assert "\u2014" not in summary and "\u00a7" not in summary
