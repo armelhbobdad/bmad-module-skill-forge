@@ -9,6 +9,12 @@ If something isn't working, start here. For general setup help see [Getting Star
 
 ## Common errors
 
+### `install` or `update` stops: "shared/ holds files SKF did not install"
+
+Surfaced by `npx bmad-module-skill-forge install` (a first install, **Update** or **Fresh install**) and `update`, which stop before they change anything and exit `1`. SKF installs its `shared/` folder, which its workflow scripts find beside them, in the skills folder of each IDE you pick (for example `.claude/skills/shared/`), so it needs that name there. The message names each `shared/` folder it stops on and every entry there that SKF did not install: a file or skill of your own, a link, a file named `shared` or a folder that cannot be read. It also lists the files of a copy an earlier SKF version wrote there that no list names any more: after `_bmad/` was deleted by hand and a newer version is installed, or when an IDE a reinstall dropped is added back and its folder still holds an older version's copy.
+
+**Fix:** look at the files the message lists. Move or rename your own `shared` skill, or delete the files left from an earlier SKF copy, then run the command again.
+
 ### "Setup cannot proceed: `uv` is not installed"
 
 Setup checks for `uv` when it starts, before it detects your tools or writes anything. SKF's helper scripts use `uv` to install the Python packages they need; plain `python3` skips that and later fails with `ModuleNotFoundError: No module named 'yaml'`. So setup stops at once with one clear message instead of failing partway through. Under `--headless` or `--quiet`, the same message arrives as the `error.reason` of an `SKF_SETUP_RESULT_JSON` line whose `status` is `"blocked"`. The helper that builds that line needs only the Python standard library, so setup uses the first of `python3`, `python` or `py -3` that runs on the machine. With none of them, the run's one line is the message alone. Pipelines should treat a run with no `SKF_SETUP_RESULT_JSON` line as a failure.
@@ -160,6 +166,12 @@ Surfaced by `@Ferris US` for a skill built at Forge tier or above from a remote 
 **Fix:** for `upstream-unreachable`, `fetch-failed` or `timed-out`, check your network and your access to the repository, then re-run. For `checkout-failed` or `tree-folder-failed`, free disk space and check that you can write to those folders. Install `git` for `git-unavailable`, and re-install SKF for `helper-failed`. When the tag or branch was deleted or renamed upstream, pass the one to use with `--target-ref <tag|branch|HEAD>`; the skill then records it as its `source_ref`. When only the network is down, `--target-ref` was not passed and the pinned commit is on this machine, Update Skill does not stop: it compares that commit, and its report and `warnings[]` say that upstream changes were not checked (`source-not-fetched`).
 
 If Test Skill stops with `workspace-drift` right after an update, the update's report says why the source that Test Skill reads was not moved to the commit the update recorded (`workspace-clone-not-updated`). It also gives the `git` commands that move it there once no other skill needs it where it is. Use those commands, not the `git checkout` that Test Skill's own message suggests: for a branch or `HEAD`, that checkout does not reach the new commit.
+
+### Update Skill stops with `blocked`: no document could be compared
+
+Surfaced by `/skf-update-skill` for a docs-only skill, interactive or headless, `--detect-only` and `--dry-run` included (under `--headless`, `error.phase` is `detect-changes:doc-hashes`), when it could compare none of the documents that `doc_sources` in `metadata.json` tracks: each one failed to fetch, or `doc_sources` holds none. The message names each document with the reason it could not be read, or says that `metadata.json` records no `doc_sources`. An update that compared some of them goes on and warns `doc-fetch-failed` for each one it could not read. Before SKF 12.0.0, an update that compared none ended `no-changes` and called the skill current, so a pipeline that read `no-changes` for such a skill now gets `blocked`.
+
+**Fix:** when the documents failed to fetch, re-run once they can be reached: check your network and each URL the message names. When `doc_sources` holds none, re-create the skill with Create Skill (`CS`), which records each document with its hash.
 
 ### Update Skill stops with `halted-for-write-failure` because the version already exists
 
