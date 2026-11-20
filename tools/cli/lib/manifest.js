@@ -48,13 +48,17 @@ async function writeManifest(projectDir, config, options = {}) {
   const skfFiles = await collectFiles(skfDir, projectDir);
   const sidecarFiles = await collectFiles(sidecarDir, projectDir);
 
-  // Collect IDE skill directory files (installed to each IDE's skills/ dir)
+  // Collect IDE skill directory files (installed to each IDE's skills/ dir).
+  // The installer copies nothing into an IDE folder's knowledge/ (earlier
+  // versions did), so no path there is recorded: a file kept there is never
+  // one the next install or uninstall reads as SKF's for being listed.
   const ideDirectories = options.ideDirectories || [];
   const ideSkillFiles = [];
   for (const ideDir of ideDirectories) {
     const fullDir = path.join(projectDir, ideDir);
+    const knowledgeDir = path.join(ideDir, 'knowledge');
     const files = await collectFiles(fullDir, projectDir);
-    ideSkillFiles.push(...files);
+    ideSkillFiles.push(...files.filter((file) => file !== knowledgeDir && !file.startsWith(`${knowledgeDir}${path.sep}`)));
   }
 
   // Collect learning material files

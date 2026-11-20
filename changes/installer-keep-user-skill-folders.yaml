@@ -1,0 +1,6 @@
+type: fixed
+scope: installer
+summary: |
+  `uninstall`, `install` and `update` no longer delete a file of yours in the `shared/` or `knowledge/` folder of an IDE skills folder (such as `.claude/skills/shared/`). They remove only the files SKF installed there (a file with the same bytes as its copy in `_bmad/skf/` or in the SKF version you run, or one the manifest lists, and the Python bytecode and OS files beside them), then each folder left empty, and they never follow a link. `uninstall` now leaves alone a `shared/` or `knowledge/` skill of yours in an IDE folder SKF never installed into, and names, in a warning before the confirmation prompt, each file it keeps beside files SKF installed; `install` and `update` name the files they keep in the same way after the IDE step. The removal plan's line for an IDE skills folder now says when `shared/` or `knowledge/` is among the entries it counts.
+issues: [1279]
+prs: [1280]

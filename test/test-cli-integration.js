@@ -31,12 +31,21 @@
  *   fixed _bmad/skf goes whatever skf_folder says, and the action, run with
  *   its confirm prompt stubbed, prints a plan naming the path of each
  *   removal and a warning naming each output entry it keeps
+ * - The shared/ and knowledge/ folders of each IDE skills folder: install,
+ *   update and uninstall remove only the files SKF installed there (the
+ *   bytes of _bmad/skf/ or src/, a path the manifest lists, and bytecode and
+ *   OS files beside them), never follow a link, and name the files they keep;
+ *   install and update stop, changing nothing, when a selected IDE's shared/
+ *   holds anything else; no IDE folder gets a knowledge/ copy any more; and
+ *   uninstall still removes the command files earlier releases left in a
+ *   platform's legacy folders
  *
  * Usage: node test/test-cli-integration.js
  */
 
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
@@ -146,7 +155,8 @@ async function testFreshInstall() {
     const claudeSkillsDir = path.join(projectDir, '.claude', 'skills');
     assert(await fs.pathExists(path.join(claudeSkillsDir, 'skf-forger', 'SKILL.md')), 'agent skill installed to .claude/skills/');
     assert(await fs.pathExists(path.join(claudeSkillsDir, 'skf-create-skill', 'SKILL.md')), 'workflow skill installed to .claude/skills/');
-    assert(await fs.pathExists(path.join(claudeSkillsDir, 'knowledge')), 'knowledge/ installed to .claude/skills/');
+    // knowledge/ stays in _bmad/skf/ alone: every workflow reads it there, so no IDE folder gets a copy.
+    assert(!(await fs.pathExists(path.join(claudeSkillsDir, 'knowledge'))), 'knowledge/ is not copied to .claude/skills/');
 
     // Verify sidecar
     const sidecarDir = path.join(projectDir, '_bmad/_memory/forger-sidecar');
@@ -181,6 +191,11 @@ async function testFreshInstall() {
 
     // Verify manifest tracks IDE files
     assert(Array.isArray(manifest.files.ide_skills) && manifest.files.ide_skills.length > 0, 'manifest tracks IDE skill files');
+    const ideKnowledge = path.join('.claude', 'skills', 'knowledge');
+    assert(
+      !manifest.files.ide_skills.some((file) => file === ideKnowledge || file.startsWith(`${ideKnowledge}${path.sep}`)),
+      'manifest lists no IDE skill file under .claude/skills/knowledge/',
+    );
   } catch (error) {
     assert(false, 'fresh install completes without error', error.message);
   } finally {
@@ -481,8 +496,8 @@ async function testIdeCommandGeneration() {
         assert(skillDirs.includes('skf-forger'), `${ide}: has skf-forger agent skill`);
         assert(skillDirs.includes('skf-create-skill'), `${ide}: has skf-create-skill workflow skill`);
 
-        // Verify supporting resources copied alongside skills
-        assert(entries.includes('knowledge'), `${ide}: has knowledge/ directory`);
+        // shared/ is copied beside the skills, whose scripts find it there; knowledge/ is not
+        assert(!entries.includes('knowledge'), `${ide}: has no knowledge/ directory`);
         assert(entries.includes('shared'), `${ide}: has shared/ directory`);
       }
     }
@@ -497,9 +512,18 @@ async function testIdeCommandGeneration() {
     const workflowContent = await fs.readFile(path.join(workflowSkillDir, 'SKILL.md'), 'utf8');
     assert(workflowContent.includes('## Overview'), 'workflow SKILL.md has Overview section');
 
-    // Verify relative paths resolve correctly: knowledge/ is sibling of skills
-    const knowledgeDir = path.join(projectDir, '.claude/skills/knowledge');
-    assert(await fs.pathExists(knowledgeDir), 'knowledge/ copied alongside skills for path resolution');
+    // knowledge/ stays in _bmad/skf/, where every workflow reads it, and the manifest lists no IDE copy of it
+    assert(await fs.pathExists(path.join(projectDir, '_bmad/skf/knowledge')), 'knowledge/ is in _bmad/skf/');
+    const { readManifest } = require('../tools/cli/lib/manifest');
+    const ideSkills = (await readManifest(projectDir)).files.ide_skills;
+    const underKnowledge = ideSkills.filter((file) =>
+      Object.values(ideSkillDirs).some((dir) => file.startsWith(`${path.join(dir, 'knowledge')}${path.sep}`)),
+    );
+    assert(
+      ideSkills.length > 0 && underKnowledge.length === 0,
+      'manifest lists no IDE skill file under an IDE knowledge/',
+      underKnowledge.join(', '),
+    );
   } catch (error) {
     assert(false, 'IDE command generation completes without error', error.message);
   } finally {
@@ -2111,6 +2135,81 @@ async function testLeftoverProjectRootFolder() {
 // eslint-disable-next-line no-control-regex -- clack and chalk write these
 const TERMINAL_ESCAPES = /\u001B\[[\d;?]*[A-Za-z]/g;
 
+// The warning uninstall, install and update print for the entries they keep in an IDE skills folder.
+const IDE_KEPT_HEADER = 'Left in place in IDE skills folders, not files SKF installed:';
+
+/**
+ * The lines a @clack/prompts warning prints under the line holding `header`,
+ * each without the bar clack puts before it (`│`, or `|` where the terminal
+ * has no unicode), up to the first empty one. Empty when no line holds `header`.
+ */
+function warnedLines(output, header) {
+  const lines = output.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.includes(header));
+  if (start === -1) return [];
+  const found = [];
+  for (const line of lines.slice(start + 1)) {
+    const text = line.replace(/^\s*[│|]\s*/, '').trimEnd();
+    if (!/^\s*[│|]/.test(line) || text === '') break;
+    found.push(text);
+  }
+  return found;
+}
+
+/**
+ * Run a command's action `fn` in `projectDir` with PATH set to `pathDirs`,
+ * collecting console, stdout and stderr output with every escape sequence
+ * stripped, and refusing process.exit (each call is recorded, then throws).
+ * process.exitCode is cleared before the run and after it. Returns the exit
+ * code the action set, the process.exit calls, the error thrown and the output.
+ */
+async function captureCommand(projectDir, fn, pathDirs) {
+  const printed = [];
+  const exits = [];
+  const orig = {
+    cwd: process.cwd(),
+    log: console.log,
+    error: console.error,
+    out: process.stdout.write,
+    err: process.stderr.write,
+    exit: process.exit,
+    path: process.env.PATH,
+  };
+  const collect = (chunk) => {
+    printed.push(String(chunk));
+    return true;
+  };
+  let thrown = null;
+  let exitCode;
+  process.exitCode = undefined;
+  try {
+    process.chdir(projectDir);
+    console.log = (...args) => printed.push(`${args.join(' ')}\n`);
+    console.error = (...args) => printed.push(`${args.join(' ')}\n`);
+    process.stdout.write = collect;
+    process.stderr.write = collect;
+    process.exit = (code) => {
+      exits.push(code);
+      throw new Error(`process.exit(${code}) was called`);
+    };
+    process.env.PATH = pathDirs.join(path.delimiter);
+    await fn();
+  } catch (error) {
+    thrown = error;
+  } finally {
+    console.log = orig.log;
+    console.error = orig.error;
+    process.stdout.write = orig.out;
+    process.stderr.write = orig.err;
+    process.exit = orig.exit;
+    process.env.PATH = orig.path;
+    process.chdir(orig.cwd);
+    exitCode = process.exitCode;
+    process.exitCode = undefined;
+  }
+  return { exitCode, exits, thrown, output: printed.join('').replaceAll(TERMINAL_ESCAPES, '') };
+}
+
 /**
  * Run the uninstall action in `projectDir`, the confirm prompt answering
  * `answer`. @clack/prompts is ESM-only, so its namespace cannot be patched:
@@ -2297,12 +2396,15 @@ async function testUninstallGuardedRemoval() {
 
   await inHome('uninstall with an empty skf list and an IDE skills folder', async (home, projectDir) => {
     await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
-    await writeFile(path.join(projectDir, '_bmad', 'skf', 'shared', 'notes.md'), '# notes\n');
+    await writeFile(path.join(projectDir, '_bmad', 'skf', 'shared', 'notes.md'), '# shared\n');
+    await writeFile(path.join(projectDir, '_bmad', 'skf', 'knowledge', 'notes.md'), '# knowledge\n');
     const skills = path.join(projectDir, '.claude', 'skills');
     await writeFile(path.join(skills, 'skf-demo', 'SKILL.md'), '# skf-demo\n');
-    // knowledge/ and shared/ are the two other names the IDE step removes.
+    // In knowledge/ and shared/ the IDE step removes the files SKF installed, each
+    // the same bytes as its _bmad/skf/ copy, and keeps the user's SKILL.md beside them.
     await writeFile(path.join(skills, 'knowledge', 'notes.md'), '# knowledge\n');
     await writeFile(path.join(skills, 'shared', 'notes.md'), '# shared\n');
+    await writeFile(path.join(skills, 'shared', 'SKILL.md'), '# my shared skill\n');
     await writeFile(path.join(skills, 'mine', 'SKILL.md'), '# mine\n');
     await writeTestManifest(projectDir, {
       skf_folder: '_bmad/skf',
@@ -2313,18 +2415,28 @@ async function testUninstallGuardedRemoval() {
     const lines = planLines(run.output);
     assert(exitedOnce(run), 'empty skf list: the action asks once and exits 0', JSON.stringify(run.exits) + run.output);
     assert(
-      lines.includes('× SKF module files (_bmad/skf/, 2 files)'),
+      lines.includes('× SKF module files (_bmad/skf/, 3 files)'),
       'empty skf list: the plan still names _bmad/skf/ with the files it holds',
       lines.join(' | '),
     );
     assert(
-      lines.includes('× SKF skills (.claude/skills/, 3 entries)'),
-      'empty skf list: the plan names .claude/skills/ with its SKF entries, knowledge/ and shared/ counted',
+      lines.includes('× SKF skills (.claude/skills/, 3 entries, shared/ and knowledge/ among them)'),
+      'empty skf list: the plan names .claude/skills/ with skf-demo/, shared/ and knowledge/ counted',
       lines.join(' | '),
     );
+    const kept = warnedLines(run.output, IDE_KEPT_HEADER);
     assert(
-      !(await fs.pathExists(path.join(skills, 'knowledge'))) && !(await fs.pathExists(path.join(skills, 'shared'))),
-      'empty skf list: knowledge/ and shared/ go, as the plan counted',
+      JSON.stringify(kept) === JSON.stringify([path.join('.claude', 'skills', 'shared', 'SKILL.md')]),
+      "empty skf list: the warning names the user's shared/SKILL.md alone",
+      run.output,
+    );
+    assert(
+      !(await fs.pathExists(path.join(skills, 'knowledge'))) && !(await fs.pathExists(path.join(skills, 'shared', 'notes.md'))),
+      'empty skf list: both notes go, and knowledge/ with them',
+    );
+    assert(
+      (await fs.readFile(path.join(skills, 'shared', 'SKILL.md'), 'utf8')) === '# my shared skill\n',
+      "empty skf list: the user's shared/SKILL.md stays with its folder",
     );
     assert(
       lines.length > 0 && lines.every((line) => /\((?!\d)[^)]+\)$/.test(line)),
@@ -2455,6 +2567,720 @@ async function testUninstallGuardedRemoval() {
   console.log('');
 }
 
+async function testIdeSkillFoldersKeepUserFiles() {
+  console.log(`${colors.yellow}Test Suite 21: IDE Skills Folders Keep the User's shared/ and knowledge/ Files${colors.reset}\n`);
+
+  const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../tools/cli/lib/manifest');
+  const { UI } = require('../tools/cli/lib/ui');
+  const installCommand = require('../tools/cli/commands/install');
+  const updateCommand = require('../tools/cli/commands/update');
+  const srcDir = path.join(__dirname, '..', 'src');
+  const skfConfig = path.join('_bmad', 'skf', 'config.yaml');
+  const claudeShared = path.join('.claude', 'skills', 'shared');
+  const claudeKnowledge = path.join('.claude', 'skills', 'knowledge');
+  // Windows has no symlink without a privilege, no mode bit that stops a folder being read, and root reads any folder.
+  const noLinks = IS_WINDOWS;
+  const noChmod = IS_WINDOWS || (typeof process.getuid === 'function' && process.getuid() === 0);
+  const origPrompt = UI.prototype.promptInstall;
+  const origSuccess = UI.prototype.displaySuccess;
+  UI.prototype.displaySuccess = () => {};
+
+  // Run `run` with a new temp folder `home`, the project `home/project` and an empty
+  // `home/bin` for PATH, so every link target and every removal stays in a folder this test creates.
+  const inHome = async (description, run) => {
+    const home = await makeTempDir('ide-folders');
+    try {
+      const projectDir = path.join(home, 'project');
+      await fs.ensureDir(projectDir);
+      await fs.ensureDir(path.join(home, 'bin'));
+      await run(home, projectDir);
+    } catch (error) {
+      assert(false, `${description} completes without error`, error.stack);
+    } finally {
+      await fs.remove(home);
+    }
+  };
+  const writeFile = async (file, text) => {
+    await fs.ensureDir(path.dirname(file));
+    await fs.writeFile(file, text);
+  };
+  const copyFromSrc = async (rel, dest) => {
+    await fs.ensureDir(path.dirname(dest));
+    await fs.copy(path.join(srcDir, rel), dest);
+  };
+  const writeTestManifest = async (projectDir) => {
+    await writeFile(path.join(projectDir, skfConfig), 'user_name: Tester\n');
+    const files = { skf: [skfConfig], sidecar: [], ide_skills: [], learning: [], output: [] };
+    await writeFile(path.join(projectDir, MANIFEST_DIR, MANIFEST_FILE), yaml.dump({ version: 'test', module: 'skf', ides: [], files }));
+  };
+  const editManifest = async (projectDir, edit) => {
+    const file = path.join(projectDir, MANIFEST_DIR, MANIFEST_FILE);
+    const manifest = yaml.load(await fs.readFile(file, 'utf8'));
+    edit(manifest);
+    await fs.writeFile(file, yaml.dump(manifest, { lineWidth: -1 }));
+  };
+  // Every entry under `dir`, sorted, found by an lstat walk: a folder by its name, a
+  // file by its bytes' hash, a link by its readlink text (never followed).
+  const snapshot = async (dir) => {
+    const entries = [];
+    const walk = async (rel) => {
+      for (const name of (await fs.readdir(path.join(dir, rel))).sort()) {
+        const entryRel = path.join(rel, name);
+        const entry = path.join(dir, entryRel);
+        const stat = await fs.lstat(entry);
+        if (stat.isSymbolicLink()) {
+          entries.push(`${entryRel} -> ${await fs.readlink(entry)}`);
+        } else if (stat.isDirectory()) {
+          entries.push(`${entryRel}${path.sep}`);
+          await walk(entryRel);
+        } else if (stat.isFile()) {
+          entries.push(
+            `${entryRel} ${crypto
+              .createHash('sha256')
+              .update(await fs.readFile(entry))
+              .digest('hex')}`,
+          );
+        } else {
+          entries.push(`${entryRel} (other)`);
+        }
+      }
+    };
+    await walk('');
+    return entries;
+  };
+  const sameSnapshot = (before, after) => JSON.stringify(before) === JSON.stringify(after);
+  const snapshotDiff = (before, after) =>
+    `gone: ${before.filter((entry) => !after.includes(entry)).join(', ')}; new: ${after.filter((entry) => !before.includes(entry)).join(', ')}`;
+  const realInstall = (projectDir, ides) =>
+    runInstall({
+      projectDir,
+      skfFolder: '_bmad/skf',
+      project_name: 'ide-folders-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides,
+      install_learning: false,
+      _action: 'fresh',
+    });
+  // The install command, its prompt answering a fresh install for `ides` unless `config` says otherwise.
+  const installRun = (home, projectDir, ides, config = {}) => {
+    UI.prototype.promptInstall = async () => ({
+      projectDir,
+      skfFolder: '_bmad/skf',
+      project_name: 'ide-folders-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides,
+      install_learning: false,
+      _action: 'fresh',
+      cancelled: false,
+      ...config,
+    });
+    return captureCommand(projectDir, () => installCommand.action(), [path.join(home, 'bin')]);
+  };
+  const updateRun = (home, projectDir) => captureCommand(projectDir, () => updateCommand.action(), [path.join(home, 'bin')]);
+  const planLines = (output) =>
+    output
+      .split('\n')
+      .filter((line) => line.includes('×'))
+      .map((line) => line.slice(line.indexOf('×')).trimEnd());
+  const exitedZero = (run) => JSON.stringify(run.exits) === '[0]';
+  const succeeded = (run) => run.exitCode === undefined && run.thrown === null;
+  // A refused command: exit code 1, the folder and each entry named, the fixed advice, and no stack trace.
+  const refused = (run, entries) =>
+    run.exitCode === 1 &&
+    run.thrown === null &&
+    run.output.includes(`${claudeShared.split(path.sep).join('/')}/ holds files SKF did not install:`) &&
+    entries.every((entry) => run.output.includes(`\n  ${entry}\n`)) &&
+    run.output.includes('Nothing was changed.') &&
+    !run.output.includes('IdeFolderInUseError');
+
+  try {
+    await inHome('uninstall with user skills in other IDE folders', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      const cursorShared = path.join(projectDir, '.cursor', 'skills', 'shared');
+      await writeFile(path.join(cursorShared, 'SKILL.md'), '# my cursor shared skill\n');
+      await writeFile(path.join(cursorShared, '.DS_Store'), 'finder\n');
+      await writeFile(path.join(cursorShared, 'scripts', '__pycache__', 'x.pyc'), Buffer.from([0x0d, 0x0a, 0x00, 0x01]));
+      await writeFile(path.join(projectDir, '.cursor', 'skills', 'knowledge', 'SKILL.md'), '# my cursor knowledge skill\n');
+      await writeFile(path.join(projectDir, '.agents', 'skills', 'shared', 'SKILL.md'), '# my codex shared skill\n');
+      await writeFile(path.join(projectDir, '.github', 'skills', 'shared', 'SKILL.md'), '# my copilot shared skill\n');
+      await fs.ensureDir(path.join(projectDir, '.agents', 'skills', 'knowledge'));
+      const userFolders = ['.cursor', '.agents', '.github'];
+      const before = await Promise.all(userFolders.map((folder) => snapshot(path.join(projectDir, folder))));
+
+      const run = await runUninstallAction(projectDir);
+      const lines = planLines(run.output);
+      assert(exitedZero(run), 'other IDE folders: the action exits 0', JSON.stringify(run.exits) + run.output);
+      const after = await Promise.all(userFolders.map((folder) => snapshot(path.join(projectDir, folder))));
+      assert(
+        sameSnapshot(before, after) && after.every((entries) => entries.length > 0),
+        'other IDE folders: all five user folders stay with every file and its bytes',
+        snapshotDiff(before.flat(), after.flat()),
+      );
+      assert(
+        !lines.some((line) => /\.(cursor|agents|github)\/skills/.test(line)),
+        'other IDE folders: the plan has no line for .cursor/, .agents/ or .github/skills/',
+        lines.join(' | '),
+      );
+      assert(
+        !warnedLines(run.output, IDE_KEPT_HEADER).some((line) => /^\.(cursor|agents|github)/.test(line)),
+        'other IDE folders: the warning names none of their files',
+        run.output,
+      );
+      const claudeLine = lines.find((line) => line.includes('(.claude/skills/,'));
+      assert(
+        claudeLine !== undefined && claudeLine.endsWith('entries, shared/ among them)'),
+        "other IDE folders: the .claude/skills/ line counts SKF's shared/ among its entries",
+        lines.join(' | '),
+      );
+      const claudeLeft = await fs.readdir(path.join(projectDir, '.claude', 'skills'));
+      assert(claudeLeft.length === 0, 'other IDE folders: .claude/skills/ is left empty', claudeLeft.join(', '));
+    });
+
+    await inHome('uninstall with a knowledge/ copy matching only the running src/', async (home, projectDir) => {
+      await writeTestManifest(projectDir);
+      const knowledge = path.join(projectDir, '.cursor', 'skills', 'knowledge');
+      await copyFromSrc(path.join('knowledge', 'zero-hallucination.md'), path.join(knowledge, 'zero-hallucination.md'));
+      await writeFile(path.join(knowledge, 'overview.md'), '# my own overview\n');
+
+      const run = await runUninstallAction(projectDir);
+      assert(exitedZero(run), 'src/ match: the action exits 0', JSON.stringify(run.exits) + run.output);
+      assert(
+        planLines(run.output).includes('× SKF skills (.cursor/skills/, 1 entry, knowledge/ among them)'),
+        'src/ match: the plan counts knowledge/ as the one entry',
+        run.output,
+      );
+      assert(!(await fs.pathExists(path.join(knowledge, 'zero-hallucination.md'))), 'src/ match: the copy of src/knowledge/ goes');
+      assert(
+        (await fs.readFile(path.join(knowledge, 'overview.md'), 'utf8')) === '# my own overview\n',
+        'src/ match: overview.md with other bytes stays',
+      );
+      assert(
+        JSON.stringify(warnedLines(run.output, IDE_KEPT_HEADER)) ===
+          JSON.stringify([path.join('.cursor', 'skills', 'knowledge', 'overview.md')]),
+        'src/ match: the warning names overview.md',
+        run.output,
+      );
+    });
+
+    const userSkill = path.join(claudeShared, 'SKILL.md');
+    await inHome('a first install with a user shared/ skill', async (home, projectDir) => {
+      await writeFile(path.join(projectDir, userSkill), '# my shared skill\n');
+      const before = await snapshot(projectDir);
+      const run = await installRun(home, projectDir, ['claude-code']);
+      assert(refused(run, [userSkill]), 'first install: exit code 1, the folder and its file named, no stack trace', run.output);
+      const after = await snapshot(projectDir);
+      assert(sameSnapshot(before, after), 'first install: nothing in the project changes', snapshotDiff(before, after));
+      assert(!(await fs.pathExists(path.join(projectDir, '_bmad'))), 'first install: _bmad/ does not exist');
+    });
+
+    await inHome("skf update with a user file in SKF's shared/", async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await writeFile(path.join(projectDir, userSkill), '# my shared skill\n');
+      const before = await snapshot(projectDir);
+      const run = await updateRun(home, projectDir);
+      assert(refused(run, [userSkill]), 'update: exit code 1, the folder and its file named', run.output);
+      const after = await snapshot(projectDir);
+      assert(sameSnapshot(before, after), 'update: nothing in the project changes', snapshotDiff(before, after));
+    });
+
+    await inHome("a Fresh install with a user file in SKF's shared/", async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await writeFile(path.join(projectDir, userSkill), '# my shared skill\n');
+      const before = await snapshot(projectDir);
+      const run = await installRun(home, projectDir, ['claude-code']);
+      assert(refused(run, [userSkill]), 'Fresh install: exit code 1, the folder and its file named', run.output);
+      const after = await snapshot(projectDir);
+      assert(sameSnapshot(before, after), 'Fresh install: nothing in the project changes', snapshotDiff(before, after));
+    });
+
+    await inHome('a first install for two IDEs whose shared/ each hold a user skill', async (home, projectDir) => {
+      const cursorSkill = path.join('.cursor', 'skills', 'shared', 'SKILL.md');
+      await writeFile(path.join(projectDir, userSkill), '# my claude shared skill\n');
+      await writeFile(path.join(projectDir, cursorSkill), '# my cursor shared skill\n');
+      const before = await snapshot(projectDir);
+      const run = await installRun(home, projectDir, ['claude-code', 'cursor']);
+      assert(
+        refused(run, [userSkill, cursorSkill]) && run.output.includes('.cursor/skills/shared/ holds files SKF did not install:'),
+        'two IDEs: exit code 1, both shared/ folders and both files named',
+        run.output,
+      );
+      const after = await snapshot(projectDir);
+      assert(sameSnapshot(before, after), 'two IDEs: nothing in the project changes', snapshotDiff(before, after));
+    });
+
+    await inHome('an install for an IDE whose shared/ is a user skill with bytecode and an OS file', async (home, projectDir) => {
+      const cursorShared = path.join('.cursor', 'skills', 'shared');
+      const entries = [
+        path.join(cursorShared, '.DS_Store'),
+        path.join(cursorShared, 'SKILL.md'),
+        path.join(cursorShared, 'scripts', '__pycache__', 'x.pyc'),
+      ];
+      for (const entry of entries) await writeFile(path.join(projectDir, entry), `${entry}\n`);
+      const before = await snapshot(projectDir);
+      const run = await installRun(home, projectDir, ['cursor']);
+      assert(
+        run.exitCode === 1 &&
+          run.output.includes('.cursor/skills/shared/ holds files SKF did not install:') &&
+          entries.every((entry) => run.output.includes(`\n  ${entry}\n`)),
+        'user skill with bytecode: exit code 1, all three files named',
+        run.output,
+      );
+      const after = await snapshot(projectDir);
+      assert(sameSnapshot(before, after), 'user skill with bytecode: nothing in the project changes', snapshotDiff(before, after));
+    });
+
+    await inHome("bytecode in SKF's shared/", async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      const pyc = path.join(projectDir, claudeShared, 'scripts', '__pycache__', 'skf-test.cpython-314.pyc');
+      await writeFile(pyc, Buffer.from([0x0d, 0x0a, 0x00, 0x02]));
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'bytecode: skf update succeeds', run.output);
+      await writeFile(pyc, Buffer.from([0x0d, 0x0a, 0x00, 0x03]));
+      const uninstall = await runUninstallAction(projectDir);
+      assert(exitedZero(uninstall), 'bytecode: uninstall exits 0', JSON.stringify(uninstall.exits) + uninstall.output);
+      assert(!(await fs.pathExists(path.join(projectDir, claudeShared))), 'bytecode: uninstall removes .claude/skills/shared/');
+    });
+
+    // The knowledge/ copy an earlier version installed, and one file there with other
+    // bytes that an earlier manifest lists, as it listed every file of that copy.
+    const earlierKnowledge = async (projectDir, { listed = true, mine = null } = {}) => {
+      await fs.copy(path.join(projectDir, '_bmad', 'skf', 'knowledge'), path.join(projectDir, claudeKnowledge));
+      if (listed) {
+        const older = path.join(claudeKnowledge, 'older-fragment.md');
+        await writeFile(path.join(projectDir, older), '# a fragment an older version shipped\n');
+        await editManifest(projectDir, (manifest) => manifest.files.ide_skills.push(older));
+      }
+      if (mine !== null) await writeFile(path.join(projectDir, claudeKnowledge, 'mine.md'), mine);
+    };
+    await inHome("an earlier version's knowledge/ copy", async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await earlierKnowledge(projectDir);
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'earlier knowledge/: skf update succeeds', run.output);
+      assert(!(await fs.pathExists(path.join(projectDir, claudeKnowledge))), 'earlier knowledge/: skf update removes it and copies none');
+      await earlierKnowledge(projectDir);
+      const uninstall = await runUninstallAction(projectDir);
+      assert(exitedZero(uninstall), 'earlier knowledge/: uninstall exits 0', JSON.stringify(uninstall.exits) + uninstall.output);
+      assert(!(await fs.pathExists(path.join(projectDir, claudeKnowledge))), 'earlier knowledge/: uninstall removes it');
+    });
+
+    await inHome("an earlier version's knowledge/ copy holding a user file", async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await earlierKnowledge(projectDir, { listed: false, mine: '# mine\n' });
+      const mine = path.join(claudeKnowledge, 'mine.md');
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'knowledge/ with mine.md: skf update succeeds', run.output);
+      assert(
+        JSON.stringify(await fs.readdir(path.join(projectDir, claudeKnowledge))) === '["mine.md"]',
+        'knowledge/ with mine.md: only mine.md stays',
+      );
+      assert(
+        JSON.stringify(warnedLines(run.output, IDE_KEPT_HEADER)) === JSON.stringify([mine]),
+        'knowledge/ with mine.md: the update names mine.md',
+        run.output,
+      );
+      const underKnowledge = (await readManifest(projectDir)).files.ide_skills.filter((file) =>
+        file.startsWith(`${claudeKnowledge}${path.sep}`),
+      );
+      assert(underKnowledge.length === 0, 'knowledge/ with mine.md: the new manifest lists no path under it', underKnowledge.join(', '));
+      const second = await updateRun(home, projectDir);
+      assert(succeeded(second), 'knowledge/ with mine.md: a second skf update succeeds', second.output);
+      const uninstall = await runUninstallAction(projectDir);
+      assert(exitedZero(uninstall), 'knowledge/ with mine.md: uninstall exits 0', JSON.stringify(uninstall.exits) + uninstall.output);
+      assert(
+        (await fs.readFile(path.join(projectDir, mine), 'utf8')) === '# mine\n',
+        'knowledge/ with mine.md: mine.md is still there with its bytes',
+      );
+    });
+
+    await inHome('a first install with a user knowledge/ skill', async (home, projectDir) => {
+      const skill = path.join(claudeKnowledge, 'SKILL.md');
+      await writeFile(path.join(projectDir, skill), '# my knowledge skill\n');
+      const run = await installRun(home, projectDir, ['claude-code']);
+      assert(succeeded(run), 'user knowledge/: the install succeeds', run.output);
+      assert(
+        (await fs.readFile(path.join(projectDir, skill), 'utf8')) === '# my knowledge skill\n',
+        'user knowledge/: its SKILL.md stays with its bytes',
+      );
+      assert(!(await readManifest(projectDir)).files.ide_skills.includes(skill), 'user knowledge/: files.ide_skills does not list it');
+    });
+
+    await inHome('uninstall after _bmad/skf/ was removed by hand', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await fs.remove(path.join(projectDir, '_bmad', 'skf'));
+      await editManifest(projectDir, (manifest) => {
+        manifest.files.ide_skills = [];
+      });
+      const run = await runUninstallAction(projectDir);
+      assert(exitedZero(run), 'no _bmad/skf/: uninstall exits 0', JSON.stringify(run.exits) + run.output);
+      assert(
+        !(await fs.pathExists(path.join(projectDir, claudeShared))),
+        'no _bmad/skf/: .claude/skills/shared/ goes, matched against src/shared/',
+      );
+    });
+
+    if (noLinks) {
+      console.log(`${colors.dim}  linked shared/ and knowledge/ entries: skipped on Windows${colors.reset}`);
+    } else {
+      await inHome('uninstall with linked shared/ and knowledge/ entries', async (home, projectDir) => {
+        await writeTestManifest(projectDir);
+        const skills = path.join(projectDir, '.cursor', 'skills');
+        const sharedTarget = path.join(home, 'linked-shared');
+        const knowledgeTarget = path.join(home, 'linked-knowledge');
+        await copyFromSrc(path.join('shared', 'health-check.md'), path.join(sharedTarget, 'health-check.md'));
+        await copyFromSrc(path.join('knowledge', 'overview.md'), path.join(knowledgeTarget, 'overview.md'));
+        // An empty folder inside a link target: the cleanup of emptied folders must not reach it.
+        await fs.ensureDir(path.join(knowledgeTarget, 'assets'));
+        await fs.ensureDir(skills);
+        await fs.symlink(sharedTarget, path.join(skills, 'shared'));
+        await copyFromSrc(path.join('knowledge', 'zero-hallucination.md'), path.join(skills, 'knowledge', 'zero-hallucination.md'));
+        await fs.symlink(knowledgeTarget, path.join(skills, 'knowledge', 'linked'));
+
+        const run = await runUninstallAction(projectDir);
+        assert(exitedZero(run), 'links: uninstall exits 0', JSON.stringify(run.exits) + run.output);
+        assert(
+          planLines(run.output).includes('× SKF skills (.cursor/skills/, 1 entry, knowledge/ among them)'),
+          'links: the plan counts knowledge/ alone',
+          run.output,
+        );
+        assert(
+          (await fs.lstat(path.join(skills, 'shared'))).isSymbolicLink() &&
+            (await fs.pathExists(path.join(sharedTarget, 'health-check.md'))) &&
+            (await fs.pathExists(path.join(knowledgeTarget, 'overview.md'))) &&
+            (await fs.pathExists(path.join(knowledgeTarget, 'assets'))),
+          'links: the shared link, both targets, their files and the empty folder in a target stay',
+        );
+        assert(!(await fs.pathExists(path.join(skills, 'knowledge', 'zero-hallucination.md'))), 'links: the knowledge copy goes');
+        assert((await fs.lstat(path.join(skills, 'knowledge', 'linked'))).isSymbolicLink(), 'links: knowledge/linked stays, a link');
+        assert(
+          JSON.stringify(warnedLines(run.output, IDE_KEPT_HEADER)) ===
+            JSON.stringify([path.join('.cursor', 'skills', 'knowledge', 'linked')]),
+          'links: the warning names knowledge/linked',
+          run.output,
+        );
+      });
+
+      await inHome('uninstall with a linked SKILL.md and bytecode in a user shared/', async (home, projectDir) => {
+        await writeTestManifest(projectDir);
+        const shared = path.join(projectDir, '.cursor', 'skills', 'shared');
+        await writeFile(path.join(home, 'my-skill', 'SKILL.md'), '# my linked shared skill\n');
+        await fs.ensureDir(shared);
+        await fs.symlink(path.join(home, 'my-skill', 'SKILL.md'), path.join(shared, 'SKILL.md'));
+        await writeFile(path.join(shared, 'scripts', '__pycache__', 'x.cpython-314.pyc'), Buffer.from([0x0d, 0x0a, 0x00, 0x05]));
+        const before = await snapshot(path.join(projectDir, '.cursor'));
+        const run = await runUninstallAction(projectDir);
+        assert(exitedZero(run), 'linked SKILL.md and bytecode: uninstall exits 0', JSON.stringify(run.exits) + run.output);
+        assert(
+          !planLines(run.output).some((line) => line.includes('.cursor/skills')),
+          'linked SKILL.md and bytecode: the plan has no .cursor/skills/ line',
+          run.output,
+        );
+        const after = await snapshot(path.join(projectDir, '.cursor'));
+        assert(
+          sameSnapshot(before, after) &&
+            (await fs.readFile(path.join(home, 'my-skill', 'SKILL.md'), 'utf8')) === '# my linked shared skill\n',
+          'linked SKILL.md and bytecode: the link, its target and the bytecode stay',
+          snapshotDiff(before, after),
+        );
+      });
+    }
+
+    // A .claude/skills/shared before a first install that SKF did not write: the
+    // install stops, names the entry, and changes nothing.
+    const sharedCases = [
+      {
+        label: 'a link to a temp folder',
+        skip: noLinks,
+        entry: claudeShared,
+        make: async (home, projectDir) => {
+          await writeFile(path.join(home, 'elsewhere', 'SKILL.md'), '# elsewhere\n');
+          await fs.ensureDir(path.join(projectDir, '.claude', 'skills'));
+          await fs.symlink(path.join(home, 'elsewhere'), path.join(projectDir, claudeShared));
+        },
+      },
+      {
+        label: 'a plain file',
+        entry: claudeShared,
+        make: (home, projectDir) => writeFile(path.join(projectDir, claudeShared), 'not a folder\n'),
+      },
+      {
+        label: 'a folder holding health-check.md with other bytes',
+        entry: path.join(claudeShared, 'health-check.md'),
+        make: (home, projectDir) => writeFile(path.join(projectDir, claudeShared, 'health-check.md'), '# my health check\n'),
+      },
+      {
+        label: 'a folder holding an unreadable folder',
+        skip: noChmod,
+        entry: path.join(claudeShared, 'locked'),
+        make: (home, projectDir) => writeFile(path.join(projectDir, claudeShared, 'locked', 'notes.md'), '# locked\n'),
+        lock: path.join(claudeShared, 'locked'),
+      },
+    ];
+    for (const { label, skip, entry, make, lock } of sharedCases) {
+      if (skip) {
+        console.log(`${colors.dim}  first install, shared/ ${label}: skipped${colors.reset}`);
+        continue;
+      }
+      await inHome(`a first install with .claude/skills/shared ${label}`, async (home, projectDir) => {
+        await make(home, projectDir);
+        const before = await snapshot(projectDir);
+        let run;
+        if (lock) await fs.chmod(path.join(projectDir, lock), 0o000);
+        try {
+          run = await installRun(home, projectDir, ['claude-code']);
+        } finally {
+          // Restored before the snapshot and before the home folder goes, which both need to read it.
+          if (lock) await fs.chmod(path.join(projectDir, lock), 0o755);
+        }
+        assert(refused(run, [entry]), `shared/ ${label}: exit code 1, ${entry} named`, run.output);
+        const after = await snapshot(projectDir);
+        assert(sameSnapshot(before, after), `shared/ ${label}: nothing in the project changes`, snapshotDiff(before, after));
+      });
+    }
+
+    await inHome('a first install with bytecode and an OS file alone in .claude/skills/shared/', async (home, projectDir) => {
+      const leftovers = [path.join(claudeShared, '.DS_Store'), path.join(claudeShared, 'scripts', '__pycache__', 'x.cpython-314.pyc')];
+      for (const entry of leftovers) await writeFile(path.join(projectDir, entry), `${entry}\n`);
+      const run = await installRun(home, projectDir, ['claude-code']);
+      assert(succeeded(run), 'bytecode alone: the install succeeds', run.output);
+      const left = [];
+      for (const entry of leftovers) {
+        if (await fs.pathExists(path.join(projectDir, entry))) left.push(entry);
+      }
+      assert(left.length === 0, 'bytecode alone: both files go', left.join(', '));
+      assert(await fs.pathExists(path.join(projectDir, claudeShared, 'health-check.md')), "bytecode alone: shared/ holds SKF's copy");
+    });
+
+    await inHome('a first install with an empty .claude/skills/shared/', async (home, projectDir) => {
+      await fs.ensureDir(path.join(projectDir, claudeShared));
+      const run = await installRun(home, projectDir, ['claude-code']);
+      assert(succeeded(run), 'empty shared/: the install succeeds', run.output);
+      const copied = path.join(projectDir, claudeShared, 'health-check.md');
+      assert(
+        (await fs.pathExists(copied)) &&
+          (await fs.readFile(copied)).equals(await fs.readFile(path.join(srcDir, 'shared', 'health-check.md'))),
+        "empty shared/: the folder holds SKF's copy",
+      );
+    });
+
+    if (noChmod) {
+      console.log(`${colors.dim}  first install, unreadable .claude/skills/: skipped on Windows and as root${colors.reset}`);
+    } else {
+      await inHome('a first install with an unreadable .claude/skills/', async (home, projectDir) => {
+        const skills = path.join(projectDir, '.claude', 'skills');
+        await writeFile(path.join(skills, 'mine', 'SKILL.md'), '# mine\n');
+        let run;
+        await fs.chmod(skills, 0o000);
+        try {
+          run = await installRun(home, projectDir, ['claude-code']);
+        } finally {
+          await fs.chmod(skills, 0o755);
+        }
+        assert(run.exitCode === 1 && run.thrown === null, 'unreadable skills folder: exit code 1', run.output);
+        assert(!(await fs.pathExists(path.join(projectDir, '_bmad'))), 'unreadable skills folder: _bmad/ does not exist');
+      });
+    }
+
+    await inHome('uninstall after a Fresh install dropped an IDE', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code', 'cursor']);
+      await realInstall(projectDir, ['claude-code']);
+      const run = await runUninstallAction(projectDir);
+      assert(exitedZero(run), 'dropped IDE: uninstall exits 0', JSON.stringify(run.exits) + run.output);
+      const left = await fs.readdir(path.join(projectDir, '.cursor', 'skills'));
+      assert(
+        !left.some((name) => name.startsWith('skf-') || name === 'shared' || name === 'knowledge'),
+        'dropped IDE: .cursor/skills/ holds no skf-*, shared or knowledge entry',
+        left.join(', '),
+      );
+    });
+
+    await inHome('uninstall with command files an earlier release left', async (home, projectDir) => {
+      await writeTestManifest(projectDir);
+      await writeFile(path.join(projectDir, '.claude', 'skills', 'skf-demo', 'SKILL.md'), '# skf demo\n');
+      const commands = path.join(projectDir, '.claude', 'commands');
+      await writeFile(path.join(commands, 'bmad-skf-old.md'), '# an earlier release command\n');
+      await writeFile(path.join(commands, 'mine.md'), '# my command\n');
+      const run = await runUninstallAction(projectDir);
+      assert(exitedZero(run), 'legacy commands: uninstall exits 0', JSON.stringify(run.exits) + run.output);
+      assert(!(await fs.pathExists(path.join(commands, 'bmad-skf-old.md'))), 'legacy commands: bmad-skf-old.md goes');
+      assert(
+        (await fs.readFile(path.join(commands, 'mine.md'), 'utf8')) === '# my command\n',
+        'legacy commands: mine.md stays with its bytes',
+      );
+    });
+
+    // The matrix cells the cases above leave open: a listed shared/ file and an OS
+    // file beside SKF's copy, bytecode alone at uninstall, a first install after
+    // _bmad/ was deleted by hand, IDE folders an install does not select, an SKF
+    // path holding other bytes in a knowledge/ copy, and a plain-file shared and
+    // unreadable folders at uninstall.
+    await inHome("a listed shared/ file and an OS file beside SKF's copy", async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      const retired = path.join(claudeShared, 'retired.md');
+      const dsStore = path.join(claudeShared, '.DS_Store');
+      const plant = async () => {
+        await writeFile(path.join(projectDir, retired), '# a file an older version shipped\n');
+        await writeFile(path.join(projectDir, dsStore), 'finder\n');
+        await editManifest(projectDir, (manifest) => manifest.files.ide_skills.push(retired));
+      };
+      await plant();
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'listed shared/ file: skf update succeeds', run.output);
+      assert(
+        !(await fs.pathExists(path.join(projectDir, retired))) && !(await fs.pathExists(path.join(projectDir, dsStore))),
+        'listed shared/ file: skf update removes it and the OS file beside it',
+      );
+      const copied = path.join(projectDir, claudeShared, 'health-check.md');
+      assert(
+        (await fs.pathExists(copied)) &&
+          (await fs.readFile(copied)).equals(await fs.readFile(path.join(srcDir, 'shared', 'health-check.md'))),
+        "listed shared/ file: skf update copies SKF's shared/ back",
+      );
+      await plant();
+      const uninstall = await runUninstallAction(projectDir);
+      assert(exitedZero(uninstall), 'listed shared/ file: uninstall exits 0', JSON.stringify(uninstall.exits) + uninstall.output);
+      assert(!(await fs.pathExists(path.join(projectDir, claudeShared))), 'listed shared/ file: uninstall removes .claude/skills/shared/');
+      assert(
+        warnedLines(uninstall.output, IDE_KEPT_HEADER).length === 0,
+        'listed shared/ file: uninstall names no kept file',
+        uninstall.output,
+      );
+    });
+
+    await inHome('uninstall with bytecode and an OS file alone in a shared/', async (home, projectDir) => {
+      await writeTestManifest(projectDir);
+      const skills = path.join(projectDir, '.cursor', 'skills');
+      await writeFile(path.join(skills, 'shared', '.DS_Store'), 'finder\n');
+      await writeFile(path.join(skills, 'shared', 'scripts', '__pycache__', 'a.cpython-314.pyc'), Buffer.from([0x0d, 0x0a, 0x00, 0x04]));
+      const run = await runUninstallAction(projectDir);
+      assert(exitedZero(run), 'bytecode alone at uninstall: the action exits 0', JSON.stringify(run.exits) + run.output);
+      assert(
+        planLines(run.output).includes('× SKF skills (.cursor/skills/, 1 entry, shared/ among them)'),
+        'bytecode alone at uninstall: the plan counts shared/ as the one entry',
+        run.output,
+      );
+      assert(
+        !(await fs.pathExists(path.join(skills, 'shared'))) && (await fs.pathExists(skills)),
+        'bytecode alone at uninstall: shared/ goes and .cursor/skills/ stays',
+      );
+      assert(warnedLines(run.output, IDE_KEPT_HEADER).length === 0, 'bytecode alone at uninstall: no kept file is named', run.output);
+    });
+
+    await inHome('a first install after _bmad/ was deleted by hand', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await fs.remove(path.join(projectDir, '_bmad'));
+      const run = await installRun(home, projectDir, ['claude-code']);
+      assert(succeeded(run), "no _bmad/: the install succeeds, the IDE's shared/ matched against src/shared/", run.output);
+      const copied = path.join(projectDir, claudeShared, 'health-check.md');
+      assert(
+        (await fs.pathExists(copied)) &&
+          (await fs.readFile(copied)).equals(await fs.readFile(path.join(srcDir, 'shared', 'health-check.md'))),
+        "no _bmad/: shared/ holds SKF's copy again",
+      );
+    });
+
+    await inHome('skf update with an unlisted IDE copy matching the installed _bmad/skf/ alone', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code', 'cursor']);
+      // The installed version's health-check.md, other bytes than src/: only _bmad/skf/ matches the cursor copy.
+      const older = '# health check as the installed version shipped it\n';
+      await fs.writeFile(path.join(projectDir, '_bmad', 'skf', 'shared', 'health-check.md'), older);
+      const cursorCopy = path.join(projectDir, '.cursor', 'skills', 'shared', 'health-check.md');
+      await fs.writeFile(cursorCopy, older);
+      const cursorDir = path.join('.cursor', 'skills');
+      await editManifest(projectDir, (manifest) => {
+        manifest.files.ide_skills = manifest.files.ide_skills.filter((file) => !file.startsWith(`${cursorDir}${path.sep}`));
+      });
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'installed bytes: skf update succeeds, the cursor copy matched against _bmad/skf/', run.output);
+      assert(
+        (await fs.readFile(cursorCopy)).equals(await fs.readFile(path.join(srcDir, 'shared', 'health-check.md'))),
+        "installed bytes: the cursor copy is replaced with src/'s",
+      );
+    });
+
+    await inHome('skf update with user files in IDE folders it does not install into', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code', 'cursor']);
+      await realInstall(projectDir, ['claude-code']);
+      await writeFile(path.join(projectDir, '.cursor', 'skills', 'shared', 'mine.md'), '# mine, in the dropped IDE\n');
+      await writeFile(path.join(projectDir, '.github', 'skills', 'shared', 'SKILL.md'), '# my copilot shared skill\n');
+      const others = ['.cursor', '.github'];
+      const before = await Promise.all(others.map((folder) => snapshot(path.join(projectDir, folder))));
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'unselected IDE folders: skf update succeeds', run.output);
+      const after = await Promise.all(others.map((folder) => snapshot(path.join(projectDir, folder))));
+      assert(
+        sameSnapshot(before, after),
+        'unselected IDE folders: skf update changes nothing in them',
+        snapshotDiff(before.flat(), after.flat()),
+      );
+    });
+
+    await inHome('skf update with an SKF path holding other bytes in a knowledge/ copy', async (home, projectDir) => {
+      await realInstall(projectDir, ['claude-code']);
+      await fs.copy(path.join(projectDir, '_bmad', 'skf', 'knowledge'), path.join(projectDir, claudeKnowledge));
+      const overview = path.join(claudeKnowledge, 'overview.md');
+      await fs.writeFile(path.join(projectDir, overview), '# my own overview\n');
+      const run = await updateRun(home, projectDir);
+      assert(succeeded(run), 'knowledge/ path with other bytes: skf update succeeds', run.output);
+      assert(
+        JSON.stringify(await fs.readdir(path.join(projectDir, claudeKnowledge))) === '["overview.md"]' &&
+          (await fs.readFile(path.join(projectDir, overview), 'utf8')) === '# my own overview\n',
+        'knowledge/ path with other bytes: the matching files go and overview.md stays with its bytes',
+      );
+      assert(
+        JSON.stringify(warnedLines(run.output, IDE_KEPT_HEADER)) === JSON.stringify([overview]),
+        'knowledge/ path with other bytes: the update names overview.md',
+        run.output,
+      );
+    });
+
+    await inHome('uninstall with a plain-file shared and unreadable folders in support folders', async (home, projectDir) => {
+      await writeTestManifest(projectDir);
+      const cursor = path.join(projectDir, '.cursor', 'skills');
+      await writeFile(path.join(cursor, 'shared'), 'not a folder\n');
+      await copyFromSrc(path.join('knowledge', 'zero-hallucination.md'), path.join(cursor, 'knowledge', 'zero-hallucination.md'));
+      const locked = [path.join('.cursor', 'skills', 'knowledge', 'locked'), path.join('.github', 'skills', 'shared', 'locked')];
+      for (const folder of locked) await writeFile(path.join(projectDir, folder, 'notes.md'), '# locked\n');
+      let run;
+      if (!noChmod) for (const folder of locked) await fs.chmod(path.join(projectDir, folder), 0o000);
+      try {
+        run = await runUninstallAction(projectDir);
+      } finally {
+        // Restored before the checks and before the home folder goes, which need to read it.
+        if (!noChmod) for (const folder of locked) await fs.chmod(path.join(projectDir, folder), 0o755);
+      }
+      const lines = planLines(run.output);
+      assert(exitedZero(run), 'plain file and unreadable folders: uninstall exits 0', JSON.stringify(run.exits) + run.output);
+      assert(
+        lines.includes('× SKF skills (.cursor/skills/, 1 entry, knowledge/ among them)') &&
+          !lines.some((line) => line.includes('.github/skills')),
+        'plain file and unreadable folders: the plan counts knowledge/ alone and has no .github/skills/ line',
+        lines.join(' | '),
+      );
+      // Where a folder cannot be made unreadable (Windows, root), its notes.md is the kept user file instead.
+      const keptEntry = noChmod ? path.join(locked[0], 'notes.md') : locked[0];
+      assert(
+        JSON.stringify(warnedLines(run.output, IDE_KEPT_HEADER)) === JSON.stringify([keptEntry]),
+        'plain file and unreadable folders: the warning names knowledge/locked alone',
+        run.output,
+      );
+      assert(
+        (await fs.readFile(path.join(cursor, 'shared'), 'utf8')) === 'not a folder\n' &&
+          !(await fs.pathExists(path.join(cursor, 'knowledge', 'zero-hallucination.md'))) &&
+          (await Promise.all(locked.map((folder) => fs.pathExists(path.join(projectDir, folder, 'notes.md'))))).every(Boolean),
+        'plain file and unreadable folders: the shared file and both locked folders stay, the knowledge copy goes',
+      );
+    });
+  } finally {
+    UI.prototype.promptInstall = origPrompt;
+    UI.prototype.displaySuccess = origSuccess;
+  }
+
+  console.log('');
+}
+
 // ============================================================
 // Runner
 // ============================================================
@@ -2484,6 +3310,7 @@ async function runTests() {
   await testProjectRootFolderValues();
   await testLeftoverProjectRootFolder();
   await testUninstallGuardedRemoval();
+  await testIdeSkillFoldersKeepUserFiles();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');

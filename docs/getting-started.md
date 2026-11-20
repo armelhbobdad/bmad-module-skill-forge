@@ -27,7 +27,7 @@ One command, on any platform. Requires Node.js ≥ 22, Python ≥ 3.11, and `uv`
 npx bmad-module-skill-forge install
 ```
 
-You'll be asked for a project name, where to save your skills and SKF's workspace files, which IDEs to configure, and whether to add the learning material (a copy of these docs in `_skf-learn/`). The installer puts SKF in `_bmad/skf/` and copies its skills to each IDE's skills folder (for example `.claude/skills/` or `.cursor/skills/`), so your IDE loads them natively.
+You'll be asked for a project name, where to save your skills and SKF's workspace files, which IDEs to configure, and whether to add the learning material (a copy of these docs in `_skf-learn/`). The installer puts SKF in `_bmad/skf/` and copies its workflow skills and their `shared/` folder to each IDE's skills folder (for example `.claude/skills/` or `.cursor/skills/`), so your IDE loads them natively. SKF needs the name `shared` in those folders: when a `shared/` there holds a file SKF did not install, such as a skill of your own named `shared`, `install` and `update` stop before changing anything and list each such file, so you can rename or move your skill and run the command again.
 
 ### As a custom module during BMAD Method installation
 
@@ -80,7 +80,7 @@ Run these from your project folder:
 
 - `npx bmad-module-skill-forge@latest update` refreshes SKF files without asking questions. It keeps `config.yaml` and your forge state (tier and preferences). It then prints the [tool report](#the-tool-report), followed by the update notice when a newer SKF version is published.
 - `npx bmad-module-skill-forge status` shows the installation, its IDEs, your forge tier and the tools the last setup detected. Below them it prints the [tool report](#the-tool-report), which lists each tool installed now against its minimum version, with the command that upgrades it, and then the output folders.
-- `npx bmad-module-skill-forge uninstall` lists what it will remove and asks first. It removes SKF, your forge state in `_bmad/_memory/forger-sidecar/`, `_skf-learn/` and the SKF skills in your IDE skill folders. It keeps the skills you generated, your `forge-data/`, and the SKF section in `CLAUDE.md`, `AGENTS.md` or `.cursorrules`.
+- `npx bmad-module-skill-forge uninstall` lists what it will remove and asks first. It removes SKF, your forge state in `_bmad/_memory/forger-sidecar/`, `_skf-learn/` and, in each IDE skills folder, the `skf-*` folders, the files SKF installed in `shared/` (and in the `knowledge/` copy earlier versions put there) and each folder those removals leave empty. It keeps every other file in those two folders, and before it asks it names each one it keeps beside files SKF installed. It keeps the skills you generated, your `forge-data/`, and the SKF section in `CLAUDE.md`, `AGENTS.md` or `.cursorrules`.
 
 ### The tool report
 

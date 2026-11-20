@@ -5,10 +5,10 @@
 
 const path = require('node:path');
 const fs = require('fs-extra');
-const { spinner } = require('@clack/prompts');
+const { spinner, log } = require('@clack/prompts');
 const yaml = require('js-yaml');
-const { installSkillsToIdes } = require('./ide-skills');
-const { writeManifest } = require('./manifest');
+const { checkIdeFolders, installSkillsToIdes } = require('./ide-skills');
+const { readManifest, writeManifest } = require('./manifest');
 const { GITKEEP, PROJECT_ROOT_RE, resolveProjectFolder } = require('./project-folders');
 
 class Installer {
@@ -26,7 +26,8 @@ class Installer {
     const s = spinner();
 
     // Handle update vs fresh for existing installation
-    if (action === 'update' && (await fs.pathExists(skfDir))) {
+    const updating = action === 'update' && (await fs.pathExists(skfDir));
+    if (updating) {
       const configPath = path.join(skfDir, 'config.yaml');
       if (!config._savedConfigYaml && (await fs.pathExists(configPath))) {
         config._savedConfigYaml = await fs.readFile(configPath, 'utf8');
@@ -44,7 +45,18 @@ class Installer {
           /* ignore parse errors, defaults will apply */
         }
       }
+    }
 
+    // Classify each selected IDE skills folder before anything is written, while
+    // the old _bmad/skf is still there to compare with. A shared/ holding a file
+    // SKF did not install stops the install here (IdeFolderInUseError), and so
+    // does a skills folder that cannot be read. Step 6 removes what this lists.
+    const ideClassifications = await checkIdeFolders(projectDir, config.ides || [], {
+      moduleDir: skfDir,
+      manifest: await readManifest(projectDir),
+    });
+
+    if (updating) {
       s.start('Updating SKF files...');
       await fs.remove(skfDir);
       s.stop('Old files cleared');
@@ -117,8 +129,9 @@ class Installer {
     const selectedIdes = config.ides || [];
     if (selectedIdes.length > 0) {
       s.start('Installing skills to IDEs...');
+      let ideResult;
       try {
-        const ideResult = await installSkillsToIdes(projectDir, skfDir, selectedIdes);
+        ideResult = await installSkillsToIdes(projectDir, skfDir, selectedIdes, ideClassifications);
         ideDirectories = ideResult.directories || [];
         if (ideResult.installed > 0) {
           s.stop(`Skills installed for ${ideResult.ides.join(', ')}`);
@@ -128,6 +141,10 @@ class Installer {
       } catch (error) {
         s.stop('Failed to install skills to IDEs');
         throw error;
+      }
+      // Files kept in a knowledge/ an earlier version copied there (shared/ never keeps one: the check above stops first).
+      if (ideResult.kept.length > 0) {
+        log.warn(`Left in place in IDE skills folders, not files SKF installed:\n${ideResult.kept.join('\n')}`);
       }
     }
 
